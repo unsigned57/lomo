@@ -15,6 +15,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -137,6 +138,9 @@ fun MainScreen(
 
 
 
+    // Track deleting items for "fade out then delete" animation sequence
+    val deletingIds: androidx.compose.runtime.snapshots.SnapshotStateList<String> = remember { mutableStateListOf() }
+
     MemoMenuHost(
         onEdit = { state ->
             val memo = state.memo as? com.lomo.domain.model.Memo
@@ -150,7 +154,14 @@ fun MainScreen(
         onDelete = { state ->
             val memo = state.memo as? com.lomo.domain.model.Memo
             if (memo != null) {
-                viewModel.deleteMemo(memo)
+                // 1. Add to deleting set to trigger fade out
+                deletingIds.add(memo.id)
+                // 2. Wait for animation then delete
+                scope.launch {
+                    delay(550) // DurationLong2 + Buffer
+                    viewModel.deleteMemo(memo)
+                    deletingIds.remove(memo.id)
+                }
             }
         },
         onShare = { state ->
@@ -358,6 +369,7 @@ fun MainScreen(
                                         dateFormat = dateFormat,
                                         timeFormat = timeFormat,
                                         todoOverrides = todoOverrides,
+                                        deletingIds = deletingIds, // Pass the set of IDs currently animating out
                                         onMemoClick = actions.onMemoClick,
 
                                         onTagClick = actions.onSidebarTagClick,

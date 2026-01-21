@@ -1,6 +1,13 @@
 package com.lomo.app.feature.tag
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.keyframes
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -26,6 +33,9 @@ import com.lomo.ui.component.menu.MemoMenuHost
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.util.formatAsDateTime
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,6 +51,8 @@ fun TagFilterScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val scope = rememberCoroutineScope()
+    // Track deleting items for "fade out then delete" animation sequence
+    val deletingIds = remember { mutableStateListOf<String>() }
     var showInputSheet by remember { mutableStateOf(false) }
     var editingMemo by remember { mutableStateOf<com.lomo.domain.model.Memo?>(null) }
     var inputText by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
@@ -57,7 +69,14 @@ fun TagFilterScreen(
         onDelete = { state ->
             val memo = state.memo as? com.lomo.domain.model.Memo
             if (memo != null) {
-                viewModel.deleteMemo(memo)
+                // 1. Add to deleting set to trigger fade out
+                deletingIds.add(memo.id)
+                // 2. Wait for animation then delete
+                scope.launch {
+                    delay(550) // DurationLong2
+                    viewModel.deleteMemo(memo)
+                    deletingIds.remove(memo.id)
+                }
             }
         }
     ) { showMenu ->
@@ -98,8 +117,8 @@ fun TagFilterScreen(
     ) { padding ->
         val refreshState = pagedMemos.loadState.refresh
         
-        when (refreshState) {
-            is LoadState.Loading -> {
+        when {
+            refreshState is LoadState.Loading && pagedMemos.itemCount == 0 -> {
                 LazyColumn(
                     contentPadding = PaddingValues(
                         top = padding.calculateTopPadding() + 16.dp,
@@ -113,7 +132,7 @@ fun TagFilterScreen(
                     items(5) { SkeletonMemoItem() }
                 }
             }
-            is LoadState.Error -> {
+            refreshState is LoadState.Error && pagedMemos.itemCount == 0 -> {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -158,7 +177,30 @@ fun TagFilterScreen(
                             val uiModel = pagedMemos[index]
                             if (uiModel != null) {
                                 val memo = uiModel.memo
-                                Box(modifier = Modifier.animateItem()) {
+                                val isDeleting = deletingIds.contains(memo.id)
+                                val alpha by animateFloatAsState(
+                                    targetValue = if (isDeleting) 0f else 1f,
+                                    animationSpec = tween(
+                                        durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
+                                        easing = com.lomo.ui.theme.MotionTokens.EasingEmphasizedAccelerate
+                                    ),
+                                    label = "TagFilterItemDeleteAlpha"
+                                )
+
+                                Box(modifier = Modifier.animateItem(
+                                    fadeInSpec = keyframes {
+                                        durationMillis = 1000
+                                        0f at 0
+                                        0f at com.lomo.ui.theme.MotionTokens.DurationLong2
+                                        1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                                    },
+                                    fadeOutSpec = snap(),
+                                    placementSpec = spring<IntOffset>(
+                                        stiffness = Spring.StiffnessMediumLow
+                                    )
+                                )
+                                .alpha(alpha)
+                                ) {
                                     MemoCard(
                                         content = memo.content,
                                         processedContent = uiModel.processedContent,

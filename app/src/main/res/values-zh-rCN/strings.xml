@@ -22,6 +22,11 @@
     <string name="settings_group_interaction">交互</string>
     <string name="settings_haptic_feedback">触觉反馈</string>
     <string name="settings_haptic_feedback_subtitle">触摸交互时震动</string>
+
+    <!-- System Group -->
+    <string name="settings_group_system">系统</string>
+    <string name="settings_check_updates">启动时检测更新</string>
+    <string name="settings_check_updates_subtitle">启动应用时自动检测新版本</string>
     
     <!-- Dialog Titles -->
     <string name="settings_select_date_format">选择日期格式</string>
@@ -112,4 +117,11 @@
     <string name="setup_directory_title">设置 %1$s 目录</string>
     <string name="setup_directory_message">%1$s 目录未设置。你可以在设置中手动选择，或者在你的笔记目录下自动创建 \'%2$s\' 文件夹。</string>
     <string name="action_auto_create">自动创建</string>
+
+    <!-- Update Dialog -->
+    <string name="update_dialog_title">发现新版本</string>
+    <string name="update_dialog_message">Lomo 有新版本可用，请前往 GitHub 下载最新版本。</string>
+    <string name="action_download">去下载</string>
+    <string name="action_cancel">取消</string>
+
 </resources>

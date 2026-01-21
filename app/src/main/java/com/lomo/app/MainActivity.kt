@@ -28,6 +28,9 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.viewModels
 import com.lomo.app.feature.main.MainViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.ui.platform.LocalContext
 
 import androidx.appcompat.app.AppCompatActivity
 
@@ -63,6 +66,7 @@ class MainActivity : AppCompatActivity() {
                             com.lomo.ui.media.LocalAudioPlayerManager provides audioPlayerManager
                         ) {
                             LomoApp(
+                                viewModel = viewModel,
                                 initialAction = intent?.action
                             )
                         }
@@ -75,6 +79,7 @@ class MainActivity : AppCompatActivity() {
 
 @Composable
 private fun LomoApp(
+    viewModel: MainViewModel,
     initialAction: String? = null
 ) { 
     // Handle widget actions
@@ -89,6 +94,38 @@ private fun LomoApp(
         }
     }
     
+    val updateUrl by viewModel.updateUrl.collectAsStateWithLifecycle()
+    if (updateUrl != null) {
+        val context = LocalContext.current
+        val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+        
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissUpdateDialog() },
+            title = { Text(androidx.compose.ui.res.stringResource(com.lomo.app.R.string.update_dialog_title)) },
+            text = { Text(androidx.compose.ui.res.stringResource(com.lomo.app.R.string.update_dialog_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        haptic.medium()
+                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))
+                        context.startActivity(intent)
+                        viewModel.dismissUpdateDialog()
+                    }
+                ) { Text(androidx.compose.ui.res.stringResource(com.lomo.app.R.string.action_download)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        haptic.medium()
+                        viewModel.dismissUpdateDialog()
+                    }
+                ) {
+                    Text(androidx.compose.ui.res.stringResource(com.lomo.app.R.string.action_cancel))
+                }
+            }
+        )
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background

@@ -95,6 +95,15 @@ constructor(
                 PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT
             )
 
+    val checkUpdatesOnStartup: StateFlow<Boolean> =
+        repository
+            .isCheckUpdatesOnStartupEnabled()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5000),
+                PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP
+            )
+
     fun updateRootDirectory(path: String) {
         viewModelScope.launch { repository.setRootDirectory(path) }
     }
@@ -141,6 +150,10 @@ constructor(
 
     fun updateHapticFeedback(enabled: Boolean) {
         viewModelScope.launch { repository.setHapticFeedbackEnabled(enabled) }
+    }
+
+    fun updateCheckUpdatesOnStartup(enabled: Boolean) {
+        viewModelScope.launch { repository.setCheckUpdatesOnStartup(enabled) }
     }
 
     fun autoDetectFormats() {

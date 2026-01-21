@@ -78,4 +78,7 @@ interface MemoRepository {
 
     fun isHapticFeedbackEnabled(): Flow<Boolean>
     suspend fun setHapticFeedbackEnabled(enabled: Boolean)
+
+    fun isCheckUpdatesOnStartupEnabled(): Flow<Boolean>
+    suspend fun setCheckUpdatesOnStartup(enabled: Boolean)
 }

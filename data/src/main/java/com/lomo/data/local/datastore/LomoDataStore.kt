@@ -48,6 +48,7 @@ class LomoDataStore @Inject constructor(@ApplicationContext private val context:
         val TIME_FORMAT = stringPreferencesKey(PreferenceKeys.TIME_FORMAT)
         val THEME_MODE = stringPreferencesKey(PreferenceKeys.THEME_MODE)
         val HAPTIC_FEEDBACK_ENABLED = booleanPreferencesKey(PreferenceKeys.HAPTIC_FEEDBACK_ENABLED)
+        val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey(PreferenceKeys.CHECK_UPDATES_ON_STARTUP)
     }
 
     // Storage Settings
@@ -165,6 +166,21 @@ class LomoDataStore @Inject constructor(@ApplicationContext private val context:
                         emit(PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED)
                     }
 
+    val checkUpdatesOnStartup: Flow<Boolean> =
+            dataStore.data
+                    .map { prefs ->
+                        prefs[Keys.CHECK_UPDATES_ON_STARTUP]
+                                ?: PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP
+                    }
+                    .catch { e ->
+                        timber.log.Timber.e(
+                                "LomoDataStore",
+                                "Error in checkUpdatesOnStartup flow",
+                                e
+                        )
+                        emit(PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP)
+                    }
+
     // Update functions
     suspend fun updateRootUri(uri: String?) {
         dataStore.edit { prefs ->
@@ -251,5 +267,9 @@ class LomoDataStore @Inject constructor(@ApplicationContext private val context:
 
     suspend fun updateHapticFeedbackEnabled(enabled: Boolean) {
         dataStore.edit { prefs -> prefs[Keys.HAPTIC_FEEDBACK_ENABLED] = enabled }
+    }
+
+    suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[Keys.CHECK_UPDATES_ON_STARTUP] = enabled }
     }
 }

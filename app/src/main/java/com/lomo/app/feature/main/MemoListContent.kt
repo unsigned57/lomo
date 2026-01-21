@@ -1,6 +1,12 @@
 package com.lomo.app.feature.main
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.keyframes
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
@@ -21,6 +27,11 @@ import androidx.paging.compose.itemKey
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import com.lomo.domain.model.Memo
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.core.animateFloatAsState
 import com.lomo.ui.component.card.MemoCard
 
 /**
@@ -40,6 +51,7 @@ internal fun MemoListContent(
     dateFormat: String,
     timeFormat: String,
     todoOverrides: Map<String, Map<Int, Boolean>>,
+    deletingIds: SnapshotStateList<String>,
     onMemoClick: (String, String) -> Unit,
     onTagClick: (String) -> Unit,
     onImageClick: (String) -> Unit,
@@ -109,8 +121,32 @@ internal fun MemoListContent(
             ) { index ->
                 val uiModel = memos[index]
                 if (uiModel != null) {
+                    val isDeleting = deletingIds.contains(uiModel.memo.id)
+                    val alpha by animateFloatAsState(
+                        targetValue = if (isDeleting) 0f else 1f,
+                        animationSpec = tween(
+                            durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
+                            easing = com.lomo.ui.theme.MotionTokens.EasingEmphasizedAccelerate
+                        ),
+                        label = "ItemDeleteAlpha"
+                    )
+
                     MemoItemContent(
                         uiModel = uiModel,
+                        modifier = Modifier
+                            .animateItem(
+                                fadeInSpec = keyframes {
+                                    durationMillis = 1000 // 500ms delay + 500ms fade
+                                    0f at 0
+                                    0f at com.lomo.ui.theme.MotionTokens.DurationLong2 // Hold at 0 until 500ms
+                                    1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate // Fade to 1 from 500 to 1000
+                                },
+                                fadeOutSpec = snap(), // Immediate collapse after manual fade-out
+                                placementSpec = spring<IntOffset>(
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )
+                            .alpha(alpha), // Apply manual fade out
                         onTodoClick = onTodoClick,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
@@ -118,8 +154,7 @@ internal fun MemoListContent(
                         onMemoClick = onMemoClick,
                         onTagClick = onTagClick,
                         onImageClick = onImageClick,
-                        onShowMemoMenu = onShowMemoMenu,
-                        modifier = Modifier.animateItem()
+                        onShowMemoMenu = onShowMemoMenu
                     )
                 }
             }

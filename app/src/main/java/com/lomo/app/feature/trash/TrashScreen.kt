@@ -4,6 +4,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.keyframes
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +33,11 @@ import com.lomo.ui.component.card.MemoCard
 import kotlinx.collections.immutable.toImmutableList
 import com.lomo.app.R
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewModel()) {
@@ -33,6 +45,9 @@ fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewMod
     val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle()
     val timeFormat by viewModel.timeFormat.collectAsStateWithLifecycle()
     var selectedMemo by remember { mutableStateOf<Memo?>(null) }
+    // Track items being restored or deleted for "fade out" animation
+    val processingIds = remember { mutableStateListOf<String>() }
+    val scope = rememberCoroutineScope()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
 
                 val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -66,10 +81,10 @@ fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewMod
             val refreshState = pagedTrash.loadState.refresh
 
             when {
-                refreshState is LoadState.Loading -> {
+                refreshState is LoadState.Loading && pagedTrash.itemCount == 0 -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
-                refreshState is LoadState.Error -> {
+                refreshState is LoadState.Error && pagedTrash.itemCount == 0 -> {
                     Text(
                             text = refreshState.error.message ?: androidx.compose.ui.res.stringResource(R.string.error_unknown),
                             modifier = Modifier.align(Alignment.Center),
@@ -93,7 +108,31 @@ fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewMod
                                 index ->
                             val memo = pagedTrash[index]
                             if (memo != null) {
-                                Box(modifier = Modifier.animateItem()) {
+                                val isProcessing = processingIds.contains(memo.id)
+                                val alpha by animateFloatAsState(
+                                    targetValue = if (isProcessing) 0f else 1f,
+                                    animationSpec = tween(
+                                        durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
+                                        easing = com.lomo.ui.theme.MotionTokens.EasingEmphasizedAccelerate
+                                    ),
+                                    label = "TrashItemProcessingAlpha"
+                                )
+
+                                Box(
+                                    modifier = Modifier.animateItem(
+                                            fadeInSpec = keyframes {
+                                                durationMillis = 1000
+                                                0f at 0
+                                                0f at com.lomo.ui.theme.MotionTokens.DurationLong2
+                                                1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                                            },
+                                            fadeOutSpec = snap(),
+                                            placementSpec = spring<IntOffset>(
+                                                stiffness = Spring.StiffnessMediumLow
+                                            )
+                                    )
+                                    .alpha(alpha)
+                                ) {
                                     MemoCard(
                                             content = memo.content,
                                             processedContent = memo.content,
@@ -128,7 +167,12 @@ fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewMod
                                                             },
                                                             onClick = {
                                                                 haptic.medium()
-                                                                viewModel.restoreMemo(memo)
+                                                                processingIds.add(memo.id)
+                                                                scope.launch {
+                                                                    delay(550)
+                                                                    viewModel.restoreMemo(memo)
+                                                                    processingIds.remove(memo.id)
+                                                                }
                                                                 selectedMemo = null
                                                             }
                                                     )
@@ -154,7 +198,12 @@ fun TrashScreen(onBackClick: () -> Unit, viewModel: TrashViewModel = hiltViewMod
                                                             },
                                                             onClick = {
                                                                 haptic.heavy()
-                                                                viewModel.deletePermanently(memo)
+                                                                processingIds.add(memo.id)
+                                                                scope.launch {
+                                                                    delay(550)
+                                                                    viewModel.deletePermanently(memo)
+                                                                    processingIds.remove(memo.id)
+                                                                }
                                                                 selectedMemo = null
                                                             }
                                                     )

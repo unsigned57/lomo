@@ -196,64 +196,114 @@ fun CalendarHeatmap(memoCountByDate: Map<LocalDate, Int>, modifier: Modifier = M
                 }
             }
             
-            // Tooltip using Popup for correct "click outside to dismiss" behavior
-            if (selectedDate != null) {
-                androidx.compose.ui.window.Popup(
-                    alignment = Alignment.TopStart,
-                    offset = androidx.compose.ui.unit.IntOffset(
-                         with(density) { (popupOffset.x).toInt() - 60.dp.roundToPx() },
-                         with(density) { (popupOffset.y).toInt() - 60.dp.roundToPx() }
-                    ),
-                    onDismissRequest = { selectedDate = null }
-                ) {
-                    var isVisible by remember { mutableStateOf(false) }
-                    LaunchedEffect(selectedDate) {
-                        isVisible = selectedDate != null
+            // Tooltip using Popup with manual state handling for exit animations
+            // We keep specific data to render even when selectedDate becomes null (during fade-out)
+            var activePopupData by remember { mutableStateOf<Triple<LocalDate, Int, Offset>?>(null) }
+            var isPopupVisible by remember { mutableStateOf(false) }
+
+            // Sync state with selection changes
+            LaunchedEffect(selectedDate) {
+                if (selectedDate != null) {
+                    val count = memoCountByDate[selectedDate] ?: 0
+                    activePopupData = Triple(selectedDate!!, count, popupOffset)
+                    isPopupVisible = true
+                } else {
+                    isPopupVisible = false
+                }
+            }
+
+            // Only render Popup if there is meaningful data to show (either active or fading out)
+            val currentData = activePopupData
+            if (currentData != null) {
+                // Use a transition to track the visibility state
+                val transition = updateTransition(targetState = isPopupVisible, label = "PopupVisibility")
+
+                // Remove the data (and thus the Popup) only when fully invisible
+                LaunchedEffect(transition.currentState, transition.targetState) {
+                    if (!transition.currentState && !transition.targetState) {
+                        activePopupData = null
+                    }
+                }
+
+                // If we are still animating or visible, show the popup
+                if (transition.currentState || transition.targetState) {
+                     val (date, count, offset) = currentData
+                     val popupPositionProvider = remember(offset, density) {
+                        HeatmapPopupPositionProvider(offset, density)
                     }
 
-                    AnimatedVisibility(
-                        visible = isVisible,
-                        enter = fadeIn(
-                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
-                        ) + scaleIn(
-                            initialScale = 0.8f,
-                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
-                        ),
-                        exit = fadeOut(
-                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
-                        ) + scaleOut(
-                            targetScale = 0.8f,
-                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
-                        )
+                    androidx.compose.ui.window.Popup(
+                        popupPositionProvider = popupPositionProvider,
+                        onDismissRequest = { selectedDate = null }
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.surface, // Use standard surface color for better blend
-                            tonalElevation = 3.dp, // MD3 elevation for popups
-                            shadowElevation = 3.dp,
-                            modifier = Modifier.padding(4.dp)
+                        transition.AnimatedVisibility(
+                            visible = { it },
+                            enter = fadeIn(
+                                animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
+                            ) + scaleIn(
+                                initialScale = 0.8f,
+                                animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
+                            ),
+                            exit = fadeOut(
+                                animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
+                            ) + scaleOut(
+                                targetScale = 0.8f,
+                                animationSpec = tween(durationMillis = MotionTokens.DurationShort4)
+                            )
                         ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 3.dp,
+                                shadowElevation = 3.dp,
+                                modifier = Modifier.padding(4.dp)
                             ) {
-                                 Text(
-                                    text = selectedDate!!.format(DateTimeFormatter.ofPattern("MMM d")),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = "$selectedCount memos",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                     Text(
+                                        text = date.format(DateTimeFormatter.ofPattern("MMM d")),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "$count memos",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+private class HeatmapPopupPositionProvider(
+    private val contentOffset: Offset,
+    private val density: androidx.compose.ui.unit.Density
+) : androidx.compose.ui.window.PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize
+    ): androidx.compose.ui.unit.IntOffset {
+        val targetX = anchorBounds.left + contentOffset.x
+        val targetY = anchorBounds.top + contentOffset.y
+        
+        // Center the popup horizontally relative to the target point
+        val popupX = targetX.toInt() - (popupContentSize.width / 2)
+        
+        // Place popup above the target point
+        val margin = with(density) { 8.dp.roundToPx() }
+        val popupY = targetY.toInt() - popupContentSize.height - margin
+        
+        return androidx.compose.ui.unit.IntOffset(popupX, popupY)
     }
 }
 

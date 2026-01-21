@@ -272,6 +272,12 @@ constructor(
         dataStore.updateHapticFeedbackEnabled(enabled)
     }
 
+    override fun isCheckUpdatesOnStartupEnabled(): Flow<Boolean> = dataStore.checkUpdatesOnStartup
+
+    override suspend fun setCheckUpdatesOnStartup(enabled: Boolean) {
+        dataStore.updateCheckUpdatesOnStartup(enabled)
+    }
+
     override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat
 
     override suspend fun setStorageFilenameFormat(format: String) {

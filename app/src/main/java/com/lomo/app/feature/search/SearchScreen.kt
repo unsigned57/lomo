@@ -2,6 +2,12 @@ package com.lomo.app.feature.search
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.keyframes
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -36,6 +42,11 @@ import com.lomo.ui.util.formatAsDateTime
 
 import com.lomo.app.R
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.draw.alpha
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewModel()) {
@@ -44,6 +55,10 @@ fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewM
     val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle()
     val timeFormat by viewModel.timeFormat.collectAsStateWithLifecycle()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    
+    // Track deleting items for "fade out then delete" animation sequence
+    val deletingIds = remember { mutableStateListOf<String>() }
+    val scope = rememberCoroutineScope()
     
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
@@ -56,7 +71,19 @@ fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewM
     // Wrap with MemoMenuHost for menu support
     com.lomo.ui.component.menu.MemoMenuHost(
         onEdit = { /* TODO: implement edit */ },
-        onDelete = { /* TODO: implement delete */ }
+        onDelete = { state ->
+            val memo = state.memo as? com.lomo.domain.model.Memo
+            if (memo != null) {
+                // 1. Add to deleting set to trigger fade out
+                deletingIds.add(memo.id)
+                // 2. Wait for animation then delete
+                scope.launch {
+                    delay(550)
+                    viewModel.deleteMemo(memo)
+                    deletingIds.remove(memo.id)
+                }
+            } 
+        }
     ) { showMenu ->
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -133,8 +160,8 @@ fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewM
                         )
                     }
                 } else {
-                    when (refreshState) {
-                        is LoadState.Loading -> {
+                    when {
+                        refreshState is LoadState.Loading && pagedResults.itemCount == 0 -> {
                             LazyColumn(
                                 contentPadding = PaddingValues(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -143,7 +170,7 @@ fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewM
                                 items(5) { SkeletonMemoItem() }
                             }
                         }
-                        is LoadState.Error -> {
+                        refreshState is LoadState.Error && pagedResults.itemCount == 0 -> {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
                                     text = refreshState.error.message ?: androidx.compose.ui.res.stringResource(R.string.search_error_generic),
@@ -177,7 +204,30 @@ fun SearchScreen(onBackClick: () -> Unit, viewModel: SearchViewModel = hiltViewM
                                         val uiModel = pagedResults[index]
                                         if (uiModel != null) {
                                             val memo = uiModel.memo
-                                            Box(modifier = Modifier.animateItem()) {
+                                            val isDeleting = deletingIds.contains(memo.id)
+                                            val alpha by animateFloatAsState(
+                                                targetValue = if (isDeleting) 0f else 1f,
+                                                animationSpec = tween(
+                                                    durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
+                                                    easing = com.lomo.ui.theme.MotionTokens.EasingEmphasizedAccelerate
+                                                ),
+                                                label = "SearchItemDeleteAlpha"
+                                            )
+
+                                            Box(modifier = Modifier.animateItem(
+                                                fadeInSpec = keyframes {
+                                                    durationMillis = 1000
+                                                    0f at 0
+                                                    0f at com.lomo.ui.theme.MotionTokens.DurationLong2
+                                                    1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                                                },
+                                                fadeOutSpec = snap(),
+                                                placementSpec = spring<IntOffset>(
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            )
+                                            .alpha(alpha)
+                                            ) {
                                                     MemoCard(
                                                         content = memo.content,
                                                         processedContent = uiModel.processedContent,

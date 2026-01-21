@@ -85,4 +85,10 @@ class SearchViewModel @Inject constructor(
     fun onSearchQueryChanged(query: String) {
         _searchQuery.value = query
     }
+
+    fun deleteMemo(memo: Memo) {
+        viewModelScope.launch {
+            repository.deleteMemo(memo)
+        }
+    }
 }

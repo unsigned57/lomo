@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -41,8 +42,34 @@ constructor(
         private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
         private val voiceRecorder: VoiceRecorder,
         private val widgetRepository: WidgetRepository,
-        private val audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
+        private val audioPlayerManager: com.lomo.ui.media.AudioPlayerManager,
+        private val updateManager: com.lomo.app.feature.update.UpdateManager
 ) : ViewModel() {
+
+    private val _updateUrl = MutableStateFlow<String?>(null)
+    val updateUrl: StateFlow<String?> = _updateUrl
+
+    fun checkForUpdates() {
+        viewModelScope.launch {
+            try {
+                // First check if enabled
+                val enabled = repository.isCheckUpdatesOnStartupEnabled().first()
+                if (enabled) {
+                   val url = updateManager.checkForUpdates()
+                   if (url != null) {
+                       _updateUrl.value = url
+                   }
+                }
+            } catch (e: Exception) {
+                // Ignore update check errors
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _updateUrl.value = null
+    }
 
     // ... existing code ...
 
@@ -454,7 +481,7 @@ constructor(
             }
         }
 
-        // Auto-refresh memos when root directory changes or app starts
+        // Auto-refresh memos when root directory changes
         viewModelScope.launch {
             rootDirectory.collect { path ->
                 if (path != null) {
@@ -462,6 +489,9 @@ constructor(
                 }
             }
         }
+
+        // Check for updates on startup, independent of root directory
+        checkForUpdates()
     }
 
     val dateFormat: StateFlow<String> =

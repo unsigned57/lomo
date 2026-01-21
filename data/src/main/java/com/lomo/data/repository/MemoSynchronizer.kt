@@ -447,26 +447,32 @@ constructor(
                     }
                 }
 
-                // Orphan Image Cleanup (Issue #3)
-                // Check if any images in this memo are NOT used by other memos
-                // This is a naive implementation assuming image filenames are unique enough
-                // and stored relatively plainly in imageUrls.
-                // MemoEntity stores imageUrls as simple comma-separated list of local
-                // paths/filenames we generated.
+                // Orphan Image/Voice Cleanup (Issue #3)
+                // Check if any images/voice files in this memo are NOT used by other memos
                 if (memo.imageUrls.isNotEmpty()) {
-                    memo.imageUrls.forEach { imagePath ->
-                        if (imagePath.isNotBlank()) {
-                            // Verify if anyone else uses this image
-                            // We use the exact imagePath string.
-                            val count = dao.countMemosWithImage(imagePath, memo.id)
+                    memo.imageUrls.forEach { path ->
+                        if (path.isNotBlank()) {
+                            // Verify if anyone else uses this file
+                            val count = dao.countMemosWithImage(path, memo.id)
                             if (count == 0) {
                                 // Safe to delete
-                                fileDataSource.deleteImage(imagePath)
+                                if (isVoiceFile(path)) {
+                                    fileDataSource.deleteVoiceFile(path)
+                                } else {
+                                    fileDataSource.deleteImage(path)
+                                }
                             }
                         }
                     }
                 }
             }
+
+    private fun isVoiceFile(filename: String): Boolean {
+        return filename.endsWith(".m4a", ignoreCase = true) || 
+               filename.endsWith(".mp3", ignoreCase = true) ||
+               filename.endsWith(".aac", ignoreCase = true) ||
+               filename.startsWith("voice_", ignoreCase = true)
+    }
 
     private suspend fun updateMemoTags(memo: MemoEntity) {
         val tags =

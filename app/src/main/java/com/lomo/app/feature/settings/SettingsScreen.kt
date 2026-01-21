@@ -59,6 +59,7 @@ fun SettingsScreen(onBackClick: () -> Unit, viewModel: SettingsViewModel = hiltV
         val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle()
         val timeFormat by viewModel.timeFormat.collectAsStateWithLifecycle()
         val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+        val checkUpdates by viewModel.checkUpdatesOnStartup.collectAsStateWithLifecycle()
         val context = LocalContext.current
 
         var showDateDialog by remember { mutableStateOf(false) }
@@ -265,6 +266,16 @@ fun SettingsScreen(onBackClick: () -> Unit, viewModel: SettingsViewModel = hiltV
                             onCheckedChange = { viewModel.updateHapticFeedback(it) }
                         )
                     }
+
+                    SettingsGroup(title = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.settings_group_system)) {
+                        SwitchPreferenceItem(
+                            title = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.settings_check_updates),
+                            subtitle = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.settings_check_updates_subtitle),
+                            icon = Icons.Outlined.Schedule, 
+                            checked = checkUpdates,
+                            onCheckedChange = { viewModel.updateCheckUpdatesOnStartup(it) }
+                        )
+                    }
                 }
             }
         }
@@ -422,6 +433,12 @@ fun SwitchPreferenceItem(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                 }
-                Switch(checked = checked, onCheckedChange = onCheckedChange)
+                Switch(
+                    checked = checked,
+                    onCheckedChange = {
+                        haptic.medium()
+                        onCheckedChange(it)
+                    }
+                )
         }
 }

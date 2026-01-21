@@ -21,6 +21,11 @@
     <string name="settings_group_interaction">Interaction</string>
     <string name="settings_haptic_feedback">Haptic Feedback</string>
     <string name="settings_haptic_feedback_subtitle">Vibrate on touch interactions</string>
+
+    <!-- System Group -->
+    <string name="settings_group_system">System</string>
+    <string name="settings_check_updates">Check updates on startup</string>
+    <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
     
     <!-- Dialog Titles -->
     <string name="settings_select_date_format">Select Date Format</string>
@@ -111,4 +116,11 @@
     <string name="setup_directory_title">Setup %1$s Directory</string>
     <string name="setup_directory_message">The %1$s directory is not set. You can manually select one in Settings, or automatically create a \'%2$s\' folder inside your Note directory.</string>
     <string name="action_auto_create">Auto Create</string>
+
+    <!-- Update Dialog -->
+    <string name="update_dialog_title">New Version Available</string>
+    <string name="update_dialog_message">A new version of Lomo is available. Please update.</string>
+    <string name="action_download">Download</string>
+    <string name="action_cancel">Cancel</string>
+
 </resources>
