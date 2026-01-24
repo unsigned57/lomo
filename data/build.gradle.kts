@@ -22,7 +22,6 @@ android {
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
-
 }
 
 dependencies {
@@ -30,7 +29,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
-    
+
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
@@ -48,7 +47,7 @@ dependencies {
 
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)
-    
+
     // DataStore for preferences
     implementation(libs.androidx.datastore.preferences)
 

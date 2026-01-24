@@ -5,4 +5,6 @@ import androidx.compose.runtime.Immutable
 import org.commonmark.node.Node
 
 @Immutable
-data class ImmutableNode(val node: Node)
+data class ImmutableNode(
+    val node: Node,
+)

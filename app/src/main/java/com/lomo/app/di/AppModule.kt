@@ -11,10 +11,7 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class AppModule {
-
     @Binds
     @Singleton
-    abstract fun bindWidgetRepository(
-        appWidgetRepository: AppWidgetRepository
-    ): WidgetRepository
+    abstract fun bindWidgetRepository(appWidgetRepository: AppWidgetRepository): WidgetRepository
 }

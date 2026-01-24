@@ -19,47 +19,47 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun <T> SelectionDialog(
-        title: String,
-        options: List<T>,
-        currentSelection: T,
-        onSelect: (T) -> Unit,
-        onDismiss: () -> Unit,
-        labelProvider: (T) -> String = { it.toString() }
+    title: String,
+    options: List<T>,
+    currentSelection: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit,
+    labelProvider: (T) -> String = { it.toString() },
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text(title) },
-            text = {
-                Column {
-                    options.forEach { option ->
-                        Row(
-                                modifier =
-                                        Modifier.fillMaxWidth()
-                                                .clickable {
-                                                    haptic.medium()
-                                                    onSelect(option)
-                                                }
-                                                .padding(vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = (option == currentSelection), onClick = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                    text = labelProvider(option),
-                                    style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column {
+                options.forEach { option ->
+                    Row(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    haptic.medium()
+                                    onSelect(option)
+                                }.padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = (option == currentSelection), onClick = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = labelProvider(option),
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                        onClick = {
-                            haptic.medium()
-                            onDismiss()
-                        }
-                ) { Text("Cancel") }
             }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptic.medium()
+                    onDismiss()
+                },
+            ) { Text("Cancel") }
+        },
     )
 }

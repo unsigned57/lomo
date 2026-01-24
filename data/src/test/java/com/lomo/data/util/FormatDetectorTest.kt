@@ -6,7 +6,6 @@ import org.junit.Before
 import org.junit.Test
 
 class FormatDetectorTest {
-
     private lateinit var detector: FormatDetector
 
     @Before

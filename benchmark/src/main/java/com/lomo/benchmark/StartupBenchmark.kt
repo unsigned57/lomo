@@ -19,7 +19,6 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class StartupBenchmark {
-
     @get:Rule val benchmarkRule = MacrobenchmarkRule()
 
     /**
@@ -29,11 +28,11 @@ class StartupBenchmark {
     @Test
     fun startupCold() {
         benchmarkRule.measureRepeated(
-                packageName = "com.lomo.app",
-                metrics = listOf(StartupTimingMetric()),
-                compilationMode = CompilationMode.DEFAULT,
-                iterations = 5,
-                startupMode = StartupMode.COLD
+            packageName = "com.lomo.app",
+            metrics = listOf(StartupTimingMetric()),
+            compilationMode = CompilationMode.DEFAULT,
+            iterations = 5,
+            startupMode = StartupMode.COLD,
         ) {
             pressHome()
             startActivityAndWait()
@@ -44,11 +43,11 @@ class StartupBenchmark {
     @Test
     fun startupWarm() {
         benchmarkRule.measureRepeated(
-                packageName = "com.lomo.app",
-                metrics = listOf(StartupTimingMetric()),
-                compilationMode = CompilationMode.DEFAULT,
-                iterations = 5,
-                startupMode = StartupMode.WARM
+            packageName = "com.lomo.app",
+            metrics = listOf(StartupTimingMetric()),
+            compilationMode = CompilationMode.DEFAULT,
+            iterations = 5,
+            startupMode = StartupMode.WARM,
         ) {
             pressHome()
             startActivityAndWait()
@@ -59,11 +58,11 @@ class StartupBenchmark {
     @Test
     fun startupHot() {
         benchmarkRule.measureRepeated(
-                packageName = "com.lomo.app",
-                metrics = listOf(StartupTimingMetric()),
-                compilationMode = CompilationMode.DEFAULT,
-                iterations = 5,
-                startupMode = StartupMode.HOT
+            packageName = "com.lomo.app",
+            metrics = listOf(StartupTimingMetric()),
+            compilationMode = CompilationMode.DEFAULT,
+            iterations = 5,
+            startupMode = StartupMode.HOT,
         ) {
             pressHome()
             startActivityAndWait()
@@ -74,24 +73,29 @@ class StartupBenchmark {
     @Test
     fun scrollPerformance() {
         benchmarkRule.measureRepeated(
-                packageName = "com.lomo.app",
-                metrics = listOf(FrameTimingMetric()),
-                compilationMode = CompilationMode.DEFAULT,
-                iterations = 5,
-                startupMode = StartupMode.WARM
+            packageName = "com.lomo.app",
+            metrics = listOf(FrameTimingMetric()),
+            compilationMode = CompilationMode.DEFAULT,
+            iterations = 5,
+            startupMode = StartupMode.WARM,
         ) {
             pressHome()
             startActivityAndWait()
 
             // Find scrollable content and scroll
             device.wait(
-                    androidx.test.uiautomator.Until.hasObject(
-                            androidx.test.uiautomator.By.scrollable(true)
-                    ),
-                    5000
+                androidx.test.uiautomator.Until.hasObject(
+                    androidx.test.uiautomator.By
+                        .scrollable(true),
+                ),
+                5000,
             )
 
-            val scrollable = device.findObject(androidx.test.uiautomator.By.scrollable(true))
+            val scrollable =
+                device.findObject(
+                    androidx.test.uiautomator.By
+                        .scrollable(true),
+                )
 
             // Measure scroll performance
             scrollable?.let {

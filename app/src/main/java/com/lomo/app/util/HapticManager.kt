@@ -19,7 +19,7 @@ import com.lomo.data.util.PreferenceKeys
  */
 class HapticManager(
     private val hapticFeedback: HapticFeedback,
-    private val hapticEnabled: Boolean
+    private val hapticEnabled: Boolean,
 ) : HapticFeedback {
     override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
         if (hapticEnabled) {
@@ -31,26 +31,28 @@ class HapticManager(
 /**
  * CompositionLocal to provide a [HapticFeedback] instance that respects user preferences.
  */
-val LocalMemosHapticFeedback: ProvidableCompositionLocal<HapticFeedback> = compositionLocalOf {
-    error("No HapticFeedback provided")
-}
+val LocalMemosHapticFeedback: ProvidableCompositionLocal<HapticFeedback> =
+    compositionLocalOf {
+        error("No HapticFeedback provided")
+    }
 
 @Composable
 fun ProvideHapticFeedback(
     dataStore: LomoDataStore,
-    content: @Composable (hapticEnabled: Boolean) -> Unit
+    content: @Composable (hapticEnabled: Boolean) -> Unit,
 ) {
     val hapticEnabled by dataStore.hapticFeedbackEnabled.collectAsStateWithLifecycle(
-        initialValue = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED
+        initialValue = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
     )
     val currentHaptic = LocalHapticFeedback.current
-    val hapticManager = remember(hapticEnabled, currentHaptic) {
-        HapticManager(currentHaptic, hapticEnabled)
-    }
+    val hapticManager =
+        remember(hapticEnabled, currentHaptic) {
+            HapticManager(currentHaptic, hapticEnabled)
+        }
 
     CompositionLocalProvider(
         LocalHapticFeedback provides hapticManager,
-        LocalMemosHapticFeedback provides hapticManager
+        LocalMemosHapticFeedback provides hapticManager,
     ) {
         content(hapticEnabled)
     }

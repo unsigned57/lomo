@@ -8,8 +8,9 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.regex.Pattern
 
-class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProcessor()) {
-
+class MarkdownParser(
+    private val textProcessor: MemoTextProcessor = MemoTextProcessor(),
+) {
     // Use lazy delegation for expensive Pattern compilation
     // Pattern is only compiled when first accessed, saving initialization cost
     // Regex: - HH:mm:ss [Content]
@@ -28,7 +29,10 @@ class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProc
         return parseContent(content, filename)
     }
 
-    fun parseContent(content: String, filename: String): List<Memo> {
+    fun parseContent(
+        content: String,
+        filename: String,
+    ): List<Memo> {
         val result = mutableListOf<Memo>()
         val lines = content.lines()
         var currentTimestamp = ""
@@ -41,7 +45,7 @@ class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProc
             if (currentTimestamp.isNotEmpty()) {
                 val fullRaw = currentRawBuilder.toString().trim()
                 val fullContent = currentContentBuilder.toString().trim()
-                var id = "${filename}_${currentTimestamp}"
+                var id = "${filename}_$currentTimestamp"
 
                 // Ensure ID uniqueness to prevent LazyColumn crashes and UI duplicates
                 var collisionCount = 0
@@ -55,15 +59,15 @@ class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProc
                 val timestampLong = parseTimestamp(filename, currentTimestamp)
 
                 result.add(
-                        Memo(
-                                id = id,
-                                timestamp = timestampLong,
-                                content = fullContent,
-                                rawContent = fullRaw,
-                                date = filename,
-                                tags = extractTags(fullContent),
-                                imageUrls = extractImages(fullContent)
-                        )
+                    Memo(
+                        id = id,
+                        timestamp = timestampLong,
+                        content = fullContent,
+                        rawContent = fullRaw,
+                        date = filename,
+                        tags = extractTags(fullContent),
+                        imageUrls = extractImages(fullContent),
+                    ),
                 )
             }
         }
@@ -92,16 +96,19 @@ class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProc
         return result
     }
 
-    private fun parseTimestamp(dateStr: String, timeStr: String): Long {
-        return try {
+    private fun parseTimestamp(
+        dateStr: String,
+        timeStr: String,
+    ): Long =
+        try {
             // Normalize timeStr to ensure HH:mm:ss
             val timeParts = timeStr.split(":")
             val normalizedTime =
-                    when (timeParts.size) {
-                        2 -> "$timeStr:00"
-                        3 -> timeStr
-                        else -> "00:00:00"
-                    }
+                when (timeParts.size) {
+                    2 -> "$timeStr:00"
+                    3 -> timeStr
+                    else -> "00:00:00"
+                }
 
             val fullDateTimeString = "$dateStr $normalizedTime"
             val formatter = DateTimeFormatter.ofPattern("yyyy_MM_dd HH:mm:ss")
@@ -110,7 +117,6 @@ class MarkdownParser(private val textProcessor: MemoTextProcessor = MemoTextProc
         } catch (e: Exception) {
             System.currentTimeMillis()
         }
-    }
 
     private fun extractTags(content: String): List<String> {
         // Delegate to shared utility class to avoid duplication

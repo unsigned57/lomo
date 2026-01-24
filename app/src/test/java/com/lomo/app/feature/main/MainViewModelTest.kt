@@ -24,7 +24,6 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
-
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var savedStateHandle: SavedStateHandle
@@ -38,7 +37,7 @@ class MainViewModelTest {
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-        
+
         savedStateHandle = SavedStateHandle()
         repository = mockk(relaxed = true)
         mapper = mockk(relaxed = true)
@@ -64,74 +63,79 @@ class MainViewModelTest {
     }
 
     @Test
-    fun `initial search query is empty`() = runTest {
-        val viewModel = createViewModel()
-        assertEquals("", viewModel.searchQuery.value)
-    }
+    fun `initial search query is empty`() =
+        runTest {
+            val viewModel = createViewModel()
+            assertEquals("", viewModel.searchQuery.value)
+        }
 
     @Test
-    fun `onSearch updates searchQuery`() = runTest {
-        val viewModel = createViewModel()
-        
-        viewModel.onSearch("test query")
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        assertEquals("test query", viewModel.searchQuery.value)
-    }
+    fun `onSearch updates searchQuery`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.onSearch("test query")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("test query", viewModel.searchQuery.value)
+        }
 
     @Test
-    fun `initial selected tag is null`() = runTest {
-        val viewModel = createViewModel()
-        assertNull(viewModel.selectedTag.value)
-    }
+    fun `initial selected tag is null`() =
+        runTest {
+            val viewModel = createViewModel()
+            assertNull(viewModel.selectedTag.value)
+        }
 
     @Test
-    fun `onTagSelected sets tag`() = runTest {
-        val viewModel = createViewModel()
-        
-        viewModel.onTagSelected("work")
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        assertEquals("work", viewModel.selectedTag.value)
-    }
+    fun `onTagSelected sets tag`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.onTagSelected("work")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("work", viewModel.selectedTag.value)
+        }
 
     @Test
-    fun `onTagSelected toggles same tag to null`() = runTest {
-        val viewModel = createViewModel()
-        
-        viewModel.onTagSelected("work")
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        viewModel.onTagSelected("work")
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        assertNull(viewModel.selectedTag.value)
-    }
+    fun `onTagSelected toggles same tag to null`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.onTagSelected("work")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.onTagSelected("work")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.selectedTag.value)
+        }
 
     @Test
-    fun `clearFilters resets search and tag`() = runTest {
-        val viewModel = createViewModel()
-        
-        viewModel.onSearch("query")
-        viewModel.onTagSelected("tag")
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        viewModel.clearFilters()
-        testDispatcher.scheduler.advanceUntilIdle()
-        
-        assertEquals("", viewModel.searchQuery.value)
-        assertNull(viewModel.selectedTag.value)
-    }
+    fun `clearFilters resets search and tag`() =
+        runTest {
+            val viewModel = createViewModel()
 
-    private fun createViewModel(): MainViewModel {
-        return MainViewModel(
+            viewModel.onSearch("query")
+            viewModel.onTagSelected("tag")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.clearFilters()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("", viewModel.searchQuery.value)
+            assertNull(viewModel.selectedTag.value)
+        }
+
+    private fun createViewModel(): MainViewModel =
+        MainViewModel(
             savedStateHandle = savedStateHandle,
             repository = repository,
             mapper = mapper,
             textProcessor = textProcessor,
             getFilteredMemosUseCase = getFilteredMemosUseCase,
             imageMapProvider = imageMapProvider,
-            appContext = appContext
+            appContext = appContext,
         )
-    }
 }

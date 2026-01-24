@@ -12,15 +12,17 @@ sealed interface MainUiState {
     data object Loading : MainUiState
 
     /** Error state with an error message. */
-    data class Error(val message: String) : MainUiState
+    data class Error(
+        val message: String,
+    ) : MainUiState
 
     /** Success state containing all UI data. */
     data class Success(
-            val searchQuery: String = "",
-            val selectedTag: String? = null,
-            val rootDirectory: String? = null,
-            val hasDirectory: Boolean = false,
-            val sidebarState: SidebarUiState = SidebarUiState()
+        val searchQuery: String = "",
+        val selectedTag: String? = null,
+        val rootDirectory: String? = null,
+        val hasDirectory: Boolean = false,
+        val sidebarState: SidebarUiState = SidebarUiState(),
     ) : MainUiState
 
     companion object {
@@ -30,31 +32,46 @@ sealed interface MainUiState {
 
 /** Sidebar-specific UI state. */
 data class SidebarUiState(
-        val memoCount: Int = 0,
-        val tagCount: Int = 0,
-        val dayCount: Int = 0,
-        val memoCountByDate: Map<java.time.LocalDate, Int> = emptyMap(),
-        val tags: ImmutableList<SidebarTagState> = persistentListOf()
+    val memoCount: Int = 0,
+    val tagCount: Int = 0,
+    val dayCount: Int = 0,
+    val memoCountByDate: Map<java.time.LocalDate, Int> = emptyMap(),
+    val tags: ImmutableList<SidebarTagState> = persistentListOf(),
 )
 
 /** Immutable tag state for the sidebar. */
-data class SidebarTagState(val name: String, val count: Int)
+data class SidebarTagState(
+    val name: String,
+    val count: Int,
+)
 
 /** Sealed interface for memo filter states. */
 sealed interface MemoFilter {
     data object All : MemoFilter
-    data class ByTag(val tag: String) : MemoFilter
-    data class ByQuery(val query: String) : MemoFilter
-    data class Combined(val query: String, val tag: String) : MemoFilter
+
+    data class ByTag(
+        val tag: String,
+    ) : MemoFilter
+
+    data class ByQuery(
+        val query: String,
+    ) : MemoFilter
+
+    data class Combined(
+        val query: String,
+        val tag: String,
+    ) : MemoFilter
 
     companion object {
-        fun from(query: String, tag: String?): MemoFilter {
-            return when {
+        fun from(
+            query: String,
+            tag: String?,
+        ): MemoFilter =
+            when {
                 query.isNotBlank() && tag != null -> Combined(query, tag)
                 query.isNotBlank() -> ByQuery(query)
                 tag != null -> ByTag(tag)
                 else -> All
             }
-        }
     }
 }

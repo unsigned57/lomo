@@ -13,21 +13,21 @@ import androidx.compose.ui.text.font.FontWeight
 
 @Composable
 fun PreferenceItem(
-        title: String,
-        subtitle: String? = null,
-        icon: ImageVector? = null,
-        onClick: () -> Unit
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    onClick: () -> Unit,
 ) {
-        val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-        ListItem(
-                headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
-                supportingContent = subtitle?.let { { Text(it) } },
-                leadingContent = icon?.let { { Icon(it, contentDescription = title) } },
-                modifier =
-                        Modifier.clickable {
-                                haptic.medium()
-                                onClick()
-                        },
-                colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-        )
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    ListItem(
+        headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
+        supportingContent = subtitle?.let { { Text(it) } },
+        leadingContent = icon?.let { { Icon(it, contentDescription = title) } },
+        modifier =
+            Modifier.clickable {
+                haptic.medium()
+                onClick()
+            },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
 }

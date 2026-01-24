@@ -16,9 +16,10 @@ import java.io.InputStreamReader
 class SafStorageBackend(
     private val context: Context,
     private val rootUri: Uri,
-    private val subDir: String? = null
-) : StorageBackend, ImageStorageBackend, VoiceStorageBackend {
-
+    private val subDir: String? = null,
+) : StorageBackend,
+    ImageStorageBackend,
+    VoiceStorageBackend {
     private fun getRoot(): DocumentFile? {
         val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
         return if (subDir != null) {
@@ -27,23 +28,22 @@ class SafStorageBackend(
             root
         }
     }
-    
+
     private fun getTrashDir(): DocumentFile? = getRoot()?.findFile(".trash")
-    
+
     private fun getOrCreateTrashDir(): DocumentFile? {
         val root = getRoot() ?: return null
         return root.findFile(".trash") ?: root.createDirectory(".trash")
     }
 
-    private fun readFileFromUri(uri: Uri): String? {
-        return try {
+    private fun readFileFromUri(uri: Uri): String? =
+        try {
             context.contentResolver.openInputStream(uri)?.use {
                 BufferedReader(InputStreamReader(it)).readText()
             }
         } catch (e: Exception) {
             null
         }
-    }
 
     // --- File listing ---
 
@@ -52,15 +52,19 @@ class SafStorageBackend(
             val root = getRoot() ?: return@withContext emptyList()
             root.listFiles().mapNotNull { file ->
                 val name = file.name
-                if (name != null && 
-                    name.endsWith(".md") && 
+                if (name != null &&
+                    name.endsWith(".md") &&
                     (targetFilename == null || name == targetFilename)
                 ) {
                     val content = readFileFromUri(file.uri)
                     if (content != null) {
                         FileContent(name, content, file.lastModified())
-                    } else null
-                } else null
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
             }
         }
 
@@ -73,8 +77,12 @@ class SafStorageBackend(
                     val content = readFileFromUri(file.uri)
                     if (content != null) {
                         FileContent(name, content, file.lastModified())
-                    } else null
-                } else null
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
             }
         }
 
@@ -99,21 +107,25 @@ class SafStorageBackend(
             val name = file.name
             if (name != null && name.endsWith(".md")) {
                 FileMetadata(name, file.lastModified())
-            } else null
+            } else {
+                null
+            }
         }
     }
 
     private fun queryChildDocuments(): List<FileMetadata> {
-        val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            rootUri,
-            DocumentsContract.getDocumentId(rootUri)
-        )
+        val childUri =
+            DocumentsContract.buildChildDocumentsUriUsingTree(
+                rootUri,
+                DocumentsContract.getDocumentId(rootUri),
+            )
 
         val result = mutableListOf<FileMetadata>()
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED
-        )
+        val projection =
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            )
 
         context.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
             val nameIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
@@ -138,7 +150,9 @@ class SafStorageBackend(
                 val name = file.name
                 if (name != null && name.endsWith(".md")) {
                     FileMetadata(name, file.lastModified())
-                } else null
+                } else {
+                    null
+                }
             }
         }
 
@@ -162,11 +176,12 @@ class SafStorageBackend(
         val childUri = DocumentsContract.buildChildDocumentsUriUsingTree(rootUri, parentDocId)
 
         val result = mutableListOf<FileMetadataWithId>()
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
-            DocumentsContract.Document.COLUMN_LAST_MODIFIED
-        )
+        val projection =
+            arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED,
+            )
 
         context.contentResolver.query(childUri, projection, null, null, null)?.use { cursor ->
             val idIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
@@ -214,7 +229,6 @@ class SafStorageBackend(
             }
         }
 
-
     // --- File reading ---
 
     override suspend fun readFile(filename: String): String? =
@@ -253,37 +267,43 @@ class SafStorageBackend(
 
     // --- File writing ---
 
-    override suspend fun saveFile(filename: String, content: String, append: Boolean) =
-        withContext(Dispatchers.IO) {
-            val root = getRoot() ?: return@withContext
-            var file = root.findFile(filename)
-            if (file == null) {
-                file = root.createFile("text/markdown", filename)
-            }
-            file?.uri?.let { uri ->
-                val mode = if (append) "wa" else "wt"
-                context.contentResolver.openOutputStream(uri, mode)?.use {
-                    it.write(content.toByteArray())
-                }
-            }
-            Unit
+    override suspend fun saveFile(
+        filename: String,
+        content: String,
+        append: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        val root = getRoot() ?: return@withContext
+        var file = root.findFile(filename)
+        if (file == null) {
+            file = root.createFile("text/markdown", filename)
         }
+        file?.uri?.let { uri ->
+            val mode = if (append) "wa" else "wt"
+            context.contentResolver.openOutputStream(uri, mode)?.use {
+                it.write(content.toByteArray())
+            }
+        }
+        Unit
+    }
 
-    override suspend fun saveTrashFile(filename: String, content: String, append: Boolean) =
-        withContext(Dispatchers.IO) {
-            val trash = getOrCreateTrashDir() ?: return@withContext
-            var file = trash.findFile(filename)
-            if (file == null) {
-                file = trash.createFile("text/markdown", filename)
-            }
-            file?.uri?.let { uri ->
-                val mode = if (append) "wa" else "wt"
-                context.contentResolver.openOutputStream(uri, mode)?.use {
-                    it.write(content.toByteArray())
-                }
-            }
-            Unit
+    override suspend fun saveTrashFile(
+        filename: String,
+        content: String,
+        append: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        val trash = getOrCreateTrashDir() ?: return@withContext
+        var file = trash.findFile(filename)
+        if (file == null) {
+            file = trash.createFile("text/markdown", filename)
         }
+        file?.uri?.let { uri ->
+            val mode = if (append) "wa" else "wt"
+            context.contentResolver.openOutputStream(uri, mode)?.use {
+                it.write(content.toByteArray())
+            }
+        }
+        Unit
+    }
 
     // --- File deletion ---
 
@@ -317,17 +337,22 @@ class SafStorageBackend(
 
     // --- Image operations (ImageStorageBackend) ---
 
-    override suspend fun saveImage(sourceUri: Uri, filename: String) {
+    override suspend fun saveImage(
+        sourceUri: Uri,
+        filename: String,
+    ) {
         withContext(Dispatchers.IO) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access image directory")
-            
-            val inputStream = context.contentResolver.openInputStream(sourceUri)
-                ?: throw java.io.IOException("Cannot open source image URI")
-            
+
+            val inputStream =
+                context.contentResolver.openInputStream(sourceUri)
+                    ?: throw java.io.IOException("Cannot open source image URI")
+
             val extension = filename.substringAfterLast(".", "jpg")
-            val newFile = root.createFile("image/$extension", filename)
-                ?: throw java.io.IOException("Cannot create image file")
-            
+            val newFile =
+                root.createFile("image/$extension", filename)
+                    ?: throw java.io.IOException("Cannot create image file")
+
             context.contentResolver.openOutputStream(newFile.uri)?.use { outputStream ->
                 inputStream.use { input -> input.copyTo(outputStream) }
             } ?: throw java.io.IOException("Cannot write to image file")
@@ -358,18 +383,20 @@ class SafStorageBackend(
     override suspend fun createVoiceFile(filename: String): Uri =
         withContext(Dispatchers.IO) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access voice directory")
-            
+
             // Guess mime type from filename
             val extension = filename.substringAfterLast('.', "m4a")
-            val mimeType = when(extension) {
-                "m4a" -> "audio/mp4"
-                "mp3" -> "audio/mpeg"
-                "aac" -> "audio/aac"
-                else -> "audio/mp4"
-            }
+            val mimeType =
+                when (extension) {
+                    "m4a" -> "audio/mp4"
+                    "mp3" -> "audio/mpeg"
+                    "aac" -> "audio/aac"
+                    else -> "audio/mp4"
+                }
 
-            val file = root.createFile(mimeType, filename) 
-                ?: throw java.io.IOException("Cannot create voice file")
+            val file =
+                root.createFile(mimeType, filename)
+                    ?: throw java.io.IOException("Cannot create voice file")
             file.uri
         }
 
@@ -387,8 +414,9 @@ class SafStorageBackend(
     override suspend fun createDirectory(name: String): String =
         withContext(Dispatchers.IO) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access root directory")
-            val dir = root.findFile(name) ?: root.createDirectory(name) 
-                ?: throw java.io.IOException("Cannot create directory $name")
+            val dir =
+                root.findFile(name) ?: root.createDirectory(name)
+                    ?: throw java.io.IOException("Cannot create directory $name")
             dir.uri.toString()
         }
 }

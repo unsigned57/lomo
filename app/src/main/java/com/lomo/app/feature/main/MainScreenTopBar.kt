@@ -19,7 +19,7 @@ internal fun MainTopBar(
     onSearch: () -> Unit,
     onClearFilter: () -> Unit,
     isFilterActive: Boolean,
-    showNavigationIcon: Boolean = true
+    showNavigationIcon: Boolean = true,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     TopAppBar(
@@ -30,8 +30,14 @@ internal fun MainTopBar(
                     onClick = {
                         haptic.medium()
                         onMenu()
-                    }
-                ) { Icon(Icons.Rounded.Menu, androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_menu)) }
+                    },
+                ) {
+                    Icon(
+                        Icons.Rounded.Menu,
+                        androidx.compose.ui.res
+                            .stringResource(com.lomo.app.R.string.cd_menu),
+                    )
+                }
             }
         },
         actions = {
@@ -40,20 +46,33 @@ internal fun MainTopBar(
                     onClick = {
                         haptic.medium()
                         onClearFilter()
-                    }
-                ) { Icon(Icons.Rounded.Close, androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_clear_filter)) }
+                    },
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        androidx.compose.ui.res
+                            .stringResource(com.lomo.app.R.string.cd_clear_filter),
+                    )
+                }
             }
             IconButton(
                 onClick = {
                     haptic.medium()
                     onSearch()
-                }
-            ) { Icon(Icons.Rounded.Search, androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_search)) }
+                },
+            ) {
+                Icon(
+                    Icons.Rounded.Search,
+                    androidx.compose.ui.res
+                        .stringResource(com.lomo.app.R.string.cd_search),
+                )
+            }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-        ),
-        scrollBehavior = scrollBehavior
+        colors =
+            TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        scrollBehavior = scrollBehavior,
     )
 }

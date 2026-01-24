@@ -24,7 +24,7 @@ fun MemoMenuBottomSheet(
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -32,14 +32,15 @@ fun MemoMenuBottomSheet(
         dragHandle = {
             // Custom Drag Handle to remove standard ripple/rectangular mask
             Box(
-                modifier = Modifier
-                    .padding(vertical = 22.dp)
-                    .width(32.dp)
-                    .size(32.dp, 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                modifier =
+                    Modifier
+                        .padding(vertical = 22.dp)
+                        .width(32.dp)
+                        .size(32.dp, 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
             )
-        }
+        },
     ) {
         MemoActionSheet(
             state = state,
@@ -47,7 +48,7 @@ fun MemoMenuBottomSheet(
             onShare = onShare,
             onEdit = onEdit,
             onDelete = onDelete,
-            onDismiss = onDismissRequest
+            onDismiss = onDismissRequest,
         )
     }
 }

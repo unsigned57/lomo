@@ -20,46 +20,49 @@ import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 @Composable
 fun ImageViewerScreen(
     url: String,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
 ) {
     Box(
-        modifier = Modifier
-        .fillMaxSize()
-        .background(Color.Black)
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black),
     ) {
-    val sharedTransitionScope = com.lomo.ui.util.LocalSharedTransitionScope.current
-    val animatedVisibilityScope = com.lomo.ui.util.LocalAnimatedVisibilityScope.current
+        val sharedTransitionScope = com.lomo.ui.util.LocalSharedTransitionScope.current
+        val animatedVisibilityScope = com.lomo.ui.util.LocalAnimatedVisibilityScope.current
 
-    @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
-    val sharedModifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-        with(sharedTransitionScope) {
-            Modifier.sharedElement(
-                rememberSharedContentState(key = url),
-                animatedVisibilityScope = animatedVisibilityScope
-            )
-        }
-    } else {
-        Modifier
-    }
+        @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+        val sharedModifier =
+            if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                with(sharedTransitionScope) {
+                    Modifier.sharedElement(
+                        rememberSharedContentState(key = url),
+                        animatedVisibilityScope = animatedVisibilityScope,
+                    )
+                }
+            } else {
+                Modifier
+            }
 
         ZoomableAsyncImage(
             model = url,
             contentDescription = "Full screen image",
             modifier = Modifier.fillMaxSize().then(sharedModifier),
-            onClick = { onBackClick() } // Tap to dismiss
+            onClick = { onBackClick() }, // Tap to dismiss
         )
 
         // Close button
         IconButton(
             onClick = onBackClick,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp)
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(16.dp),
         ) {
             Icon(
                 imageVector = Icons.Rounded.Close,
                 contentDescription = "Close",
-                tint = Color.White
+                tint = Color.White,
             )
         }
     }

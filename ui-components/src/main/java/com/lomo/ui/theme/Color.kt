@@ -48,7 +48,6 @@ val SurfaceContainerDark = Color(0xFF1D2026)
 val SurfaceContainerHighDark = Color(0xFF272A31)
 val SurfaceContainerHighestDark = Color(0xFF32353D)
 
-
 // Semantic Colors - Error
 val ErrorLight = Color(0xFFBA1A1A)
 val ErrorDark = Color(0xFFFFB4AB)

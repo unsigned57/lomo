@@ -8,7 +8,6 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class MarkdownParserTest {
-
     @get:Rule val tempFolder = TemporaryFolder()
 
     private lateinit var parser: MarkdownParser
@@ -22,9 +21,11 @@ class MarkdownParserTest {
     fun `test parse file with single memo and content on same line`() {
         // Format: - HH:mm:ss Content
         val file = tempFolder.newFile("2026_01_10.md")
-        file.writeText("""
+        file.writeText(
+            """
 - 22:02:46 Hello Lomo
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val memos = parser.parseFile(file)
 
@@ -36,10 +37,12 @@ class MarkdownParserTest {
     @Test
     fun `test parse file with leading blank line`() {
         val file = tempFolder.newFile("2026_01_10_blank.md")
-        file.writeText("""
+        file.writeText(
+            """
 
 - 22:02:46 Testing leading blank lines
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val memos = parser.parseFile(file)
 
@@ -51,13 +54,13 @@ class MarkdownParserTest {
     fun `test parse file with multi-line content`() {
         val file = tempFolder.newFile("2022_05_02.md")
         file.writeText(
-                """
+            """
 - 21:57:35 
   This is a multi-line memo.
   
   It should support empty lines and indentation
   consistent with the original format.
-        """.trimIndent()
+            """.trimIndent(),
         )
 
         val memos = parser.parseFile(file)
@@ -70,7 +73,7 @@ class MarkdownParserTest {
     @Test
     fun `test parse complex multi-paragraph format`() {
         val content =
-                """- 21:57:35 
+            """- 21:57:35 
   First paragraph of the complex test case.
   
   Second paragraph with more details about the parser behavior. It should correctly capture the entire block until the next timestamp or EOF. 
@@ -101,11 +104,13 @@ class MarkdownParserTest {
     @Test
     fun `test multiple memos in one file`() {
         val file = tempFolder.newFile("2026_01_12.md")
-        file.writeText("""
+        file.writeText(
+            """
 - 08:00 Breakfast
 - 12:00 Lunch
 - 18:00 Dinner
-        """.trimIndent())
+            """.trimIndent(),
+        )
 
         val memos = parser.parseFile(file)
 

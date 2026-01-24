@@ -17,12 +17,10 @@ android {
         compose = true
     }
 
-
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
 }
 
 dependencies {
@@ -34,12 +32,11 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.activity.compose) // For rememberLauncherForActivityResult
-    
+
     // Extended Icons
     // Extended Icons
     implementation(libs.androidx.material.icons.extended)
 
-    
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.network)

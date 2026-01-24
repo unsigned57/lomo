@@ -9,7 +9,10 @@ object DocumentUtils {
     // if direct file access isn't allowed, but user requested "Native" MD app.
     // Ideally we assume user picks a primary storage folder like /sdcard/Documents/Notes
 
-    fun getPath(context: Context, uri: Uri): String? {
+    fun getPath(
+        context: Context,
+        uri: Uri,
+    ): String? {
         // This is tricky with Scoped Storage.
         // For MVP, we might need MANAGE_EXTERNAL_STORAGE or just take the URI.
         // But the Repository expects a File path (String).

@@ -10,38 +10,38 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun EmptyState(
-        icon: ImageVector,
-        title: String,
-        description: String,
-        modifier: Modifier = Modifier,
-        action: (@Composable () -> Unit)? = null
+    icon: ImageVector,
+    title: String,
+    description: String,
+    modifier: Modifier = Modifier,
+    action: (@Composable () -> Unit)? = null,
 ) {
     Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(32.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp),
         ) {
             Icon(
-                    imageVector = icon,
-                    contentDescription = title,
-                    modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                imageVector = icon,
+                contentDescription = title,
+                modifier = Modifier.size(64.dp).padding(bottom = 16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             )
 
             Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
             Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(top = 8.dp),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier.padding(top = 8.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
 
             if (action != null) {

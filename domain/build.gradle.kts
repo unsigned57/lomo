@@ -14,7 +14,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-
 }
 
 dependencies {
@@ -22,7 +21,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.javax.inject)
-    
+
     testImplementation(libs.junit)
 }
 

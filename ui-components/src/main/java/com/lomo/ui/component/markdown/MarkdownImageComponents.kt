@@ -28,8 +28,8 @@ import org.commonmark.node.Image
 /**
  * Extracted image-related components from MarkdownRenderer.kt
  * to improve code organization and reduce file size.
- * 
- * NOTE: These components are provided as alternatives/replacements for the 
+ *
+ * NOTE: These components are provided as alternatives/replacements for the
  * inline implementations in MarkdownRenderer.kt. To fully adopt these,
  * the MarkdownRenderer.kt file should be updated to use these extracted components.
  */
@@ -39,17 +39,19 @@ import org.commonmark.node.Image
 
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
-    private val cache = java.util.Collections.synchronizedMap(
-        object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, 0.75f, true) {
-            override fun removeEldestEntry(eldest: Map.Entry<String, Float>): Boolean {
-                return size > MAX_CACHE_SIZE
-            }
-        }
-    )
+    private val cache =
+        java.util.Collections.synchronizedMap(
+            object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: Map.Entry<String, Float>): Boolean = size > MAX_CACHE_SIZE
+            },
+        )
 
     fun get(url: String): Float? = cache[url]
 
-    fun put(url: String, ratio: Float) {
+    fun put(
+        url: String,
+        ratio: Float,
+    ) {
         cache[url] = ratio
     }
 }
@@ -60,35 +62,38 @@ internal object MarkdownImageCache {
 @Composable
 internal fun MarkdownImageBlock(
     image: Image,
-    onImageClick: ((String) -> Unit)? = null
+    onImageClick: ((String) -> Unit)? = null,
 ) {
     val destination = image.destination
     val context = LocalContext.current
-    
-    val model = remember(destination, context) {
-        ImageRequest.Builder(context).data(destination).build()
-    }
+
+    val model =
+        remember(destination, context) {
+            ImageRequest.Builder(context).data(destination).build()
+        }
 
     val aspectRatio = MarkdownImageCache.get(destination)
-    val modifier = Modifier
-        .fillMaxWidth()
-        .clip(RoundedCornerShape(8.dp))
-        .padding(vertical = 4.dp)
-        .let { if (aspectRatio != null) it.aspectRatio(aspectRatio) else it }
-        .let { if (onImageClick != null) it.clickable { onImageClick(destination) } else it }
+    val modifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .padding(vertical = 4.dp)
+            .let { if (aspectRatio != null) it.aspectRatio(aspectRatio) else it }
+            .let { if (onImageClick != null) it.clickable { onImageClick(destination) } else it }
 
     SubcomposeAsyncImage(
         model = model,
         contentDescription = image.title ?: "Image",
         modifier = modifier,
-        contentScale = ContentScale.FillWidth
+        contentScale = ContentScale.FillWidth,
     ) {
         val state by painter.state.collectAsState()
-        
+
         when (state) {
             is AsyncImagePainter.State.Loading -> {
                 ImageLoadingPlaceholder()
             }
+
             is AsyncImagePainter.State.Success -> {
                 val successState = state as AsyncImagePainter.State.Success
                 val size = successState.painter.intrinsicSize
@@ -103,13 +108,15 @@ internal fun MarkdownImageBlock(
                         painter = painter,
                         contentDescription = image.title ?: "Image",
                         contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
+
             is AsyncImagePainter.State.Error -> {
                 ImageErrorPlaceholder()
             }
+
             else -> {
                 ImageEmptyPlaceholder()
             }
@@ -120,19 +127,20 @@ internal fun MarkdownImageBlock(
 @Composable
 private fun ImageLoadingPlaceholder() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 100.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                RoundedCornerShape(8.dp)
-            ),
-        contentAlignment = Alignment.Center
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 100.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                    RoundedCornerShape(8.dp),
+                ),
+        contentAlignment = Alignment.Center,
     ) {
         CircularProgressIndicator(
             modifier = Modifier.size(24.dp),
             strokeWidth = 2.dp,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
         )
     }
 }
@@ -140,19 +148,20 @@ private fun ImageLoadingPlaceholder() {
 @Composable
 private fun ImageErrorPlaceholder() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(60.dp)
-            .background(
-                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                RoundedCornerShape(8.dp)
-            ),
-        contentAlignment = Alignment.Center
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(60.dp)
+                .background(
+                    MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                    RoundedCornerShape(8.dp),
+                ),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text = "⚠ Image failed to load",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onErrorContainer
+            color = MaterialTheme.colorScheme.onErrorContainer,
         )
     }
 }
@@ -160,20 +169,21 @@ private fun ImageErrorPlaceholder() {
 @Composable
 private fun ImageEmptyPlaceholder() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .background(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                RoundedCornerShape(8.dp)
-            )
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = 60.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                    RoundedCornerShape(8.dp),
+                ),
     )
 }
 
 @Composable
 private fun ImageWithFadeIn(
     painter: coil3.compose.AsyncImagePainter,
-    title: String?
+    title: String?,
 ) {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -181,13 +191,13 @@ private fun ImageWithFadeIn(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(animationSpec = tween(300)),
-        exit = fadeOut()
+        exit = fadeOut(),
     ) {
         Image(
             painter = painter,
             contentDescription = title ?: "Image",
             contentScale = ContentScale.FillWidth,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

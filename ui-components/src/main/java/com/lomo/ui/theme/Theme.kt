@@ -21,87 +21,95 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme =
-        darkColorScheme(
-                primary = IndigoPrimaryDark,
-                onPrimary = Color.Black,
-                primaryContainer = Color(0xFF283275), // Dark Indigo
-                onPrimaryContainer = Color(0xFFDEE0FF),
-                secondary = SlateSecondaryDark,
-                onSecondary = Color.Black,
-                secondaryContainer = Color(0xFF3B4656),
-                onSecondaryContainer = Color(0xFFDCE2F0),
-                tertiary = CyanTertiaryDark,
-                onTertiary = Color.Black,
-                background = Neutral10,
-                onBackground = Neutral90,
-                surface = SurfaceContainerLowDark, // Switch to Container Low for default surface in Dark
-                onSurface = Neutral90,
-                surfaceVariant = Neutral30,
-                onSurfaceVariant = Neutral80,
-                error = ErrorDark,
-                outline = OutlineDark,
-                outlineVariant = OutlineVariantDark,
-                
-                // M3 Surface Roles
-                surfaceContainerLowest = SurfaceContainerLowestDark,
-                surfaceContainerLow = SurfaceContainerLowDark,
-                surfaceContainer = SurfaceContainerDark,
-                surfaceContainerHigh = SurfaceContainerHighDark,
-                surfaceContainerHighest = SurfaceContainerHighestDark,
-        )
+    darkColorScheme(
+        primary = IndigoPrimaryDark,
+        onPrimary = Color.Black,
+        primaryContainer = Color(0xFF283275), // Dark Indigo
+        onPrimaryContainer = Color(0xFFDEE0FF),
+        secondary = SlateSecondaryDark,
+        onSecondary = Color.Black,
+        secondaryContainer = Color(0xFF3B4656),
+        onSecondaryContainer = Color(0xFFDCE2F0),
+        tertiary = CyanTertiaryDark,
+        onTertiary = Color.Black,
+        background = Neutral10,
+        onBackground = Neutral90,
+        surface = SurfaceContainerLowDark, // Switch to Container Low for default surface in Dark
+        onSurface = Neutral90,
+        surfaceVariant = Neutral30,
+        onSurfaceVariant = Neutral80,
+        error = ErrorDark,
+        outline = OutlineDark,
+        outlineVariant = OutlineVariantDark,
+        // M3 Surface Roles
+        surfaceContainerLowest = SurfaceContainerLowestDark,
+        surfaceContainerLow = SurfaceContainerLowDark,
+        surfaceContainer = SurfaceContainerDark,
+        surfaceContainerHigh = SurfaceContainerHighDark,
+        surfaceContainerHighest = SurfaceContainerHighestDark,
+    )
 
 private val LightColorScheme =
-        lightColorScheme(
-                primary = IndigoPrimaryLight,
-                onPrimary = Color.White,
-                primaryContainer = Color(0xFFDEE0FF),
-                onPrimaryContainer = Color(0xFF00105C),
-                secondary = SlateSecondaryLight,
-                onSecondary = Color.White,
-                secondaryContainer = Color(0xFFDCE2F0),
-                onSecondaryContainer = Color(0xFF131C2B),
-                tertiary = CyanTertiaryLight,
-                onTertiary = Color.White,
-                background = Neutral99,
-                onBackground = Neutral10,
-                surface = Neutral99,
-                onSurface = Neutral10,
-                surfaceVariant = Neutral90,
-                onSurfaceVariant = Neutral30,
-                error = ErrorLight,
-                outline = OutlineLight,
-                outlineVariant = OutlineVariantLight,
-
-                // M3 Surface Roles
-                surfaceContainerLowest = SurfaceContainerLowestLight,
-                surfaceContainerLow = SurfaceContainerLowLight,
-                surfaceContainer = SurfaceContainerLight,
-                surfaceContainerHigh = SurfaceContainerHighLight,
-                surfaceContainerHighest = SurfaceContainerHighestLight,
-        )
+    lightColorScheme(
+        primary = IndigoPrimaryLight,
+        onPrimary = Color.White,
+        primaryContainer = Color(0xFFDEE0FF),
+        onPrimaryContainer = Color(0xFF00105C),
+        secondary = SlateSecondaryLight,
+        onSecondary = Color.White,
+        secondaryContainer = Color(0xFFDCE2F0),
+        onSecondaryContainer = Color(0xFF131C2B),
+        tertiary = CyanTertiaryLight,
+        onTertiary = Color.White,
+        background = Neutral99,
+        onBackground = Neutral10,
+        surface = Neutral99,
+        onSurface = Neutral10,
+        surfaceVariant = Neutral90,
+        onSurfaceVariant = Neutral30,
+        error = ErrorLight,
+        outline = OutlineLight,
+        outlineVariant = OutlineVariantLight,
+        // M3 Surface Roles
+        surfaceContainerLowest = SurfaceContainerLowestLight,
+        surfaceContainerLow = SurfaceContainerLowLight,
+        surfaceContainer = SurfaceContainerLight,
+        surfaceContainerHigh = SurfaceContainerHighLight,
+        surfaceContainerHighest = SurfaceContainerHighestLight,
+    )
 
 @Composable
 fun LomoTheme(
-        themeMode: String = "system",
-        dynamicColor: Boolean = true,
-        content: @Composable () -> Unit
+    themeMode: String = "system",
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit,
 ) {
-    val darkTheme = when (themeMode) {
-        "light" -> false
-        "dark" -> true
-        else -> isSystemInDarkTheme()
-    }
+    val darkTheme =
+        when (themeMode) {
+            "light" -> false
+            "dark" -> true
+            else -> isSystemInDarkTheme()
+        }
 
     val targetColorScheme =
-            when {
-                dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                    val context = LocalContext.current
-                    if (darkTheme) dynamicDarkColorScheme(context)
-                    else dynamicLightColorScheme(context)
+        when {
+            dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                val context = LocalContext.current
+                if (darkTheme) {
+                    dynamicDarkColorScheme(context)
+                } else {
+                    dynamicLightColorScheme(context)
                 }
-                darkTheme -> DarkColorScheme
-                else -> LightColorScheme
             }
+
+            darkTheme -> {
+                DarkColorScheme
+            }
+
+            else -> {
+                LightColorScheme
+            }
+        }
 
     val animatedColorScheme = animateColorSchemeAsState(targetColorScheme)
 
@@ -121,7 +129,7 @@ fun LomoTheme(
 @Composable
 fun animateColorSchemeAsState(
     targetColorScheme: ColorScheme,
-    animationSpec: AnimationSpec<Color> = tween(durationMillis = 300)
+    animationSpec: AnimationSpec<Color> = tween(durationMillis = 300),
 ): ColorScheme {
     val primary by animateColorAsState(targetColorScheme.primary, animationSpec, label = "primary")
     val onPrimary by animateColorAsState(targetColorScheme.onPrimary, animationSpec, label = "onPrimary")
@@ -155,22 +163,42 @@ fun animateColorSchemeAsState(
     val surfaceBright by animateColorAsState(targetColorScheme.surfaceBright, animationSpec, label = "surfaceBright")
     val surfaceContainer by animateColorAsState(targetColorScheme.surfaceContainer, animationSpec, label = "surfaceContainer")
     val surfaceContainerHigh by animateColorAsState(targetColorScheme.surfaceContainerHigh, animationSpec, label = "surfaceContainerHigh")
-    val surfaceContainerHighest by animateColorAsState(targetColorScheme.surfaceContainerHighest, animationSpec, label = "surfaceContainerHighest")
+    val surfaceContainerHighest by animateColorAsState(
+        targetColorScheme.surfaceContainerHighest,
+        animationSpec,
+        label = "surfaceContainerHighest",
+    )
     val surfaceContainerLow by animateColorAsState(targetColorScheme.surfaceContainerLow, animationSpec, label = "surfaceContainerLow")
-    val surfaceContainerLowest by animateColorAsState(targetColorScheme.surfaceContainerLowest, animationSpec, label = "surfaceContainerLowest")
+    val surfaceContainerLowest by animateColorAsState(
+        targetColorScheme.surfaceContainerLowest,
+        animationSpec,
+        label = "surfaceContainerLowest",
+    )
     val surfaceDim by animateColorAsState(targetColorScheme.surfaceDim, animationSpec, label = "surfaceDim")
     val primaryFixed by animateColorAsState(targetColorScheme.primaryFixed, animationSpec, label = "primaryFixed")
     val primaryFixedDim by animateColorAsState(targetColorScheme.primaryFixedDim, animationSpec, label = "primaryFixedDim")
     val onPrimaryFixed by animateColorAsState(targetColorScheme.onPrimaryFixed, animationSpec, label = "onPrimaryFixed")
-    val onPrimaryFixedVariant by animateColorAsState(targetColorScheme.onPrimaryFixedVariant, animationSpec, label = "onPrimaryFixedVariant")
+    val onPrimaryFixedVariant by animateColorAsState(
+        targetColorScheme.onPrimaryFixedVariant,
+        animationSpec,
+        label = "onPrimaryFixedVariant",
+    )
     val secondaryFixed by animateColorAsState(targetColorScheme.secondaryFixed, animationSpec, label = "secondaryFixed")
     val secondaryFixedDim by animateColorAsState(targetColorScheme.secondaryFixedDim, animationSpec, label = "secondaryFixedDim")
     val onSecondaryFixed by animateColorAsState(targetColorScheme.onSecondaryFixed, animationSpec, label = "onSecondaryFixed")
-    val onSecondaryFixedVariant by animateColorAsState(targetColorScheme.onSecondaryFixedVariant, animationSpec, label = "onSecondaryFixedVariant")
+    val onSecondaryFixedVariant by animateColorAsState(
+        targetColorScheme.onSecondaryFixedVariant,
+        animationSpec,
+        label = "onSecondaryFixedVariant",
+    )
     val tertiaryFixed by animateColorAsState(targetColorScheme.tertiaryFixed, animationSpec, label = "tertiaryFixed")
     val tertiaryFixedDim by animateColorAsState(targetColorScheme.tertiaryFixedDim, animationSpec, label = "tertiaryFixedDim")
     val onTertiaryFixed by animateColorAsState(targetColorScheme.onTertiaryFixed, animationSpec, label = "onTertiaryFixed")
-    val onTertiaryFixedVariant by animateColorAsState(targetColorScheme.onTertiaryFixedVariant, animationSpec, label = "onTertiaryFixedVariant")
+    val onTertiaryFixedVariant by animateColorAsState(
+        targetColorScheme.onTertiaryFixedVariant,
+        animationSpec,
+        label = "onTertiaryFixedVariant",
+    )
 
     return ColorScheme(
         primary = primary,

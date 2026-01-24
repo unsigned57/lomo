@@ -19,36 +19,39 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class BaselineProfileGenerator {
-
     @get:Rule val baselineRule = BaselineProfileRule()
 
     @Test
     fun generateBaselineProfile() {
         baselineRule.collect(
-                packageName = "com.lomo.app",
-                includeInStartupProfile = true,
-                profileBlock = {
-                    // Cold start - most important for startup optimization
-                    pressHome()
-                    startActivityAndWait()
+            packageName = "com.lomo.app",
+            includeInStartupProfile = true,
+            profileBlock = {
+                // Cold start - most important for startup optimization
+                pressHome()
+                startActivityAndWait()
 
-                    // Scroll through memo list - common user action
-                    device.wait(
-                            androidx.test.uiautomator.Until.hasObject(
-                                    androidx.test.uiautomator.By.scrollable(true)
-                            ),
-                            5000
+                // Scroll through memo list - common user action
+                device.wait(
+                    androidx.test.uiautomator.Until.hasObject(
+                        androidx.test.uiautomator.By
+                            .scrollable(true),
+                    ),
+                    5000,
+                )
+                val scrollable =
+                    device.findObject(
+                        androidx.test.uiautomator.By
+                            .scrollable(true),
                     )
-                    val scrollable =
-                            device.findObject(androidx.test.uiautomator.By.scrollable(true))
-                    scrollable?.scroll(androidx.test.uiautomator.Direction.DOWN, 1f)
+                scrollable?.scroll(androidx.test.uiautomator.Direction.DOWN, 1f)
 
-                    // Wait for any animations/loading
-                    Thread.sleep(500)
+                // Wait for any animations/loading
+                Thread.sleep(500)
 
-                    // Scroll back up
-                    scrollable?.scroll(androidx.test.uiautomator.Direction.UP, 1f)
-                }
+                // Scroll back up
+                scrollable?.scroll(androidx.test.uiautomator.Direction.UP, 1f)
+            },
         )
     }
 }

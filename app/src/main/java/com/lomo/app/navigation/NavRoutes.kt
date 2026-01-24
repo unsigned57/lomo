@@ -18,10 +18,14 @@ sealed interface NavRoute {
     data object Search : NavRoute
 
     @Serializable
-    data class Tag(val tagName: String) : NavRoute
+    data class Tag(
+        val tagName: String,
+    ) : NavRoute
 
     @Serializable
-    data class ImageViewer(val url: String) : NavRoute
+    data class ImageViewer(
+        val url: String,
+    ) : NavRoute
 
     @Serializable
     data object DailyReview : NavRoute

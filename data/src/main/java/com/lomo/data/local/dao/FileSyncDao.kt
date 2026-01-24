@@ -9,7 +9,10 @@ interface FileSyncDao {
     suspend fun getAllSyncMetadata(): List<FileSyncEntity>
 
     @Query("SELECT * FROM file_sync_metadata WHERE filename = :filename AND isTrash = :isTrash")
-    suspend fun getSyncMetadata(filename: String, isTrash: Boolean): FileSyncEntity?
+    suspend fun getSyncMetadata(
+        filename: String,
+        isTrash: Boolean,
+    ): FileSyncEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSyncMetadata(metadata: FileSyncEntity)
@@ -18,7 +21,11 @@ interface FileSyncDao {
     suspend fun insertSyncMetadata(metadata: List<FileSyncEntity>)
 
     @Query("DELETE FROM file_sync_metadata WHERE filename = :filename AND isTrash = :isTrash")
-    suspend fun deleteSyncMetadata(filename: String, isTrash: Boolean)
+    suspend fun deleteSyncMetadata(
+        filename: String,
+        isTrash: Boolean,
+    )
 
-    @Query("DELETE FROM file_sync_metadata") suspend fun deleteAllSyncMetadata()
+    @Query("DELETE FROM file_sync_metadata")
+    suspend fun deleteAllSyncMetadata()
 }

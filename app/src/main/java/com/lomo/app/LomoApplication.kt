@@ -6,51 +6,52 @@ import androidx.work.*
 import com.lomo.app.BuildConfig
 import com.lomo.data.worker.SyncWorker
 import dagger.hilt.android.HiltAndroidApp
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
-import timber.log.Timber
 
 @HiltAndroidApp
-class LomoApplication : Application(), Configuration.Provider {
+class LomoApplication :
+    Application(),
+    Configuration.Provider {
+    @Inject lateinit var workerFactory: HiltWorkerFactory
 
-        @Inject lateinit var workerFactory: HiltWorkerFactory
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
 
-        override val workManagerConfiguration: Configuration
-                get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+    override fun onCreate() {
+        super.onCreate()
 
-        override fun onCreate() {
-                super.onCreate()
-
-                // Initialize Timber for logging
-                if (BuildConfig.DEBUG) {
-                        Timber.plant(Timber.DebugTree())
-                }
-
-                try {
-                        schedulePeriodicSync()
-                } catch (e: Exception) {
-                        Timber.e(e, "Failed to schedule sync")
-                }
+        // Initialize Timber for logging
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
         }
 
-        private fun schedulePeriodicSync() {
-                val syncRequest =
-                        PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
-                                .setConstraints(
-                                        Constraints.Builder()
-                                                .setRequiredNetworkType(
-                                                        NetworkType.NOT_REQUIRED
-                                                ) // Memos are local
-                                                .build()
-                                )
-                                .build()
-
-                WorkManager.getInstance(this)
-                        .enqueueUniquePeriodicWork(
-                                SyncWorker.WORK_NAME,
-                                ExistingPeriodicWorkPolicy.KEEP,
-                                syncRequest
-                        )
+        try {
+            schedulePeriodicSync()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to schedule sync")
         }
+    }
+
+    private fun schedulePeriodicSync() {
+        val syncRequest =
+            PeriodicWorkRequestBuilder<SyncWorker>(1, TimeUnit.HOURS)
+                .setConstraints(
+                    Constraints
+                        .Builder()
+                        .setRequiredNetworkType(
+                            NetworkType.NOT_REQUIRED,
+                        ) // Memos are local
+                        .build(),
+                ).build()
+
+        WorkManager
+            .getInstance(this)
+            .enqueueUniquePeriodicWork(
+                SyncWorker.WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                syncRequest,
+            )
+    }
 }
-

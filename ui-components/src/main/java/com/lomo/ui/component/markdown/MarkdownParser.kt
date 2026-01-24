@@ -9,17 +9,17 @@ import org.commonmark.parser.Parser
 
 object MarkdownParser {
     private val parser: Parser by lazy {
-        Parser.builder()
-                .extensions(
-                        listOf(
-                                StrikethroughExtension.create(),
-                                TablesExtension.create(),
-                                AutolinkExtension.create(),
-                                TaskListItemsExtension.create()
-                        )
-                )
-                .includeSourceSpans(IncludeSourceSpans.BLOCKS)
-                .build()
+        Parser
+            .builder()
+            .extensions(
+                listOf(
+                    StrikethroughExtension.create(),
+                    TablesExtension.create(),
+                    AutolinkExtension.create(),
+                    TaskListItemsExtension.create(),
+                ),
+            ).includeSourceSpans(IncludeSourceSpans.BLOCKS)
+            .build()
     }
 
     fun parse(content: String): ImmutableNode {

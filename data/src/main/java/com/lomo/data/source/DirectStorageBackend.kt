@@ -10,9 +10,10 @@ import java.io.File
  * Handles traditional file paths.
  */
 class DirectStorageBackend(
-    private val rootDir: File
-) : StorageBackend, ImageStorageBackend, VoiceStorageBackend {
-
+    private val rootDir: File,
+) : StorageBackend,
+    ImageStorageBackend,
+    VoiceStorageBackend {
     private val trashDir: File get() = File(rootDir, ".trash")
 
     private fun ensureRootExists() {
@@ -28,18 +29,19 @@ class DirectStorageBackend(
     override suspend fun listFiles(targetFilename: String?): List<FileContent> =
         withContext(Dispatchers.IO) {
             if (!rootDir.exists() || !rootDir.isDirectory) return@withContext emptyList()
-            
-            rootDir.listFiles { _, name ->
-                name.endsWith(".md") && (targetFilename == null || name == targetFilename)
-            }?.map { file ->
-                FileContent(file.name, file.readText(), file.lastModified())
-            } ?: emptyList()
+
+            rootDir
+                .listFiles { _, name ->
+                    name.endsWith(".md") && (targetFilename == null || name == targetFilename)
+                }?.map { file ->
+                    FileContent(file.name, file.readText(), file.lastModified())
+                } ?: emptyList()
         }
 
     override suspend fun listTrashFiles(): List<FileContent> =
         withContext(Dispatchers.IO) {
             if (!trashDir.exists() || !trashDir.isDirectory) return@withContext emptyList()
-            
+
             trashDir.listFiles { _, name -> name.endsWith(".md") }?.map { file ->
                 FileContent(file.name, file.readText(), file.lastModified())
             } ?: emptyList()
@@ -48,7 +50,7 @@ class DirectStorageBackend(
     override suspend fun listMetadata(): List<FileMetadata> =
         withContext(Dispatchers.IO) {
             if (!rootDir.exists() || !rootDir.isDirectory) return@withContext emptyList()
-            
+
             rootDir.listFiles { _, name -> name.endsWith(".md") }?.map { file ->
                 FileMetadata(file.name, file.lastModified())
             } ?: emptyList()
@@ -57,7 +59,7 @@ class DirectStorageBackend(
     override suspend fun listTrashMetadata(): List<FileMetadata> =
         withContext(Dispatchers.IO) {
             if (!trashDir.exists() || !trashDir.isDirectory) return@withContext emptyList()
-            
+
             trashDir.listFiles { _, name -> name.endsWith(".md") }?.map { file ->
                 FileMetadata(file.name, file.lastModified())
             } ?: emptyList()
@@ -84,7 +86,6 @@ class DirectStorageBackend(
             }
         }
 
-
     // --- File reading ---
 
     override suspend fun readFile(filename: String): String? =
@@ -102,24 +103,29 @@ class DirectStorageBackend(
     override suspend fun readFileByDocumentId(documentId: String): String? =
         readFile(documentId) // documentId == filename for direct access
 
-    override suspend fun readTrashFileByDocumentId(documentId: String): String? =
-        readTrashFile(documentId)
+    override suspend fun readTrashFileByDocumentId(documentId: String): String? = readTrashFile(documentId)
 
     // --- File writing ---
 
-    override suspend fun saveFile(filename: String, content: String, append: Boolean) =
-        withContext(Dispatchers.IO) {
-            ensureRootExists()
-            val file = File(rootDir, filename)
-            if (append) file.appendText(content) else file.writeText(content)
-        }
+    override suspend fun saveFile(
+        filename: String,
+        content: String,
+        append: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        ensureRootExists()
+        val file = File(rootDir, filename)
+        if (append) file.appendText(content) else file.writeText(content)
+    }
 
-    override suspend fun saveTrashFile(filename: String, content: String, append: Boolean) =
-        withContext(Dispatchers.IO) {
-            ensureTrashExists()
-            val file = File(trashDir, filename)
-            if (append) file.appendText(content) else file.writeText(content)
-        }
+    override suspend fun saveTrashFile(
+        filename: String,
+        content: String,
+        append: Boolean,
+    ) = withContext(Dispatchers.IO) {
+        ensureTrashExists()
+        val file = File(trashDir, filename)
+        if (append) file.appendText(content) else file.writeText(content)
+    }
 
     // --- File deletion ---
 
@@ -149,13 +155,16 @@ class DirectStorageBackend(
 
     // --- Image operations (ImageStorageBackend) ---
 
-    override suspend fun saveImage(sourceUri: Uri, filename: String) {
+    override suspend fun saveImage(
+        sourceUri: Uri,
+        filename: String,
+    ) {
         withContext(Dispatchers.IO) {
             ensureRootExists()
             // For direct file backend, we need a Context to resolve the URI
             // This is typically handled at a higher level - see FileDataSourceImpl
             throw UnsupportedOperationException(
-                "DirectStorageBackend requires Context to resolve source URIs. Use FileDataSourceImpl.saveImage() instead."
+                "DirectStorageBackend requires Context to resolve source URIs. Use FileDataSourceImpl.saveImage() instead.",
             )
         }
     }
@@ -163,7 +172,7 @@ class DirectStorageBackend(
     override suspend fun listImageFiles(): List<Pair<String, String>> =
         withContext(Dispatchers.IO) {
             if (!rootDir.exists() || !rootDir.isDirectory) return@withContext emptyList()
-            
+
             rootDir.listFiles()?.map { file ->
                 file.name to Uri.fromFile(file).toString()
             } ?: emptyList()
@@ -192,7 +201,7 @@ class DirectStorageBackend(
 
     override suspend fun deleteVoiceFile(filename: String) =
         withContext(Dispatchers.IO) {
-             try {
+            try {
                 val file = File(rootDir, filename)
                 if (file.exists()) file.delete()
             } catch (e: Exception) {
@@ -200,6 +209,7 @@ class DirectStorageBackend(
             }
             Unit
         }
+
     override suspend fun createDirectory(name: String): String =
         withContext(Dispatchers.IO) {
             ensureRootExists()

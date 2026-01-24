@@ -62,12 +62,12 @@ object SearchTokenizer {
     private fun isCJK(c: Char): Boolean {
         val block = UnicodeBlock.of(c)
         return block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-                block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-                block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-                block == UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-                block == UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
-                block == UnicodeBlock.HIRAGANA ||
-                block == UnicodeBlock.KATAKANA ||
-                block == UnicodeBlock.HANGUL_SYLLABLES
+            block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+            block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+            block == UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+            block == UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
+            block == UnicodeBlock.HIRAGANA ||
+            block == UnicodeBlock.KATAKANA ||
+            block == UnicodeBlock.HANGUL_SYLLABLES
     }
 }

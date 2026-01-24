@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class SearchTokenizerTest {
-
     @Test
     fun `tokenize ASCII text`() {
         val input = "Hello World"

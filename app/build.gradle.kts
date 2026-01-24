@@ -99,7 +99,7 @@ dependencies {
     implementation(libs.androidx.material3.adaptive)
     implementation(libs.androidx.material3.adaptive.layout)
     implementation(libs.androidx.material3.adaptive.navigation)
-    
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
@@ -127,7 +127,7 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    
+
     // DocumentFile
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.collections.immutable)
@@ -135,7 +135,7 @@ dependencies {
     // Logging
     implementation(libs.timber)
     implementation(libs.zoomable.image.coil)
-    
+
     // P3-004: Coil for image preloading
     implementation(libs.coil.compose)
 

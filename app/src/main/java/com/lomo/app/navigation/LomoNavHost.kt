@@ -32,87 +32,107 @@ fun LomoNavHost(navController: NavHostController) {
     val enterTransition = {
         slideInHorizontally(
             initialOffsetX = { (it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationLong2,
+                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                ),
+        ) +
+            fadeIn(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                    ),
+            ) +
+            scaleIn(
+                initialScale = 0.95f,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
             )
-        ) + fadeIn(
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2
-            )
-        ) + scaleIn(
-            initialScale = 0.95f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate
-            )
-        )
     }
-    
+
     val exitTransition = {
         slideOutHorizontally(
             targetOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationLong2,
+                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                ),
+        ) +
+            fadeOut(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                    ),
+            ) +
+            scaleOut(
+                targetScale = 1.05f,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
             )
-        ) + fadeOut(
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2
-            )
-        ) + scaleOut(
-            targetScale = 1.05f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate
-            )
-        )
     }
-    
+
     val popEnterTransition = {
         slideInHorizontally(
             initialOffsetX = { -(it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationLong2,
+                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                ),
+        ) +
+            fadeIn(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                    ),
+            ) +
+            scaleIn(
+                initialScale = 1.05f,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
             )
-        ) + fadeIn(
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2
-            )
-        ) + scaleIn(
-            initialScale = 1.05f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedDecelerate
-            )
-        )
     }
-    
+
     val popExitTransition = {
         slideOutHorizontally(
             targetOffsetX = { (it * 0.15f).toInt() },
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate
+            animationSpec =
+                tween(
+                    durationMillis = MotionTokens.DurationLong2,
+                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                ),
+        ) +
+            fadeOut(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                    ),
+            ) +
+            scaleOut(
+                targetScale = 0.95f,
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
             )
-        ) + fadeOut(
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2
-            )
-        ) + scaleOut(
-            targetScale = 0.95f,
-            animationSpec = tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = MotionTokens.EasingEmphasizedAccelerate
-            )
-        )
     }
 
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     androidx.compose.animation.SharedTransitionLayout {
         androidx.compose.runtime.CompositionLocalProvider(
-            com.lomo.ui.util.LocalSharedTransitionScope provides this
+            com.lomo.ui.util.LocalSharedTransitionScope provides this,
         ) {
             NavHost(
                 navController = navController,
@@ -120,11 +140,11 @@ fun LomoNavHost(navController: NavHostController) {
                 enterTransition = { enterTransition() },
                 exitTransition = { exitTransition() },
                 popEnterTransition = { popEnterTransition() },
-                popExitTransition = { popExitTransition() }
+                popExitTransition = { popExitTransition() },
             ) {
                 composable<NavRoute.Main> {
                     androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this
+                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
                     ) {
                         MainScreen(
                             onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
@@ -136,33 +156,33 @@ fun LomoNavHost(navController: NavHostController) {
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
-                            onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) }
+                            onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
                         )
                     }
                 }
 
                 composable<NavRoute.Settings> {
                     SettingsScreen(
-                        onBackClick = { navController.popBackStack() }
+                        onBackClick = { navController.popBackStack() },
                     )
                 }
 
                 composable<NavRoute.Trash> {
                     TrashScreen(
-                        onBackClick = { navController.popBackStack() }
+                        onBackClick = { navController.popBackStack() },
                     )
                 }
 
                 composable<NavRoute.Search> {
                     SearchScreen(
-                        onBackClick = { navController.popBackStack() }
+                        onBackClick = { navController.popBackStack() },
                     )
                 }
 
                 composable<NavRoute.Tag> { backStackEntry ->
                     val tag = backStackEntry.toRoute<NavRoute.Tag>()
                     androidx.compose.runtime.CompositionLocalProvider(
-                         com.lomo.ui.util.LocalAnimatedVisibilityScope provides this
+                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
                     ) {
                         TagFilterScreen(
                             tagName = tag.tagName,
@@ -170,21 +190,21 @@ fun LomoNavHost(navController: NavHostController) {
                             onNavigateToImage = { url ->
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
-                            }
+                            },
                         )
                     }
                 }
 
                 composable<NavRoute.DailyReview> {
                     androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this
+                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
                     ) {
                         com.lomo.app.feature.review.DailyReviewScreen(
                             onBackClick = { navController.popBackStack() },
                             onNavigateToImage = { url ->
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
-                            }
+                            },
                         )
                     }
                 }
@@ -193,62 +213,72 @@ fun LomoNavHost(navController: NavHostController) {
                 composable<NavRoute.ImageViewer>(
                     enterTransition = {
                         fadeIn(
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasizedDecelerate
+                            animationSpec =
+                                tween(
+                                    durationMillis = MotionTokens.DurationMedium2,
+                                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                                ),
+                        ) +
+                            scaleIn(
+                                initialScale = 0.92f,
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationMedium2,
+                                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                                    ),
                             )
-                        ) + scaleIn(
-                            initialScale = 0.92f,
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasizedDecelerate
-                            )
-                        )
                     },
                     exitTransition = {
                         fadeOut(
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationShort4,
-                                easing = MotionTokens.EasingEmphasizedAccelerate
+                            animationSpec =
+                                tween(
+                                    durationMillis = MotionTokens.DurationShort4,
+                                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                                ),
+                        ) +
+                            scaleOut(
+                                targetScale = 1.05f,
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationShort4,
+                                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                                    ),
                             )
-                        ) + scaleOut(
-                            targetScale = 1.05f,
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationShort4,
-                                easing = MotionTokens.EasingEmphasizedAccelerate
-                            )
-                        )
                     },
                     popEnterTransition = {
                         fadeIn(
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationMedium1
-                            )
+                            animationSpec =
+                                tween(
+                                    durationMillis = MotionTokens.DurationMedium1,
+                                ),
                         )
                     },
                     popExitTransition = {
                         fadeOut(
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasizedAccelerate
+                            animationSpec =
+                                tween(
+                                    durationMillis = MotionTokens.DurationMedium2,
+                                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                                ),
+                        ) +
+                            scaleOut(
+                                targetScale = 0.92f,
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationMedium2,
+                                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                                    ),
                             )
-                        ) + scaleOut(
-                            targetScale = 0.92f,
-                            animationSpec = tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasizedAccelerate
-                            )
-                        )
-                    }
+                    },
                 ) { entry ->
                     val route = entry.toRoute<NavRoute.ImageViewer>()
                     val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
                     androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this
+                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
                     ) {
                         ImageViewerScreen(
                             url = decodedUrl,
-                            onBackClick = { navController.popBackStack() }
+                            onBackClick = { navController.popBackStack() },
                         )
                     }
                 }

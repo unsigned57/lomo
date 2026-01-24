@@ -17,22 +17,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 
 @Composable
-fun LoadingOverlay(message: String = "Loading...", modifier: Modifier = Modifier) {
+fun LoadingOverlay(
+    message: String = "Loading...",
+    modifier: Modifier = Modifier,
+) {
     Surface(
-            modifier = modifier.fillMaxSize().zIndex(100f),
-            color = MaterialTheme.colorScheme.background.copy(alpha = 0.9f)
+        modifier = modifier.fillMaxSize().zIndex(100f),
+        color = MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                        text = message,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onBackground
+                    text = message,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onBackground,
                 )
             }
         }

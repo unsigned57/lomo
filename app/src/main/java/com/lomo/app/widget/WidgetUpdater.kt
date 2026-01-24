@@ -10,7 +10,6 @@ import kotlinx.coroutines.withContext
  * Call this after creating, editing, or deleting memos.
  */
 object WidgetUpdater {
-    
     suspend fun updateAllWidgets(context: Context) {
         withContext(Dispatchers.IO) {
             val manager = GlanceAppWidgetManager(context)

@@ -13,5 +13,6 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
     fun memoDao(): MemoDao
+
     fun textProcessor(): com.lomo.data.util.MemoTextProcessor
 }
