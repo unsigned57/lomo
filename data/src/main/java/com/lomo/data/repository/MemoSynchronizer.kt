@@ -288,41 +288,7 @@ class MemoSynchronizer
             val filenameFormat = dataStore.storageFilenameFormat.first()
             val timestampFormat = dataStore.storageTimestampFormat.first()
 
-            // Added max retry limit to prevent theoretical infinite loop
-            // Ensure unique timestamp to prevent ID collision
-            var safeTimestamp = timestamp
-            var retryCount = 0
-            val maxRetries = 60 // Max 60 retries = 1 minute window
-
-            while (retryCount < maxRetries) {
-                val instant = Instant.ofEpochMilli(safeTimestamp)
-                val zoneId = ZoneId.systemDefault()
-                val filename =
-                    DateTimeFormatter
-                        .ofPattern(filenameFormat)
-                        .withZone(zoneId)
-                        .format(instant) + ".md"
-                val timeString =
-                    DateTimeFormatter
-                        .ofPattern(timestampFormat)
-                        .withZone(zoneId)
-                        .format(instant)
-                val potentialId = "${filename.removeSuffix(".md")}_$timeString"
-
-                if (dao.getMemo(potentialId) == null) {
-                    break
-                }
-                // Collision detected, add 1 second (since ID resolution is 1 second)
-                safeTimestamp += 1000
-                retryCount++
-            }
-
-            if (retryCount >= maxRetries) {
-                Timber.e("saveMemo: Failed to generate unique ID after $maxRetries retries")
-                throw IllegalStateException("Unable to generate unique memo ID after $maxRetries attempts")
-            }
-
-            val instant = Instant.ofEpochMilli(safeTimestamp)
+            val instant = Instant.ofEpochMilli(timestamp)
             val zoneId = ZoneId.systemDefault()
             val filename =
                 DateTimeFormatter
@@ -335,16 +301,39 @@ class MemoSynchronizer
                     .withZone(zoneId)
                     .format(instant)
 
+            val contentHash = content.trim().hashCode().let {
+                kotlin.math.abs(it).toString(16)
+            }
+            var baseId = "${filename.removeSuffix(".md")}_${timeString}_$contentHash"
+            var optimisticId = baseId
+            var collisionCount = 1
+
+            // Check if ID exists in DB (even if deleted, to avoid primary key conflict if we re-used it?)
+            // Actually, if it's deleted, we could theoretically reuse it?
+            // But for consistency with Parser logic (which counts items), we should simply finding the next available slot.
+            // But Parser counts items *in file*. DB might have items *in trash*.
+            // If I have 1 item in file (ID_0). And ID_1 is in Trash.
+            // If I add new item, Parser will see 2 items? No, Parser only parses File.
+            // Parser will read file, find 2 items -> ID_0, ID_1.
+            // Save logic adds to File.
+            // So we need to ensure the ID we pick here matches what Parser WILL generate next time it reads the file.
+            // If file has N items with this timestamp, we should pick ID_N.
+            // But we can't easily count file items without reading file.
+            // Strategy: Check DB for existence of ID. If exists (active or deleted), increment.
+            while (dao.getMemo(optimisticId) != null) {
+                optimisticId = "${baseId}_$collisionCount"
+                collisionCount++
+            }
+            
             val rawContent = "- $timeString $content"
             val fileContentToAppend = "\n$rawContent"
-            val optimisticId = "${filename.removeSuffix(".md")}_$timeString"
 
             val newMemo =
                 Memo(
                     id = optimisticId,
                     content = content,
                     date = filename.removeSuffix(".md"),
-                    timestamp = safeTimestamp,
+                    timestamp = timestamp,
                     rawContent = rawContent,
                     tags = textProcessor.extractTags(content),
                     imageUrls = textProcessor.extractImages(content),

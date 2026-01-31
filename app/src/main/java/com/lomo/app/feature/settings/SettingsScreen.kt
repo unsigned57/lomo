@@ -117,6 +117,14 @@ fun SettingsScreen(
                 androidx.compose.ui.res
                     .stringResource(com.lomo.app.R.string.settings_dark_mode),
         )
+// ... (omitting intermediate lines, but replace_file_content requires contiguous block or use multi_replace. I will use multi_replace for safety if gaps are large, but here the gap is LARGE.
+// Wait, I cannot use replace_file_content for non-contiguous changes.
+// I should use multi_replace_file_content.
+// But wait, the previous tool call failed because "target content not found".
+// Ah, because I tried to match a huge block with "// ...".
+// I will make TWO separate replace calls or one multi_replace.
+// Let's use multi_replace_file_content.
+
     val languageLabels =
         mapOf(
             "system" to
@@ -540,8 +548,6 @@ fun SettingsScreen(
                 listOf(
                     "HH:mm:ss",
                     "HH:mm",
-                    "hh:mm a",
-                    "yyyy-MM-dd HH:mm:ss",
                 ),
             currentSelection = tFormat,
             onDismiss = { showTimestampDialog = false },
