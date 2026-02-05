@@ -301,9 +301,10 @@ class MemoSynchronizer
                     .withZone(zoneId)
                     .format(instant)
 
-            val contentHash = content.trim().hashCode().let {
-                kotlin.math.abs(it).toString(16)
-            }
+            val contentHash =
+                content.trim().hashCode().let {
+                    kotlin.math.abs(it).toString(16)
+                }
             var baseId = "${filename.removeSuffix(".md")}_${timeString}_$contentHash"
             var optimisticId = baseId
             var collisionCount = 1
@@ -324,7 +325,7 @@ class MemoSynchronizer
                 optimisticId = "${baseId}_$collisionCount"
                 collisionCount++
             }
-            
+
             val rawContent = "- $timeString $content"
             val fileContentToAppend = "\n$rawContent"
 

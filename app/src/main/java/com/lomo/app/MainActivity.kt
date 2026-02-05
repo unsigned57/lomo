@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         enableEdgeToEdge()
-        
+
         handleIntent(intent)
 
         setContent {
@@ -97,7 +97,7 @@ class MainActivity : AppCompatActivity() {
                 } ?: run {
                     // Fallback to ClipData
                     intent.clipData?.getItemAt(0)?.uri?.let { uri ->
-                         viewModel.handleSharedImage(uri)
+                        viewModel.handleSharedImage(uri)
                     }
                 }
             }

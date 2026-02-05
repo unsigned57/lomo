@@ -239,8 +239,13 @@ class MainViewModel
 
         // Shared Content State
         sealed interface SharedContent {
-            data class Text(val content: String) : SharedContent
-            data class Image(val uri: android.net.Uri) : SharedContent
+            data class Text(
+                val content: String,
+            ) : SharedContent
+
+            data class Image(
+                val uri: android.net.Uri,
+            ) : SharedContent
         }
 
         private val _sharedContent = MutableStateFlow<SharedContent?>(null)

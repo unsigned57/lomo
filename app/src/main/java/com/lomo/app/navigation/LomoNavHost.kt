@@ -14,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.lomo.app.feature.image.ImageViewerScreen
 import com.lomo.app.feature.main.MainScreen
+import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.search.SearchScreen
 import com.lomo.app.feature.settings.SettingsScreen
 import com.lomo.app.feature.tag.TagFilterScreen
@@ -22,12 +23,6 @@ import com.lomo.ui.theme.MotionTokens
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-
-/**
- * Main navigation host for the Memos app.
- * Extracted from MainActivity to improve maintainability.
- */
-import com.lomo.app.feature.main.MainViewModel
 
 /**
  * Main navigation host for the Memos app.

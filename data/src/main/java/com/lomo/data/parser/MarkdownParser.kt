@@ -46,13 +46,13 @@ class MarkdownParser(
             if (currentTimestamp.isNotEmpty()) {
                 val fullRaw = currentRawBuilder.toString().trim()
                 val fullContent = currentContentBuilder.toString().trim()
-                
+
                 // Track occurrence of timestamps to add millisecond offsets
                 // This ensures that items with the same text-time are sorted by file-order (LIFO/FIFO)
                 // rather than random ID hash order.
                 val offset = timestampCounts.getOrDefault(currentTimestamp, 0)
                 timestampCounts[currentTimestamp] = offset + 1
-                
+
                 // Add offset to timestamp (cap at 999 to stay within same second)
                 val safeOffset = if (offset > 999) 999 else offset
                 val timestampWithOffset = parseTimestamp(filename, currentTimestamp) + safeOffset
@@ -60,11 +60,12 @@ class MarkdownParser(
 
                 // Stable ID: Use filename, timestamp string, AND content hash.
                 // This ensures that even if order changes (e.g. deletion), the ID remains stable.
-                val contentHash = fullContent.trim().hashCode().let {
-                    // Use absolute value to avoid negative signs in ID
-                    kotlin.math.abs(it).toString(16)
-                }
-                
+                val contentHash =
+                    fullContent.trim().hashCode().let {
+                        // Use absolute value to avoid negative signs in ID
+                        kotlin.math.abs(it).toString(16)
+                    }
+
                 val baseId = "${filename}_${currentTimestamp}_$contentHash"
                 var id = baseId
                 var collisionCount = 1
@@ -116,8 +117,8 @@ class MarkdownParser(
     private fun parseTimestamp(
         dateStr: String,
         timeStr: String,
-    ): Long {
-        return try {
+    ): Long =
+        try {
             // Normalize timeStr to ensure HH:mm:ss
             val timeParts = timeStr.split(":")
             val normalizedTime =
@@ -143,7 +144,6 @@ class MarkdownParser(
         } catch (e: Exception) {
             System.currentTimeMillis()
         }
-    }
 
     private fun extractTags(content: String): List<String> {
         // Delegate to shared utility class to avoid duplication

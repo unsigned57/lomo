@@ -117,10 +117,10 @@ class MarkdownParserTest {
 
         assertEquals(3, memos.size)
         assertEquals("Breakfast", memos[0].content)
-        // Verify ID contains date and timestamp. We can't predict hash easily in test without calc, 
+        // Verify ID contains date and timestamp. We can't predict hash easily in test without calc,
         // but we verify it's NOT just filename_time
         assertTrue(memos[0].id.startsWith("2026_01_12_08:00_"))
-        
+
         assertEquals("Lunch", memos[1].content)
         assertEquals("Dinner", memos[2].content)
     }
@@ -139,7 +139,7 @@ class MarkdownParserTest {
         val idB_usage1 = memos1[1].id
 
         // File 2: Note B only (Simulate deleting Note A)
-        // If IDs were position based, Note B would take Note A's ID or change. 
+        // If IDs were position based, Note B would take Note A's ID or change.
         // With hash, it should keep its own ID.
         val content2 =
             """
@@ -162,14 +162,14 @@ class MarkdownParserTest {
 - 10:00 Duplicate
 - 10:00 Duplicate
             """.trimIndent()
-        
+
         val memos = parser.parseContent(content, "file1")
         assertEquals(2, memos.size)
         // First one has base hash ID
         // Second one should have suffix _1
         val baseId = memos[0].id
         val collisionId = memos[1].id
-        
+
         assertTrue("Second ID should start with Base ID", collisionId.startsWith(baseId))
         assertTrue("Second ID should have suffix", collisionId.endsWith("_1"))
     }
@@ -186,7 +186,7 @@ class MarkdownParserTest {
         )
 
         val memos = parser.parseFile(file)
-        
+
         assertEquals(3, memos.size)
         // Check that timestamps are sequential
         // Note: Actual timestamp value depends on parseTimestamp + offset
@@ -194,7 +194,7 @@ class MarkdownParserTest {
         val t1 = memos[0].timestamp
         val t2 = memos[1].timestamp
         val t3 = memos[2].timestamp
-        
+
         assertTrue("Item 2 should have later timestamp than Item 1", t2 > t1)
         assertTrue("Item 3 should have later timestamp than Item 2", t3 > t2)
         assertEquals("Difference should be 1ms", 1, t2 - t1)

@@ -170,7 +170,7 @@ fun MainScreen(
 
     // Shared Content Observation
     val sharedContent by viewModel.sharedContent.collectAsStateWithLifecycle()
-    
+
     LaunchedEffect(sharedContent, imageDir) {
         val content = sharedContent
         if (content != null) {
@@ -185,16 +185,17 @@ fun MainScreen(
                     showInputSheet = true
                     viewModel.consumeSharedContent()
                 }
+
                 is MainViewModel.SharedContent.Image -> {
                     if (imageDir != null) {
                         // Logic handled via saving image in ViewModel then appending markdown
                         viewModel.saveImage(content.uri) { path ->
-                             val markdown = "![image]($path)"
-                             val cur = inputText.text
-                             val newText = if (cur.isEmpty()) markdown else "$cur\n$markdown"
-                             inputText = TextFieldValue(newText, TextRange(newText.length))
-                             showInputSheet = true
-                             viewModel.consumeSharedContent()
+                            val markdown = "![image]($path)"
+                            val cur = inputText.text
+                            val newText = if (cur.isEmpty()) markdown else "$cur\n$markdown"
+                            inputText = TextFieldValue(newText, TextRange(newText.length))
+                            showInputSheet = true
+                            viewModel.consumeSharedContent()
                         }
                     } else {
                         // Trigger directory setup if missing
