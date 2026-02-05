@@ -180,7 +180,7 @@ fun TrashScreen(
                                         isProcessing,
                                         memo.id,
                                     ) {
-                                        if (isProcessing && mutationTimestamp != null) {
+                                        if (isProcessing) {
                                             while (value < 1f) {
                                                 val elapsed = System.currentTimeMillis() - mutationTimestamp
                                                 value = (elapsed.toFloat() / totalDuration).coerceIn(0f, 1f)

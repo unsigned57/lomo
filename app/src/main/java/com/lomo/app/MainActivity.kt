@@ -91,7 +91,8 @@ class MainActivity : AppCompatActivity() {
                 }
             } else if (intent.type?.startsWith("image/") == true) {
                 // Try EXTRA_STREAM first
-                (intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM))?.let { uri ->
+                // Use IntentCompat for backward compatibility
+                androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
                     viewModel.handleSharedImage(uri)
                 } ?: run {
                     // Fallback to ClipData

@@ -183,7 +183,7 @@ internal fun MemoListContent(
                         val fadeDuration = 300f
 
                         val animationProgress by androidx.compose.runtime.produceState(initialValue = 0f, isDeleting, memo.id) {
-                            if (isDeleting && mutation is MainViewModel.MemoMutation.Delete) {
+                            if (isDeleting) {
                                 while (value < 1f) {
                                     val elapsed = System.currentTimeMillis() - mutation.timestamp
                                     value = (elapsed.toFloat() / totalDuration).coerceIn(0f, 1f)
