@@ -13,7 +13,7 @@ It manages your notes as plain `.md` files on your device—no **digital walled 
 
 ## Why Lomo?
 
-Lomo draws inspiration from excellent predecessors like **Memos**, **Flomo**, **Moe-Memos**, and the **Thino** plugin for Obsidian. The name itself is a nod to "**Lo**cal Me**mo**" (or simply Flomo without the *F*—Foreign/Cloud).
+Lomo draws inspiration from excellent predecessors like **Memos**, **Flomo**, **Moe-Memos**, and the **Thino** plugin for Obsidian. The name itself is a nod to "**Lo**cal Me**mo**" (or simply Flomo without the *F*—Foreign/Cloud), as well as a blend of **Lo**calsend and **Me**mo.
 
 Why build another one?
 Most existing solutions require a server or network connection. I wanted the "Memos experience"—lightweight, timestamped thoughts—but strictly **offline** and based on local Markdown files (proven to be the most universal and portable format).
@@ -22,7 +22,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 
 **Compatibility**: Lomo is fully compatible with Thino's daily note format. You can effectively treat it as a standalone, native Android client for your Thino data.
 
-> **A Note on Development**: This project was built almost entirely using **Google's Antigravity**. Since Lomo is tailored to my specific workflow, I plan to maintain it for as long as it remains part of my daily toolchain. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
+> **A Note on Development**: This project was built almost entirely using **Google Antigravity** and **Codex**. Since Lomo is tailored to my specific workflow, I plan to maintain it for as long as it remains part of my daily toolchain. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
 
 ## Features
 
@@ -35,6 +35,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 - **Widgets**: Home screen widgets for quick capture and recent notes.
 - **Search**: Full-text search with indexing.
 - **Voice Recording**: Support for voice memos.
+- **LAN Sharing**: Support sharing notes to other Lomo apps via local network.
 
 ## Tech Stack
 
@@ -53,7 +54,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 - JDK 17
 - Android SDK API 36
 
-### commands
+### Common Commands
 
 ```bash
 # Build Debug APK
