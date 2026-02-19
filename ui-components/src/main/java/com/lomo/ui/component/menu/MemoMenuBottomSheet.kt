@@ -23,6 +23,7 @@ fun MemoMenuBottomSheet(
     onDismissRequest: () -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
+    onLanShare: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -46,6 +47,7 @@ fun MemoMenuBottomSheet(
             state = state,
             onCopy = onCopy,
             onShare = onShare,
+            onLanShare = onLanShare,
             onEdit = onEdit,
             onDelete = onDelete,
             onDismiss = onDismissRequest,

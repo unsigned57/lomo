@@ -35,6 +35,7 @@ class MemoSynchronizer
         private val textProcessor: MemoTextProcessor,
         private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
         private val fileCacheDao: com.lomo.data.local.dao.FileCacheDao,
+        private val tokenDao: com.lomo.data.local.dao.MemoTokenDao,
     ) {
         private val mutex = Mutex()
 
@@ -103,6 +104,8 @@ class MemoSynchronizer
                         // Parallel parsing with batching to prevent OOM
                         val allMemos = mutableListOf<MemoEntity>()
                         val metadataToUpdate = mutableListOf<FileSyncEntity>()
+                        val mainDatesToReplace = mutableSetOf<String>()
+                        val trashDatesToReplace = mutableSetOf<String>()
 
                         // Process Main files in chunks
                         mainFilesToUpdate.chunked(10).forEach { chunk ->
@@ -128,8 +131,7 @@ class MemoSynchronizer
 
                             chunkResults.filterNotNull().forEach { (memos, meta) ->
                                 val dateStr = meta.filename.removeSuffix(".md")
-                                dao.deleteMemosByDate(dateStr, isDeleted = false)
-
+                                mainDatesToReplace.add(dateStr)
                                 allMemos.addAll(memos)
                                 metadataToUpdate.add(
                                     FileSyncEntity(
@@ -177,7 +179,7 @@ class MemoSynchronizer
                                         inDb == null || inDb.isDeleted
                                     }
 
-                                dao.deleteMemosByDate(dateStr, isDeleted = true)
+                                trashDatesToReplace.add(dateStr)
                                 allMemos.addAll(filteredMemos)
                                 metadataToUpdate.add(
                                     FileSyncEntity(meta.filename, meta.lastModified, isTrash = true),
@@ -200,13 +202,21 @@ class MemoSynchronizer
                             }
 
                         // Batch update database
-                        if (allMemos.isNotEmpty() || filesToDeleteInDb.isNotEmpty()) {
+                        val hasDateReplacements = mainDatesToReplace.isNotEmpty() || trashDatesToReplace.isNotEmpty()
+                        if (hasDateReplacements || filesToDeleteInDb.isNotEmpty()) {
+                            mainDatesToReplace.forEach { date ->
+                                dao.deleteMemosByDate(date, isDeleted = false)
+                            }
+                            trashDatesToReplace.forEach { date ->
+                                dao.deleteMemosByDate(date, isDeleted = true)
+                            }
+
                             // Deduplicate allMemos: If the same ID exists as both deleted and non-deleted,
                             // prioritize the non-deleted one (Main file wins).
                             val deduplicatedMemos =
                                 allMemos
                                     .groupBy { it.id }
-                                    .mapValues { (id, list) ->
+                                    .mapValues { (_, list) ->
                                         list.find { !it.isDeleted } ?: list.first()
                                     }.values
                                     .toList()
@@ -230,7 +240,19 @@ class MemoSynchronizer
                                         com.lomo.data.util.SearchTokenizer
                                             .tokenize(it.content)
                                     dao.insertMemoFts(MemoFtsEntity(it.id, tokenized))
+                                    // 非 FTS 中文模糊：维护 token 表（仅索引未删除的）
+                                    tokenDao.deleteByMemoId(it.id)
+                                    if (!it.isDeleted) {
+                                        val tokens = tokenized.split(' ').filter { s -> s.isNotBlank() }
+                                        if (tokens.isNotEmpty()) {
+                                            val tokenEntities = tokens.map { t -> com.lomo.data.local.entity.MemoTokenEntity(t, it.id) }
+                                            tokenDao.insertAll(tokenEntities)
+                                        }
+                                    }
                                 }
+                            }
+
+                            if (metadataToUpdate.isNotEmpty()) {
                                 fileSyncDao.insertSyncMetadata(metadataToUpdate)
                             }
 
@@ -243,6 +265,7 @@ class MemoSynchronizer
                                 memosInDb.forEach {
                                     dao.deleteMemo(it)
                                     dao.deleteMemoFts(it.id)
+                                    tokenDao.deleteByMemoId(it.id)
                                 }
                                 fileSyncDao.deleteSyncMetadata(filename, isTrash)
                             }
@@ -276,6 +299,11 @@ class MemoSynchronizer
                         com.lomo.data.util.SearchTokenizer
                             .tokenize(it.content)
                     dao.insertMemoFts(MemoFtsEntity(it.id, tokenized))
+                    tokenDao.deleteByMemoId(it.id)
+                    if (!it.isDeleted) {
+                        val tokens = tokenized.split(' ').filter { s -> s.isNotBlank() }
+                        if (tokens.isNotEmpty()) tokenDao.insertAll(tokens.map { t -> com.lomo.data.local.entity.MemoTokenEntity(t, it.id) })
+                    }
                 }
             }
         }
@@ -309,19 +337,10 @@ class MemoSynchronizer
             var optimisticId = baseId
             var collisionCount = 1
 
-            // Check if ID exists in DB (even if deleted, to avoid primary key conflict if we re-used it?)
-            // Actually, if it's deleted, we could theoretically reuse it?
-            // But for consistency with Parser logic (which counts items), we should simply finding the next available slot.
-            // But Parser counts items *in file*. DB might have items *in trash*.
-            // If I have 1 item in file (ID_0). And ID_1 is in Trash.
-            // If I add new item, Parser will see 2 items? No, Parser only parses File.
-            // Parser will read file, find 2 items -> ID_0, ID_1.
-            // Save logic adds to File.
-            // So we need to ensure the ID we pick here matches what Parser WILL generate next time it reads the file.
-            // If file has N items with this timestamp, we should pick ID_N.
-            // But we can't easily count file items without reading file.
-            // Strategy: Check DB for existence of ID. If exists (active or deleted), increment.
-            while (dao.getMemo(optimisticId) != null) {
+            // Align with parser behavior: deleted rows should not occupy ID slots for active-file parsing.
+            while (true) {
+                val existing = dao.getMemo(optimisticId)
+                if (existing == null || existing.isDeleted) break
                 optimisticId = "${baseId}_$collisionCount"
                 collisionCount++
             }
@@ -341,34 +360,31 @@ class MemoSynchronizer
                     isDeleted = false,
                 )
 
-            // DB
+            // File first
+            val savedUriString = fileDataSource.saveFile(filename, fileContentToAppend, append = true)
+            val metadata = fileDataSource.getFileMetadata(filename)
+            if (metadata == null) throw java.io.IOException("Failed to read metadata after save")
+            fileSyncDao.insertSyncMetadata(FileSyncEntity(filename, metadata.lastModified, isTrash = false))
+            if (savedUriString != null) {
+                fileCacheDao.insert(
+                    com.lomo.data.local.entity.FileCacheEntity(
+                        filename,
+                        savedUriString,
+                        metadata.lastModified,
+                    ),
+                )
+            }
+
+            // Then DB
             val entity = MemoEntity.fromDomain(newMemo)
             dao.insertMemo(entity)
             updateMemoTags(entity)
-            val tokenizedContent =
-                com.lomo.data.util.SearchTokenizer
-                    .tokenize(entity.content)
+            val tokenizedContent = com.lomo.data.util.SearchTokenizer.tokenize(entity.content)
             dao.insertMemoFts(MemoFtsEntity(entity.id, tokenizedContent))
-
-            // File
-            val savedUriString =
-                fileDataSource.saveFile(filename, fileContentToAppend, append = true)
-
-            // Update Sync Metadata explicitly to prevent re-import
-            val metadata = fileDataSource.getFileMetadata(filename)
-            if (metadata != null) {
-                fileSyncDao.insertSyncMetadata(
-                    FileSyncEntity(filename, metadata.lastModified, isTrash = false),
-                )
-                if (savedUriString != null) {
-                    fileCacheDao.insert(
-                        com.lomo.data.local.entity.FileCacheEntity(
-                            filename,
-                            savedUriString,
-                            metadata.lastModified,
-                        ),
-                    )
-                }
+            tokenDao.deleteByMemoId(entity.id)
+            run {
+                val tokens = tokenizedContent.split(' ').filter { it.isNotBlank() }
+                if (tokens.isNotEmpty()) tokenDao.insertAll(tokens.map { t -> com.lomo.data.local.entity.MemoTokenEntity(t, entity.id) })
             }
         }
 
@@ -404,15 +420,7 @@ class MemoSynchronizer
             val newRawContentFull = "- $timeString $newContent"
             val finalUpdatedMemo = updatedMemo.copy(rawContent = newRawContentFull)
 
-            val finalEntity = MemoEntity.fromDomain(finalUpdatedMemo)
-            dao.insertMemo(finalEntity)
-            updateMemoTags(finalEntity)
-            val tokenizedContent =
-                com.lomo.data.util.SearchTokenizer
-                    .tokenize(finalEntity.content)
-            dao.insertMemoFts(MemoFtsEntity(finalEntity.id, tokenizedContent))
-
-            // File
+            // File-first update (write file before DB)
             val cachedUriString = fileCacheDao.getFileUri(filename)?.uriString
             val currentFileContent =
                 if (cachedUriString != null) {
@@ -434,8 +442,7 @@ class MemoSynchronizer
                     )
 
                 if (success) {
-                    val savedUri =
-                        fileDataSource.saveFile(filename, lines.joinToString("\n"), append = false)
+                    val savedUri = fileDataSource.saveFile(filename, lines.joinToString("\n"), append = false)
 
                     // Update Sync Metadata
                     val metadata = fileDataSource.getFileMetadata(filename)
@@ -452,6 +459,20 @@ class MemoSynchronizer
                                 ),
                             )
                         }
+                    }
+
+                    // Then DB
+                    val finalEntity = MemoEntity.fromDomain(finalUpdatedMemo)
+                    dao.insertMemo(finalEntity)
+                    updateMemoTags(finalEntity)
+                    val tokenizedContent =
+                        com.lomo.data.util.SearchTokenizer
+                            .tokenize(finalEntity.content)
+                    dao.insertMemoFts(MemoFtsEntity(finalEntity.id, tokenizedContent))
+                    tokenDao.deleteByMemoId(finalEntity.id)
+                    run {
+                        val tokens = tokenizedContent.split(' ').filter { it.isNotBlank() }
+                        if (tokens.isNotEmpty()) tokenDao.insertAll(tokens.map { t -> com.lomo.data.local.entity.MemoTokenEntity(t, finalEntity.id) })
                     }
                 }
             }
@@ -516,6 +537,7 @@ class MemoSynchronizer
                     // 4. Update DB after file operations succeed
                     dao.softDeleteMemo(memo.id)
                     dao.deleteMemoFts(memo.id)
+                    tokenDao.deleteByMemoId(memo.id)
 
                     // Cleanup orphan tags
                     dao.deleteOrphanTags()
@@ -576,6 +598,11 @@ class MemoSynchronizer
                             com.lomo.data.util.SearchTokenizer
                                 .tokenize(entity.content)
                         dao.insertMemoFts(MemoFtsEntity(entity.id, tokenized))
+                        tokenDao.deleteByMemoId(entity.id)
+                        run {
+                            val tokens = tokenized.split(' ').filter { it.isNotBlank() }
+                            if (tokens.isNotEmpty()) tokenDao.insertAll(tokens.map { t -> com.lomo.data.local.entity.MemoTokenEntity(t, entity.id) })
+                        }
                     } else {
                         Timber.e("restoreMemo: Failed to find memo block in trash file for ${memo.id}")
                         // Fallback: If removal failed, maybe the note is already gone from file but not DB
@@ -611,6 +638,7 @@ class MemoSynchronizer
                     // Actually remove from DB ONLY IF file operation was successful
                     dao.deleteMemo(MemoEntity.fromDomain(memo))
                     dao.deleteMemoFts(memo.id)
+                    tokenDao.deleteByMemoId(memo.id)
                 } else {
                     Timber.e("deletePermanently: Failed to find block for ${memo.id}")
                 }

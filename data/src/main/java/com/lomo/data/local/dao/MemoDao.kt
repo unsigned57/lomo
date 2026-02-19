@@ -24,6 +24,7 @@ interface MemoDao {
     @Query("SELECT * FROM Lomo WHERE id IN (:ids)")
     suspend fun getMemosByIds(ids: List<String>): List<MemoEntity>
 
+    // 保留原 LIKE 作为兜底或英文/符号搜索
     @Query(
         """
         SELECT * FROM Lomo 

@@ -32,7 +32,13 @@ class MainViewModelTest {
     private lateinit var textProcessor: com.lomo.data.util.MemoTextProcessor
     private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
     private lateinit var imageMapProvider: com.lomo.domain.provider.ImageMapProvider
-    private lateinit var appContext: android.content.Context
+    private lateinit var voiceRecorder: com.lomo.domain.repository.VoiceRecorder
+    private lateinit var widgetRepository: com.lomo.domain.repository.WidgetRepository
+    private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
+    private lateinit var updateManager: com.lomo.app.feature.update.UpdateManager
+    private lateinit var createMemoUseCase: com.lomo.domain.usecase.CreateMemoUseCase
+    private lateinit var deleteMemoUseCase: com.lomo.domain.usecase.DeleteMemoUseCase
+    private lateinit var updateMemoUseCase: com.lomo.domain.usecase.UpdateMemoUseCase
 
     @Before
     fun setup() {
@@ -44,7 +50,13 @@ class MainViewModelTest {
         textProcessor = mockk(relaxed = true)
         getFilteredMemosUseCase = mockk(relaxed = true)
         imageMapProvider = mockk(relaxed = true)
-        appContext = mockk(relaxed = true)
+        voiceRecorder = mockk(relaxed = true)
+        widgetRepository = mockk(relaxed = true)
+        audioPlayerManager = mockk(relaxed = true)
+        updateManager = mockk(relaxed = true)
+        createMemoUseCase = mockk(relaxed = true)
+        deleteMemoUseCase = mockk(relaxed = true)
+        updateMemoUseCase = mockk(relaxed = true)
 
         // Default stubs
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
@@ -130,12 +142,18 @@ class MainViewModelTest {
 
     private fun createViewModel(): MainViewModel =
         MainViewModel(
-            savedStateHandle = savedStateHandle,
             repository = repository,
+            savedStateHandle = savedStateHandle,
             mapper = mapper,
+            imageMapProvider = imageMapProvider,
             textProcessor = textProcessor,
             getFilteredMemosUseCase = getFilteredMemosUseCase,
-            imageMapProvider = imageMapProvider,
-            appContext = appContext,
+            voiceRecorder = voiceRecorder,
+            widgetRepository = widgetRepository,
+            audioPlayerManager = audioPlayerManager,
+            updateManager = updateManager,
+            createMemoUseCase = createMemoUseCase,
+            deleteMemoUseCase = deleteMemoUseCase,
+            updateMemoUseCase = updateMemoUseCase,
         )
 }

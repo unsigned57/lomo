@@ -23,8 +23,9 @@ import com.lomo.data.local.entity.TagEntity
             FileSyncEntity::class,
             com.lomo.data.local.entity.FileCacheEntity::class,
             com.lomo.data.local.entity.PendingOpEntity::class,
+            com.lomo.data.local.entity.MemoTokenEntity::class,
         ],
-    version = 10,
+    version = 12,
     exportSchema = false,
 )
 abstract class MemoDatabase : RoomDatabase() {
@@ -37,4 +38,6 @@ abstract class MemoDatabase : RoomDatabase() {
     abstract fun fileCacheDao(): com.lomo.data.local.dao.FileCacheDao
 
     abstract fun pendingOpDao(): com.lomo.data.local.dao.PendingOpDao
+
+    abstract fun memoTokenDao(): com.lomo.data.local.dao.MemoTokenDao
 }

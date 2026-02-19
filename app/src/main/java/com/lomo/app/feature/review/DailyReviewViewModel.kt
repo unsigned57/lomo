@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.SettingsRepository
 import com.lomo.ui.util.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +19,7 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
+        private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
     ) : ViewModel() {
@@ -25,7 +27,7 @@ class DailyReviewViewModel
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
 
         val dateFormat: StateFlow<String> =
-            repository
+            settingsRepository
                 .getDateFormat()
                 .stateIn(
                     scope = viewModelScope,
@@ -36,7 +38,7 @@ class DailyReviewViewModel
                 )
 
         val timeFormat: StateFlow<String> =
-            repository
+            settingsRepository
                 .getTimeFormat()
                 .stateIn(
                     scope = viewModelScope,

@@ -28,6 +28,12 @@
     <string name="settings_show_input_hints_subtitle">Display usage tips in the input box</string>
     <string name="settings_check_updates">Check updates on startup</string>
     <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
+    <string name="settings_lan_share_pairing_code">LAN Share Pairing Code</string>
+    <string name="settings_lan_share_pairing_configured">Configured (tap to update or clear)</string>
+    <string name="settings_lan_share_pairing_not_set">Not configured (required for LAN sharing)</string>
+    <string name="settings_lan_share_pairing_dialog_title">Set Pairing Code</string>
+    <string name="settings_lan_share_pairing_dialog_message">Use the same code on all devices you want to trust for LAN sharing.</string>
+    <string name="settings_lan_share_pairing_hint">6-64 characters</string>
     
     <string name="input_hint_1">Long press + to scroll to top</string>
     <string name="input_hint_2">Triple enter to quick send</string>
@@ -49,6 +55,51 @@
     <string name="share">Share</string>
     <string name="copy_to_clipboard">Copy to Clipboard</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="share_lan_title">Share via LAN</string>
+    <string name="share_nearby_devices">Nearby Devices</string>
+    <string name="share_devices_count">%1$d devices</string>
+    <string name="share_memo_preview_title">Memo to share</string>
+    <string name="share_status_connecting">Connecting...</string>
+    <string name="share_status_waiting_approval">Waiting for %1$s to accept...</string>
+    <string name="share_status_transferring">Transferring...</string>
+    <string name="share_status_sent">Sent to %1$s</string>
+    <string name="share_searching_devices">Searching for nearby devices...</string>
+    <string name="share_searching_hint">Make sure both devices are on the same WiFi</string>
+    <string name="share_e2e_enabled_title">End-to-end encryption</string>
+    <string name="share_e2e_enabled_subtitle">Encrypt memo content and attachments during LAN transfer</string>
+    <string name="share_e2e_state_enabled">Enabled</string>
+    <string name="share_e2e_state_disabled">Disabled</string>
+    <string name="share_e2e_password_title">End-to-end password</string>
+    <string name="share_e2e_password_set">Set</string>
+    <string name="share_e2e_password_configured">Configured</string>
+    <string name="share_e2e_password_not_set">Not configured (required when encryption is enabled)</string>
+    <string name="share_e2e_password_dialog_title">Set end-to-end password</string>
+    <string name="share_e2e_password_dialog_message">Use the same password on all devices you trust for LAN sharing.</string>
+    <string name="share_e2e_password_hint">6-64 characters</string>
+    <string name="share_password_show">Show</string>
+    <string name="share_password_hide">Hide</string>
+    <string name="share_device_name_label">Device name</string>
+    <string name="share_device_name_placeholder">Name shown to nearby devices</string>
+    <string name="share_device_name_use_system">Use system name</string>
+    <string name="share_error_connection_failed">Connection failed: %1$s</string>
+    <string name="share_error_transfer_rejected">Transfer rejected</string>
+    <string name="share_error_transfer_rejected_by">Transfer rejected by %1$s</string>
+    <string name="share_error_transfer_failed">Transfer failed</string>
+    <string name="share_error_unknown">Unknown error</string>
+    <string name="share_error_set_password_first">Please set an end-to-end password first</string>
+    <string name="share_error_receiver_password_not_set">Receiver has not set an end-to-end password</string>
+    <string name="share_error_invalid_attachment_size">Invalid image/audio size</string>
+    <string name="share_error_attachment_too_large">Attachment is too large</string>
+    <string name="share_error_attachment_resolve_failed">Cannot resolve attachment file path</string>
+    <string name="share_error_unsupported_attachment_type">Unsupported attachment type</string>
+    <string name="share_error_device_unreachable">Target device is unreachable</string>
+    <string name="share_error_invalid_pairing_code">Password must be 6-64 characters</string>
+    <string name="share_incoming_title">Incoming memo</string>
+    <string name="share_incoming_from">From: %1$s</string>
+    <plurals name="share_incoming_attachments_count">
+        <item quantity="one">%1$d attachment</item>
+        <item quantity="other">%1$d attachments</item>
+    </plurals>
 
     <!-- Settings Keys (New) -->
     <string name="settings_language">Language</string>
@@ -128,6 +179,11 @@
     <string name="update_dialog_message">A new version of Lomo is available. Please update.</string>
     <string name="action_download">Download</string>
     <string name="action_cancel">Cancel</string>
+    <string name="action_accept">Accept</string>
+    <string name="action_reject">Reject</string>
+    <string name="action_save">Save</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_clear_pairing_code">Clear pairing code</string>
 
     <!-- About Group -->
     <string name="settings_group_about">About</string>

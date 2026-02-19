@@ -1,7 +1,7 @@
 package com.lomo.domain.provider
 
 import android.net.Uri
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -26,7 +26,7 @@ import javax.inject.Singleton
 class ImageMapProvider
     @Inject
     constructor(
-        private val repository: MemoRepository,
+        private val repository: MediaRepository,
     ) {
         // Application-scoped coroutine scope for sharing the StateFlow
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

@@ -6,6 +6,7 @@ import com.lomo.data.source.FileDataSource
 import com.lomo.data.util.FormatDetector
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,7 @@ class SettingsViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
+        private val settings: SettingsRepository,
         private val formatDetector: FormatDetector,
         private val fileDataSource: FileDataSource,
     ) : ViewModel() {
@@ -41,7 +43,7 @@ class SettingsViewModel
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val dateFormat: StateFlow<String> =
-            repository
+            settings
                 .getDateFormat()
                 .stateIn(
                     viewModelScope,
@@ -50,7 +52,7 @@ class SettingsViewModel
                 )
 
         val timeFormat: StateFlow<String> =
-            repository
+            settings
                 .getTimeFormat()
                 .stateIn(
                     viewModelScope,
@@ -59,7 +61,7 @@ class SettingsViewModel
                 )
 
         val themeMode: StateFlow<String> =
-            repository
+            settings
                 .getThemeMode()
                 .stateIn(
                     viewModelScope,
@@ -68,7 +70,7 @@ class SettingsViewModel
                 )
 
         val hapticFeedbackEnabled: StateFlow<Boolean> =
-            repository
+            settings
                 .isHapticFeedbackEnabled()
                 .stateIn(
                     viewModelScope,
@@ -77,7 +79,7 @@ class SettingsViewModel
                 )
 
         val showInputHints: StateFlow<Boolean> =
-            repository
+            settings
                 .isShowInputHintsEnabled()
                 .stateIn(
                     viewModelScope,
@@ -86,7 +88,7 @@ class SettingsViewModel
                 )
 
         val storageFilenameFormat: StateFlow<String> =
-            repository
+            settings
                 .getStorageFilenameFormat()
                 .stateIn(
                     viewModelScope,
@@ -95,7 +97,7 @@ class SettingsViewModel
                 )
 
         val storageTimestampFormat: StateFlow<String> =
-            repository
+            settings
                 .getStorageTimestampFormat()
                 .stateIn(
                     viewModelScope,
@@ -104,7 +106,7 @@ class SettingsViewModel
                 )
 
         val checkUpdatesOnStartup: StateFlow<Boolean> =
-            repository
+            settings
                 .isCheckUpdatesOnStartupEnabled()
                 .stateIn(
                     viewModelScope,
@@ -113,83 +115,78 @@ class SettingsViewModel
                 )
 
         fun updateRootDirectory(path: String) {
-            viewModelScope.launch { repository.setRootDirectory(path) }
+            viewModelScope.launch { settings.setRootDirectory(path) }
         }
 
         fun updateRootUri(uriString: String) {
-            viewModelScope.launch { repository.updateRootUri(uriString) }
+            viewModelScope.launch { settings.updateRootUri(uriString) }
         }
 
         fun updateImageDirectory(path: String) {
-            viewModelScope.launch { repository.setImageDirectory(path) }
+            viewModelScope.launch { settings.setImageDirectory(path) }
         }
 
         fun updateImageUri(uriString: String) {
-            viewModelScope.launch { repository.updateImageUri(uriString) }
+            viewModelScope.launch { settings.updateImageUri(uriString) }
         }
 
         fun updateVoiceDirectory(path: String) {
-            viewModelScope.launch { repository.setVoiceDirectory(path) }
+            viewModelScope.launch { settings.setVoiceDirectory(path) }
         }
 
         fun updateVoiceUri(uriString: String) {
-            viewModelScope.launch { repository.updateVoiceUri(uriString) }
+            viewModelScope.launch { settings.updateVoiceUri(uriString) }
         }
 
         fun updateDateFormat(format: String) {
-            viewModelScope.launch { repository.setDateFormat(format) }
+            viewModelScope.launch { settings.setDateFormat(format) }
         }
 
         fun updateTimeFormat(format: String) {
-            viewModelScope.launch { repository.setTimeFormat(format) }
+            viewModelScope.launch { settings.setTimeFormat(format) }
         }
 
         fun updateThemeMode(mode: String) {
-            viewModelScope.launch { repository.setThemeMode(mode) }
+            viewModelScope.launch { settings.setThemeMode(mode) }
         }
 
         fun updateStorageFilenameFormat(format: String) {
-            viewModelScope.launch { repository.setStorageFilenameFormat(format) }
+            viewModelScope.launch { settings.setStorageFilenameFormat(format) }
         }
 
         fun updateStorageTimestampFormat(format: String) {
-            viewModelScope.launch { repository.setStorageTimestampFormat(format) }
+            viewModelScope.launch { settings.setStorageTimestampFormat(format) }
         }
 
         fun updateHapticFeedback(enabled: Boolean) {
-            viewModelScope.launch { repository.setHapticFeedbackEnabled(enabled) }
+            viewModelScope.launch { settings.setHapticFeedbackEnabled(enabled) }
         }
 
         fun updateShowInputHints(enabled: Boolean) {
-            viewModelScope.launch { repository.setShowInputHints(enabled) }
+            viewModelScope.launch { settings.setShowInputHints(enabled) }
         }
 
         fun updateCheckUpdatesOnStartup(enabled: Boolean) {
-            viewModelScope.launch { repository.setCheckUpdatesOnStartup(enabled) }
+            viewModelScope.launch { settings.setCheckUpdatesOnStartup(enabled) }
         }
 
         fun autoDetectFormats() {
             viewModelScope.launch {
                 try {
-                    val files = fileDataSource.listFiles()
-                    if (files.isEmpty()) return@launch
-
-                    val filenames = files.map { it.filename }
-                    val contents = files.map { it.content.lines().firstOrNull() ?: "" }
-
-                    val (detectedFilename, detectedTimestamp) =
-                        formatDetector.detectFormats(filenames, contents)
-
-                    if (detectedFilename != null) {
-                        repository.setStorageFilenameFormat(detectedFilename)
+                    // 仅采样最近 20 个文件的首行，避免大目录全量读
+                    val metas = fileDataSource.listMetadata().sortedByDescending { it.lastModified }.take(20)
+                    if (metas.isEmpty()) return@launch
+                    val filenames = metas.map { it.filename }
+                    val heads = metas.map { meta ->
+                        // 轻量读取前 256 字符
+                        fileDataSource.readHead(meta.filename, 256)?.lineSequence()?.firstOrNull() ?: ""
                     }
-                    if (detectedTimestamp != null) {
-                        repository.setStorageTimestampFormat(detectedTimestamp)
-                    }
+                    val (detectedFilename, detectedTimestamp) = formatDetector.detectFormats(filenames, heads)
+                    if (detectedFilename != null) settings.setStorageFilenameFormat(detectedFilename)
+                    if (detectedTimestamp != null) settings.setStorageTimestampFormat(detectedTimestamp)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    // Log error
                     android.util.Log.e("SettingsViewModel", "Auto-detect failed", e)
                 }
             }

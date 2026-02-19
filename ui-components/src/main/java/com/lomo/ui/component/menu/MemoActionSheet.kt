@@ -2,6 +2,7 @@ package com.lomo.ui.component.menu
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,12 +12,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +41,7 @@ fun MemoActionSheet(
     state: MemoMenuState,
     onCopy: () -> Unit,
     onShare: () -> Unit,
+    onLanShare: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -56,6 +60,7 @@ fun MemoActionSheet(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .padding(vertical = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
         ) {
@@ -74,6 +79,15 @@ fun MemoActionSheet(
                 onClick = {
                     haptic.medium()
                     onShare()
+                    onDismiss()
+                },
+            )
+            ActionChip(
+                icon = Icons.Outlined.Wifi,
+                label = stringResource(R.string.action_lan_share),
+                onClick = {
+                    haptic.medium()
+                    onLanShare()
                     onDismiss()
                 },
             )

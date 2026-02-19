@@ -159,11 +159,12 @@ fun TrashScreen(
                             val memo = pagedTrash[index]
                             if (memo != null) {
                                 val mutation = pendingMutations[memo.id]
-                                // Extract timestamp if it's a delete mutation
-                                val deleteMutation = mutation as? TrashViewModel.TrashMutation.Delete
-                                val mutationTimestamp = deleteMutation?.timestamp
-                                val isVisible = deleteMutation?.isHidden != true
-                                val isProcessing = mutationTimestamp != null
+                                val isVisible = mutation?.isHidden != true
+                                val isProcessing = mutation != null
+                                // Capture animation start time locally when processing begins
+                                val mutationTimestamp = remember(isProcessing, memo.id) {
+                                    if (isProcessing) System.currentTimeMillis() else null
+                                }
 
                                 if (!isVisible) {
                                     // Once marked as hidden optimistically, we effectively "remove" it from UI
@@ -182,7 +183,7 @@ fun TrashScreen(
                                     ) {
                                         if (isProcessing) {
                                             while (value < 1f) {
-                                                val elapsed = System.currentTimeMillis() - mutationTimestamp
+                                                val elapsed = System.currentTimeMillis() - (mutationTimestamp ?: System.currentTimeMillis())
                                                 value = (elapsed.toFloat() / totalDuration).coerceIn(0f, 1f)
                                                 kotlinx.coroutines.delay(16)
                                             }

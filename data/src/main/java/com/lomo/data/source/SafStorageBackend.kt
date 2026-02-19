@@ -307,6 +307,36 @@ class SafStorageBackend(
             }
         }
 
+    override suspend fun readHead(filename: String, maxChars: Int): String? =
+        withContext(Dispatchers.IO) {
+            val root = getRoot() ?: return@withContext null
+            val file = root.findFile(filename) ?: return@withContext null
+            try {
+                context.contentResolver.openInputStream(file.uri)?.buffered()?.use { bis ->
+                    val buf = ByteArray(maxChars)
+                    val n = bis.read(buf)
+                    if (n <= 0) null else String(buf, 0, n)
+                }
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    override suspend fun readHeadByDocumentId(documentId: String, maxChars: Int): String? =
+        withContext(Dispatchers.IO) {
+            try {
+                val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
+                context.contentResolver.openInputStream(fileUri)?.buffered()?.use { bis ->
+                    val buf = ByteArray(maxChars)
+                    val n = bis.read(buf)
+                    if (n <= 0) null else String(buf, 0, n)
+                }
+            } catch (e: Exception) {
+                // Fallback to filename path
+                readHead(documentId, maxChars)
+            }
+        }
+
     // --- File writing ---
 
     override suspend fun saveFile(

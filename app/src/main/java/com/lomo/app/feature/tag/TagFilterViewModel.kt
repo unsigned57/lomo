@@ -9,6 +9,7 @@ import androidx.paging.filter
 import androidx.paging.map
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -29,6 +30,7 @@ class TagFilterViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val memoRepository: MemoRepository,
+        private val settingsRepository: SettingsRepository,
         val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
     ) : ViewModel() {
@@ -45,12 +47,12 @@ class TagFilterViewModel
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val dateFormat: StateFlow<String> =
-            memoRepository
+            settingsRepository
                 .getDateFormat()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lomo.data.util.PreferenceKeys.Defaults.DATE_FORMAT)
 
         val timeFormat: StateFlow<String> =
-            memoRepository
+            settingsRepository
                 .getTimeFormat()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lomo.data.util.PreferenceKeys.Defaults.TIME_FORMAT)
 

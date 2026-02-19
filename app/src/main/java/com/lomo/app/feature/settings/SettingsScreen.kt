@@ -11,17 +11,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -41,14 +35,13 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -66,6 +59,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.lomo.ui.component.dialog.SelectionDialog
 import com.lomo.ui.component.settings.PreferenceItem
+import com.lomo.ui.component.settings.SettingsGroup
+import com.lomo.ui.component.settings.SwitchPreferenceItem
 import com.lomo.ui.theme.MotionTokens
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -117,14 +112,6 @@ fun SettingsScreen(
                 androidx.compose.ui.res
                     .stringResource(com.lomo.app.R.string.settings_dark_mode),
         )
-// ... (omitting intermediate lines, but replace_file_content requires contiguous block or use multi_replace. I will use multi_replace for safety if gaps are large, but here the gap is LARGE.
-// Wait, I cannot use replace_file_content for non-contiguous changes.
-// I should use multi_replace_file_content.
-// But wait, the previous tool call failed because "target content not found".
-// Ah, because I tried to match a huge block with "// ...".
-// I will make TWO separate replace calls or one multi_replace.
-// Let's use multi_replace_file_content.
-
     val languageLabels =
         mapOf(
             "system" to
@@ -557,69 +544,5 @@ fun SettingsScreen(
             },
         )
     }
-}
 
-@Composable
-fun SettingsGroup(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    Column {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 8.dp, start = 16.dp), // Aligned with list items
-        )
-        Column(modifier = Modifier.fillMaxWidth()) { content() }
-        HorizontalDivider(modifier = Modifier.padding(top = 8.dp))
-    }
-}
-
-@Composable
-fun SwitchPreferenceItem(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .clickable {
-                    haptic.medium()
-                    onCheckedChange(!checked)
-                }.padding(16.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(24.dp),
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(
-            checked = checked,
-            onCheckedChange = {
-                haptic.medium()
-                onCheckedChange(it)
-            },
-        )
-    }
 }

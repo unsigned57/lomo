@@ -75,6 +75,17 @@ interface StorageBackend {
      */
     suspend fun readTrashFileByDocumentId(documentId: String): String?
 
+    /**
+     * Read only the first up-to-[maxChars] characters of a file by filename.
+     * Used for lightweight format detection without loading the whole file.
+     */
+    suspend fun readHead(filename: String, maxChars: Int = 256): String?
+
+    /**
+     * Read only the first up-to-[maxChars] characters of a file by document ID (SAF optimization).
+     */
+    suspend fun readHeadByDocumentId(documentId: String, maxChars: Int = 256): String?
+
     // --- File writing ---
 
     /**

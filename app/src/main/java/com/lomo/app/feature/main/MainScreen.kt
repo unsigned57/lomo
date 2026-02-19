@@ -107,8 +107,10 @@ fun MainScreen(
     onNavigateToTag: (String) -> Unit,
     onNavigateToImage: (String) -> Unit,
     onNavigateToDailyReview: () -> Unit,
+    onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = hiltViewModel(),
     sidebarViewModel: SidebarViewModel = hiltViewModel(),
+    recordingViewModel: RecordingViewModel = hiltViewModel(),
 ) {
     // Collect Flow state safely with Lifecycle awareness using collectAsStateWithLifecycle
     // to ensure flows are paused when the app is in the background.
@@ -123,10 +125,10 @@ fun MainScreen(
     val hapticEnabled by viewModel.hapticFeedbackEnabled.collectAsStateWithLifecycle()
     val showInputHints by viewModel.showInputHints.collectAsStateWithLifecycle()
 
-    // Recording State
-    val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
-    val recordingDuration by viewModel.recordingDuration.collectAsStateWithLifecycle()
-    val recordingAmplitude by viewModel.recordingAmplitude.collectAsStateWithLifecycle()
+    // Recording State (from RecordingViewModel)
+    val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
+    val recordingDuration by recordingViewModel.recordingDuration.collectAsStateWithLifecycle()
+    val recordingAmplitude by recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val todoOverrides by viewModel.todoOverrides.collectAsStateWithLifecycle()
@@ -244,6 +246,12 @@ fun MainScreen(
                 context = context,
                 content = state.content,
             )
+        },
+        onLanShare = { state ->
+            val memo = state.memo as? com.lomo.domain.model.Memo
+            if (memo != null) {
+                onNavigateToShare(memo.content, memo.timestamp)
+            }
         },
     ) { showMenu ->
 
@@ -622,12 +630,12 @@ fun MainScreen(
                     if (voiceDirectory == null) {
                         directorySetupType = DirectorySetupType.Voice
                     } else {
-                        viewModel.startRecording()
+                        recordingViewModel.startRecording()
                     }
                 },
-                onCancelRecording = viewModel::cancelRecording,
+                onCancelRecording = recordingViewModel::cancelRecording,
                 onStopRecording = {
-                    viewModel.stopRecording { markdown ->
+                    recordingViewModel.stopRecording { markdown ->
                         val cur = inputText.text
                         val newText = if (cur.isEmpty()) markdown else "$cur\n$markdown"
                         inputText = TextFieldValue(newText, TextRange(newText.length))

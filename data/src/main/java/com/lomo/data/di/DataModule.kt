@@ -8,7 +8,9 @@ import com.lomo.data.local.dao.FileSyncDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.repository.MemoRepositoryImpl
+import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.SettingsRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -33,6 +35,13 @@ object DataModule {
     @Provides
     @Singleton
     fun provideMemoDao(database: MemoDatabase): MemoDao = database.memoDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoTokenDao(database: MemoDatabase): com.lomo.data.local.dao.MemoTokenDao = database.run {
+        // Room 直接暴露 DAO 方法（需在 MemoDatabase 中声明抽象 getter）
+        memoTokenDao()
+    }
 
     @Provides
     @Singleton
@@ -79,6 +88,7 @@ object DataModule {
         processor: com.lomo.data.util.MemoTextProcessor,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
         fileCacheDao: com.lomo.data.local.dao.FileCacheDao,
+        tokenDao: com.lomo.data.local.dao.MemoTokenDao,
     ): com.lomo.data.repository.MemoSynchronizer =
         com.lomo.data.repository.MemoSynchronizer(
             dataSource,
@@ -88,28 +98,47 @@ object DataModule {
             processor,
             dataStore,
             fileCacheDao,
+            tokenDao,
         )
 
+    /**
+     * Provides the single [MemoRepositoryImpl] instance that implements
+     * [MemoRepository], [SettingsRepository], and [MediaRepository].
+     */
     @Provides
     @Singleton
-    fun provideMemoRepository(
+    fun provideMemoRepositoryImpl(
         dao: MemoDao,
         imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
+        tokenDao: com.lomo.data.local.dao.MemoTokenDao,
         dataSource: com.lomo.data.source.FileDataSource,
         synchronizer: com.lomo.data.repository.MemoSynchronizer,
         parser: MarkdownParser,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
         pendingOpDao: com.lomo.data.local.dao.PendingOpDao,
-    ): MemoRepository =
+    ): MemoRepositoryImpl =
         MemoRepositoryImpl(
             dao,
             imageCacheDao,
+            tokenDao,
             dataSource,
             synchronizer,
             parser,
             dataStore,
             pendingOpDao,
         )
+
+    @Provides
+    @Singleton
+    fun provideMemoRepository(impl: MemoRepositoryImpl): MemoRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSettingsRepository(impl: MemoRepositoryImpl): SettingsRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideMediaRepository(impl: MemoRepositoryImpl): MediaRepository = impl
 
     @Provides
     @Singleton

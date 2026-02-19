@@ -29,4 +29,10 @@ sealed interface NavRoute {
 
     @Serializable
     data object DailyReview : NavRoute
+
+    @Serializable
+    data class Share(
+        val memoContent: String,
+        val memoTimestamp: Long,
+    ) : NavRoute
 }

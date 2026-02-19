@@ -22,6 +22,7 @@
     <string name="action_share">Share</string>
     <string name="action_edit">Edit</string>
     <string name="action_delete">Delete</string>
+    <string name="action_lan_share">Send</string>
     <string name="info_created">Created</string>
     <string name="info_characters">Characters</string>
 

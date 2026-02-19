@@ -29,6 +29,8 @@ class MemoSynchronizerTest {
 
     @MockK private lateinit var fileCacheDao: com.lomo.data.local.dao.FileCacheDao
 
+    @MockK private lateinit var tokenDao: com.lomo.data.local.dao.MemoTokenDao
+
     private lateinit var processor: MemoTextProcessor
     private lateinit var parser: MarkdownParser
     private lateinit var synchronizer: MemoSynchronizer
@@ -54,6 +56,7 @@ class MemoSynchronizerTest {
                 processor,
                 dataStore,
                 fileCacheDao,
+                tokenDao,
             )
     }
 

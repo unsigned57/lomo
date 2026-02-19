@@ -7,10 +7,13 @@ import androidx.paging.PagingData
 import androidx.paging.map
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.share.ShareAuthUtils
 import com.lomo.data.source.FileDataSource
 import com.lomo.domain.AppConfig
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -22,12 +25,13 @@ class MemoRepositoryImpl
     constructor(
         private val dao: MemoDao,
         private val imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
+        private val tokenDao: com.lomo.data.local.dao.MemoTokenDao,
         private val dataSource: FileDataSource,
         private val synchronizer: MemoSynchronizer,
         private val parser: MarkdownParser,
         private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
         private val pendingOpDao: com.lomo.data.local.dao.PendingOpDao,
-    ) : MemoRepository {
+    ) : MemoRepository, SettingsRepository, MediaRepository {
         override suspend fun setRootDirectory(path: String) {
             // Clear entire database cache when switching root directory
             // This ensures data from the previous directory doesn't persist
@@ -160,9 +164,26 @@ class MemoRepositoryImpl
                         enablePlaceholders = false,
                     ),
                 pagingSourceFactory = {
-                    // Use standard LIKE search for stability.
-                    // The DAO handles the wrapping with wildcards '%'
-                    dao.searchMemos(query)
+                    val trimmed = query.trim()
+                    val hasCjk = trimmed.any { com.lomo.data.util.SearchTokenizer.run { 
+                        // 复用 isCJK 判定逻辑（无法直接访问，做个简版）：
+                        val block = java.lang.Character.UnicodeBlock.of(it)
+                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
+                        block == java.lang.Character.UnicodeBlock.HIRAGANA ||
+                        block == java.lang.Character.UnicodeBlock.KATAKANA ||
+                        block == java.lang.Character.UnicodeBlock.HANGUL_SYLLABLES
+                    } }
+                    if (hasCjk) {
+                        // 简单 AND 拆词：按空白切分后取前 5 个词的前缀匹配
+                        val tokens = trimmed.split(Regex("\\s+")).filter { it.isNotBlank() }.take(5)
+                        if (tokens.isEmpty()) dao.searchMemos(trimmed) else tokenDao.searchByTokensAnd(tokens)
+                    } else {
+                        dao.searchMemos(trimmed)
+                    }
                 },
             ).flow
                 .map { pagingData -> pagingData.map { it.toDomain() } }
@@ -296,6 +317,20 @@ class MemoRepositoryImpl
 
         override suspend fun setShowInputHints(enabled: Boolean) {
             dataStore.updateShowInputHints(enabled)
+        }
+
+        override fun isLanSharePairingConfigured(): Flow<Boolean> =
+            dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
+
+        override suspend fun setLanSharePairingCode(pairingCode: String) {
+            val keyHex =
+                ShareAuthUtils.deriveKeyHexFromPairingCode(pairingCode)
+                    ?: throw IllegalArgumentException("Pairing code must be 6-64 characters")
+            dataStore.updateLanSharePairingKeyHex(keyHex)
+        }
+
+        override suspend fun clearLanSharePairingCode() {
+            dataStore.updateLanSharePairingKeyHex(null)
         }
 
         override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat

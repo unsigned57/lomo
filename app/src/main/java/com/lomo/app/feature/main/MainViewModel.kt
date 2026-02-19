@@ -6,9 +6,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
+import com.lomo.app.BuildConfig
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.VoiceRecorder
+import com.lomo.domain.repository.SettingsRepository
 import com.lomo.domain.repository.WidgetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
@@ -28,12 +29,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 import javax.inject.Inject
 
 @HiltViewModel
@@ -41,12 +38,14 @@ class MainViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
+        private val settingsRepository: SettingsRepository,
+        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
+        private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
         private val savedStateHandle: SavedStateHandle,
         val mapper: MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
         private val textProcessor: com.lomo.data.util.MemoTextProcessor,
         private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
-        private val voiceRecorder: VoiceRecorder,
         private val widgetRepository: WidgetRepository,
         private val audioPlayerManager: com.lomo.ui.media.AudioPlayerManager,
         private val updateManager: com.lomo.app.feature.update.UpdateManager,
@@ -61,7 +60,7 @@ class MainViewModel
             viewModelScope.launch {
                 try {
                     // First check if enabled
-                    val enabled = repository.isCheckUpdatesOnStartupEnabled().first()
+                    val enabled = settingsRepository.isCheckUpdatesOnStartupEnabled().first()
                     if (enabled) {
                         val url = updateManager.checkForUpdates()
                         if (url != null) {
@@ -80,126 +79,6 @@ class MainViewModel
         }
 
         // ... existing code ...
-
-        // Recording State
-        private val _isRecording = MutableStateFlow(false)
-        val isRecording: StateFlow<Boolean> = _isRecording
-
-        private val _recordingDuration = MutableStateFlow(0L)
-        val recordingDuration: StateFlow<Long> = _recordingDuration
-
-        private val _recordingAmplitude = MutableStateFlow(0)
-        val recordingAmplitude: StateFlow<Int> = _recordingAmplitude
-
-        private var recordingJob: kotlinx.coroutines.Job? = null
-
-        // ... existing code ...
-
-        private var currentRecordingUri: android.net.Uri? = null
-        private var currentRecordingFilename: String? = null
-
-        fun startRecording() {
-            if (_rootDirectory.value == null) {
-                _errorMessage.value = "Please select a folder first"
-                return
-            }
-
-            viewModelScope.launch {
-                try {
-                    val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                    val filename = "voice_$timestamp.m4a"
-
-                    // 1. Create file via repository (handles Voice Backend logic)
-                    val uri = repository.createVoiceFile(filename)
-
-                    currentRecordingUri = uri
-                    currentRecordingFilename = filename
-
-                    // 2. Start recording to the file URI
-                    voiceRecorder.start(uri)
-                    _isRecording.value = true
-                    _recordingDuration.value = 0
-
-                    startRecordingTimer()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = "Failed to start recording: ${e.message}"
-                    cancelRecording()
-                }
-            }
-        }
-
-        private fun startRecordingTimer() {
-            recordingJob?.cancel()
-            recordingJob =
-                viewModelScope.launch {
-                    val startTime = System.currentTimeMillis()
-                    while (isActive) {
-                        _recordingDuration.value = System.currentTimeMillis() - startTime
-                        _recordingAmplitude.value = voiceRecorder.getAmplitude()
-                        delay(50) // Update every 50ms for smooth visualizer
-                    }
-                }
-        }
-
-        fun stopRecording(onResult: (String) -> Unit) {
-            if (!_isRecording.value) return
-
-            try {
-                voiceRecorder.stop()
-                recordingJob?.cancel()
-                _isRecording.value = false
-                _recordingDuration.value = 0
-                _recordingAmplitude.value = 0
-
-                val uri = currentRecordingUri
-                val filename = currentRecordingFilename
-
-                if (uri != null && filename != null) {
-                    // Use just the filename - voice directory is resolved by AudioPlayerManager
-                    val markdown = "![voice]($filename)"
-                    onResult(markdown)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                _errorMessage.value = "Failed to stop recording: ${e.message}"
-            }
-            currentRecordingUri = null
-            currentRecordingFilename = null
-        }
-
-        fun cancelRecording() {
-            try {
-                voiceRecorder.stop()
-                recordingJob?.cancel()
-                _isRecording.value = false
-                _recordingDuration.value = 0
-                _recordingAmplitude.value = 0
-
-                val filename = currentRecordingFilename
-                if (filename != null) {
-                    viewModelScope.launch {
-                        try {
-                            repository.deleteVoiceFile(filename)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                }
-                currentRecordingUri = null
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            currentRecordingUri = null
-            currentRecordingFilename = null
-        }
-
-        override fun onCleared() {
-            super.onCleared()
-            cancelRecording() // Safety cleanup
-        }
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
@@ -287,10 +166,10 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 if (forImage) {
-                    repository.createDefaultImageDirectory()
+                    mediaRepository.createDefaultImageDirectory()
                 }
                 if (forVoice) {
-                    repository.createDefaultVoiceDirectory()
+                    mediaRepository.createDefaultVoiceDirectory()
                 }
             }
         }
@@ -312,7 +191,6 @@ class MainViewModel
 
             // Creation is harder with Paging, might need separate list or RemoteMediator trick.
             // For now, let's focus on Update/Delete responsiveness.
-            // Creation usually inserts at top.
             data class Create(
                 val content: String,
                 val timestamp: Long,
@@ -322,14 +200,9 @@ class MainViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         private val rawMemosFlow =
-            combine(
-                _searchQuery,
-                _selectedTag,
-            ) { query: String, tag: String? ->
-                query to tag
-            }.flatMapLatest { pair ->
-                getFilteredMemosUseCase(pair.first, pair.second)
-            }.cachedIn(viewModelScope)
+            combine(_searchQuery, _selectedTag) { query: String, tag: String? -> query to tag }
+                .flatMapLatest { (query, tag) -> getFilteredMemosUseCase(query, tag) }
+                .cachedIn(viewModelScope)
 
         val pagedMemos: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<Memo>> =
             rawMemosFlow.cachedIn(viewModelScope)
@@ -345,7 +218,7 @@ class MainViewModel
 
         fun onDirectorySelected(path: String) {
             viewModelScope.launch {
-                repository.setRootDirectory(path)
+                settingsRepository.setRootDirectory(path)
                 repository.refreshMemos()
             }
         }
@@ -525,12 +398,12 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val path = repository.saveImage(uri)
+                    val path = mediaRepository.saveImage(uri)
                     // Track it for Bug 3 cleanup
                     ephemeralImageFilenames.add(path)
 
                     // Sync image cache immediately so new image is available for display
-                    repository.syncImageCache()
+                    mediaRepository.syncImageCache()
                     onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -548,12 +421,12 @@ class MainViewModel
             viewModelScope.launch {
                 toDelete.forEach { filename ->
                     try {
-                        repository.deleteImage(filename)
+                        mediaRepository.deleteImage(filename)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 }
-                repository.syncImageCache()
+                mediaRepository.syncImageCache()
             }
         }
 
@@ -573,6 +446,8 @@ class MainViewModel
                     } else {
                         MainScreenState.Ready(hasData = true)
                     }
+
+                resyncCachesIfAppVersionChanged(initialDir)
 
                 // Step 2: Listen for subsequent updates (drop first to avoid duplicate)
                 repository
@@ -609,7 +484,7 @@ class MainViewModel
             imageDirectory
                 .onEach { path: String? ->
                     if (path != null) {
-                        repository.syncImageCache()
+                        mediaRepository.syncImageCache()
                     }
                 }.launchIn(viewModelScope)
 
@@ -625,8 +500,29 @@ class MainViewModel
             checkForUpdates()
         }
 
+        private suspend fun resyncCachesIfAppVersionChanged(rootDir: String?) {
+            val currentVersion = "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+            val lastVersion = dataStore.getLastAppVersionOnce()
+            if (lastVersion == currentVersion) return
+
+            if (rootDir != null) {
+                try {
+                    repository.refreshMemos()
+                } catch (_: Exception) {
+                    // best-effort refresh
+                }
+                try {
+                    mediaRepository.syncImageCache()
+                } catch (_: Exception) {
+                    // best-effort cache rebuild
+                }
+            }
+
+            dataStore.updateLastAppVersion(currentVersion)
+        }
+
         val dateFormat: StateFlow<String> =
-            repository
+            settingsRepository
                 .getDateFormat()
                 .stateIn(
                     scope = viewModelScope,
@@ -637,7 +533,7 @@ class MainViewModel
                 )
 
         val timeFormat: StateFlow<String> =
-            repository
+            settingsRepository
                 .getTimeFormat()
                 .stateIn(
                     scope = viewModelScope,
@@ -648,7 +544,7 @@ class MainViewModel
                 )
 
         val hapticFeedbackEnabled: StateFlow<Boolean> =
-            repository
+            settingsRepository
                 .isHapticFeedbackEnabled()
                 .stateIn(
                     scope = viewModelScope,
@@ -661,7 +557,7 @@ class MainViewModel
                 )
 
         val showInputHints: StateFlow<Boolean> =
-            repository
+            settingsRepository
                 .isShowInputHintsEnabled()
                 .stateIn(
                     scope = viewModelScope,
@@ -672,7 +568,7 @@ class MainViewModel
                 )
 
         val themeMode: StateFlow<String> =
-            repository
+            settingsRepository
                 .getThemeMode()
                 .stateIn(
                     scope = viewModelScope,

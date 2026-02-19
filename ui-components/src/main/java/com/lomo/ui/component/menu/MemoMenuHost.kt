@@ -36,6 +36,7 @@ fun MemoMenuHost(
     onEdit: (MemoMenuState) -> Unit,
     onDelete: (MemoMenuState) -> Unit,
     onShare: (MemoMenuState) -> Unit = {},
+    onLanShare: (MemoMenuState) -> Unit = {},
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
@@ -64,26 +65,26 @@ fun MemoMenuHost(
                     )
                 val clip = android.content.ClipData.newPlainText("memo", current.content)
                 clipboard?.setPrimaryClip(clip)
-                // MemoMenuBottomSheet handles internal dismissal on copy?
-                // Step 320: MemoActionSheet calls onDismiss().
-                // MemoMenuBottomSheet passes onDismissRequest to onDismiss.
-                // So activeState = null will be called.
             },
             onShare = {
                 activeState = null
                 onShare(current)
             },
+            onLanShare = {
+                activeState = null
+                onLanShare(current)
+            },
             onEdit = {
                 scope.launch { sheetState.hide() }.invokeOnCompletion {
                     val target = activeState
-                    activeState = null // Reset state
+                    activeState = null
                     if (target != null) onEdit(target)
                 }
             },
             onDelete = {
                 scope.launch { sheetState.hide() }.invokeOnCompletion {
                     val target = activeState
-                    activeState = null // Reset state
+                    activeState = null
                     if (target != null) onDelete(target)
                 }
             },

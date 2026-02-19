@@ -27,6 +27,12 @@
     <string name="settings_group_system">系统</string>
     <string name="settings_show_input_hints">显示输入提示</string>
     <string name="settings_show_input_hints_subtitle">在输入框显示使用技巧</string>
+    <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
+    <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
+    <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
+    <string name="settings_lan_share_pairing_dialog_title">设置配对密码</string>
+    <string name="settings_lan_share_pairing_dialog_message">请在需要互信的设备上使用同一个配对密码。</string>
+    <string name="settings_lan_share_pairing_hint">6-64 个字符</string>
 
     <string name="input_hint_1">长按 + 号回到顶部</string>
     <string name="input_hint_2">回车三次快捷发送</string>
@@ -50,6 +56,51 @@
     <string name="share">分享</string>
     <string name="copy_to_clipboard">复制到剪贴板</string>
     <string name="copied_to_clipboard">已复制到剪贴板</string>
+    <string name="share_lan_title">局域网分享</string>
+    <string name="share_nearby_devices">附近设备</string>
+    <string name="share_devices_count">%1$d 台设备</string>
+    <string name="share_memo_preview_title">待分享备忘录</string>
+    <string name="share_status_connecting">连接中...</string>
+    <string name="share_status_waiting_approval">等待 %1$s 接收...</string>
+    <string name="share_status_transferring">传输中...</string>
+    <string name="share_status_sent">已发送到 %1$s</string>
+    <string name="share_searching_devices">正在搜索附近设备...</string>
+    <string name="share_searching_hint">请确保两台设备连接到同一 WiFi</string>
+    <string name="share_e2e_enabled_title">端对端加密</string>
+    <string name="share_e2e_enabled_subtitle">在局域网传输中加密备忘录内容和附件</string>
+    <string name="share_e2e_state_enabled">已启用</string>
+    <string name="share_e2e_state_disabled">已关闭</string>
+    <string name="share_e2e_password_title">端对端密码</string>
+    <string name="share_e2e_password_set">设置</string>
+    <string name="share_e2e_password_configured">已设置</string>
+    <string name="share_e2e_password_not_set">未设置（开启加密时必填）</string>
+    <string name="share_e2e_password_dialog_title">设置端对端密码</string>
+    <string name="share_e2e_password_dialog_message">请在所有受信任的 LAN 分享设备上使用同一个密码。</string>
+    <string name="share_e2e_password_hint">6-64 个字符</string>
+    <string name="share_password_show">显示</string>
+    <string name="share_password_hide">隐藏</string>
+    <string name="share_device_name_label">设备名称</string>
+    <string name="share_device_name_placeholder">附近设备可见的名称</string>
+    <string name="share_device_name_use_system">使用系统设备名</string>
+    <string name="share_error_connection_failed">连接失败：%1$s</string>
+    <string name="share_error_transfer_rejected">对方拒绝了分享</string>
+    <string name="share_error_transfer_rejected_by">%1$s 拒绝了分享</string>
+    <string name="share_error_transfer_failed">传输失败</string>
+    <string name="share_error_unknown">未知错误</string>
+    <string name="share_error_set_password_first">请先设置端对端密码</string>
+    <string name="share_error_receiver_password_not_set">接收端对方未设置端对端密码</string>
+    <string name="share_error_invalid_attachment_size">图片/音频大小无效</string>
+    <string name="share_error_attachment_too_large">附件过大</string>
+    <string name="share_error_attachment_resolve_failed">无法解析附件文件路径</string>
+    <string name="share_error_unsupported_attachment_type">不支持的附件类型</string>
+    <string name="share_error_device_unreachable">目标设备不可达</string>
+    <string name="share_error_invalid_pairing_code">密码需为 6-64 个字符</string>
+    <string name="share_incoming_title">收到备忘录</string>
+    <string name="share_incoming_from">来自：%1$s</string>
+    <plurals name="share_incoming_attachments_count">
+        <item quantity="one">%1$d 个附件</item>
+        <item quantity="other">%1$d 个附件</item>
+    </plurals>
 
     <!-- Settings Keys (New) -->
     <string name="settings_language">语言</string>
@@ -129,6 +180,11 @@
     <string name="update_dialog_message">Lomo 有新版本可用，请前往 GitHub 下载最新版本。</string>
     <string name="action_download">去下载</string>
     <string name="action_cancel">取消</string>
+    <string name="action_accept">接收</string>
+    <string name="action_reject">拒绝</string>
+    <string name="action_save">保存</string>
+    <string name="action_clear">清除</string>
+    <string name="action_clear_pairing_code">清除配对密码</string>
 
     <!-- About Group -->
     <string name="settings_group_about">关于</string>

@@ -17,6 +17,7 @@ import com.lomo.app.feature.main.MainScreen
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.search.SearchScreen
 import com.lomo.app.feature.settings.SettingsScreen
+import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
 import com.lomo.ui.theme.MotionTokens
@@ -162,6 +163,9 @@ fun LomoNavHost(
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
                             onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
+                            onNavigateToShare = { content, timestamp ->
+                                navController.navigate(NavRoute.Share(content, timestamp))
+                            },
                         )
                     }
                 }
@@ -212,6 +216,12 @@ fun LomoNavHost(
                             },
                         )
                     }
+                }
+
+                composable<NavRoute.Share> {
+                    ShareScreen(
+                        onBackClick = { navController.popBackStack() },
+                    )
                 }
 
                 // ImageViewer with custom fade + scale animation

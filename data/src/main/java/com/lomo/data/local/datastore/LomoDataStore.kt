@@ -54,6 +54,11 @@ class LomoDataStore
             val HAPTIC_FEEDBACK_ENABLED = booleanPreferencesKey(PreferenceKeys.HAPTIC_FEEDBACK_ENABLED)
             val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey(PreferenceKeys.CHECK_UPDATES_ON_STARTUP)
             val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
+            val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
+            val LAN_SHARE_PAIRING_CODE_PLAIN = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_CODE_PLAIN)
+            val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
+            val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
+            val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
         }
 
         // Storage Settings
@@ -196,6 +201,56 @@ class LomoDataStore
                     emit(PreferenceKeys.Defaults.SHOW_INPUT_HINTS)
                 }
 
+        val lanSharePairingKeyHex: Flow<String?> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.LAN_SHARE_PAIRING_KEY_HEX] }
+                .catch { e ->
+                    timber.log.Timber.e(
+                        "LomoDataStore",
+                        "Error in lanSharePairingKeyHex flow",
+                        e,
+                    )
+                    emit(null)
+                }
+
+        val lanSharePairingCodePlain: Flow<String?> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.LAN_SHARE_PAIRING_CODE_PLAIN] }
+                .catch { e ->
+                    timber.log.Timber.e(
+                        "LomoDataStore",
+                        "Error in lanSharePairingCodePlain flow",
+                        e,
+                    )
+                    emit(null)
+                }
+
+        val lanShareE2eEnabled: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.LAN_SHARE_E2E_ENABLED]
+                        ?: PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED
+                }.catch { e ->
+                    timber.log.Timber.e(
+                        "LomoDataStore",
+                        "Error in lanShareE2eEnabled flow",
+                        e,
+                    )
+                    emit(PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED)
+                }
+
+        val lanShareDeviceName: Flow<String?> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.LAN_SHARE_DEVICE_NAME] }
+                .catch { e ->
+                    timber.log.Timber.e(
+                        "LomoDataStore",
+                        "Error in lanShareDeviceName flow",
+                        e,
+                    )
+                    emit(null)
+                }
+
         // Update functions
         suspend fun updateRootUri(uri: String?) {
             dataStore.edit { prefs ->
@@ -290,5 +345,56 @@ class LomoDataStore
 
         suspend fun updateShowInputHints(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.SHOW_INPUT_HINTS] = enabled }
+        }
+
+        suspend fun updateLanSharePairingKeyHex(keyHex: String?) {
+            dataStore.edit { prefs ->
+                if (keyHex.isNullOrBlank()) {
+                    prefs.remove(Keys.LAN_SHARE_PAIRING_KEY_HEX)
+                } else {
+                    prefs[Keys.LAN_SHARE_PAIRING_KEY_HEX] = keyHex
+                }
+            }
+        }
+
+        suspend fun updateLanSharePairingCodePlain(code: String?) {
+            dataStore.edit { prefs ->
+                if (code.isNullOrBlank()) {
+                    prefs.remove(Keys.LAN_SHARE_PAIRING_CODE_PLAIN)
+                } else {
+                    prefs[Keys.LAN_SHARE_PAIRING_CODE_PLAIN] = code
+                }
+            }
+        }
+
+        suspend fun updateLanShareE2eEnabled(enabled: Boolean) {
+            dataStore.edit { prefs ->
+                prefs[Keys.LAN_SHARE_E2E_ENABLED] = enabled
+            }
+        }
+
+        suspend fun updateLanShareDeviceName(name: String?) {
+            dataStore.edit { prefs ->
+                if (name.isNullOrBlank()) {
+                    prefs.remove(Keys.LAN_SHARE_DEVICE_NAME)
+                } else {
+                    prefs[Keys.LAN_SHARE_DEVICE_NAME] = name
+                }
+            }
+        }
+
+        suspend fun getLastAppVersionOnce(): String? =
+            dataStore.data
+                .map { prefs -> prefs[Keys.LAST_APP_VERSION] }
+                .first()
+
+        suspend fun updateLastAppVersion(version: String?) {
+            dataStore.edit { prefs ->
+                if (version.isNullOrBlank()) {
+                    prefs.remove(Keys.LAST_APP_VERSION)
+                } else {
+                    prefs[Keys.LAST_APP_VERSION] = version
+                }
+            }
         }
     }
