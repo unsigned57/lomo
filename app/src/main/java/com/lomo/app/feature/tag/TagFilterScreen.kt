@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -64,6 +65,7 @@ fun TagFilterScreen(
     tagName: String,
     onBackClick: () -> Unit,
     onNavigateToImage: (String) -> Unit,
+    onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
     val pagedMemos = viewModel.pagedMemos.collectAsLazyPagingItems()
@@ -72,6 +74,7 @@ fun TagFilterScreen(
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     // Track deleting items for "fade out then delete" animation sequence
     val deletingIds = remember { mutableStateListOf<String>() }
     var showInputSheet by remember { mutableStateOf(false) }
@@ -109,6 +112,18 @@ fun TagFilterScreen(
                     viewModel.deleteMemo(memo)
                     deletingIds.remove(memo.id)
                 }
+            }
+        },
+        onShare = { state ->
+            com.lomo.app.util.ShareUtils.shareMemoText(
+                context = context,
+                content = state.content,
+            )
+        },
+        onLanShare = { state ->
+            val memo = state.memo as? com.lomo.domain.model.Memo
+            if (memo != null) {
+                onNavigateToShare(memo.content, memo.timestamp)
             }
         },
     ) { showMenu ->

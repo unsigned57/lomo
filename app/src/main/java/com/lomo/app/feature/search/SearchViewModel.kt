@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // SearchUiState removed - using PagingData direct flow
@@ -118,6 +119,21 @@ class SearchViewModel
                 onError = { /* silently ignore; item will reappear */ },
             ) {
                 repository.deleteMemo(memo)
+            }
+        }
+
+        fun updateMemo(
+            memo: Memo,
+            newContent: String,
+        ) {
+            viewModelScope.launch {
+                try {
+                    repository.updateMemo(memo, newContent)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep Search UI resilient; paging stream will recover on next invalidation.
+                }
             }
         }
     }

@@ -185,6 +185,9 @@ fun LomoNavHost(
                 composable<NavRoute.Search> {
                     SearchScreen(
                         onBackClick = { navController.popBackStack() },
+                        onNavigateToShare = { content, timestamp ->
+                            navController.navigate(NavRoute.Share(content, timestamp))
+                        },
                     )
                 }
 
@@ -200,6 +203,9 @@ fun LomoNavHost(
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
+                            onNavigateToShare = { content, timestamp ->
+                                navController.navigate(NavRoute.Share(content, timestamp))
+                            },
                         )
                     }
                 }
@@ -213,6 +219,9 @@ fun LomoNavHost(
                             onNavigateToImage = { url ->
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
+                            },
+                            onNavigateToShare = { content, timestamp ->
+                                navController.navigate(NavRoute.Share(content, timestamp))
                             },
                         )
                     }

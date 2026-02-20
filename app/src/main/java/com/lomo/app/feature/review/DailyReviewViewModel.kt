@@ -7,6 +7,7 @@ import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
 import com.lomo.ui.util.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,7 @@ class DailyReviewViewModel
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
+        private var loadJob: Job? = null
 
         val dateFormat: StateFlow<String> =
             settingsRepository
@@ -53,7 +55,9 @@ class DailyReviewViewModel
         }
 
         private fun loadDailyReview() {
-            viewModelScope.launch {
+            loadJob?.cancel()
+            loadJob =
+                viewModelScope.launch {
                 _uiState.value = UiState.Loading
                 try {
                     // Use today's date for seeded random
@@ -91,6 +95,35 @@ class DailyReviewViewModel
                     throw e
                 } catch (e: Exception) {
                     _uiState.value = UiState.Error("Failed to load daily review", e)
+                }
+                }
+        }
+
+        fun updateMemo(
+            memo: Memo,
+            newContent: String,
+        ) {
+            viewModelScope.launch {
+                try {
+                    repository.updateMemo(memo, newContent)
+                    loadDailyReview()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep current state on failure.
+                }
+            }
+        }
+
+        fun deleteMemo(memo: Memo) {
+            viewModelScope.launch {
+                try {
+                    repository.deleteMemo(memo)
+                    loadDailyReview()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep current state on failure.
                 }
             }
         }

@@ -44,7 +44,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -68,6 +71,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SearchScreen(
     onBackClick: () -> Unit,
+    onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val query: String by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -83,6 +87,11 @@ fun SearchScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+
+    var showInputSheet by remember { mutableStateOf(false) }
+    var editingMemo by remember { mutableStateOf<Memo?>(null) }
+    var inputText by remember { mutableStateOf(TextFieldValue("")) }
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -90,7 +99,14 @@ fun SearchScreen(
 
     // Wrap with MemoMenuHost for menu support
     com.lomo.ui.component.menu.MemoMenuHost(
-        onEdit = { /* TODO: implement edit */ },
+        onEdit = { state ->
+            val memo = state.memo as? Memo
+            if (memo != null) {
+                editingMemo = memo
+                inputText = TextFieldValue(memo.content, TextRange(memo.content.length))
+                showInputSheet = true
+            }
+        },
         onDelete = { state ->
             val memo = state.memo as? com.lomo.domain.model.Memo
             if (memo != null) {
@@ -102,6 +118,18 @@ fun SearchScreen(
                     viewModel.deleteMemo(memo)
                     deletingIds.remove(memo.id)
                 }
+            }
+        },
+        onShare = { state ->
+            com.lomo.app.util.ShareUtils.shareMemoText(
+                context = context,
+                content = state.content,
+            )
+        },
+        onLanShare = { state ->
+            val memo = state.memo as? Memo
+            if (memo != null) {
+                onNavigateToShare(memo.content, memo.timestamp)
             }
         },
     ) { showMenu ->
@@ -309,6 +337,26 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+
+        if (showInputSheet) {
+            com.lomo.ui.component.input.InputSheet(
+                inputValue = inputText,
+                onInputValueChange = { inputText = it },
+                onDismiss = {
+                    showInputSheet = false
+                    editingMemo = null
+                    inputText = TextFieldValue("")
+                },
+                onSubmit = { content ->
+                    editingMemo?.let { viewModel.updateMemo(it, content) }
+                    showInputSheet = false
+                    editingMemo = null
+                    inputText = TextFieldValue("")
+                },
+                onImageClick = { },
+                availableTags = emptyList(),
+            )
         }
     }
 }
