@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v ktlint >/dev/null 2>&1; then
+  echo "pre-commit: ktlint not found in PATH. Install ktlint first." >&2
+  exit 1
+fi
+
+staged_kotlin_files=()
+while IFS= read -r -d '' file; do
+  staged_kotlin_files+=("$file")
+done < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.kt' '*.kts')
+
+if [ ${#staged_kotlin_files[@]} -eq 0 ]; then
+  exit 0
+fi
+
+echo "pre-commit: running ktlint -F on staged Kotlin files..."
+ktlint -F "${staged_kotlin_files[@]}"
+
+# Re-stage files that were modified by formatter.
+git add -- "${staged_kotlin_files[@]}"
+
