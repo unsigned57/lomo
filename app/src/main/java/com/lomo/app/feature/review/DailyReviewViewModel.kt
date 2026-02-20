@@ -58,44 +58,44 @@ class DailyReviewViewModel
             loadJob?.cancel()
             loadJob =
                 viewModelScope.launch {
-                _uiState.value = UiState.Loading
-                try {
-                    // Use today's date for seeded random
-                    val today = java.time.LocalDate.now()
-                    val rawMemos = repository.getDailyReviewMemos(10, today)
+                    _uiState.value = UiState.Loading
+                    try {
+                        // Use today's date for seeded random
+                        val today = java.time.LocalDate.now()
+                        val rawMemos = repository.getDailyReviewMemos(10, today)
 
-                    if (rawMemos.isEmpty()) {
-                        _uiState.value = UiState.Success(emptyList())
-                        return@launch
-                    }
-
-                    // Combine with image configuration streams to process content
-                    kotlinx.coroutines.flow
-                        .combine(
-                            repository.getImageDirectory(),
-                            imageMapProvider.imageMap,
-                        ) { imageDir, imageMap ->
-                            rawMemos.map { memo ->
-                                mapper.mapToUiModel(
-                                    memo = memo,
-                                    rootPath = null, // Root path usually from prefs, passing null for now or inject if needed
-                                    // MainViewModel gets rootDirectory from repository.getRootDirectory()?
-                                    // Actually MainViewModel uses repository.rootDirectory? No, let's check.
-                                    // MainViewModel: repository.getImageDirectory() (imageDir)
-                                    // We need storage config. For now assuming images are relative to imageDir.
-                                    imagePath = imageDir,
-                                    imageMap = imageMap,
-                                    isDeleting = false,
-                                )
-                            }
-                        }.collect { uiModels ->
-                            _uiState.value = UiState.Success(uiModels)
+                        if (rawMemos.isEmpty()) {
+                            _uiState.value = UiState.Success(emptyList())
+                            return@launch
                         }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _uiState.value = UiState.Error("Failed to load daily review", e)
-                }
+
+                        // Combine with image configuration streams to process content
+                        kotlinx.coroutines.flow
+                            .combine(
+                                repository.getImageDirectory(),
+                                imageMapProvider.imageMap,
+                            ) { imageDir, imageMap ->
+                                rawMemos.map { memo ->
+                                    mapper.mapToUiModel(
+                                        memo = memo,
+                                        rootPath = null, // Root path usually from prefs, passing null for now or inject if needed
+                                        // MainViewModel gets rootDirectory from repository.getRootDirectory()?
+                                        // Actually MainViewModel uses repository.rootDirectory? No, let's check.
+                                        // MainViewModel: repository.getImageDirectory() (imageDir)
+                                        // We need storage config. For now assuming images are relative to imageDir.
+                                        imagePath = imageDir,
+                                        imageMap = imageMap,
+                                        isDeleting = false,
+                                    )
+                                }
+                            }.collect { uiModels ->
+                                _uiState.value = UiState.Success(uiModels)
+                            }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        _uiState.value = UiState.Error("Failed to load daily review", e)
+                    }
                 }
         }
 
