@@ -18,8 +18,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(25)
+        targetCompatibility = JavaVersion.toVersion(25)
     }
 }
 
@@ -66,8 +66,12 @@ dependencies {
 }
 
 kotlin {
+    jvmToolchain(25)
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        jvmTarget.set(
+            org.jetbrains.kotlin.gradle.dsl.JvmTarget
+                .fromTarget("25"),
+        )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }

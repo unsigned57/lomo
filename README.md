@@ -51,7 +51,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 ## Building
 
 ### Prerequisites
-- JDK 17
+- JDK 25
 - Android SDK API 36
 
 ### Common Commands

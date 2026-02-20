@@ -10,13 +10,14 @@ plugins {
 android {
     namespace = "com.lomo.app"
     compileSdk = 36
+    ndkVersion = libs.versions.androidNdk.get()
 
     defaultConfig {
         applicationId = "com.lomo.app"
         minSdk = 26
         targetSdk = 36
         versionCode = 12
-        versionName = "0.2.2"
+        versionName = "0.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -62,8 +63,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(25)
+        targetCompatibility = JavaVersion.toVersion(25)
     }
     // compilerOptions removed from here
     buildFeatures {
@@ -156,8 +157,12 @@ dependencies {
 }
 
 kotlin {
+    jvmToolchain(25)
     compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        jvmTarget.set(
+            org.jetbrains.kotlin.gradle.dsl.JvmTarget
+                .fromTarget("25"),
+        )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }
 }

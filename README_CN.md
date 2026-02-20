@@ -51,7 +51,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 ## 构建指南
 
 ### 前置要求
-- JDK 17
+- JDK 25
 - Android SDK API 36
 
 ### 常用命令

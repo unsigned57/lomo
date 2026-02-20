@@ -114,6 +114,11 @@ case "$( uname )" in                #(
   NONSTOP* )        nonstop=true ;;
 esac
 
+# Prefer local JDK 25 when JAVA_HOME is not set (useful on Arch Linux).
+if [ -z "$JAVA_HOME" ] && [ -x "/usr/lib/jvm/java-25-openjdk/bin/java" ] ; then
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+fi
+
 
 
 # Determine the Java command to use to start the JVM.

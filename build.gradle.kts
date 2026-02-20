@@ -6,17 +6,18 @@ plugins {
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     // alias(libs.plugins.androidxBaselineProfile) apply false
-    id("io.gitlab.arturbosch.detekt") version "1.23.8"
     alias(libs.plugins.versionCatalogUpdate)
     alias(libs.plugins.benManesVersions)
 }
 
+val kotlinVersion = libs.versions.kotlin.get()
+
 subprojects {
-    configurations.all {
+    configurations.configureEach {
         resolutionStrategy {
-            force("org.jetbrains.kotlin:kotlin-stdlib:2.3.0")
-            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.3.0")
-            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.3.0")
+            force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinVersion")
+            force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion")
         }
     }
 }
