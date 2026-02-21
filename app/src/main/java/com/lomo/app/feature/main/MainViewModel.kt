@@ -265,12 +265,13 @@ class MainViewModel
                 return
             }
             if (content.isBlank()) {
-                _errorMessage.value = "Cannot save empty memo"
+                _errorMessage.value = com.lomo.domain.validation.MemoContentValidator.EMPTY_CONTENT_MESSAGE
                 return
             }
             if (content.length > com.lomo.domain.AppConfig.MAX_MEMO_LENGTH) {
                 _errorMessage.value =
-                    "Content exceeds limit of ${com.lomo.domain.AppConfig.MAX_MEMO_LENGTH} characters"
+                    com.lomo.domain.validation.MemoContentValidator
+                        .lengthExceededMessage()
                 return
             }
             viewModelScope.launch {

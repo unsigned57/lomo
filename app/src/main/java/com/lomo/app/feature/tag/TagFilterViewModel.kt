@@ -10,6 +10,8 @@ import androidx.paging.map
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.UpdateMemoUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -36,6 +38,8 @@ class TagFilterViewModel
         private val settingsRepository: SettingsRepository,
         val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val deleteMemoUseCase: DeleteMemoUseCase,
+        private val updateMemoUseCase: UpdateMemoUseCase,
     ) : ViewModel() {
         val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
 
@@ -139,7 +143,7 @@ class TagFilterViewModel
                     // 3. Optimistic Filter (Collapse Item)
                     _pendingMutations.update { it + (memo.id to Mutation.Delete(isHidden = true)) }
 
-                    memoRepository.deleteMemo(memo)
+                    deleteMemoUseCase(memo)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     _pendingMutations.update { it - memo.id }
                     throw e
@@ -159,7 +163,7 @@ class TagFilterViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    memoRepository.updateMemo(memo, newContent)
+                    updateMemoUseCase(memo, newContent)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {

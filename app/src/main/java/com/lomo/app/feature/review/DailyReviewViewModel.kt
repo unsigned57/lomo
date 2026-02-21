@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.UpdateMemoUseCase
 import com.lomo.ui.util.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -27,6 +29,8 @@ class DailyReviewViewModel
         private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val updateMemoUseCase: UpdateMemoUseCase,
+        private val deleteMemoUseCase: DeleteMemoUseCase,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
@@ -185,7 +189,7 @@ class DailyReviewViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    repository.updateMemo(memo, newContent)
+                    updateMemoUseCase(memo, newContent)
                     loadDailyReview()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -198,7 +202,7 @@ class DailyReviewViewModel
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
                 try {
-                    repository.deleteMemo(memo)
+                    deleteMemoUseCase(memo)
                     loadDailyReview()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e

@@ -10,6 +10,8 @@ import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.UpdateMemoUseCase
 import com.lomo.ui.util.OptimisticMutationManager
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,6 +40,8 @@ class SearchViewModel
         private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val deleteMemoUseCase: DeleteMemoUseCase,
+        private val updateMemoUseCase: UpdateMemoUseCase,
     ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
@@ -156,7 +160,7 @@ class SearchViewModel
                 id = memo.id,
                 onError = { /* silently ignore; item will reappear */ },
             ) {
-                repository.deleteMemo(memo)
+                deleteMemoUseCase(memo)
             }
         }
 
@@ -166,7 +170,7 @@ class SearchViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    repository.updateMemo(memo, newContent)
+                    updateMemoUseCase(memo, newContent)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {
