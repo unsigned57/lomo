@@ -57,6 +57,10 @@ class MainViewModel
     ) : ViewModel() {
         private val _updateUrl = MutableStateFlow<String?>(null)
         val updateUrl: StateFlow<String?> = _updateUrl
+        private val _updateVersion = MutableStateFlow<String?>(null)
+        val updateVersion: StateFlow<String?> = _updateVersion
+        private val _updateReleaseNotes = MutableStateFlow<String?>(null)
+        val updateReleaseNotes: StateFlow<String?> = _updateReleaseNotes
 
         fun checkForUpdates() {
             viewModelScope.launch {
@@ -64,9 +68,11 @@ class MainViewModel
                     // First check if enabled
                     val enabled = settingsRepository.isCheckUpdatesOnStartupEnabled().first()
                     if (enabled) {
-                        val url = updateManager.checkForUpdates()
-                        if (url != null) {
-                            _updateUrl.value = url
+                        val info = updateManager.checkForUpdatesInfo()
+                        if (info != null) {
+                            _updateUrl.value = info.htmlUrl
+                            _updateVersion.value = info.version
+                            _updateReleaseNotes.value = info.releaseNotes
                         }
                     }
                 } catch (e: Exception) {
@@ -78,6 +84,8 @@ class MainViewModel
 
         fun dismissUpdateDialog() {
             _updateUrl.value = null
+            _updateVersion.value = null
+            _updateReleaseNotes.value = null
         }
 
         // ... existing code ...

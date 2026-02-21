@@ -201,6 +201,9 @@
     <!-- Update Dialog -->
     <string name="update_dialog_title">New Version Available</string>
     <string name="update_dialog_message">A new version of Lomo is available. Please update.</string>
+    <string name="update_dialog_message_with_version">A new version of Lomo (%1$s) is available.</string>
+    <string name="update_dialog_release_notes">Release notes</string>
+    <string name="update_dialog_release_notes_empty">No release notes were provided for this version.</string>
     <string name="action_download">Download</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_accept">Accept</string>

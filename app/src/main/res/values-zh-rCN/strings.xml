@@ -202,6 +202,9 @@
     <!-- Update Dialog -->
     <string name="update_dialog_title">发现新版本</string>
     <string name="update_dialog_message">Lomo 有新版本可用，请前往 GitHub 下载最新版本。</string>
+    <string name="update_dialog_message_with_version">Lomo 有新版本（%1$s）可用。</string>
+    <string name="update_dialog_release_notes">更新内容</string>
+    <string name="update_dialog_release_notes_empty">该版本未提供更新说明。</string>
     <string name="action_download">去下载</string>
     <string name="action_cancel">取消</string>
     <string name="action_accept">接收</string>

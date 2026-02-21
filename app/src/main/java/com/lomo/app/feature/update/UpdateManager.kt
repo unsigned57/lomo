@@ -14,7 +14,13 @@ import javax.inject.Singleton
 class UpdateManager
     @Inject
     constructor() {
-        suspend fun checkForUpdates(): String? =
+        data class UpdateInfo(
+            val htmlUrl: String,
+            val version: String,
+            val releaseNotes: String,
+        )
+
+        suspend fun checkForUpdatesInfo(): UpdateInfo? =
             withContext(Dispatchers.IO) {
                 try {
                     val url = URL("https://api.github.com/repos/unsigned57/lomo/releases/latest")
@@ -37,6 +43,7 @@ class UpdateManager
                         val tagName = json.getString("tag_name") // e.g., "v1.2.0"
                         val htmlUrl = json.getString("html_url")
                         val body = json.optString("body", "")
+                        val sanitizedReleaseNotes = sanitizeReleaseNotes(body)
 
                         // Remove 'v' prefix if present for clean comparison
                         val remoteVersion = tagName.removePrefix("v")
@@ -48,12 +55,20 @@ class UpdateManager
                         // Force update check
                         if (body.contains("[FORCE_UPDATE]")) {
                             Timber.d("Force update triggered by release note flag")
-                            return@withContext htmlUrl
+                            return@withContext UpdateInfo(
+                                htmlUrl = htmlUrl,
+                                version = remoteVersion,
+                                releaseNotes = sanitizedReleaseNotes,
+                            )
                         }
 
                         if (isUpdateAvailable(localVersion, remoteVersion)) {
                             Timber.d("Update available: $htmlUrl")
-                            return@withContext htmlUrl
+                            return@withContext UpdateInfo(
+                                htmlUrl = htmlUrl,
+                                version = remoteVersion,
+                                releaseNotes = sanitizedReleaseNotes,
+                            )
                         } else {
                             Timber.d("No update available")
                         }
@@ -66,6 +81,22 @@ class UpdateManager
                 }
                 return@withContext null
             }
+
+        suspend fun checkForUpdates(): String? = checkForUpdatesInfo()?.htmlUrl
+
+        private fun sanitizeReleaseNotes(raw: String): String {
+            val cleaned =
+                raw
+                    .replace("[FORCE_UPDATE]", "")
+                    .replace("\r\n", "\n")
+                    .trim()
+
+            if (cleaned.isBlank()) return ""
+
+            val maxLength = 3000
+            if (cleaned.length <= maxLength) return cleaned
+            return "${cleaned.take(maxLength).trimEnd()}\n..."
+        }
 
         private fun isUpdateAvailable(
             local: String,
