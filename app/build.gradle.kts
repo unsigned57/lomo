@@ -1,3 +1,13 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.Optional
+import org.gradle.api.tasks.TaskAction
+import org.gradle.work.DisableCachingByDefault
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
@@ -5,6 +15,63 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
     // alias(libs.plugins.androidxBaselineProfile)
+}
+
+val artifactBaseName =
+    rootProject.name
+        .lowercase(Locale.ROOT)
+        .replace(Regex("[^a-z0-9._-]+"), "-")
+
+@DisableCachingByDefault(because = "Renames generated artifacts after packaging")
+abstract class RenameReleaseArtifactTask : DefaultTask() {
+    @get:Input
+    abstract val artifactBaseNameInput: Property<String>
+
+    @get:Input
+    abstract val artifactVersion: Property<String>
+
+    @get:Input
+    abstract val artifactExtension: Property<String>
+
+    @get:Optional
+    @get:InputDirectory
+    abstract val artifactDir: DirectoryProperty
+
+    @TaskAction
+    fun renameArtifacts() {
+        val outputDir = artifactDir.orNull?.asFile ?: return
+        if (!outputDir.exists()) return
+
+        val extension = artifactExtension.get().lowercase(Locale.ROOT)
+        val artifacts =
+            outputDir
+                .listFiles { file ->
+                    file.isFile && file.extension.lowercase(Locale.ROOT) == extension
+                }?.sortedBy { it.name }
+                .orEmpty()
+        if (artifacts.isEmpty()) return
+
+        if (artifacts.size == 1) {
+            val target = outputDir.resolve("${artifactBaseNameInput.get()}-v${artifactVersion.get()}.$extension")
+            if (artifacts.first().name != target.name) {
+                if (target.exists()) target.delete()
+                check(artifacts.first().renameTo(target)) {
+                    "Failed to rename ${artifacts.first().name} to ${target.name}"
+                }
+            }
+            return
+        }
+
+        artifacts.forEachIndexed { index, artifact ->
+            val target = outputDir.resolve("${artifactBaseNameInput.get()}-v${artifactVersion.get()}-${index + 1}.$extension")
+            if (artifact.name != target.name) {
+                if (target.exists()) target.delete()
+                check(artifact.renameTo(target)) {
+                    "Failed to rename ${artifact.name} to ${target.name}"
+                }
+            }
+        }
+    }
 }
 
 android {
@@ -79,6 +146,30 @@ android {
             excludes += "META-INF/io.netty.versions.properties"
         }
     }
+}
+
+val releaseVersionName = android.defaultConfig.versionName ?: "0.0.0"
+
+val renameReleaseApkArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
+    artifactBaseNameInput.set(artifactBaseName)
+    artifactVersion.set(releaseVersionName)
+    artifactExtension.set("apk")
+    artifactDir.set(layout.buildDirectory.dir("outputs/apk/release"))
+}
+
+val renameReleaseBundleArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
+    artifactBaseNameInput.set(artifactBaseName)
+    artifactVersion.set(releaseVersionName)
+    artifactExtension.set("aab")
+    artifactDir.set(layout.buildDirectory.dir("outputs/bundle/release"))
+}
+
+tasks.matching { it.name == "packageRelease" || it.name == "packageReleaseUniversalApk" }.configureEach {
+    finalizedBy(renameReleaseApkArtifacts)
+}
+
+tasks.matching { it.name == "signReleaseBundle" || it.name == "packageReleaseBundle" }.configureEach {
+    finalizedBy(renameReleaseBundleArtifacts)
 }
 
 dependencies {
