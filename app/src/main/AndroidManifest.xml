@@ -28,6 +28,7 @@
             android:exported="true"
             android:theme="@style/Theme.Lomo"
             android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustNothing"
             android:configChanges="locale|layoutDirection|uiMode|orientation|screenSize|smallestScreenSize|screenLayout">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
