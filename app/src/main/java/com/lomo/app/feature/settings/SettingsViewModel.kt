@@ -2,8 +2,6 @@ package com.lomo.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.data.source.FileDataSource
-import com.lomo.data.util.FormatDetector
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -21,8 +19,6 @@ class SettingsViewModel
     constructor(
         private val repository: MemoRepository,
         private val settings: SettingsRepository,
-        private val formatDetector: FormatDetector,
-        private val fileDataSource: FileDataSource,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
             repository
@@ -220,28 +216,5 @@ class SettingsViewModel
 
         fun updateShareCardShowBrand(enabled: Boolean) {
             viewModelScope.launch { settings.setShareCardShowBrand(enabled) }
-        }
-
-        fun autoDetectFormats() {
-            viewModelScope.launch {
-                try {
-                    // 仅采样最近 20 个文件的首行，避免大目录全量读
-                    val metas = fileDataSource.listMetadata().sortedByDescending { it.lastModified }.take(20)
-                    if (metas.isEmpty()) return@launch
-                    val filenames = metas.map { it.filename }
-                    val heads =
-                        metas.map { meta ->
-                            // 轻量读取前 256 字符
-                            fileDataSource.readHead(meta.filename, 256)?.lineSequence()?.firstOrNull() ?: ""
-                        }
-                    val (detectedFilename, detectedTimestamp) = formatDetector.detectFormats(filenames, heads)
-                    if (detectedFilename != null) settings.setStorageFilenameFormat(detectedFilename)
-                    if (detectedTimestamp != null) settings.setStorageTimestampFormat(detectedTimestamp)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    android.util.Log.e("SettingsViewModel", "Auto-detect failed", e)
-                }
-            }
         }
     }

@@ -10,7 +10,6 @@
     <string name="settings_voice_storage">Voice Storage</string>
     <string name="settings_filename_format">Filename Format</string>
     <string name="settings_timestamp_format">Timestamp Format</string>
-    <string name="settings_auto_detect">Auto-Detect from Existing Files</string>
     
     <!-- Display Group -->
     <string name="settings_group_display">Display</string>

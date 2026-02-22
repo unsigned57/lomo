@@ -34,7 +34,6 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
@@ -321,20 +320,6 @@ fun SettingsScreen(
                         icon = Icons.Outlined.AccessTime,
                         onClick = { showTimestampDialog = true },
                     )
-
-                    FilledTonalButton(
-                        onClick = {
-                            haptic.medium()
-                            viewModel.autoDetectFormats()
-                        },
-                        modifier =
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                    ) {
-                        Text(
-                            androidx.compose.ui.res
-                                .stringResource(com.lomo.app.R.string.settings_auto_detect),
-                        )
-                    }
                 }
 
                 SettingsGroup(

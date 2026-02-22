@@ -11,7 +11,6 @@
     <string name="settings_voice_storage">语音存储</string>
     <string name="settings_filename_format">文件名格式</string>
     <string name="settings_timestamp_format">时间戳格式</string>
-    <string name="settings_auto_detect">从现有文件自动检测</string>
     
     <!-- Display Group -->
     <string name="settings_group_display">显示</string>
