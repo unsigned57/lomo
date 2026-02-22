@@ -14,6 +14,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -126,6 +127,7 @@ class DailyReviewViewModel
             loadDailyReview()
         }
 
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         private fun loadDailyReview() {
             loadJob?.cancel()
             loadJob =
@@ -147,19 +149,14 @@ class DailyReviewViewModel
                                 repository.getImageDirectory(),
                                 imageMapProvider.imageMap,
                             ) { imageDir, imageMap ->
-                                rawMemos.map { memo ->
-                                    mapper.mapToUiModel(
-                                        memo = memo,
-                                        rootPath = null, // Root path usually from prefs, passing null for now or inject if needed
-                                        // MainViewModel gets rootDirectory from repository.getRootDirectory()?
-                                        // Actually MainViewModel uses repository.rootDirectory? No, let's check.
-                                        // MainViewModel: repository.getImageDirectory() (imageDir)
-                                        // We need storage config. For now assuming images are relative to imageDir.
-                                        imagePath = imageDir,
-                                        imageMap = imageMap,
-                                        isDeleting = false,
-                                    )
-                                }
+                                imageDir to imageMap
+                            }.mapLatest { (imageDir, imageMap) ->
+                                mapper.mapToUiModels(
+                                    memos = rawMemos,
+                                    rootPath = null,
+                                    imagePath = imageDir,
+                                    imageMap = imageMap,
+                                )
                             }.collect { uiModels ->
                                 _uiState.value = UiState.Success(uiModels)
                             }

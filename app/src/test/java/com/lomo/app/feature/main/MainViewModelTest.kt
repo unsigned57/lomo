@@ -2,9 +2,9 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.provider.ImageMapProvider
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,21 +19,19 @@ import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
-/**
- * Unit tests for MainViewModel.
- * Tests search state management and tag selection.
- */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var repository: com.lomo.domain.repository.MemoRepository
+    private lateinit var settingsRepository: com.lomo.domain.repository.SettingsRepository
+    private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
+    private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
     private lateinit var mapper: MemoUiMapper
     private lateinit var textProcessor: com.lomo.data.util.MemoTextProcessor
     private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
     private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var voiceRecorder: com.lomo.domain.repository.VoiceRecorder
     private lateinit var widgetRepository: com.lomo.domain.repository.WidgetRepository
     private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
     private lateinit var updateManager: com.lomo.app.feature.update.UpdateManager
@@ -47,11 +45,13 @@ class MainViewModelTest {
 
         savedStateHandle = SavedStateHandle()
         repository = mockk(relaxed = true)
-        mapper = mockk(relaxed = true)
+        settingsRepository = mockk(relaxed = true)
+        mediaRepository = mockk(relaxed = true)
+        dataStore = mockk(relaxed = true)
+        mapper = MemoUiMapper()
         textProcessor = mockk(relaxed = true)
         getFilteredMemosUseCase = mockk(relaxed = true)
         imageMapProvider = mockk(relaxed = true)
-        voiceRecorder = mockk(relaxed = true)
         widgetRepository = mockk(relaxed = true)
         audioPlayerManager = mockk(relaxed = true)
         updateManager = mockk(relaxed = true)
@@ -59,15 +59,29 @@ class MainViewModelTest {
         deleteMemoUseCase = mockk(relaxed = true)
         updateMemoUseCase = mockk(relaxed = true)
 
-        // Default stubs
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.getRootDirectory() } returns flowOf<String?>(null)
+        coEvery { repository.getRootDirectoryOnce() } returns null
         every { repository.getImageDirectory() } returns flowOf<String?>(null)
+        every { repository.getVoiceDirectory() } returns flowOf<String?>(null)
         every { repository.isSyncing() } returns flowOf(false)
-        every { repository.getImageUriMap() } returns flowOf<Map<String, String>>(emptyMap())
-        every { repository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-        every { repository.getTimeFormat() } returns flowOf("HH:mm")
-        every { repository.isHapticFeedbackEnabled() } returns flowOf(true)
+        every { repository.getActiveDayCount() } returns flowOf(0)
+
+        every { settingsRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+        every { settingsRepository.getTimeFormat() } returns flowOf("HH:mm")
+        every { settingsRepository.isHapticFeedbackEnabled() } returns flowOf(true)
+        every { settingsRepository.isShowInputHintsEnabled() } returns flowOf(true)
+        every { settingsRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+        every { settingsRepository.getShareCardStyle() } returns flowOf("default")
+        every { settingsRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+        every { settingsRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
+        every { settingsRepository.getThemeMode() } returns flowOf("system")
+        every { settingsRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
+
+        coEvery { dataStore.getLastAppVersionOnce() } returns ""
+        coEvery { dataStore.updateLastAppVersion(any()) } returns Unit
+
+        every { getFilteredMemosUseCase.invoke(any(), any()) } returns flowOf(emptyList())
     }
 
     @After
@@ -144,12 +158,14 @@ class MainViewModelTest {
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             repository = repository,
+            settingsRepository = settingsRepository,
+            mediaRepository = mediaRepository,
+            dataStore = dataStore,
             savedStateHandle = savedStateHandle,
             mapper = mapper,
             imageMapProvider = imageMapProvider,
             textProcessor = textProcessor,
             getFilteredMemosUseCase = getFilteredMemosUseCase,
-            voiceRecorder = voiceRecorder,
             widgetRepository = widgetRepository,
             audioPlayerManager = audioPlayerManager,
             updateManager = updateManager,

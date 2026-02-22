@@ -22,9 +22,6 @@ HSPLandroidx/compose/foundation/lazy/LazyListState;->scrollToItem(II)V
 # Material 3
 HSPLandroidx/compose/material3/MaterialTheme_androidKt;->MaterialTheme(Landroidx/compose/runtime/Composer;I)V
 
-# Paging
-HSPLandroidx/paging/compose/LazyPagingItemsKt;->collectAsLazyPagingItems(Lkotlinx/coroutines/flow/Flow;Landroidx/compose/runtime/Composer;I)Landroidx/paging/compose/LazyPagingItems;
-
 # Room
 HSPLandroidx/room/RoomDatabase;->query(Landroidx/sqlite/db/SupportSQLiteQuery;)Landroid/database/Cursor;
 
@@ -57,4 +54,4 @@ HSPLcom/lomo/ui/component/markdown/MarkdownRendererKt;->MarkdownRenderer(Ljava/l
 HSPLcom/lomo/ui/theme/ThemeKt;->LomoTheme(ZZLkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)V
 
 # Repository
-HSPLcom/lomo/data/repository/MemoRepositoryImpl;->getAllMemos()Lkotlinx/coroutines/flow/Flow;
+HSPLcom/lomo/data/repository/MemoRepositoryImpl;->getAllMemosList()Lkotlinx/coroutines/flow/Flow;

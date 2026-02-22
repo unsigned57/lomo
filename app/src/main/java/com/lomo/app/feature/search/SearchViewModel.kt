@@ -2,33 +2,28 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.PagingData
-import androidx.paging.cachedIn
-import androidx.paging.filter
-import androidx.paging.map
-import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.UpdateMemoUseCase
-import com.lomo.ui.util.OptimisticMutationManager
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-// SearchUiState removed - using PagingData direct flow
 
 @HiltViewModel
 class SearchViewModel
@@ -37,7 +32,7 @@ class SearchViewModel
         private val repository: MemoRepository,
         private val mediaRepository: com.lomo.domain.repository.MediaRepository,
         private val settingsRepository: SettingsRepository,
-        private val mapper: com.lomo.app.feature.main.MemoUiMapper,
+        val mapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoUseCase: UpdateMemoUseCase,
@@ -54,6 +49,8 @@ class SearchViewModel
             repository
                 .getImageDirectory()
                 .stateInViewModel(viewModelScope, null)
+
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val dateFormat: StateFlow<String> =
             settingsRepository
@@ -90,54 +87,41 @@ class SearchViewModel
                 .getActiveDayCount()
                 .stateInViewModel(viewModelScope, 0)
 
-        // Optimistic UI: shared manager handles the two-phase fade-then-collapse pattern
-        private val mutations = OptimisticMutationManager(viewModelScope)
-        val pendingMutations = mutations.state
-
         @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-        val pagedResults: kotlinx.coroutines.flow.Flow<PagingData<com.lomo.app.feature.main.MemoUiModel>> =
-            kotlinx.coroutines.flow
-                .combine(
-                    _searchQuery.debounce(300),
-                    rootDirectory,
-                    imageDirectory,
-                    imageMapProvider.imageMap,
-                    mutations.state,
-                ) { query, root, imageRoot, imageMap, pendingMutations ->
-                    DataBundle(query, root, imageRoot, imageMap, pendingMutations)
-                }.flatMapLatest { bundle ->
-                    if (bundle.query.isBlank()) {
-                        kotlinx.coroutines.flow.flowOf(PagingData.empty<MemoUiModel>())
+        val searchResults: StateFlow<List<Memo>> =
+            _searchQuery
+                .debounce(300)
+                .flatMapLatest { query ->
+                    if (query.isBlank()) {
+                        flowOf(emptyList())
                     } else {
-                        repository.searchMemos(bundle.query).map { pagingData ->
-                            pagingData
-                                .map { memo ->
-                                    mapper.mapToUiModel(
-                                        memo = memo,
-                                        rootPath = bundle.root,
-                                        imagePath = bundle.imageRoot,
-                                        imageMap = bundle.imageMap,
-                                        isDeleting =
-                                            bundle.mutations[memo.id]?.isHidden == false &&
-                                                bundle.mutations[memo.id] != null,
-                                    )
-                                }.filter { memo ->
-                                    val mutation = bundle.mutations[memo.memo.id]
-                                    mutation?.isHidden != true
-                                }
-                        }
+                        repository.searchMemosList(query)
                     }
-                }.catch { e ->
-                    e.printStackTrace()
-                    emit(PagingData.empty<MemoUiModel>())
-                }.cachedIn(viewModelScope)
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private data class DataBundle(
-            val query: String,
-            val root: String?,
-            val imageRoot: String?,
+        @OptIn(ExperimentalCoroutinesApi::class)
+        val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            combine(searchResults, rootDirectory, imageDirectory, imageMap) { results, rootDir, imageDir, currentImageMap ->
+                SearchMappingBundle(
+                    memos = results,
+                    rootDirectory = rootDir,
+                    imageDirectory = imageDir,
+                    imageMap = currentImageMap,
+                )
+            }.mapLatest { bundle ->
+                mapper.mapToUiModels(
+                    memos = bundle.memos,
+                    rootPath = bundle.rootDirectory,
+                    imagePath = bundle.imageDirectory,
+                    imageMap = bundle.imageMap,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private data class SearchMappingBundle(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
             val imageMap: Map<String, android.net.Uri>,
-            val mutations: Map<String, OptimisticMutationManager.MutationState>,
         )
 
         fun onSearchQueryChanged(query: String) {
@@ -145,11 +129,14 @@ class SearchViewModel
         }
 
         fun deleteMemo(memo: Memo) {
-            mutations.delete(
-                id = memo.id,
-                onError = { /* silently ignore; item will reappear */ },
-            ) {
-                deleteMemoUseCase(memo)
+            viewModelScope.launch {
+                try {
+                    deleteMemoUseCase(memo)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep Search UI resilient.
+                }
             }
         }
 
@@ -163,7 +150,7 @@ class SearchViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    // Keep Search UI resilient; paging stream will recover on next invalidation.
+                    // Keep Search UI resilient.
                 }
             }
         }
@@ -181,7 +168,6 @@ class SearchViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    // Keep Search UI resilient; skip insertion on failure.
                     onError?.invoke()
                 }
             }

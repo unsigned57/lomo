@@ -1,22 +1,16 @@
 package com.lomo.data.repository
 
 import android.net.Uri
-import androidx.paging.Pager
-import androidx.paging.PagingConfig
-import androidx.paging.PagingData
-import androidx.paging.map
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.share.ShareAuthUtils
 import com.lomo.data.source.FileDataSource
-import com.lomo.domain.AppConfig
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -83,19 +77,7 @@ class MemoRepositoryImpl
             dataStore.updateVoiceUri(uri)
         }
 
-        override fun getAllMemos(): Flow<PagingData<Memo>> =
-            Pager(
-                config =
-                    PagingConfig(
-                        pageSize = AppConfig.PAGE_SIZE,
-                        // Add prefetch and initial load settings
-                        prefetchDistance = AppConfig.PREFETCH_DISTANCE,
-                        initialLoadSize = AppConfig.INITIAL_LOAD_SIZE,
-                        enablePlaceholders = false,
-                    ),
-                pagingSourceFactory = { dao.getAllMemos() },
-            ).flow
-                .map { pagingData -> pagingData.map { it.toDomain() } }
+        override fun getAllMemosList(): Flow<List<Memo>> = dao.getAllMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
         override suspend fun getRandomMemos(limit: Int): List<Memo> = dao.getRandomMemos(limit).map { it.toDomain() }
 
@@ -145,71 +127,49 @@ class MemoRepositoryImpl
             synchronizer.deleteMemo(memo)
         }
 
-        override fun searchMemos(query: String): Flow<PagingData<Memo>> =
-            Pager(
-                config =
-                    PagingConfig(
-                        pageSize = AppConfig.PAGE_SIZE,
-                        prefetchDistance = AppConfig.PREFETCH_DISTANCE,
-                        initialLoadSize = AppConfig.INITIAL_LOAD_SIZE,
-                        enablePlaceholders = false,
-                    ),
-                pagingSourceFactory = {
-                    val trimmed = query.trim()
-                    val hasCjk =
-                        trimmed.any {
-                            com.lomo.data.util.SearchTokenizer.run {
-                                // 复用 isCJK 判定逻辑（无法直接访问，做个简版）：
-                                val block =
-                                    java.lang.Character.UnicodeBlock
-                                        .of(it)
-                                block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-                                    block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-                                    block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-                                    block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-                                    block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
-                                    block == java.lang.Character.UnicodeBlock.HIRAGANA ||
-                                    block == java.lang.Character.UnicodeBlock.KATAKANA ||
-                                    block == java.lang.Character.UnicodeBlock.HANGUL_SYLLABLES
-                            }
-                        }
-                    if (hasCjk) {
-                        // CJK 查询词也需要经过同样分词，否则“苏格拉底”会被当成单一 token 导致命中失败。
-                        val tokens =
-                            com.lomo.data.util.SearchTokenizer
-                                .tokenize(trimmed)
-                                .split(Regex("\\s+"))
-                                .filter { it.isNotBlank() }
-                                .distinct()
-                                .take(5)
-                        if (tokens.isEmpty()) {
-                            dao.searchMemos(trimmed)
-                        } else {
-                            val matchQuery =
-                                tokens.joinToString(" ") { token ->
-                                    "\"${token.replace("\"", "\"\"")}\"*"
-                                }
-                            dao.searchMemosByFts(matchQuery)
-                        }
-                    } else {
-                        dao.searchMemos(trimmed)
-                    }
-                },
-            ).flow
-                .map { pagingData -> pagingData.map { it.toDomain() } }
+        override fun searchMemosList(query: String): Flow<List<Memo>> {
+            val trimmed = query.trim()
+            val hasCjk =
+                trimmed.any {
+                    val block =
+                        java.lang.Character.UnicodeBlock
+                            .of(it)
+                    block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
+                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
+                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
+                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
+                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
+                        block == java.lang.Character.UnicodeBlock.HIRAGANA ||
+                        block == java.lang.Character.UnicodeBlock.KATAKANA ||
+                        block == java.lang.Character.UnicodeBlock.HANGUL_SYLLABLES
+                }
 
-        override fun getMemosByTag(tag: String): Flow<PagingData<Memo>> =
-            Pager(
-                config =
-                    PagingConfig(
-                        pageSize = AppConfig.PAGE_SIZE,
-                        prefetchDistance = AppConfig.PREFETCH_DISTANCE,
-                        initialLoadSize = AppConfig.INITIAL_LOAD_SIZE,
-                        enablePlaceholders = false,
-                    ),
-                pagingSourceFactory = { dao.getMemosByTag(tag) },
-            ).flow
-                .map { pagingData -> pagingData.map { it.toDomain() } }
+            val source =
+                if (hasCjk) {
+                    val tokens =
+                        com.lomo.data.util.SearchTokenizer
+                            .tokenize(trimmed)
+                            .split(Regex("\\s+"))
+                            .filter { it.isNotBlank() }
+                            .distinct()
+                            .take(5)
+                    if (tokens.isEmpty()) {
+                        dao.searchMemosFlow(trimmed)
+                    } else {
+                        val matchQuery =
+                            tokens.joinToString(" ") { token ->
+                                "\"${token.replace("\"", "\"\"")}\"*"
+                            }
+                        dao.searchMemosByFtsFlow(matchQuery)
+                    }
+                } else {
+                    dao.searchMemosFlow(trimmed)
+                }
+            return source.map { entities -> entities.map { it.toDomain() } }
+        }
+
+        override fun getMemosByTagList(tag: String): Flow<List<Memo>> =
+            dao.getMemosByTagFlow(tag).map { entities -> entities.map { it.toDomain() } }
 
         override fun getAllTags(): Flow<List<String>> =
             dao.getAllTagStrings().map { rawTags ->
@@ -249,18 +209,7 @@ class MemoRepositoryImpl
                 }
             }
 
-        override fun getDeletedMemos(): Flow<PagingData<Memo>> =
-            Pager(
-                config =
-                    PagingConfig(
-                        pageSize = AppConfig.PAGE_SIZE,
-                        prefetchDistance = AppConfig.PREFETCH_DISTANCE,
-                        initialLoadSize = AppConfig.INITIAL_LOAD_SIZE,
-                        enablePlaceholders = false,
-                    ),
-                pagingSourceFactory = { dao.getDeletedMemos() },
-            ).flow
-                .map { pagingData -> pagingData.map { it.toDomain() } }
+        override fun getDeletedMemosList(): Flow<List<Memo>> = dao.getDeletedMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
         override suspend fun restoreMemo(memo: Memo) {
             synchronizer.restoreMemo(memo)

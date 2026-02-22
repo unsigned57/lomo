@@ -34,7 +34,6 @@ dependencies {
     // Room
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
-    implementation(libs.androidx.room.paging)
     ksp(libs.androidx.room.compiler)
 
     // Hilt
@@ -42,9 +41,6 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler.work)
-
-    // Paging
-    implementation(libs.androidx.paging.runtime)
 
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)

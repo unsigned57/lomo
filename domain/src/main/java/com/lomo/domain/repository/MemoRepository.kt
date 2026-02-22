@@ -1,6 +1,5 @@
 package com.lomo.domain.repository
 
-import androidx.paging.PagingData
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.TagCount
 import kotlinx.coroutines.flow.Flow
@@ -28,7 +27,7 @@ interface MemoRepository {
     fun getVoiceDisplayName(): Flow<String?>
 
     // Data operations
-    fun getAllMemos(): Flow<PagingData<Memo>>
+    fun getAllMemosList(): Flow<List<Memo>>
 
     suspend fun getRandomMemos(limit: Int): List<Memo>
 
@@ -54,9 +53,9 @@ interface MemoRepository {
     suspend fun deleteMemo(memo: Memo)
 
     // Search & Filter
-    fun searchMemos(query: String): Flow<PagingData<Memo>>
+    fun searchMemosList(query: String): Flow<List<Memo>>
 
-    fun getMemosByTag(tag: String): Flow<PagingData<Memo>>
+    fun getMemosByTagList(tag: String): Flow<List<Memo>>
 
     // Stats
     fun getMemoCount(): Flow<Int>
@@ -70,7 +69,7 @@ interface MemoRepository {
     fun getAllTags(): Flow<List<String>>
 
     // Trash
-    fun getDeletedMemos(): Flow<PagingData<Memo>>
+    fun getDeletedMemosList(): Flow<List<Memo>>
 
     suspend fun restoreMemo(memo: Memo)
 

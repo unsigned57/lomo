@@ -1,6 +1,5 @@
 package com.lomo.domain.usecase
 
-import androidx.paging.PagingData
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import kotlinx.coroutines.flow.Flow
@@ -14,10 +13,10 @@ class GetFilteredMemosUseCase
         operator fun invoke(
             query: String,
             tag: String?,
-        ): Flow<PagingData<Memo>> =
+        ): Flow<List<Memo>> =
             when {
-                tag != null -> repository.getMemosByTag(tag)
-                query.isNotBlank() -> repository.searchMemos(query)
-                else -> repository.getAllMemos()
+                tag != null -> repository.getMemosByTagList(tag)
+                query.isNotBlank() -> repository.searchMemosList(query)
+                else -> repository.getAllMemosList()
             }
     }

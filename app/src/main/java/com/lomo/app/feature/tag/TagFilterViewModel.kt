@@ -3,10 +3,6 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.PagingData
-import androidx.paging.cachedIn
-import androidx.paging.filter
-import androidx.paging.map
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
@@ -14,15 +10,11 @@ import com.lomo.domain.repository.SettingsRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.UpdateMemoUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -98,49 +90,48 @@ class TagFilterViewModel
                 .getActiveDayCount()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
-        // Optimistic UI: Pending mutations
-        private val _pendingMutations = MutableStateFlow<Map<String, Mutation>>(emptyMap())
-        val pendingMutations: StateFlow<Map<String, Mutation>> = _pendingMutations
-
-        sealed interface Mutation {
-            data class Delete(
-                val isHidden: Boolean = false,
-            ) : Mutation
-        }
-
-        // Image map loading removed - using shared ImageMapProvider
-
         val rootDir: StateFlow<String?> = rootDirectory
         val imageDir: StateFlow<String?> = imageDirectory
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
-        val pagedMemos: Flow<PagingData<Memo>> =
+        val memos: StateFlow<List<Memo>> =
             memoRepository
-                .getMemosByTag(tag = tagName)
-                .cachedIn(viewModelScope)
+                .getMemosByTagList(tag = tagName)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            combine(memos, rootDir, imageDir, imageMap) { currentMemos, rootDirectory, imageDirectory, currentImageMap ->
+                TagMappingBundle(
+                    memos = currentMemos,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = currentImageMap,
+                )
+            }.mapLatest { bundle ->
+                mapper.mapToUiModels(
+                    memos = bundle.memos,
+                    rootPath = bundle.rootDirectory,
+                    imagePath = bundle.imageDirectory,
+                    imageMap = bundle.imageMap,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private data class TagMappingBundle(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+        )
 
         fun deleteMemo(memo: Memo) {
-            // 1. Optimistic Delete (Visible Phase)
-            _pendingMutations.update { it + (memo.id to Mutation.Delete(isHidden = false)) }
-
             viewModelScope.launch {
                 try {
-                    // 2. Wait for UI animations (300ms)
-                    delay(300)
-
-                    // 3. Optimistic Filter (Collapse Item)
-                    _pendingMutations.update { it + (memo.id to Mutation.Delete(isHidden = true)) }
-
                     deleteMemoUseCase(memo)
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    _pendingMutations.update { it - memo.id }
                     throw e
                 } catch (e: Exception) {
                     android.util.Log.e("TagFilterViewModel", "Failed to delete memo", e)
-                    _pendingMutations.update { it - memo.id }
-                } finally {
-                    delay(3000)
-                    _pendingMutations.update { it - memo.id }
                 }
             }
         }

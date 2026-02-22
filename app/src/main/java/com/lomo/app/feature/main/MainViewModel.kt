@@ -3,9 +3,6 @@ package com.lomo.app.feature.main
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.cachedIn
-import androidx.paging.filter
-import androidx.paging.map
 import com.lomo.app.BuildConfig
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -15,20 +12,17 @@ import com.lomo.domain.repository.WidgetRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -91,9 +85,6 @@ class MainViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
-        // Track in-flight TODO update jobs to handle race conditions: (MemoId, LineIndex) -> Job
-        private val pendingTodoJobs = mutableMapOf<Pair<String, Int>, kotlinx.coroutines.Job>()
-
         // Bug 3: Track filenames of images added during the current edit session.
         // If the user discards the input, we delete these files.
         private val ephemeralImageFilenames = mutableSetOf<String>()
@@ -108,11 +99,6 @@ class MainViewModel
 
         private val _selectedTag = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_TAG, null)
         val selectedTag: StateFlow<String?> = _selectedTag
-
-        // TODO override map: MemoId -> (LineIndex -> isChecked)
-        // This holds pending checkbox states that survive Paging refreshes
-        private val _todoOverrides = MutableStateFlow<Map<String, Map<Int, Boolean>>>(emptyMap())
-        val todoOverrides: StateFlow<Map<String, Map<Int, Boolean>>> = _todoOverrides
 
         sealed interface MainScreenState {
             data object Loading : MainScreenState
@@ -182,46 +168,35 @@ class MainViewModel
             }
         }
 
-        // Optimistic UI: Pending mutations
-        private val _pendingMutations = MutableStateFlow<Map<String, MemoMutation>>(emptyMap())
-        val pendingMutations: StateFlow<Map<String, MemoMutation>> = _pendingMutations
-
-        sealed interface MemoMutation {
-            data class Update(
-                val newContent: String,
-                val timestamp: Long,
-            ) : MemoMutation
-
-            data class Delete(
-                val timestamp: Long,
-                val isHidden: Boolean = false,
-            ) : MemoMutation
-
-            // Creation is harder with Paging, might need separate list or RemoteMediator trick.
-            // For now, let's focus on Update/Delete responsiveness.
-            data class Create(
-                val content: String,
-                val timestamp: Long,
-                val tempId: String,
-            ) : MemoMutation
-        }
-
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        private val rawMemosFlow =
+        val memos: StateFlow<List<Memo>> =
             combine(_searchQuery, _selectedTag) { query: String, tag: String? -> query to tag }
                 .flatMapLatest { (query, tag) -> getFilteredMemosUseCase(query, tag) }
-                .cachedIn(viewModelScope)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        val pagedMemos: kotlinx.coroutines.flow.Flow<androidx.paging.PagingData<Memo>> =
-            rawMemosFlow.cachedIn(viewModelScope)
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        val uiMemos: StateFlow<List<MemoUiModel>> =
+            combine(memos, rootDirectory, imageDirectory, imageMap) { currentMemos, rootDir, imageDir, currentImageMap ->
+                MemoMappingBundle(
+                    memos = currentMemos,
+                    rootDirectory = rootDir,
+                    imageDirectory = imageDir,
+                    imageMap = currentImageMap,
+                )
+            }.mapLatest { bundle ->
+                mapper.mapToUiModels(
+                    memos = bundle.memos,
+                    rootPath = bundle.rootDirectory,
+                    imagePath = bundle.imageDirectory,
+                    imageMap = bundle.imageMap,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        private data class DataBundle(
-            val query: String,
-            val tag: String?,
-            val rootDir: String?,
-            val imageDir: String?,
+        private data class MemoMappingBundle(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
             val imageMap: Map<String, android.net.Uri>,
-            val mutations: Map<String, MemoMutation>,
         )
 
         fun onDirectorySelected(path: String) {
@@ -274,11 +249,6 @@ class MainViewModel
             }
             viewModelScope.launch {
                 try {
-                    // Optimistic: Create temp ID and add to pending (TODO: Paging Header Injection)
-                    // For Add, since we can't easily inject into PagingData.from(flow),
-                    // we rely on the fact that refresh() is fast or we manually refresh.
-                    // But WAIT, we can just let it be slow for now, or use a separate "Creating..." list header.
-
                     createMemoUseCase(content)
                     // Update widget after adding memo
                     widgetRepository.updateAllWidgets()
@@ -297,32 +267,15 @@ class MainViewModel
         }
 
         fun deleteMemo(memo: Memo) {
-            val timestamp = System.currentTimeMillis()
-            // 1. Optimistic Delete (Fade Out)
-            _pendingMutations.update { it + (memo.id to MemoMutation.Delete(timestamp, isHidden = false)) }
-
             viewModelScope.launch {
                 try {
-                    // 2. Wait for UI animations (Fade 300ms)
-                    delay(300)
-
-                    // 3. Optimistic Filter (Collapse Item)
-                    // This forces the item to be removed from PagingData immediately
-                    _pendingMutations.update { it + (memo.id to MemoMutation.Delete(timestamp, isHidden = true)) }
-
                     deleteMemoUseCase(memo)
                     // Update widget after deleting memo
                     widgetRepository.updateAllWidgets()
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    _pendingMutations.update { it - memo.id }
                     throw e
                 } catch (e: Exception) {
                     _errorMessage.value = e.message
-                    _pendingMutations.update { it - memo.id }
-                } finally {
-                    // Keep the mutation mask for 3s to ensure Paging stream reflects the deletion
-                    delay(3000)
-                    _pendingMutations.update { it - memo.id }
                 }
             }
         }
@@ -331,10 +284,6 @@ class MainViewModel
             memo: Memo,
             newContent: String,
         ) {
-            val timestamp = System.currentTimeMillis()
-            // Optimistic Update
-            _pendingMutations.update { it + (memo.id to MemoMutation.Update(newContent, timestamp)) }
-
             viewModelScope.launch {
                 try {
                     updateMemoUseCase(memo, newContent)
@@ -344,14 +293,9 @@ class MainViewModel
                     // Bug 3: Memo saved, keep the images
                     ephemeralImageFilenames.clear()
                 } catch (e: kotlinx.coroutines.CancellationException) {
-                    _pendingMutations.update { it - memo.id }
                     throw e
                 } catch (e: Exception) {
                     _errorMessage.value = e.message
-                    _pendingMutations.update { it - memo.id }
-                } finally {
-                    delay(5000)
-                    _pendingMutations.update { it - memo.id }
                 }
             }
         }
@@ -361,44 +305,18 @@ class MainViewModel
             lineIndex: Int,
             checked: Boolean,
         ) {
-            val key = memo.id to lineIndex
-
-            // 1. Immediately update the overlay (optimistic UI)
-            _todoOverrides.update { current ->
-                val memoMap = current[memo.id]?.toMutableMap() ?: mutableMapOf()
-                memoMap[lineIndex] = checked
-                current + (memo.id to memoMap)
-            }
-
-            // 2. Cancel any pending update for this specific item to avoid race conditions
-            pendingTodoJobs[key]?.cancel()
-
-            // 3. Trigger DB update in background
-            val job =
-                viewModelScope.launch {
-                    try {
-                        val newContent = textProcessor.toggleCheckbox(memo.content, lineIndex, checked)
+            viewModelScope.launch {
+                try {
+                    val newContent = textProcessor.toggleCheckbox(memo.content, lineIndex, checked)
+                    if (newContent != memo.content) {
                         updateMemoUseCase(memo, newContent)
-                        // Widget will be updated by repository or we can trigger it here if needed
-                        // WidgetUpdater.updateAllWidgets(appContext)
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        _errorMessage.value = "Failed to update todo: ${e.message}"
-                    } finally {
-                        // 4. After successful write (or error), clear the override ONLY if this is still the active job
-                        // This prevents older out-of-order writes from clearing a newer optimistic state
-                        if (pendingTodoJobs[key] == coroutineContext[kotlinx.coroutines.Job]) {
-                            pendingTodoJobs.remove(key)
-                            _todoOverrides.update { current ->
-                                val memoMap = current[memo.id]?.toMutableMap() ?: return@update current
-                                memoMap.remove(lineIndex)
-                                if (memoMap.isEmpty()) current - memo.id else current + (memo.id to memoMap)
-                            }
-                        }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = "Failed to update todo: ${e.message}"
                 }
-            pendingTodoJobs[key] = job
+            }
         }
 
         fun saveImage(
@@ -674,5 +592,3 @@ data class MemoUiModel(
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val isDeleting: Boolean = false,
 )
-
-// MainUiState removed

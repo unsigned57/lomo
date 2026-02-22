@@ -1,6 +1,5 @@
 package com.lomo.data.local.dao
 
-import androidx.paging.PagingSource
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
@@ -13,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface MemoDao {
     @Query("SELECT * FROM Lomo ORDER BY timestamp DESC, id DESC")
-    fun getAllMemos(): PagingSource<Int, MemoEntity>
+    fun getAllMemosFlow(): Flow<List<MemoEntity>>
 
     @Query("SELECT * FROM Lomo ORDER BY RANDOM() LIMIT :limit")
     suspend fun getRandomMemos(limit: Int): List<MemoEntity>
@@ -50,7 +49,7 @@ interface MemoDao {
         ORDER BY timestamp DESC, id DESC
         """,
     )
-    fun searchMemos(query: String): PagingSource<Int, MemoEntity>
+    fun searchMemosFlow(query: String): Flow<List<MemoEntity>>
 
     @Query(
         """
@@ -60,7 +59,7 @@ interface MemoDao {
         ORDER BY Lomo.timestamp DESC, Lomo.id DESC
         """,
     )
-    fun searchMemosByFts(matchQuery: String): PagingSource<Int, MemoEntity>
+    fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>>
 
     // FTS
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -118,7 +117,7 @@ interface MemoDao {
         ORDER BY Lomo.timestamp DESC, Lomo.id DESC
     """,
     )
-    fun getMemosByTag(tag: String): PagingSource<Int, MemoEntity>
+    fun getMemosByTagFlow(tag: String): Flow<List<MemoEntity>>
 
     @Query("SELECT tags FROM Lomo WHERE tags != ''")
     fun getAllTagStrings(): Flow<List<String>>
@@ -143,7 +142,7 @@ interface MemoDao {
 
     // Trash Support
     @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC")
-    fun getDeletedMemos(): PagingSource<Int, TrashMemoEntity>
+    fun getDeletedMemosFlow(): Flow<List<TrashMemoEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrashMemos(memos: List<TrashMemoEntity>)

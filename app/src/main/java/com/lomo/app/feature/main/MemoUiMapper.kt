@@ -1,21 +1,38 @@
 package com.lomo.app.feature.main
 
-import android.content.Context
 import android.net.Uri
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.ui.component.markdown.ImmutableNode
 import com.lomo.ui.component.markdown.MarkdownParser
-import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
 
 class MemoUiMapper
     @Inject
-    constructor(
-        @ApplicationContext private val context: Context,
-        private val repository: MemoRepository,
-    ) {
+    constructor() {
+        suspend fun mapToUiModels(
+            memos: List<Memo>,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+            deletingIds: Set<String> = emptySet(),
+        ): List<MemoUiModel> =
+            withContext(Dispatchers.Default) {
+                memos.map { memo ->
+                    mapToUiModel(
+                        memo = memo,
+                        rootPath = rootPath,
+                        imagePath = imagePath,
+                        imageMap = imageMap,
+                        isDeleting = memo.id in deletingIds,
+                    )
+                }
+            }
+
         fun mapToUiModel(
             memo: Memo,
             rootPath: String?,
@@ -23,116 +40,134 @@ class MemoUiMapper
             imageMap: Map<String, Uri>,
             isDeleting: Boolean = false,
         ): MemoUiModel {
-            var newContent = memo.content
+            val processedContent = buildProcessedContent(memo.content, rootPath, imagePath, imageMap)
+            val parsedNode = parseMarkdownCached(processedContent)
+            val imageUrls = extractImageUrls(processedContent)
 
-            // Bug 3 fix: Remove tags from content display (tags are shown separately in footer)
-            // Match hashtags at word boundaries: #tag, #tag/subtag, #标签
-            newContent =
-                newContent.replace(Regex("(^|\\s)#[\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*")) { match ->
-                    // Keep the leading whitespace if it was a space (not start of line)
-                    if (match.value.startsWith(" ") || match.value.startsWith("\t")) " " else ""
-                }
-            // Clean up multiple consecutive spaces/newlines left after tag removal
-            newContent = newContent.replace(Regex(" {2,}"), " ")
-            newContent = newContent.replace(Regex("\\n{3,}"), "\n\n")
-            newContent = newContent.trim()
+            return MemoUiModel(
+                memo = memo,
+                processedContent = processedContent,
+                markdownNode = parsedNode,
+                tags = memo.tags.toImmutableList(),
+                imageUrls = imageUrls,
+                isDeleting = isDeleting,
+            )
+        }
 
-            // Helper to resolve images
-            fun resolveImageModel(
-                imageUrl: String,
-                isWikiStyle: Boolean,
-            ): Any {
-                val cacheKey =
-                    if (imageUrl.startsWith("../")) imageUrl.substringAfterLast("/") else imageUrl
-                imageMap[cacheKey]?.let {
-                    return it
-                }
+        private fun buildProcessedContent(
+            content: String,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+        ): String {
+            var resolvedContent = content
 
-                if (imageUrl.startsWith("/") ||
-                    imageUrl.startsWith("content://") ||
-                    imageUrl.startsWith("http")
-                ) {
-                    return imageUrl
-                }
-
-                // Fallback I/O removed for performance.
-                // Ensure repository.syncImageCache() runs to populate imageMap.
-
-                val basePath = if (isWikiStyle) (imagePath ?: rootPath) else rootPath
-                if (basePath != null) {
-                    if (basePath.startsWith("content://") || basePath.startsWith("file://")) {
-                        // Check if image is relative
-                        if (imageUrl.startsWith("../")) {
-                            // Cannot resolve parent of URI easily without context, simply return raw
-                            // for now or try weak resolution
-                            return imageUrl // Better than returning basePath which is a directory
-                        }
-                        return Uri
-                            .parse(basePath)
-                            .buildUpon()
-                            .appendPath(imageUrl)
-                            .build()
-                            .toString()
-                    }
-
-                    return if (imageUrl.startsWith("../")) {
-                        val parentDir = File(basePath).parent ?: basePath
-                        File(parentDir, imageUrl.removePrefix("../"))
-                    } else {
-                        File(basePath, imageUrl)
-                    }
-                }
-                return imageUrl
-            }
-
-            // 1. Wiki-style
-            newContent =
-                newContent.replace(Regex("!\\[\\[(.*?)\\]\\]")) { match ->
+            resolvedContent =
+                WIKI_IMAGE_REGEX.replace(resolvedContent) { match ->
                     val path = match.groupValues[1]
-                    val resolved = resolveImageModel(path, isWikiStyle = true)
+                    val resolved =
+                        resolveImageModel(path, isWikiStyle = true, rootPath = rootPath, imagePath = imagePath, imageMap = imageMap)
                     val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
                     "![]($finalUrl)"
                 }
 
-            // 2. Standard - Skip audio files (voice memos) which should NOT be resolved as images
-            val audioExtensions = setOf(".m4a", ".mp3", ".aac", ".wav")
-            newContent =
-                newContent.replace(Regex("!\\[(.*?)\\]\\((.*?)\\)")) { match ->
+            resolvedContent =
+                MARKDOWN_IMAGE_REGEX.replace(resolvedContent) { match ->
                     val alt = match.groupValues[1]
                     val path = match.groupValues[2]
 
-                    // Don't process voice memos - they need their relative paths preserved
-                    if (audioExtensions.any { path.lowercase().endsWith(it) }) {
-                        match.value // Return unchanged
+                    if (AUDIO_EXTENSIONS.any { path.lowercase().endsWith(it) }) {
+                        match.value
                     } else {
-                        val resolved = resolveImageModel(path, isWikiStyle = false)
+                        val resolved =
+                            resolveImageModel(
+                                imageUrl = path,
+                                isWikiStyle = false,
+                                rootPath = rootPath,
+                                imagePath = imagePath,
+                                imageMap = imageMap,
+                            )
                         val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
                         "![$alt]($finalUrl)"
                     }
                 }
 
-            // Parse Markdown
-            // Note: MarkdownParser.parse is computationally expensive, ensure this runs on background
-            // thread (it does in ViewModel)
-            val parsedNode = MarkdownParser.parse(newContent)
+            return resolvedContent
+        }
 
-            // Collect images for preloading
+        private fun resolveImageModel(
+            imageUrl: String,
+            isWikiStyle: Boolean,
+            rootPath: String?,
+            imagePath: String?,
+            imageMap: Map<String, Uri>,
+        ): Any {
+            val cacheKey = if (imageUrl.startsWith("../")) imageUrl.substringAfterLast("/") else imageUrl
+            imageMap[cacheKey]?.let { return it }
+
+            if (imageUrl.startsWith("/") || imageUrl.startsWith("content://") || imageUrl.startsWith("http")) {
+                return imageUrl
+            }
+
+            val basePath = if (isWikiStyle) (imagePath ?: rootPath) else rootPath
+            if (basePath != null) {
+                if (basePath.startsWith("content://") || basePath.startsWith("file://")) {
+                    if (imageUrl.startsWith("../")) {
+                        return imageUrl
+                    }
+                    return Uri
+                        .parse(basePath)
+                        .buildUpon()
+                        .appendPath(imageUrl)
+                        .build()
+                        .toString()
+                }
+
+                return if (imageUrl.startsWith("../")) {
+                    val parentDir = File(basePath).parent ?: basePath
+                    File(parentDir, imageUrl.removePrefix("../"))
+                } else {
+                    File(basePath, imageUrl)
+                }
+            }
+            return imageUrl
+        }
+
+        private fun parseMarkdownCached(content: String): ImmutableNode {
+            synchronized(cacheLock) {
+                markdownCache[content]?.let { return it }
+            }
+
+            val parsed = MarkdownParser.parse(content)
+            synchronized(cacheLock) {
+                markdownCache[content] = parsed
+            }
+            return parsed
+        }
+
+        private fun extractImageUrls(content: String): ImmutableList<String> {
             val imageUrls = mutableListOf<String>()
-            val imageRegex = Regex("!\\[.*?\\]\\((.*?)\\)")
-            imageRegex.findAll(newContent).forEach { match ->
+            EXTRACT_IMAGE_URL_REGEX.findAll(content).forEach { match ->
                 val url = match.groupValues[1]
                 if (url.isNotBlank()) {
                     imageUrls.add(url)
                 }
             }
-
-            return MemoUiModel(
-                memo = memo,
-                processedContent = newContent,
-                markdownNode = parsedNode,
-                tags = memo.tags.toImmutableList(),
-                imageUrls = imageUrls.toImmutableList(),
-                isDeleting = isDeleting,
-            )
+            return imageUrls.toImmutableList()
         }
+
+        private companion object {
+            private const val MARKDOWN_CACHE_SIZE = 512
+            private val WIKI_IMAGE_REGEX = Regex("!\\[\\[(.*?)\\]\\]")
+            private val MARKDOWN_IMAGE_REGEX = Regex("!\\[(.*?)\\]\\((.*?)\\)")
+            private val EXTRACT_IMAGE_URL_REGEX = Regex("!\\[.*?\\]\\((.*?)\\)")
+            private val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav")
+        }
+
+        private val cacheLock = Any()
+
+        private val markdownCache =
+            object : LinkedHashMap<String, ImmutableNode>(MARKDOWN_CACHE_SIZE, 0.75f, true) {
+                override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImmutableNode>): Boolean = size > MARKDOWN_CACHE_SIZE
+            }
     }

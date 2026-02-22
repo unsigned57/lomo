@@ -21,12 +21,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FabPosition
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.PermanentDrawerSheet
@@ -42,16 +40,12 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -60,18 +54,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.LoadState
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.input.InputSheet
-import com.lomo.ui.component.menu.MemoMenuBottomSheet
 import com.lomo.ui.component.menu.MemoMenuHost
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.util.DateTimeUtils
 import com.lomo.ui.util.formatAsDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -117,7 +107,7 @@ fun MainScreen(
 ) {
     // Collect Flow state safely with Lifecycle awareness using collectAsStateWithLifecycle
     // to ensure flows are paused when the app is in the background.
-    val pagedMemos = viewModel.pagedMemos.collectAsLazyPagingItems()
+    val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
@@ -138,17 +128,10 @@ fun MainScreen(
     val recordingAmplitude by recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val todoOverrides by viewModel.todoOverrides.collectAsStateWithLifecycle()
-    val pendingMutations by viewModel.pendingMutations.collectAsStateWithLifecycle()
-    val rootDir by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDir by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
 
     // Manual pull-to-refresh is available for explicit data reload.
-    val hasItems = pagedMemos.itemCount > 0
-    val refreshState = pagedMemos.loadState.refresh
-    val isInitiallyLoading = refreshState is LoadState.Loading && !hasItems
-    val isEmpty = !hasItems && refreshState is LoadState.NotLoading
+    val hasItems = uiMemos.isNotEmpty()
 
     // Host State
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -168,7 +151,6 @@ fun MainScreen(
     var editingMemo by remember { mutableStateOf<Memo?>(null) }
     var inputText by remember { mutableStateOf(TextFieldValue("")) }
     var isRefreshing by remember { mutableStateOf(false) }
-    var hasCompletedInitialLoad by rememberSaveable { mutableStateOf(false) }
 
     // Adaptive Layout
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
@@ -443,9 +425,6 @@ fun MainScreen(
                     floatingActionButtonPosition = FabPosition.Center,
                 ) { padding ->
                     Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-                        val refreshState = pagedMemos.loadState.refresh
-                        val isEmpty = pagedMemos.itemCount == 0
-
                         AnimatedContent(
                             targetState = uiState,
                             transitionSpec = {
@@ -493,116 +472,46 @@ fun MainScreen(
                                 }
 
                                 is MainViewModel.MainScreenState.Ready -> {
-                                    if (isInitiallyLoading && !hasCompletedInitialLoad) {
-                                        // First time import or loading from scratch - show skeleton
-                                        com.lomo.ui.component.common.MemoListSkeleton(
-                                            modifier = Modifier.fillMaxSize(),
+                                    if (!hasItems) {
+                                        MainEmptyState(
+                                            searchQuery = searchQuery,
+                                            selectedTag = selectedTag,
+                                            hasDirectory = true,
+                                            onSettings = actions.onSettings,
                                         )
                                     } else {
-                                        // Truly empty state OR refreshing (adding first item) after initial load
-                                        val showEmptyState = isEmpty || (isInitiallyLoading && hasCompletedInitialLoad)
-
-                                        if (!isInitiallyLoading) {
-                                            hasCompletedInitialLoad = true
-                                        }
-
-                                        AnimatedContent(
-                                            targetState = showEmptyState,
-                                            transitionSpec = {
-                                                if (!targetState) {
-                                                    // List appearing (Empty -> List): Fade + Scale In
-                                                    (
-                                                        fadeIn(
-                                                            animationSpec =
-                                                                tween(
-                                                                    durationMillis = MotionTokens.DurationLong2,
-                                                                    easing = MotionTokens.EasingStandard,
-                                                                ),
-                                                        ) +
-                                                            scaleIn(
-                                                                initialScale = 0.92f,
-                                                                animationSpec =
-                                                                    tween(
-                                                                        durationMillis = MotionTokens.DurationLong2,
-                                                                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                                    ),
-                                                            )
-                                                    ) togetherWith
-                                                        fadeOut(
-                                                            animationSpec =
-                                                                tween(
-                                                                    durationMillis = MotionTokens.DurationLong2,
-                                                                    easing = MotionTokens.EasingStandard,
-                                                                ),
-                                                        )
-                                                } else {
-                                                    // Empty appearing (List -> Empty): Simple Fade
-                                                    fadeIn(
-                                                        animationSpec =
-                                                            tween(
-                                                                durationMillis = MotionTokens.DurationLong2,
-                                                                easing = MotionTokens.EasingStandard,
-                                                            ),
-                                                    ) togetherWith
-                                                        fadeOut(
-                                                            animationSpec =
-                                                                tween(
-                                                                    durationMillis = MotionTokens.DurationLong2,
-                                                                    easing = MotionTokens.EasingStandard,
-                                                                ),
-                                                        )
-                                                }
+                                        MemoListContent(
+                                            memos = uiMemos,
+                                            listState = listState,
+                                            isRefreshing = isRefreshing,
+                                            onRefresh = actions.onRefresh,
+                                            onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
+                                            dateFormat = dateFormat,
+                                            timeFormat = timeFormat,
+                                            onMemoClick = actions.onMemoClick,
+                                            onMemoDoubleClick = { memo ->
+                                                editingMemo = memo
+                                                inputText = TextFieldValue(memo.content, TextRange(memo.content.length))
+                                                showInputSheet = true
                                             },
-                                            label = "FirstNoteTransition",
-                                        ) { showEmpty ->
-                                            if (showEmpty) {
-                                                MainEmptyState(
-                                                    searchQuery = searchQuery,
-                                                    selectedTag = selectedTag,
-                                                    hasDirectory = true,
-                                                    onSettings = actions.onSettings,
-                                                )
-                                            } else {
-                                                MemoListContent(
-                                                    memos = pagedMemos,
-                                                    listState = listState,
-                                                    isRefreshing = isRefreshing,
-                                                    onRefresh = actions.onRefresh,
-                                                    onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
-                                                    dateFormat = dateFormat,
-                                                    timeFormat = timeFormat,
-                                                    todoOverrides = todoOverrides,
-                                                    onMemoClick = actions.onMemoClick,
-                                                    onMemoDoubleClick = { memo ->
-                                                        editingMemo = memo
-                                                        inputText = TextFieldValue(memo.content, TextRange(memo.content.length))
-                                                        showInputSheet = true
-                                                    },
-                                                    doubleTapEditEnabled = doubleTapEditEnabled,
-                                                    onTagClick = actions.onSidebarTagClick,
-                                                    onImageClick = actions.onNavigateToImage,
-                                                    onShowMemoMenu = { uiModel ->
-                                                        showMenu(
-                                                            com.lomo.ui.component.menu.MemoMenuState(
-                                                                wordCount = uiModel.memo.content.length,
-                                                                createdTime =
-                                                                    uiModel.memo.timestamp.formatAsDateTime(
-                                                                        dateFormat,
-                                                                        timeFormat,
-                                                                    ),
-                                                                content = uiModel.memo.content,
-                                                                memo = uiModel.memo,
+                                            doubleTapEditEnabled = doubleTapEditEnabled,
+                                            onTagClick = actions.onSidebarTagClick,
+                                            onImageClick = actions.onNavigateToImage,
+                                            onShowMemoMenu = { uiModel ->
+                                                showMenu(
+                                                    com.lomo.ui.component.menu.MemoMenuState(
+                                                        wordCount = uiModel.memo.content.length,
+                                                        createdTime =
+                                                            uiModel.memo.timestamp.formatAsDateTime(
+                                                                dateFormat,
+                                                                timeFormat,
                                                             ),
-                                                        )
-                                                    },
-                                                    pendingMutations = pendingMutations,
-                                                    mapper = viewModel.mapper,
-                                                    rootDir = rootDir,
-                                                    imageDir = imageDir,
-                                                    imageMap = imageMap,
+                                                        content = uiModel.memo.content,
+                                                        memo = uiModel.memo,
+                                                    ),
                                                 )
-                                            }
-                                        }
+                                            },
+                                        )
                                     }
                                 }
                             }
@@ -661,8 +570,6 @@ fun MainScreen(
                     // Bug 2 fix: Scroll to top after creating new memo
                     if (isNewMemo) {
                         scope.launch {
-                            // Small delay to allow Paging to process the new item
-                            kotlinx.coroutines.delay(300)
                             listState.animateScrollToItem(0)
                         }
                     }

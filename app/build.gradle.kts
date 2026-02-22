@@ -201,10 +201,6 @@ dependencies {
     implementation(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler.work)
 
-    // Paging
-    implementation(libs.androidx.paging.runtime)
-    implementation(libs.androidx.paging.compose)
-
     // Navigation
     implementation(libs.androidx.navigation.compose) // Corrected reference
     implementation(libs.kotlinx.serialization.json)

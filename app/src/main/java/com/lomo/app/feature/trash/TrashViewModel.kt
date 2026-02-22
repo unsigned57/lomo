@@ -2,20 +2,18 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.paging.PagingData
-import androidx.paging.cachedIn
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
-import com.lomo.ui.util.OptimisticMutationManager
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -30,11 +28,6 @@ class TrashViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
-        // Optimistic UI: shared manager handles the two-phase fade-then-collapse pattern
-        private val mutations = OptimisticMutationManager(viewModelScope)
-        val pendingMutations = mutations.state
-
-        // Image map provided by shared ImageMapProvider
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
         val imageDirectory: StateFlow<String?> =
             repository.getImageDirectory().stateIn(
@@ -43,18 +36,10 @@ class TrashViewModel
                 null,
             )
 
-        // Filter out optimistically deleted items for smooth animation and map to UiModel
-        @OptIn(ExperimentalCoroutinesApi::class)
-        val pagedTrash: Flow<PagingData<Memo>> =
+        val trashMemos: StateFlow<List<Memo>> =
             repository
-                .getDeletedMemos()
-                .cachedIn(viewModelScope)
-
-        private data class DataBundle(
-            val rootDir: String?,
-            val imageDir: String?,
-            val imageMap: Map<String, android.net.Uri>,
-        )
+                .getDeletedMemosList()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val dateFormat: StateFlow<String> =
             settingsRepository
@@ -71,25 +56,52 @@ class TrashViewModel
                 .getRootDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            combine(trashMemos, rootDirectory, imageDirectory, imageMap) { memos, rootDir, imageDir, currentImageMap ->
+                TrashMappingBundle(
+                    memos = memos,
+                    rootDirectory = rootDir,
+                    imageDirectory = imageDir,
+                    imageMap = currentImageMap,
+                )
+            }.mapLatest { bundle ->
+                mapper.mapToUiModels(
+                    memos = bundle.memos,
+                    rootPath = bundle.rootDirectory,
+                    imagePath = bundle.imageDirectory,
+                    imageMap = bundle.imageMap,
+                )
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        private data class TrashMappingBundle(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+        )
+
         fun restoreMemo(memo: Memo) {
-            mutations.delete(
-                id = memo.id,
-                onError = { e ->
+            viewModelScope.launch {
+                try {
+                    repository.restoreMemo(memo)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     _errorMessage.value = "Failed to restore memo: ${e.message}"
-                },
-            ) {
-                repository.restoreMemo(memo)
+                }
             }
         }
 
         fun deletePermanently(memo: Memo) {
-            mutations.delete(
-                id = memo.id,
-                onError = { e ->
+            viewModelScope.launch {
+                try {
+                    repository.deletePermanently(memo)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
                     _errorMessage.value = "Failed to delete memo: ${e.message}"
-                },
-            ) {
-                repository.deletePermanently(memo)
+                }
             }
         }
 

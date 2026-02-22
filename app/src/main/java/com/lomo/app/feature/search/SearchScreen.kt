@@ -6,11 +6,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,14 +36,11 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -54,26 +50,17 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.paging.LoadState
-import androidx.paging.compose.collectAsLazyPagingItems
-import androidx.paging.compose.itemKey
 import com.lomo.app.R
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.EmptyState
-import com.lomo.ui.component.common.SkeletonMemoItem
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.formatAsDateTime
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import java.io.File
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
     onBackClick: () -> Unit,
@@ -81,7 +68,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val query: String by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val pagedResults = viewModel.pagedResults.collectAsLazyPagingItems()
+    val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
     val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle()
     val timeFormat by viewModel.timeFormat.collectAsStateWithLifecycle()
     val shareCardStyle by viewModel.shareCardStyle.collectAsStateWithLifecycle()
@@ -89,12 +76,8 @@ fun SearchScreen(
     val doubleTapEditEnabled by viewModel.doubleTapEditEnabled.collectAsStateWithLifecycle()
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
+
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-
-    // Track deleting items for "fade out then delete" animation sequence
-    val deletingIds = remember { mutableStateListOf<String>() }
-    val scope = rememberCoroutineScope()
-
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -148,7 +131,6 @@ fun SearchScreen(
         focusRequester.requestFocus()
     }
 
-    // Wrap with MemoMenuHost for menu support
     com.lomo.ui.component.menu.MemoMenuHost(
         onEdit = { state ->
             val memo = state.memo as? Memo
@@ -159,20 +141,13 @@ fun SearchScreen(
             }
         },
         onDelete = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
+            val memo = state.memo as? Memo
             if (memo != null) {
-                // 1. Add to deleting set to trigger fade out
-                deletingIds.add(memo.id)
-                // 2. Wait for animation then delete
-                scope.launch {
-                    delay(550)
-                    viewModel.deleteMemo(memo)
-                    deletingIds.remove(memo.id)
-                }
+                viewModel.deleteMemo(memo)
             }
         },
         onShare = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
+            val memo = state.memo as? Memo
             com.lomo.app.util.ShareUtils.shareMemoAsImage(
                 context = context,
                 content = state.content,
@@ -261,16 +236,14 @@ fun SearchScreen(
                 )
             },
         ) { padding ->
-            val refreshState = pagedResults.loadState.refresh
-
             Box(
                 modifier =
                     Modifier
                         .fillMaxSize()
                         .padding(padding),
             ) {
-                if (query.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+                when {
+                    query.isEmpty() -> {
                         EmptyState(
                             icon = Icons.Default.Search,
                             title =
@@ -281,123 +254,76 @@ fun SearchScreen(
                                     .stringResource(R.string.search_empty_initial_desc),
                         )
                     }
-                } else {
-                    when {
-                        refreshState is LoadState.Loading && pagedResults.itemCount == 0 -> {
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                items(5) { SkeletonMemoItem() }
-                            }
-                        }
 
-                        refreshState is LoadState.Error && pagedResults.itemCount == 0 -> {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    text =
-                                        refreshState.error.message ?: androidx.compose.ui.res
-                                            .stringResource(R.string.search_error_generic),
-                                    color = MaterialTheme.colorScheme.error,
-                                )
-                            }
-                        }
+                    searchResults.isEmpty() -> {
+                        EmptyState(
+                            icon = Icons.Default.Search,
+                            title =
+                                androidx.compose.ui.res
+                                    .stringResource(R.string.search_no_results_title),
+                            description =
+                                androidx.compose.ui.res
+                                    .stringResource(R.string.search_no_results_desc),
+                        )
+                    }
 
-                        else -> {
-                            if (pagedResults.itemCount == 0) {
-                                EmptyState(
-                                    icon = Icons.Default.Search,
-                                    title =
-                                        androidx.compose.ui.res
-                                            .stringResource(R.string.search_no_results_title),
-                                    description =
-                                        androidx.compose.ui.res
-                                            .stringResource(R.string.search_no_results_desc),
-                                )
-                            } else {
-                                LazyColumn(
-                                    contentPadding =
-                                        PaddingValues(
-                                            top = 16.dp,
-                                            start = 16.dp,
-                                            end = 16.dp,
-                                            bottom = 16.dp,
-                                        ),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                                    modifier = Modifier.fillMaxSize(),
-                                ) {
-                                    items(
-                                        count = pagedResults.itemCount,
-                                        key = pagedResults.itemKey { it.memo.id },
-                                        contentType = { "memo" },
-                                    ) { index ->
-                                        val uiModel = pagedResults[index]
-                                        if (uiModel != null) {
-                                            val memo = uiModel.memo
-                                            val isDeleting = deletingIds.contains(memo.id) || uiModel.isDeleting
-                                            val alpha by animateFloatAsState(
-                                                targetValue = if (isDeleting) 0f else 1f,
-                                                animationSpec =
-                                                    tween(
-                                                        durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
-                                                        easing = com.lomo.ui.theme.MotionTokens.EasingEmphasizedAccelerate,
-                                                    ),
-                                                label = "SearchItemDeleteAlpha",
-                                            )
-
-                                            Box(
-                                                modifier =
-                                                    Modifier
-                                                        .animateItem(
-                                                            fadeInSpec =
-                                                                keyframes {
-                                                                    durationMillis = 1000
-                                                                    0f at 0
-                                                                    0f at com.lomo.ui.theme.MotionTokens.DurationLong2
-                                                                    1f at 1000 using
-                                                                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                                                },
-                                                            fadeOutSpec = snap(),
-                                                            placementSpec =
-                                                                spring<IntOffset>(
-                                                                    stiffness = Spring.StiffnessMediumLow,
-                                                                ),
-                                                        ).alpha(alpha),
-                                            ) {
-                                                MemoCard(
-                                                    content = memo.content,
-                                                    processedContent = uiModel.processedContent,
-                                                    precomputedNode = uiModel.markdownNode,
-                                                    timestamp = memo.timestamp,
-                                                    dateFormat = dateFormat,
-                                                    timeFormat = timeFormat,
-                                                    tags = uiModel.tags,
-                                                    onDoubleClick =
-                                                        if (doubleTapEditEnabled) {
-                                                            {
-                                                                editingMemo = memo
-                                                                inputText = TextFieldValue(memo.content, TextRange(memo.content.length))
-                                                                showInputSheet = true
-                                                            }
-                                                        } else {
-                                                            null
-                                                        },
-                                                    onMenuClick = {
-                                                        showMenu(
-                                                            com.lomo.ui.component.menu.MemoMenuState(
-                                                                wordCount = memo.content.length,
-                                                                createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                                                                content = memo.content,
-                                                                memo = memo,
-                                                            ),
-                                                        )
+                    else -> {
+                        LazyColumn(
+                            contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(
+                                items = searchResults,
+                                key = { it.memo.id },
+                                contentType = { "memo" },
+                            ) { uiModel ->
+                                val memo = uiModel.memo
+                                Box(
+                                    modifier =
+                                        Modifier
+                                            .animateItem(
+                                                fadeInSpec =
+                                                    keyframes {
+                                                        durationMillis = 1000
+                                                        0f at 0
+                                                        0f at com.lomo.ui.theme.MotionTokens.DurationLong2
+                                                        1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
                                                     },
-                                                    menuContent = {},
-                                                )
-                                            }
-                                        }
-                                    }
+                                                fadeOutSpec = snap(),
+                                                placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                                            ),
+                                ) {
+                                    MemoCard(
+                                        content = memo.content,
+                                        processedContent = uiModel.processedContent,
+                                        precomputedNode = uiModel.markdownNode,
+                                        timestamp = memo.timestamp,
+                                        dateFormat = dateFormat,
+                                        timeFormat = timeFormat,
+                                        tags = uiModel.tags,
+                                        onDoubleClick =
+                                            if (doubleTapEditEnabled) {
+                                                {
+                                                    editingMemo = memo
+                                                    inputText = TextFieldValue(memo.content, TextRange(memo.content.length))
+                                                    showInputSheet = true
+                                                }
+                                            } else {
+                                                null
+                                            },
+                                        onMenuClick = {
+                                            showMenu(
+                                                com.lomo.ui.component.menu.MemoMenuState(
+                                                    wordCount = memo.content.length,
+                                                    createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
+                                                    content = memo.content,
+                                                    memo = memo,
+                                                ),
+                                            )
+                                        },
+                                        menuContent = {},
+                                    )
                                 }
                             }
                         }
