@@ -1,6 +1,7 @@
-package com.lomo.domain.provider
+package com.lomo.app.provider
 
 import android.net.Uri
+import androidx.core.net.toUri
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,12 +16,8 @@ import javax.inject.Singleton
 /**
  * Shared provider for image URI mapping.
  *
- * Eliminates duplicate image map loading code across ViewModels.
- * Previously, MainViewModel, SearchViewModel, and TagFilterViewModel each had
- * their own _imageMap StateFlow with identical initialization logic.
- *
- * This provider is scoped as Singleton and shares a single image map Flow
- * for the entire application, improving efficiency and reducing code duplication.
+ * App-scoped so multiple ViewModels can reuse one StateFlow instead of rebuilding
+ * identical mapping pipelines.
  */
 @Singleton
 class ImageMapProvider
@@ -28,24 +25,13 @@ class ImageMapProvider
     constructor(
         private val repository: MediaRepository,
     ) {
-        // Application-scoped coroutine scope for sharing the StateFlow
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        /**
-         * Shared StateFlow of image filename -> Uri mapping.
-         *
-         * Usage in ViewModels:
-         * ```kotlin
-         * @Inject lateinit var imageMapProvider: ImageMapProvider
-         *
-         * val imageMap: StateFlow<Map<String, Uri>> = imageMapProvider.imageMap
-         * ```
-         */
         val imageMap: StateFlow<Map<String, Uri>> =
             repository
                 .getImageUriMap()
                 .map { stringMap ->
-                    stringMap.mapValues { (_, uriString) -> Uri.parse(uriString) }
+                    stringMap.mapValues { (_, uriString) -> uriString.toUri() }
                 }.stateIn(
                     scope = scope,
                     started = SharingStarted.WhileSubscribed(5000),

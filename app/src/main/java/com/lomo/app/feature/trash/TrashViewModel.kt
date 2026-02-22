@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
+import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -23,7 +24,7 @@ class TrashViewModel
     constructor(
         private val repository: MemoRepository,
         private val settingsRepository: SettingsRepository,
-        private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val imageMapProvider: ImageMapProvider,
         val mapper: com.lomo.app.feature.main.MemoUiMapper,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)

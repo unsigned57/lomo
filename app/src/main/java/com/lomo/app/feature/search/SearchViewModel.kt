@@ -7,6 +7,7 @@ import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -37,7 +38,7 @@ class SearchViewModel
         private val mediaRepository: com.lomo.domain.repository.MediaRepository,
         private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
-        private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val imageMapProvider: ImageMapProvider,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoUseCase: UpdateMemoUseCase,
     ) : ViewModel() {

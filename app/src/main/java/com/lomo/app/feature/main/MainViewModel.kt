@@ -7,6 +7,7 @@ import androidx.paging.cachedIn
 import androidx.paging.filter
 import androidx.paging.map
 import com.lomo.app.BuildConfig
+import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -42,7 +43,7 @@ class MainViewModel
         private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
         private val savedStateHandle: SavedStateHandle,
         val mapper: MemoUiMapper,
-        private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val imageMapProvider: ImageMapProvider,
         private val textProcessor: com.lomo.data.util.MemoTextProcessor,
         private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
         private val widgetRepository: WidgetRepository,

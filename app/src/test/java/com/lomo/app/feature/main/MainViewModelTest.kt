@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import androidx.lifecycle.SavedStateHandle
+import com.lomo.app.provider.ImageMapProvider
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -31,7 +32,7 @@ class MainViewModelTest {
     private lateinit var mapper: MemoUiMapper
     private lateinit var textProcessor: com.lomo.data.util.MemoTextProcessor
     private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
-    private lateinit var imageMapProvider: com.lomo.domain.provider.ImageMapProvider
+    private lateinit var imageMapProvider: ImageMapProvider
     private lateinit var voiceRecorder: com.lomo.domain.repository.VoiceRecorder
     private lateinit var widgetRepository: com.lomo.domain.repository.WidgetRepository
     private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager

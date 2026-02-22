@@ -2,6 +2,7 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -25,7 +26,7 @@ class DailyReviewViewModel
         private val mediaRepository: com.lomo.domain.repository.MediaRepository,
         private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
-        private val imageMapProvider: com.lomo.domain.provider.ImageMapProvider,
+        private val imageMapProvider: ImageMapProvider,
         private val updateMemoUseCase: UpdateMemoUseCase,
         private val deleteMemoUseCase: DeleteMemoUseCase,
     ) : ViewModel() {

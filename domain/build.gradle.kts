@@ -17,7 +17,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.paging.runtime)
     implementation(libs.javax.inject)
