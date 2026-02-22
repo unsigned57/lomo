@@ -58,10 +58,6 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun providePendingOpDao(database: MemoDatabase): com.lomo.data.local.dao.PendingOpDao = database.pendingOpDao()
-
-    @Provides
-    @Singleton
     fun provideMarkdownParser(): MarkdownParser = MarkdownParser()
 
     @Provides
@@ -116,7 +112,6 @@ object DataModule {
         synchronizer: com.lomo.data.repository.MemoSynchronizer,
         parser: MarkdownParser,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
-        pendingOpDao: com.lomo.data.local.dao.PendingOpDao,
     ): MemoRepositoryImpl =
         MemoRepositoryImpl(
             dao,
@@ -126,7 +121,6 @@ object DataModule {
             synchronizer,
             parser,
             dataStore,
-            pendingOpDao,
         )
 
     @Provides

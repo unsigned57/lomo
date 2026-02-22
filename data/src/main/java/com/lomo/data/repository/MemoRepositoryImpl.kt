@@ -30,21 +30,9 @@ class MemoRepositoryImpl
         private val synchronizer: MemoSynchronizer,
         private val parser: MarkdownParser,
         private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
-        private val pendingOpDao: com.lomo.data.local.dao.PendingOpDao,
     ) : MemoRepository,
         SettingsRepository,
         MediaRepository {
-        companion object {
-            private const val PENDING_OP_TTL_MS = 7L * 24 * 60 * 60 * 1000
-            private const val PENDING_OP_MAX_ROWS = 500
-            private const val PENDING_OP_PAYLOAD_MAX_CHARS = 2048
-        }
-
-        private suspend fun cleanupPendingOps(nowMs: Long = System.currentTimeMillis()) {
-            pendingOpDao.deleteOlderThan(nowMs - PENDING_OP_TTL_MS)
-            pendingOpDao.trimToLatest(PENDING_OP_MAX_ROWS)
-        }
-
         override suspend fun setRootDirectory(path: String) {
             // Clear entire database cache when switching root directory
             // This ensures data from the previous directory doesn't persist
@@ -144,19 +132,7 @@ class MemoRepositoryImpl
             content: String,
             timestamp: Long,
         ) {
-            val nowMs = System.currentTimeMillis()
-            cleanupPendingOps(nowMs)
-            val opId =
-                pendingOpDao.insert(
-                    com.lomo.data.local.entity.PendingOpEntity(
-                        type = "CREATE",
-                        payload = content.take(PENDING_OP_PAYLOAD_MAX_CHARS),
-                        timestamp = nowMs,
-                    ),
-                )
-            pendingOpDao.trimToLatest(PENDING_OP_MAX_ROWS)
             synchronizer.saveMemo(content, timestamp)
-            pendingOpDao.delete(opId)
         }
 
         override suspend fun updateMemo(
