@@ -107,14 +107,20 @@ class MemoRepositoryImpl
             limit: Int,
             seedDate: java.time.LocalDate,
         ): List<Memo> {
-            val allIds = dao.getAllMemoIds()
-            if (allIds.isEmpty()) return emptyList()
+            if (limit <= 0) return emptyList()
 
-            // Use date hashcode as seed for consistent daily shuffling
-            val seed = seedDate.toEpochDay()
+            val total = dao.getMemoCountSync()
+            if (total <= 0) return emptyList()
 
-            val selectedIds = allIds.shuffled(kotlin.random.Random(seed)).take(limit)
-            return dao.getMemosByIds(selectedIds).map { it.toDomain() }
+            val safeLimit = limit.coerceAtMost(total)
+            val maxOffset = (total - safeLimit).coerceAtLeast(0)
+            val offset =
+                if (maxOffset == 0) {
+                    0
+                } else {
+                    kotlin.random.Random(seedDate.toEpochDay()).nextInt(maxOffset + 1)
+                }
+            return dao.getMemosPage(limit = safeLimit, offset = offset).map { it.toDomain() }
         }
 
         override suspend fun refreshMemos() {
@@ -217,6 +223,8 @@ class MemoRepositoryImpl
         override fun getAllTags(): Flow<List<String>> = dao.getAllTags().map { entities -> entities.map { it.name } }
 
         override fun getMemoCount(): Flow<Int> = dao.getMemoCount()
+
+        override fun getActiveDayCount(): Flow<Int> = dao.getActiveDayCount()
 
         override fun getAllTimestamps(): Flow<List<Long>> = dao.getAllTimestamps()
 

@@ -13,11 +13,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
 import javax.inject.Inject
 
 @HiltViewModel
@@ -104,18 +101,8 @@ class DailyReviewViewModel
 
         val activeDayCount: StateFlow<Int> =
             repository
-                .getAllTimestamps()
-                .map { timestamps ->
-                    timestamps
-                        .asSequence()
-                        .map {
-                            Instant
-                                .ofEpochMilli(it)
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDate()
-                        }.distinct()
-                        .count()
-                }.stateIn(
+                .getActiveDayCount()
+                .stateIn(
                     scope = viewModelScope,
                     started =
                         kotlinx.coroutines.flow.SharingStarted

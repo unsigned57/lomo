@@ -25,8 +25,6 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import java.time.Instant
-import java.time.ZoneId
 import javax.inject.Inject
 
 // SearchUiState removed - using PagingData direct flow
@@ -88,18 +86,8 @@ class SearchViewModel
 
         val activeDayCount: StateFlow<Int> =
             repository
-                .getAllTimestamps()
-                .map { timestamps ->
-                    timestamps
-                        .asSequence()
-                        .map {
-                            Instant
-                                .ofEpochMilli(it)
-                                .atZone(ZoneId.systemDefault())
-                                .toLocalDate()
-                        }.distinct()
-                        .count()
-                }.stateInViewModel(viewModelScope, 0)
+                .getActiveDayCount()
+                .stateInViewModel(viewModelScope, 0)
 
         // Optimistic UI: shared manager handles the two-phase fade-then-collapse pattern
         private val mutations = OptimisticMutationManager(viewModelScope)

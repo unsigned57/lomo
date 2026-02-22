@@ -1,7 +1,11 @@
 package com.lomo.data.local.dao
 
 import androidx.paging.PagingSource
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoTagCrossRef
 import com.lomo.data.local.entity.TagEntity
@@ -23,6 +27,22 @@ interface MemoDao {
 
     @Query("SELECT * FROM Lomo WHERE id IN (:ids)")
     suspend fun getMemosByIds(ids: List<String>): List<MemoEntity>
+
+    @Query("SELECT COUNT(*) FROM Lomo WHERE isDeleted = 0")
+    suspend fun getMemoCountSync(): Int
+
+    @Query(
+        """
+        SELECT * FROM Lomo
+        WHERE isDeleted = 0
+        ORDER BY timestamp DESC, id DESC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun getMemosPage(
+        limit: Int,
+        offset: Int,
+    ): List<MemoEntity>
 
     // 保留原 LIKE 作为兜底或英文/符号搜索
     @Query(
@@ -122,6 +142,9 @@ interface MemoDao {
     // Stats
     @Query("SELECT COUNT(*) FROM Lomo WHERE isDeleted = 0")
     fun getMemoCount(): Flow<Int>
+
+    @Query("SELECT COUNT(DISTINCT date) FROM Lomo WHERE isDeleted = 0")
+    fun getActiveDayCount(): Flow<Int>
 
     @Query("SELECT timestamp FROM Lomo WHERE isDeleted = 0 ORDER BY timestamp DESC")
     fun getAllTimestamps(): Flow<List<Long>>
