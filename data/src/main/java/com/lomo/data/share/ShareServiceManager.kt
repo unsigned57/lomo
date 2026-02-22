@@ -48,7 +48,9 @@ class ShareServiceManager
             private const val TAG = "ShareServiceManager"
             private const val MAX_DEVICE_NAME_CHARS = 32
             private const val DEFAULT_DEVICE_NAME = "Android Device"
+            private const val MAX_ATTACHMENTS = 20
             private const val MAX_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
+            private const val MAX_TOTAL_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
         }
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -232,9 +234,15 @@ class ShareServiceManager
                         _transferState.value = ShareTransferState.Error(message)
                         return@withContext Result.failure(Exception(message))
                     }
+                    if (resolvedAttachmentUris.size > MAX_ATTACHMENTS) {
+                        val message = "Too many attachments"
+                        _transferState.value = ShareTransferState.Error(message)
+                        return@withContext Result.failure(IllegalArgumentException(message))
+                    }
 
                     // Build attachment info list
                     val attachmentInfos = mutableListOf<ShareAttachmentInfo>()
+                    var totalAttachmentBytes = 0L
                     for ((name, uri) in resolvedAttachmentUris) {
                         val resolvedSize = resolveAttachmentSize(uri)
                         if (resolvedSize > MAX_ATTACHMENT_SIZE_BYTES) {
@@ -243,6 +251,12 @@ class ShareServiceManager
                             return@withContext Result.failure(IllegalArgumentException(message))
                         }
                         val size = sanitizeAttachmentSizeForPrepare(resolvedSize)
+                        totalAttachmentBytes += size
+                        if (totalAttachmentBytes > MAX_TOTAL_ATTACHMENT_SIZE_BYTES) {
+                            val message = "Attachments too large"
+                            _transferState.value = ShareTransferState.Error(message)
+                            return@withContext Result.failure(IllegalArgumentException(message))
+                        }
                         val type = detectAttachmentType(name, uri)
                         attachmentInfos += ShareAttachmentInfo(name = name, type = type, size = size)
                     }

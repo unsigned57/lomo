@@ -2,6 +2,7 @@ package com.lomo.data.share
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareAttachmentInfo
 import io.ktor.client.HttpClient
@@ -20,9 +21,12 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.io.asSource
+import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.ByteArrayOutputStream
+import java.io.File
 
 /**
  * HTTP client for sending memos to peer devices on the LAN.
@@ -33,7 +37,11 @@ class LomoShareClient(
 ) {
     companion object {
         private const val TAG = "LomoShareClient"
+        private const val MAX_ATTACHMENTS = 20
         private const val MAX_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
+        private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
+        private const val GCM_TAG_BYTES = 16L
+        private const val MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES = MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
     }
 
     private val json =
@@ -184,12 +192,15 @@ class LomoShareClient(
         e2eEnabled: Boolean,
         e2eKeyHex: String? = null,
     ): Boolean {
+        val tempPayloadFiles = mutableListOf<File>()
         return try {
             data class TransferAttachment(
                 val name: String,
-                val payloadBytes: ByteArray,
                 val nonceBase64: String?,
                 val contentType: String,
+                val payloadFile: File?,
+                val sourceUri: Uri?,
+                val payloadSizeBytes: Long?,
             )
 
             val attachmentPayloads = mutableListOf<TransferAttachment>()
@@ -198,6 +209,10 @@ class LomoShareClient(
             val authTimestampMs: Long
             val authNonce: String
             val authSignature: String
+
+            if (attachmentUris.size > MAX_ATTACHMENTS) {
+                throw IllegalArgumentException("Too many attachments")
+            }
 
             if (e2eEnabled) {
                 val keyHex =
@@ -216,6 +231,7 @@ class LomoShareClient(
                 payloadContent = encryptedContent.ciphertextBase64
                 contentNonce = encryptedContent.nonceBase64
 
+                var totalEncryptedAttachmentBytes = 0L
                 for ((filename, uri) in attachmentUris) {
                     val bytes =
                         readUriBytes(uri, MAX_ATTACHMENT_SIZE_BYTES)
@@ -226,12 +242,20 @@ class LomoShareClient(
                             plaintext = bytes,
                             aad = "attachment:$filename",
                         )
+                    val tempPayload = writePayloadToTempFile(encrypted.ciphertext)
+                    tempPayloadFiles += tempPayload
+                    totalEncryptedAttachmentBytes += tempPayload.length()
+                    if (totalEncryptedAttachmentBytes > MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES) {
+                        throw IllegalArgumentException("Attachments too large")
+                    }
                     attachmentPayloads +=
                         TransferAttachment(
                             name = filename,
-                            payloadBytes = encrypted.ciphertext,
                             nonceBase64 = encrypted.nonceBase64,
                             contentType = guessContentType(filename),
+                            payloadFile = tempPayload,
+                            sourceUri = null,
+                            payloadSizeBytes = tempPayload.length(),
                         )
                 }
 
@@ -259,16 +283,27 @@ class LomoShareClient(
                 authTimestampMs = 0L
                 authNonce = ""
                 authSignature = ""
+
+                var totalAttachmentBytes = 0L
                 for ((filename, uri) in attachmentUris) {
-                    val bytes =
-                        readUriBytes(uri, MAX_ATTACHMENT_SIZE_BYTES)
-                            ?: throw IllegalStateException("Failed to read attachment: $filename")
+                    val size = resolveUriSize(uri)
+                    if (size != null) {
+                        if (size > MAX_ATTACHMENT_SIZE_BYTES) {
+                            throw IllegalArgumentException("Attachment too large")
+                        }
+                        totalAttachmentBytes += size
+                        if (totalAttachmentBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+                            throw IllegalArgumentException("Attachments too large")
+                        }
+                    }
                     attachmentPayloads +=
                         TransferAttachment(
                             name = filename,
-                            payloadBytes = bytes,
                             nonceBase64 = null,
                             contentType = guessContentType(filename),
+                            payloadFile = null,
+                            sourceUri = uri,
+                            payloadSizeBytes = size,
                         )
                 }
             }
@@ -305,14 +340,36 @@ class LomoShareClient(
                             // Part 2+: Attachment files
                             var index = 0
                             for (attachment in attachmentPayloads) {
-                                append(
-                                    "attachment_$index",
-                                    attachment.payloadBytes,
+                                val headers =
                                     Headers.build {
                                         append(HttpHeaders.ContentType, attachment.contentType)
                                         append(HttpHeaders.ContentDisposition, "filename=\"${attachment.name}\"")
-                                    },
-                                )
+                                    }
+                                appendInput(
+                                    key = "attachment_$index",
+                                    headers = headers,
+                                    size = attachment.payloadSizeBytes,
+                                ) {
+                                    when {
+                                        attachment.payloadFile != null -> {
+                                            attachment.payloadFile
+                                                .inputStream()
+                                                .asSource()
+                                                .buffered()
+                                        }
+
+                                        attachment.sourceUri != null -> {
+                                            val input =
+                                                context.contentResolver.openInputStream(attachment.sourceUri)
+                                                    ?: throw IllegalStateException("Cannot open attachment: ${attachment.name}")
+                                            input.asSource().buffered()
+                                        }
+
+                                        else -> {
+                                            throw IllegalStateException("Attachment has no payload source: ${attachment.name}")
+                                        }
+                                    }
+                                }
                                 index++
                             }
                         },
@@ -329,6 +386,10 @@ class LomoShareClient(
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Transfer request failed")
             false
+        } finally {
+            tempPayloadFiles.forEach { file ->
+                runCatching { file.delete() }
+            }
         }
     }
 
@@ -402,6 +463,39 @@ class LomoShareClient(
             authNonce = authNonce,
             authSignature = authSignature,
         )
+    }
+
+    private fun writePayloadToTempFile(payload: ByteArray): File {
+        val file = File.createTempFile("share_payload_", ".bin", context.cacheDir)
+        file.outputStream().use { out ->
+            out.write(payload)
+        }
+        return file
+    }
+
+    private fun resolveUriSize(uri: Uri): Long? {
+        val queriedSize =
+            try {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (index < 0 || cursor.isNull(index)) return@use null
+                    cursor.getLong(index).takeIf { it >= 0L }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        if (queriedSize != null) return queriedSize
+
+        if (uri.scheme == "file") {
+            val path = uri.path ?: return null
+            val file = File(path)
+            if (file.exists() && file.isFile) {
+                return file.length().takeIf { it >= 0L }
+            }
+        }
+
+        return null
     }
 
     private fun readUriBytes(
