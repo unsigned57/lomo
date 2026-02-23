@@ -5,7 +5,6 @@ import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.menu.MemoMenuState
-import com.lomo.ui.util.formatAsDateTime
 
 @Composable
 fun MemoCardEntry(
@@ -36,11 +35,10 @@ fun MemoCardEntry(
         onImageClick = onImageClick,
         onMenuClick = {
             onShowMenu(
-                MemoMenuState(
-                    wordCount = memo.content.length,
-                    createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                    content = memo.content,
+                memoMenuState(
                     memo = memo,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
                 ),
             )
         },

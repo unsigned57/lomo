@@ -56,13 +56,12 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
+import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.input.InputSheet
 import com.lomo.ui.component.menu.MemoMenuHost
-import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.util.formatAsDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -510,15 +509,10 @@ fun MainScreen(
                                             onImageClick = actions.onNavigateToImage,
                                             onShowMemoMenu = { uiModel ->
                                                 showMenu(
-                                                    com.lomo.ui.component.menu.MemoMenuState(
-                                                        wordCount = uiModel.memo.content.length,
-                                                        createdTime =
-                                                            uiModel.memo.timestamp.formatAsDateTime(
-                                                                dateFormat,
-                                                                timeFormat,
-                                                            ),
-                                                        content = uiModel.memo.content,
+                                                    memoMenuState(
                                                         memo = uiModel.memo,
+                                                        dateFormat = dateFormat,
+                                                        timeFormat = timeFormat,
                                                     ),
                                                 )
                                             },
