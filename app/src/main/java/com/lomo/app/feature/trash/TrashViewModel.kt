@@ -2,6 +2,7 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
@@ -15,8 +16,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -30,7 +29,7 @@ class TrashViewModel
         private val repository: MemoRepository,
         private val settingsRepository: SettingsRepository,
         private val imageMapProvider: ImageMapProvider,
-        val mapper: com.lomo.app.feature.main.MemoUiMapper,
+        private val memoFlowProcessor: MemoFlowProcessor,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
@@ -75,38 +74,18 @@ class TrashViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
             combine(
-                trashMemos,
-                rootDirectory,
-                imageDirectory,
-                imageMap,
+                memoFlowProcessor.mapMemoFlow(
+                    memos = trashMemos,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = imageMap,
+                ),
                 deletingMemoIds,
-            ) { memos, rootDir, imageDir, currentImageMap, deletingIds ->
-                TrashMappingBundle(
-                    memos = memos,
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                    deletingIds = deletingIds,
-                )
-            }.mapLatest { bundle ->
-                mapper
-                    .mapToUiModels(
-                        memos = bundle.memos,
-                        rootPath = bundle.rootDirectory,
-                        imagePath = bundle.imageDirectory,
-                        imageMap = bundle.imageMap,
-                    ).map { uiModel ->
-                        uiModel.copy(isDeleting = bundle.deletingIds.contains(uiModel.memo.id))
-                    }
+            ) { uiModels, deletingIds ->
+                uiModels.map { uiModel ->
+                    uiModel.copy(isDeleting = deletingIds.contains(uiModel.memo.id))
+                }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-        private data class TrashMappingBundle(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-            val deletingIds: Set<String>,
-        )
 
         fun restoreMemo(memo: Memo) {
             viewModelScope.launch {

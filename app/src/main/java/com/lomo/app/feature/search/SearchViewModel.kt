@@ -2,16 +2,14 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.main.MemoUiMapper
-import com.lomo.app.feature.media.MemoImageWorkflow
+import com.lomo.app.feature.memo.MemoActionDelegate
+import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
-import com.lomo.domain.usecase.DeleteMemoUseCase
-import com.lomo.domain.usecase.UpdateMemoUseCase
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -19,11 +17,9 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -33,12 +29,10 @@ class SearchViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val imageWorkflow: MemoImageWorkflow,
         private val settingsRepository: SettingsRepository,
-        val mapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
-        private val deleteMemoUseCase: DeleteMemoUseCase,
-        private val updateMemoUseCase: UpdateMemoUseCase,
+        private val memoFlowProcessor: MemoFlowProcessor,
+        private val memoActionDelegate: MemoActionDelegate,
     ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
@@ -81,28 +75,13 @@ class SearchViewModel
 
         @OptIn(ExperimentalCoroutinesApi::class)
         val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            combine(searchResults, rootDirectory, imageDirectory, imageMap) { results, rootDir, imageDir, currentImageMap ->
-                SearchMappingBundle(
-                    memos = results,
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                )
-            }.mapLatest { bundle ->
-                mapper.mapToUiModels(
-                    memos = bundle.memos,
-                    rootPath = bundle.rootDirectory,
-                    imagePath = bundle.imageDirectory,
-                    imageMap = bundle.imageMap,
-                )
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-        private data class SearchMappingBundle(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-        )
+            memoFlowProcessor
+                .mapMemoFlow(
+                    memos = searchResults,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = imageMap,
+                ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
@@ -110,13 +89,11 @@ class SearchViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                try {
-                    deleteMemoUseCase(memo)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Keep Search UI resilient.
-                }
+                memoActionDelegate
+                    .deleteMemo(memo)
+                    .onFailure {
+                        // Keep Search UI resilient.
+                    }
             }
         }
 
@@ -125,13 +102,11 @@ class SearchViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                try {
-                    updateMemoUseCase(memo, newContent)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Keep Search UI resilient.
-                }
+                memoActionDelegate
+                    .updateMemo(memo, newContent)
+                    .onFailure {
+                        // Keep Search UI resilient.
+                    }
             }
         }
 
@@ -141,14 +116,12 @@ class SearchViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
-                    val path = imageWorkflow.saveImageAndSync(uri)
-                    onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    onError?.invoke()
-                }
+                memoActionDelegate
+                    .saveImage(uri)
+                    .onSuccess(onResult)
+                    .onFailure {
+                        onError?.invoke()
+                    }
             }
         }
     }

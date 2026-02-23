@@ -2,15 +2,14 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.media.MemoImageWorkflow
+import com.lomo.app.feature.memo.MemoActionDelegate
+import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
-import com.lomo.domain.usecase.DeleteMemoUseCase
-import com.lomo.domain.usecase.UpdateMemoUseCase
 import com.lomo.ui.util.UiState
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,7 +17,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -28,12 +26,10 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val imageWorkflow: MemoImageWorkflow,
         private val settingsRepository: SettingsRepository,
-        private val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
-        private val updateMemoUseCase: UpdateMemoUseCase,
-        private val deleteMemoUseCase: DeleteMemoUseCase,
+        private val memoFlowProcessor: MemoFlowProcessor,
+        private val memoActionDelegate: MemoActionDelegate,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
@@ -88,21 +84,13 @@ class DailyReviewViewModel
                             return@launch
                         }
 
-                        // Combine with image configuration streams to process content
-                        kotlinx.coroutines.flow
-                            .combine(
-                                repository.getImageDirectory(),
-                                imageMapProvider.imageMap,
-                            ) { imageDir, imageMap ->
-                                imageDir to imageMap
-                            }.mapLatest { (imageDir, imageMap) ->
-                                mapper.mapToUiModels(
-                                    memos = rawMemos,
-                                    rootPath = null,
-                                    imagePath = imageDir,
-                                    imageMap = imageMap,
-                                )
-                            }.collect { uiModels ->
+                        memoFlowProcessor
+                            .mapMemoSnapshot(
+                                memos = rawMemos,
+                                rootDirectory = kotlinx.coroutines.flow.flowOf(null),
+                                imageDirectory = imageDirectory,
+                                imageMap = imageMapProvider.imageMap,
+                            ).collect { uiModels ->
                                 _uiState.value = UiState.Success(uiModels)
                             }
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -118,26 +106,21 @@ class DailyReviewViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                try {
-                    updateMemoUseCase(memo, newContent)
+                val success =
+                    memoActionDelegate
+                        .updateMemo(memo, newContent)
+                        .isSuccess
+                if (success) {
                     loadDailyReview()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Keep current state on failure.
                 }
             }
         }
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                try {
-                    deleteMemoUseCase(memo)
+                val success = memoActionDelegate.deleteMemo(memo).isSuccess
+                if (success) {
                     loadDailyReview()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Keep current state on failure.
                 }
             }
         }
@@ -148,15 +131,13 @@ class DailyReviewViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
-                    val path = imageWorkflow.saveImageAndSync(uri)
-                    onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    // Keep Daily Review UI resilient; skip insertion on failure.
-                    onError?.invoke()
-                }
+                memoActionDelegate
+                    .saveImage(uri)
+                    .onSuccess(onResult)
+                    .onFailure {
+                        // Keep Daily Review UI resilient; skip insertion on failure.
+                        onError?.invoke()
+                    }
             }
         }
     }

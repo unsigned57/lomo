@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.feature.media.MemoImageWorkflow
+import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.provider.ImageMapProvider
 import io.mockk.coEvery
 import io.mockk.every
@@ -29,7 +30,7 @@ class MainViewModelTest {
     private lateinit var settingsRepository: com.lomo.domain.repository.SettingsRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
-    private lateinit var mapper: MemoUiMapper
+    private lateinit var memoFlowProcessor: MemoFlowProcessor
     private lateinit var memoMutator: MainMemoMutator
     private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
     private lateinit var imageMapProvider: ImageMapProvider
@@ -45,7 +46,7 @@ class MainViewModelTest {
         settingsRepository = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
         dataStore = mockk(relaxed = true)
-        mapper = MemoUiMapper()
+        memoFlowProcessor = MemoFlowProcessor(MemoUiMapper())
         memoMutator = mockk(relaxed = true)
         getFilteredMemosUseCase = mockk(relaxed = true)
         imageMapProvider = mockk(relaxed = true)
@@ -153,7 +154,7 @@ class MainViewModelTest {
             repository = repository,
             settingsRepository = settingsRepository,
             savedStateHandle = savedStateHandle,
-            mapper = mapper,
+            memoFlowProcessor = memoFlowProcessor,
             imageMapProvider = imageMapProvider,
             getFilteredMemosUseCase = getFilteredMemosUseCase,
             memoMutator = memoMutator,

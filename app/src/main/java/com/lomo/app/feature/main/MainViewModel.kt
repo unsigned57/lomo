@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
@@ -19,8 +20,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,7 +32,7 @@ class MainViewModel
         private val repository: MemoRepository,
         private val settingsRepository: SettingsRepository,
         private val savedStateHandle: SavedStateHandle,
-        val mapper: MemoUiMapper,
+        private val memoFlowProcessor: MemoFlowProcessor,
         private val imageMapProvider: ImageMapProvider,
         private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
         private val memoMutator: MainMemoMutator,
@@ -158,38 +157,18 @@ class MainViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<MemoUiModel>> =
             combine(
-                memos,
-                rootDirectory,
-                imageDirectory,
-                imageMap,
+                memoFlowProcessor.mapMemoFlow(
+                    memos = memos,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = imageMap,
+                ),
                 deletingMemoIds,
-            ) { currentMemos, rootDir, imageDir, currentImageMap, deletingIds ->
-                MemoMappingBundle(
-                    memos = currentMemos,
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                    deletingIds = deletingIds,
-                )
-            }.mapLatest { bundle ->
-                mapper
-                    .mapToUiModels(
-                        memos = bundle.memos,
-                        rootPath = bundle.rootDirectory,
-                        imagePath = bundle.imageDirectory,
-                        imageMap = bundle.imageMap,
-                    ).map { uiModel ->
-                        uiModel.copy(isDeleting = bundle.deletingIds.contains(uiModel.memo.id))
-                    }
+            ) { uiModels, deletingIds ->
+                uiModels.map { uiModel ->
+                    uiModel.copy(isDeleting = deletingIds.contains(uiModel.memo.id))
+                }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-        private data class MemoMappingBundle(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-            val deletingIds: Set<String>,
-        )
 
         fun onDirectorySelected(path: String) {
             viewModelScope.launch {
