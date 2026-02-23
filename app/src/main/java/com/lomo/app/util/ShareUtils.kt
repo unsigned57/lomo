@@ -4,11 +4,14 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.util.Log
 import android.view.View
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +48,7 @@ import java.util.Locale
  * Utility object for sharing and copying memo content.
  */
 object ShareUtils {
+    private const val TAG = "ShareUtils"
     private const val MAX_SHARE_CONTENT_CHARS = 4000
     private val markdownTextProcessor =
         com.lomo.data.util
@@ -111,7 +115,8 @@ object ShareUtils {
                     if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             context.startActivity(Intent.createChooser(sendIntent, null))
-        }.onFailure {
+        }.onFailure { throwable ->
+            Log.e(TAG, "shareMemoAsImage failed, fallback to text share", throwable)
             // Fallback to text share so user still can complete the action.
             shareMemoText(context, content, title)
         }
@@ -238,6 +243,12 @@ object ShareUtils {
         val canvasWidth = (resources.displayMetrics.widthPixels.coerceAtLeast(720) * 0.9f).toInt()
         val composeView =
             ComposeView(context).apply {
+                context.findComponentActivity()?.let { activity ->
+                    // Off-screen ComposeView rendering still needs the same tree owners as on-screen hosts.
+                    setTag(androidx.lifecycle.runtime.R.id.view_tree_lifecycle_owner, activity)
+                    setTag(androidx.lifecycle.viewmodel.R.id.view_tree_view_model_store_owner, activity)
+                    setTag(androidx.savedstate.R.id.view_tree_saved_state_registry_owner, activity)
+                }
                 setContent {
                     ShareCardLayout(
                         title = title,
@@ -263,6 +274,13 @@ object ShareUtils {
             composeView.draw(canvas)
         }
     }
+
+    private tailrec fun Context.findComponentActivity(): ComponentActivity? =
+        when (this) {
+            is ComponentActivity -> this
+            is ContextWrapper -> baseContext.findComponentActivity()
+            else -> null
+        }
 
     @Composable
     private fun ShareCardLayout(
