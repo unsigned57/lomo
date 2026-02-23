@@ -6,15 +6,20 @@ import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileDataSource
+import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.util.MemoTextProcessor
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
+import io.mockk.slot
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 /**
  * Unit tests for MemoSynchronizer. These tests verify the synchronization logic between file system
@@ -166,5 +171,38 @@ class MemoSynchronizerTest {
 
             // saveMemo always appends
             coVerify { fileDataSource.saveFile(any(), any(), eq(true)) }
+        }
+
+    @Test
+    fun `saveMemo stores canonical timestamp for HH_mm format`() =
+        runTest {
+            val zone = ZoneId.systemDefault()
+            val inputTimestamp =
+                LocalDateTime
+                    .of(2024, 1, 15, 12, 30, 45, 123_000_000)
+                    .atZone(zone)
+                    .toInstant()
+                    .toEpochMilli()
+            val expectedTimestamp =
+                LocalDateTime
+                    .of(2024, 1, 15, 12, 30, 0, 0)
+                    .atZone(zone)
+                    .toInstant()
+                    .toEpochMilli()
+
+            coEvery { dataStore.storageFilenameFormat } returns kotlinx.coroutines.flow.flowOf("yyyy_MM_dd")
+            coEvery { dataStore.storageTimestampFormat } returns kotlinx.coroutines.flow.flowOf("HH:mm")
+            coEvery { memoDao.getMemo(any()) } returns null
+            coEvery { fileDataSource.readFile("2024_01_15.md") } returns null
+            coEvery { fileDataSource.saveFile(any(), any(), any()) } returns "uri"
+            coEvery { fileDataSource.getFileMetadata("2024_01_15.md") } returns FileMetadata("2024_01_15.md", 1000L)
+            coEvery { localFileStateDao.getByFilename("2024_01_15.md", false) } returns null
+
+            val memoEntitySlot = slot<com.lomo.data.local.entity.MemoEntity>()
+            coEvery { memoDao.insertMemo(capture(memoEntitySlot)) } returns Unit
+
+            synchronizer.saveMemo("canonical time", inputTimestamp)
+
+            assertEquals(expectedTimestamp, memoEntitySlot.captured.timestamp)
         }
 }

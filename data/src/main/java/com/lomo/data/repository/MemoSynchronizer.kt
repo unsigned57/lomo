@@ -120,7 +120,12 @@ class MemoSynchronizer
                                             val content = fileDataSource.readFileByDocumentId(meta.documentId)
                                             if (content != null) {
                                                 val filename = meta.filename.removeSuffix(".md")
-                                                val domainMemos = parser.parseContent(content, filename)
+                                                val domainMemos =
+                                                    parser.parseContent(
+                                                        content = content,
+                                                        filename = filename,
+                                                        fallbackTimestampMillis = meta.lastModified,
+                                                    )
                                                 domainMemos.map { MemoEntity.fromDomain(it) } to meta
                                             } else {
                                                 null
@@ -153,7 +158,12 @@ class MemoSynchronizer
                                                 fileDataSource.readTrashFileByDocumentId(meta.documentId)
                                             if (content != null) {
                                                 val filename = meta.filename.removeSuffix(".md")
-                                                val domainMemos = parser.parseContent(content, filename)
+                                                val domainMemos =
+                                                    parser.parseContent(
+                                                        content = content,
+                                                        filename = filename,
+                                                        fallbackTimestampMillis = meta.lastModified,
+                                                    )
                                                 domainMemos.map {
                                                     TrashMemoEntity.fromDomain(
                                                         it.copy(isDeleted = true),
@@ -301,7 +311,12 @@ class MemoSynchronizer
                 val allTrashMemos = mutableListOf<TrashMemoEntity>()
                 files.forEach { file ->
                     val filename = file.filename.removeSuffix(".md")
-                    val domainMemos = parser.parseContent(file.content, filename)
+                    val domainMemos =
+                        parser.parseContent(
+                            content = file.content,
+                            filename = filename,
+                            fallbackTimestampMillis = file.lastModified,
+                        )
                     allTrashMemos.addAll(
                         domainMemos.map {
                             TrashMemoEntity.fromDomain(
@@ -317,7 +332,12 @@ class MemoSynchronizer
                 val allMemos = mutableListOf<MemoEntity>()
                 files.forEach { file ->
                     val filename = file.filename.removeSuffix(".md")
-                    val domainMemos = parser.parseContent(file.content, filename)
+                    val domainMemos =
+                        parser.parseContent(
+                            content = file.content,
+                            filename = filename,
+                            fallbackTimestampMillis = file.lastModified,
+                        )
                     allMemos.addAll(domainMemos.map { MemoEntity.fromDomain(it) })
                 }
                 if (allMemos.isNotEmpty()) {
@@ -352,6 +372,17 @@ class MemoSynchronizer
                     .ofPattern(timestampFormat)
                     .withZone(zoneId)
                     .format(instant)
+            val dateString = filename.removeSuffix(".md")
+            val baseCanonicalTimestamp =
+                parser.resolveTimestamp(
+                    dateStr = dateString,
+                    timeStr = timeString,
+                    fallbackTimestampMillis = timestamp,
+                )
+            val existingFileContent = fileDataSource.readFile(filename).orEmpty()
+            val sameTimestampCount = countTimestampOccurrences(existingFileContent, timeString)
+            val safeOffset = if (sameTimestampCount > 999) 999 else sameTimestampCount
+            val canonicalTimestamp = baseCanonicalTimestamp + safeOffset
 
             val contentHash =
                 content.trim().hashCode().let {
@@ -376,8 +407,8 @@ class MemoSynchronizer
                 Memo(
                     id = optimisticId,
                     content = content,
-                    date = filename.removeSuffix(".md"),
-                    timestamp = timestamp,
+                    date = dateString,
+                    timestamp = canonicalTimestamp,
                     rawContent = rawContent,
                     tags = textProcessor.extractTags(content),
                     imageUrls = textProcessor.extractImages(content),
@@ -450,6 +481,7 @@ class MemoSynchronizer
                         memo.timestamp,
                         newContent,
                         timeString, // Pass generated timestamp string
+                        memoId = memo.id,
                     )
 
                 if (success) {
@@ -488,14 +520,14 @@ class MemoSynchronizer
             if (currentFileContent == null) return
             val lines = currentFileContent.lines().toMutableList()
 
-            val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp)
+            val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)
             if (start != -1 && end >= start) {
                 val linesToTrash = lines.subList(start, end + 1)
                 // Prep trash content (ensure tidy boundaries)
                 val trashContent = "\n" + linesToTrash.joinToString("\n") + "\n"
 
                 // Remove from original file first in memory, then commit to disk
-                if (textProcessor.removeMemoBlock(lines, memo.rawContent, memo.timestamp)) {
+                if (textProcessor.removeMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)) {
                     // 1. Append to trash file
                     fileDataSource.saveTrashFile(filename, trashContent)
 
@@ -539,11 +571,11 @@ class MemoSynchronizer
                 val trashLines = trashContent.lines().toMutableList()
 
                 val (start, end) =
-                    textProcessor.findMemoBlock(trashLines, memo.rawContent, memo.timestamp)
+                    textProcessor.findMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)
                 if (start != -1) {
                     // Remove from Trash FIRST in memory
                     val restoredLines = trashLines.subList(start, end + 1).toList()
-                    if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp)) {
+                    if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
                         // 1. Append to Main File
                         // Ensure tidy boundaries without excessive padding
                         val restoredBlock = "\n" + restoredLines.joinToString("\n") + "\n"
@@ -598,7 +630,7 @@ class MemoSynchronizer
                 val trashContent = fileDataSource.readTrashFile(filename) ?: return@withLock
                 val trashLines = trashContent.lines().toMutableList()
 
-                if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp)) {
+                if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
                     // Check if file is now empty (only whitespace remaining)
                     val remainingContent = trashLines.joinToString("\n").trim()
                     if (remainingContent.isEmpty()) {
@@ -675,4 +707,15 @@ class MemoSynchronizer
                 filename.endsWith(".mp3", ignoreCase = true) ||
                 filename.endsWith(".aac", ignoreCase = true) ||
                 filename.startsWith("voice_", ignoreCase = true)
+
+        private fun countTimestampOccurrences(
+            fileContent: String,
+            timestamp: String,
+        ): Int {
+            if (fileContent.isBlank()) return 0
+            val pattern = Regex("^\\s*-\\s+${Regex.escape(timestamp)}(?:\\s|$).*")
+            return fileContent.lineSequence().count { line ->
+                pattern.matches(line)
+            }
+        }
     }

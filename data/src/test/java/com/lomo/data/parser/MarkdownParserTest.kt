@@ -6,6 +6,10 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.ZoneId
 
 class MarkdownParserTest {
     @get:Rule val tempFolder = TemporaryFolder()
@@ -135,8 +139,8 @@ class MarkdownParserTest {
 - 10:00 Note B
             """.trimIndent()
         val memos1 = parser.parseContent(content1, "file1")
-        val idA_usage1 = memos1[0].id
-        val idB_usage1 = memos1[1].id
+        val idAUsage1 = memos1[0].id
+        val idBUsage1 = memos1[1].id
 
         // File 2: Note B only (Simulate deleting Note A)
         // If IDs were position based, Note B would take Note A's ID or change.
@@ -146,12 +150,12 @@ class MarkdownParserTest {
 - 10:00 Note B
             """.trimIndent()
         val memos2 = parser.parseContent(content2, "file1")
-        val idB_usage2 = memos2[0].id
+        val idBUsage2 = memos2[0].id
 
         // Assert: ID of Note B should be identical in both cases
-        assertEquals("ID of Note B should remain stable after deleting Note A", idB_usage1, idB_usage2)
+        assertEquals("ID of Note B should remain stable after deleting Note A", idBUsage1, idBUsage2)
         // Also assert it's NOT the same as A's ID
-        org.junit.Assert.assertNotEquals(idA_usage1, idB_usage2)
+        org.junit.Assert.assertNotEquals(idAUsage1, idBUsage2)
     }
 
     @Test
@@ -199,5 +203,53 @@ class MarkdownParserTest {
         assertTrue("Item 3 should have later timestamp than Item 2", t3 > t2)
         assertEquals("Difference should be 1ms", 1, t2 - t1)
         assertEquals("Difference should be 1ms", 1, t3 - t2)
+    }
+
+    @Test
+    fun `test parse timestamp with dot filename format`() {
+        val file = tempFolder.newFile("2024.01.31.md")
+        file.writeText("- 10:30 Dot format")
+
+        val memos = parser.parseFile(file)
+
+        assertEquals(1, memos.size)
+        val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
+        assertEquals(LocalDate.of(2024, 1, 31), dateTime.toLocalDate())
+        assertEquals(LocalTime.of(10, 30), dateTime.toLocalTime().withSecond(0).withNano(0))
+    }
+
+    @Test
+    fun `test parse timestamp with month-first filename format`() {
+        val file = tempFolder.newFile("01-31-2024.md")
+        file.writeText("- 23:59 US date format")
+
+        val memos = parser.parseFile(file)
+
+        assertEquals(1, memos.size)
+        val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
+        assertEquals(LocalDate.of(2024, 1, 31), dateTime.toLocalDate())
+        assertEquals(LocalTime.of(23, 59), dateTime.toLocalTime().withSecond(0).withNano(0))
+    }
+
+    @Test
+    fun `test parse timestamp falls back to file metadata date when filename is unknown`() {
+        val fallbackTime =
+            LocalDateTime
+                .of(2020, 2, 3, 14, 0, 0)
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+
+        val memos =
+            parser.parseContent(
+                content = "- 08:15 Unknown filename format",
+                filename = "bad_filename",
+                fallbackTimestampMillis = fallbackTime,
+            )
+
+        assertEquals(1, memos.size)
+        val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
+        assertEquals(LocalDate.of(2020, 2, 3), dateTime.toLocalDate())
+        assertEquals(LocalTime.of(8, 15), dateTime.toLocalTime().withSecond(0).withNano(0))
     }
 }

@@ -10,7 +10,9 @@ class MemoTextProcessor
     constructor() {
         companion object {
             // Permissive regex: Matches HH:mm OR HH:mm:ss
-            private val MEMO_BLOCK_END = Regex("^-\\s\\d{2}:\\d{2}(?::\\d{2})?.*")
+            private val MEMO_BLOCK_END = Regex("^\\s*-\\s+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s|$).*")
+            private val MEMO_BLOCK_HEADER = Regex("^\\s*-\\s+(\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\s+(.*))?$")
+            private val MEMO_ID_PATTERN = Regex("^(.*)_(\\d{1,2}:\\d{2}(?::\\d{2})?)_([0-9a-f]+)(?:_(\\d+))?$")
             private val TAG_PATTERN =
                 java.util.regex.Pattern
                     .compile("(?:^|\\s)#([\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*)")
@@ -33,26 +35,43 @@ class MemoTextProcessor
             lines: List<String>,
             rawContent: String,
             timestamp: Long,
+            memoId: String? = null,
         ): Pair<Int, Int> {
-            val rawLines = rawContent.lines()
-            val contentStartLine = rawLines.firstOrNull { it.isNotBlank() } ?: return -1 to -1
+            memoId?.let { id ->
+                findMemoBlockByMemoId(lines, id)?.let { return it }
+            }
 
-            // 1. Try exact content match (trimmed)
+            // 1. Try exact raw block match first.
+            val rawLines = rawContent.lines().map { it.trimEnd() }.toMutableList()
+            while (rawLines.isNotEmpty() && rawLines.last().isEmpty()) {
+                rawLines.removeAt(rawLines.lastIndex)
+            }
+            if (rawLines.isNotEmpty()) {
+                val targetSize = rawLines.size
+                for (i in 0..(lines.size - targetSize).coerceAtLeast(0)) {
+                    var matched = true
+                    for (k in rawLines.indices) {
+                        if (lines[i + k].trimEnd() != rawLines[k]) {
+                            matched = false
+                            break
+                        }
+                    }
+                    if (matched) return i to findBlockEndIndex(lines, i)
+                }
+            }
+
+            // 2. Fallback: first line match.
+            val contentStartLine = rawContent.lines().firstOrNull { it.isNotBlank() } ?: return -1 to -1
             val cleanContentStart = contentStartLine.trim()
             for (i in lines.indices) {
                 if (lines[i].trim() == cleanContentStart) {
                     var endIndex = i
-                    for (j in (i + 1) until lines.size) {
-                        if (lines[j].matches(MEMO_BLOCK_END)) {
-                            break
-                        }
-                        endIndex = j
-                    }
+                    endIndex = findBlockEndIndex(lines, i)
                     return i to endIndex
                 }
             }
 
-            // 2. Fallback: Timestamp match - Try common formats
+            // 3. Last fallback: timestamp-only match.
             // We try HH:mm:ss first, then HH:mm
             val zone = ZoneId.systemDefault()
             val formats = listOf("HH:mm:ss", "HH:mm")
@@ -64,16 +83,13 @@ class MemoTextProcessor
                         .withZone(zone)
                         .format(Instant.ofEpochMilli(timestamp))
 
-                val startIndex = lines.indexOfFirst { it.trim().startsWith("- $timestampPart") }
-                if (startIndex != -1) {
-                    var endIndex = startIndex
-                    for (j in (startIndex + 1) until lines.size) {
-                        if (lines[j].matches(MEMO_BLOCK_END)) {
-                            endIndex = j - 1
-                            break
-                        }
-                        endIndex = j
+                val startIndex =
+                    lines.indexOfFirst { line ->
+                        val trimmed = line.trim()
+                        trimmed == "- $timestampPart" || trimmed.startsWith("- $timestampPart ")
                     }
+                if (startIndex != -1) {
+                    val endIndex = findBlockEndIndex(lines, startIndex)
                     return startIndex to endIndex
                 }
             }
@@ -93,8 +109,9 @@ class MemoTextProcessor
             timestamp: Long,
             newRawContent: String,
             timestampStr: String, // New argument
+            memoId: String? = null,
         ): Boolean {
-            var (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp)
+            var (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp, memoId)
 
             if (startIndex != -1 && endIndex >= startIndex) {
                 val contentLines = newRawContent.lines()
@@ -124,8 +141,9 @@ class MemoTextProcessor
             lines: MutableList<String>,
             rawContent: String,
             timestamp: Long,
+            memoId: String? = null,
         ): Boolean {
-            val (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp)
+            val (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp, memoId)
             if (startIndex != -1 && endIndex >= startIndex) {
                 val linesToRemove = (endIndex - startIndex) + 1
                 for (k in 0 until linesToRemove) {
@@ -217,4 +235,109 @@ class MemoTextProcessor
 
             return str.trim()
         }
+
+        private fun findMemoBlockByMemoId(
+            lines: List<String>,
+            memoId: String,
+        ): Pair<Int, Int>? {
+            val parsedId = parseMemoId(memoId) ?: return null
+            val matches =
+                extractMemoBlocks(lines).filter { block ->
+                    block.timePart == parsedId.timePart &&
+                        contentHash(block.content) == parsedId.contentHash
+                }
+
+            return matches.getOrNull(parsedId.collisionIndex)?.let { block ->
+                block.startIndex to block.endIndex
+            }
+        }
+
+        private fun extractMemoBlocks(lines: List<String>): List<MemoBlock> {
+            val blocks = mutableListOf<MemoBlock>()
+            var index = 0
+            while (index < lines.size) {
+                val headerMatch = MEMO_BLOCK_HEADER.matchEntire(lines[index])
+                if (headerMatch == null) {
+                    index++
+                    continue
+                }
+
+                val start = index
+                var end = index
+                index++
+                while (index < lines.size && !MEMO_BLOCK_END.matches(lines[index])) {
+                    end = index
+                    index++
+                }
+
+                val firstLineContent = headerMatch.groupValues.getOrNull(2).orEmpty()
+                val contentBuilder = StringBuilder(firstLineContent)
+                for (lineIndex in (start + 1)..end) {
+                    if (lineIndex !in lines.indices) continue
+                    val line = lines[lineIndex]
+                    if (contentBuilder.isEmpty()) {
+                        contentBuilder.append(line)
+                    } else {
+                        contentBuilder.append("\n").append(line)
+                    }
+                }
+
+                blocks.add(
+                    MemoBlock(
+                        startIndex = start,
+                        endIndex = end,
+                        timePart = headerMatch.groupValues[1],
+                        content = contentBuilder.toString().trim(),
+                    ),
+                )
+            }
+            return blocks
+        }
+
+        private fun parseMemoId(memoId: String): ParsedMemoId? {
+            val match = MEMO_ID_PATTERN.matchEntire(memoId) ?: return null
+            val collisionIndex =
+                match.groupValues
+                    .getOrNull(4)
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.toIntOrNull() ?: 0
+
+            return ParsedMemoId(
+                timePart = match.groupValues[2],
+                contentHash = match.groupValues[3],
+                collisionIndex = collisionIndex,
+            )
+        }
+
+        private fun findBlockEndIndex(
+            lines: List<String>,
+            startIndex: Int,
+        ): Int {
+            var endIndex = startIndex
+            for (j in (startIndex + 1) until lines.size) {
+                if (lines[j].matches(MEMO_BLOCK_END)) {
+                    break
+                }
+                endIndex = j
+            }
+            return endIndex
+        }
+
+        private fun contentHash(content: String): String =
+            content.trim().hashCode().let {
+                kotlin.math.abs(it).toString(16)
+            }
+
+        private data class ParsedMemoId(
+            val timePart: String,
+            val contentHash: String,
+            val collisionIndex: Int,
+        )
+
+        private data class MemoBlock(
+            val startIndex: Int,
+            val endIndex: Int,
+            val timePart: String,
+            val content: String,
+        )
     }

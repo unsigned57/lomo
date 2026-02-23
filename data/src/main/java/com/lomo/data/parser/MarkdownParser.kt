@@ -3,14 +3,47 @@ package com.lomo.data.parser
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import java.io.File
+import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeFormatterBuilder
+import java.time.format.ResolverStyle
+import java.util.Locale
 import java.util.regex.Pattern
 
 class MarkdownParser(
     private val textProcessor: MemoTextProcessor = MemoTextProcessor(),
 ) {
+    companion object {
+        private val SUPPORTED_FILENAME_DATE_FORMATS =
+            listOf(
+                "yyyy_MM_dd",
+                "yyyy-MM-dd",
+                "yyyy.MM.dd",
+                "yyyyMMdd",
+                "MM-dd-yyyy",
+            )
+
+        private val DATE_FORMATTERS =
+            SUPPORTED_FILENAME_DATE_FORMATS.map { pattern ->
+                DateTimeFormatter
+                    .ofPattern(pattern.replace("yyyy", "uuuu"), Locale.US)
+                    .withResolverStyle(ResolverStyle.STRICT)
+            }
+
+        private val FLEXIBLE_TIME_FORMATTER: DateTimeFormatter =
+            DateTimeFormatterBuilder()
+                .parseStrict()
+                .appendPattern("H:mm")
+                .optionalStart()
+                .appendPattern(":ss")
+                .optionalEnd()
+                .toFormatter(Locale.US)
+    }
+
     // Use lazy delegation for expensive Pattern compilation
     // Pattern is only compiled when first accessed, saving initialization cost
     // Regex: - HH:mm:ss [Content]
@@ -26,12 +59,13 @@ class MarkdownParser(
         if (!file.exists()) return emptyList()
         val filename = file.nameWithoutExtension
         val content = file.readText()
-        return parseContent(content, filename)
+        return parseContent(content, filename, fallbackTimestampMillis = file.lastModified())
     }
 
     fun parseContent(
         content: String,
         filename: String,
+        fallbackTimestampMillis: Long? = null,
     ): List<Memo> {
         val result = mutableListOf<Memo>()
         val lines = content.lines()
@@ -55,7 +89,12 @@ class MarkdownParser(
 
                 // Add offset to timestamp (cap at 999 to stay within same second)
                 val safeOffset = if (offset > 999) 999 else offset
-                val timestampWithOffset = parseTimestamp(filename, currentTimestamp) + safeOffset
+                val timestampWithOffset =
+                    resolveTimestamp(
+                        dateStr = filename,
+                        timeStr = currentTimestamp,
+                        fallbackTimestampMillis = fallbackTimestampMillis,
+                    ) + safeOffset
                 val timestampLong = timestampWithOffset
 
                 // Stable ID: Use filename, timestamp string, AND content hash.
@@ -114,35 +153,50 @@ class MarkdownParser(
         return result
     }
 
-    private fun parseTimestamp(
+    fun resolveTimestamp(
         dateStr: String,
         timeStr: String,
+        fallbackTimestampMillis: Long? = null,
     ): Long =
-        try {
-            // Normalize timeStr to ensure HH:mm:ss
-            val timeParts = timeStr.split(":")
-            val normalizedTime =
-                when (timeParts.size) {
-                    2 -> "$timeStr:00"
-                    3 -> timeStr
-                    else -> "00:00:00"
-                }
+        run {
+            val zoneId = ZoneId.systemDefault()
+            val localTime = parseLocalTime(timeStr) ?: LocalTime.MIDNIGHT
 
-            val fullDateTimeString = "$dateStr $normalizedTime"
-
-            // Try default format (underscore)
-            try {
-                val formatter = DateTimeFormatter.ofPattern("yyyy_MM_dd HH:mm:ss")
-                val localDateTime = LocalDateTime.parse(fullDateTimeString, formatter)
-                localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            } catch (e: Exception) {
-                // Try hyphenated format
-                val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                val localDateTime = LocalDateTime.parse(fullDateTimeString, formatter)
-                localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            parseLocalDate(dateStr)?.let { parsedDate ->
+                return@run LocalDateTime
+                    .of(parsedDate, localTime)
+                    .atZone(zoneId)
+                    .toInstant()
+                    .toEpochMilli()
             }
-        } catch (e: Exception) {
-            System.currentTimeMillis()
+
+            // If filename date is unknown, fallback to file metadata date (not "now").
+            fallbackTimestampMillis?.let { fallback ->
+                val fallbackDate = Instant.ofEpochMilli(fallback).atZone(zoneId).toLocalDate()
+                return@run LocalDateTime
+                    .of(fallbackDate, localTime)
+                    .atZone(zoneId)
+                    .toInstant()
+                    .toEpochMilli()
+            }
+
+            0L
+        }
+
+    private fun parseLocalDate(dateStr: String): LocalDate? =
+        DATE_FORMATTERS.firstNotNullOfOrNull { formatter ->
+            try {
+                LocalDate.parse(dateStr, formatter)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private fun parseLocalTime(timeStr: String): LocalTime? =
+        try {
+            LocalTime.parse(timeStr, FLEXIBLE_TIME_FORMATTER)
+        } catch (_: Exception) {
+            null
         }
 
     private fun extractTags(content: String): List<String> {

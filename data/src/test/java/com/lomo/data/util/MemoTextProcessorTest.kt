@@ -1,11 +1,9 @@
 package com.lomo.data.util
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 
 class MemoTextProcessorTest {
     private lateinit var processor: MemoTextProcessor
@@ -69,5 +67,51 @@ class MemoTextProcessorTest {
 
         assertTrue(result)
         assertEquals("- 10:00 New Content", lines[0])
+    }
+
+    @Test
+    fun `findMemoBlock should locate collision entry by memoId`() {
+        val lines =
+            listOf(
+                "- 12:30 Duplicate",
+                "- 12:30 Duplicate",
+            )
+        val contentHash = "Duplicate".trim().hashCode().let { kotlin.math.abs(it).toString(16) }
+        val baseId = "2024_01_15_12:30_$contentHash"
+        val secondId = "${baseId}_1"
+
+        val (start, end) =
+            processor.findMemoBlock(
+                lines = lines,
+                rawContent = "- 12:30 Duplicate",
+                timestamp = timestamp,
+                memoId = secondId,
+            )
+
+        assertEquals(1, start)
+        assertEquals(1, end)
+    }
+
+    @Test
+    fun `removeMemoBlock should remove collision entry by memoId`() {
+        val lines =
+            mutableListOf(
+                "- 12:30 Duplicate",
+                "- 12:30 Duplicate",
+            )
+        val contentHash = "Duplicate".trim().hashCode().let { kotlin.math.abs(it).toString(16) }
+        val baseId = "2024_01_15_12:30_$contentHash"
+        val secondId = "${baseId}_1"
+
+        val removed =
+            processor.removeMemoBlock(
+                lines = lines,
+                rawContent = "- 12:30 Duplicate",
+                timestamp = timestamp,
+                memoId = secondId,
+            )
+
+        assertTrue(removed)
+        assertEquals(1, lines.size)
     }
 }
