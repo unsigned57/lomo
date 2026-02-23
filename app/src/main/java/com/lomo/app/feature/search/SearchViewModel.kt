@@ -3,6 +3,7 @@ package com.lomo.app.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
@@ -32,7 +33,7 @@ class SearchViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
+        private val imageWorkflow: MemoImageWorkflow,
         private val settingsRepository: SettingsRepository,
         val mapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
@@ -141,8 +142,7 @@ class SearchViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val path = mediaRepository.saveImage(uri)
-                    mediaRepository.syncImageCache()
+                    val path = imageWorkflow.saveImageAndSync(uri)
                     onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e

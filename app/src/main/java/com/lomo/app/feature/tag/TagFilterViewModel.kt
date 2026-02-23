@@ -3,6 +3,7 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
@@ -27,7 +28,7 @@ class TagFilterViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val memoRepository: MemoRepository,
-        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
+        private val imageWorkflow: MemoImageWorkflow,
         private val settingsRepository: SettingsRepository,
         val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
@@ -126,8 +127,7 @@ class TagFilterViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val path = mediaRepository.saveImage(uri)
-                    mediaRepository.syncImageCache()
+                    val path = imageWorkflow.saveImageAndSync(uri)
                     onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e

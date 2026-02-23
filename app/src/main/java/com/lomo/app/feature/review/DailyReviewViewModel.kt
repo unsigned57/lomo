@@ -2,6 +2,7 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
@@ -27,7 +28,7 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val mediaRepository: com.lomo.domain.repository.MediaRepository,
+        private val imageWorkflow: MemoImageWorkflow,
         private val settingsRepository: SettingsRepository,
         private val mapper: com.lomo.app.feature.main.MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
@@ -148,8 +149,7 @@ class DailyReviewViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val path = mediaRepository.saveImage(uri)
-                    mediaRepository.syncImageCache()
+                    val path = imageWorkflow.saveImageAndSync(uri)
                     onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
