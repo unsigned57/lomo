@@ -41,3 +41,10 @@ val MIGRATION_18_19: Migration =
             )
         }
     }
+
+val MIGRATION_19_20: Migration =
+    object : Migration(19, 20) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP TABLE IF EXISTS image_cache")
+        }
+    }
