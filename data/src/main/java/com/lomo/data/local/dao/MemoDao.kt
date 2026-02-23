@@ -6,7 +6,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.lomo.data.local.entity.MemoEntity
+import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.TrashMemoEntity
+import com.lomo.data.local.entity.toTagCrossRefs
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -80,6 +82,35 @@ interface MemoDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMemo(memo: MemoEntity)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTagRefs(refs: List<MemoTagCrossRefEntity>)
+
+    @Query("DELETE FROM MemoTagCrossRef WHERE memoId = :memoId")
+    suspend fun deleteTagRefsByMemoId(memoId: String)
+
+    @Query("DELETE FROM MemoTagCrossRef WHERE memoId IN (:memoIds)")
+    suspend fun deleteTagRefsByMemoIds(memoIds: List<String>)
+
+    @Query("DELETE FROM MemoTagCrossRef")
+    suspend fun clearTagRefs()
+
+    suspend fun replaceTagRefsForMemo(memo: MemoEntity) {
+        deleteTagRefsByMemoId(memo.id)
+        val refs = memo.toTagCrossRefs()
+        if (refs.isNotEmpty()) {
+            insertTagRefs(refs)
+        }
+    }
+
+    suspend fun replaceTagRefsForMemos(memos: List<MemoEntity>) {
+        if (memos.isEmpty()) return
+        deleteTagRefsByMemoIds(memos.map { it.id })
+        val refs = memos.asSequence().flatMap { it.toTagCrossRefs().asSequence() }.toList()
+        if (refs.isNotEmpty()) {
+            insertTagRefs(refs)
+        }
+    }
+
     @Delete suspend fun deleteMemo(memo: MemoEntity) // Used for permanent delete
 
     @Query("DELETE FROM Lomo WHERE id = :id")
@@ -106,21 +137,33 @@ interface MemoDao {
     @Query("DELETE FROM Lomo WHERE date = :date")
     suspend fun deleteMemosByDate(date: String)
 
-    // Tag Support (flat tags column in Lomo table)
+    // Tag Support (cross-ref table)
     @Query(
         """
-        SELECT * FROM Lomo
-        WHERE (
-            (',' || tags || ',') LIKE '%,' || :tag || ',%'
-            OR (',' || tags || ',') LIKE '%,' || :tag || '/%'
-        )
+        SELECT Lomo.*
+        FROM Lomo
+        INNER JOIN MemoTagCrossRef ON MemoTagCrossRef.memoId = Lomo.id
+        WHERE MemoTagCrossRef.tag = :tag OR MemoTagCrossRef.tag LIKE :tagPrefix
         ORDER BY Lomo.timestamp DESC, Lomo.id DESC
     """,
     )
-    fun getMemosByTagFlow(tag: String): Flow<List<MemoEntity>>
+    fun getMemosByTagFlow(
+        tag: String,
+        tagPrefix: String,
+    ): Flow<List<MemoEntity>>
 
-    @Query("SELECT tags FROM Lomo WHERE tags != ''")
-    fun getAllTagStrings(): Flow<List<String>>
+    @Query("SELECT DISTINCT tag FROM MemoTagCrossRef ORDER BY tag COLLATE NOCASE")
+    fun getAllTagsFlow(): Flow<List<String>>
+
+    @Query(
+        """
+        SELECT tag AS name, COUNT(DISTINCT memoId) AS count
+        FROM MemoTagCrossRef
+        GROUP BY tag
+        ORDER BY tag COLLATE NOCASE
+        """,
+    )
+    fun getTagCountsFlow(): Flow<List<TagCountRow>>
 
     // Stats
     @Query("SELECT COUNT(*) FROM Lomo")
@@ -168,3 +211,8 @@ interface MemoDao {
     @Query("DELETE FROM LomoTrash")
     suspend fun clearTrash()
 }
+
+data class TagCountRow(
+    val name: String,
+    val count: Int,
+)

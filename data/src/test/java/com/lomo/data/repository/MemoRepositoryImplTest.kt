@@ -70,11 +70,11 @@ class MemoRepositoryImplTest {
     @Test
     fun `getAllTags flattens deduplicates and sorts tags from memo rows`() =
         runTest {
-            every { dao.getAllTagStrings() } returns
+            every { dao.getAllTagsFlow() } returns
                 flowOf(
                     listOf(
-                        "beta,alpha",
-                        "alpha,gamma",
+                        "alpha",
+                        "beta",
                         "gamma",
                     ),
                 )
@@ -87,12 +87,15 @@ class MemoRepositoryImplTest {
     @Test
     fun `getTagCounts counts each tag once per memo row`() =
         runTest {
-            every { dao.getAllTagStrings() } returns
+            every { dao.getTagCountsFlow() } returns
                 flowOf(
                     listOf(
-                        "alpha,beta,beta",
-                        "beta,gamma",
-                        "alpha",
+                        com.lomo.data.local.dao
+                            .TagCountRow("alpha", 2),
+                        com.lomo.data.local.dao
+                            .TagCountRow("beta", 2),
+                        com.lomo.data.local.dao
+                            .TagCountRow("gamma", 1),
                     ),
                 )
 

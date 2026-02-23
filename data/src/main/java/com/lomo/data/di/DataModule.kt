@@ -31,6 +31,7 @@ object DataModule {
         Room
             .databaseBuilder(context, MemoDatabase::class.java, "lomo.db")
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+            .addMigrations(com.lomo.data.local.MIGRATION_18_19)
             .fallbackToDestructiveMigration(true)
             .build()
 

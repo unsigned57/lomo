@@ -120,19 +120,9 @@ class MemoRepositoryImpl
         }
 
         override fun getMemosByTagList(tag: String): Flow<List<Memo>> =
-            dao.getMemosByTagFlow(tag).map { entities -> entities.map { it.toDomain() } }
+            dao.getMemosByTagFlow(tag, "$tag/%").map { entities -> entities.map { it.toDomain() } }
 
-        override fun getAllTags(): Flow<List<String>> =
-            dao.getAllTagStrings().map { rawTags ->
-                rawTags
-                    .asSequence()
-                    .flatMap { it.split(',').asSequence() }
-                    .map { it.trim() }
-                    .filter { it.isNotEmpty() }
-                    .distinct()
-                    .sorted()
-                    .toList()
-            }
+        override fun getAllTags(): Flow<List<String>> = dao.getAllTagsFlow()
 
         override fun getMemoCount(): Flow<Int> = dao.getMemoCount()
 
@@ -141,22 +131,10 @@ class MemoRepositoryImpl
         override fun getAllTimestamps(): Flow<List<Long>> = dao.getAllTimestamps()
 
         override fun getTagCounts(): Flow<List<com.lomo.domain.model.TagCount>> =
-            dao.getAllTagStrings().map { rawTags ->
-                val counts = linkedMapOf<String, Int>()
-                rawTags.forEach { tags ->
-                    tags
-                        .split(',')
-                        .asSequence()
-                        .map { it.trim() }
-                        .filter { it.isNotEmpty() }
-                        .distinct()
-                        .forEach { tag ->
-                            counts[tag] = (counts[tag] ?: 0) + 1
-                        }
-                }
-                counts.map { (name, count) ->
+            dao.getTagCountsFlow().map { rows ->
+                rows.map { row ->
                     com.lomo.domain.model
-                        .TagCount(name, count)
+                        .TagCount(row.name, row.count)
                 }
             }
 

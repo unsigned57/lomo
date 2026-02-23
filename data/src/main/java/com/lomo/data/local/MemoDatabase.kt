@@ -9,6 +9,7 @@ import com.lomo.data.local.entity.ImageCacheEntity
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFtsEntity
+import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 
 @Database(
@@ -18,9 +19,10 @@ import com.lomo.data.local.entity.TrashMemoEntity
             TrashMemoEntity::class,
             ImageCacheEntity::class,
             MemoFtsEntity::class,
+            MemoTagCrossRefEntity::class,
             LocalFileStateEntity::class,
         ],
-    version = 18,
+    version = 19,
     exportSchema = false,
 )
 abstract class MemoDatabase : RoomDatabase() {

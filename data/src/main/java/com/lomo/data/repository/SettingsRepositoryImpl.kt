@@ -130,6 +130,7 @@ class SettingsRepositoryImpl
         }
 
         private suspend fun clearMemoCaches() {
+            dao.clearTagRefs()
             dao.clearAll()
             dao.clearTrash()
             dao.clearFts()

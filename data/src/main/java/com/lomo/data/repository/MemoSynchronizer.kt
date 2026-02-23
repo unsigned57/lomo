@@ -224,6 +224,10 @@ class MemoSynchronizer
                         val hasDateReplacements = mainDatesToReplace.isNotEmpty() || trashDatesToReplace.isNotEmpty()
                         if (hasDateReplacements || filesToDeleteInDb.isNotEmpty()) {
                             mainDatesToReplace.forEach { date ->
+                                val memoIds = dao.getMemosByDate(date).map { it.id }
+                                if (memoIds.isNotEmpty()) {
+                                    dao.deleteTagRefsByMemoIds(memoIds)
+                                }
                                 dao.deleteMemosByDate(date)
                             }
                             trashDatesToReplace.forEach { date ->
@@ -245,6 +249,7 @@ class MemoSynchronizer
                             // Insert/Update active memos from modified main files
                             if (deduplicatedMainMemos.isNotEmpty()) {
                                 dao.insertMemos(deduplicatedMainMemos)
+                                dao.replaceTagRefsForMemos(deduplicatedMainMemos)
                                 deduplicatedMainMemos.forEach {
                                     val tokenized =
                                         com.lomo.data.util.SearchTokenizer
@@ -275,6 +280,7 @@ class MemoSynchronizer
                                     val memosInDb = dao.getMemosByDate(date)
                                     val memoIds = memosInDb.map { it.id }
                                     if (memoIds.isNotEmpty()) {
+                                        dao.deleteTagRefsByMemoIds(memoIds)
                                         dao.deleteMemosByIds(memoIds)
                                         dao.deleteMemoFtsByIds(memoIds)
                                     }
@@ -330,6 +336,7 @@ class MemoSynchronizer
                 }
                 if (allMemos.isNotEmpty()) {
                     dao.insertMemos(allMemos)
+                    dao.replaceTagRefsForMemos(allMemos)
                     allMemos.forEach {
                         val tokenized =
                             com.lomo.data.util.SearchTokenizer

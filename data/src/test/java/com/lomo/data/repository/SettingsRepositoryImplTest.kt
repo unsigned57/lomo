@@ -39,6 +39,7 @@ class SettingsRepositoryImplTest {
     fun `setRootDirectory clears caches then updates root`() =
         runTest {
             coEvery { dao.clearAll() } just runs
+            coEvery { dao.clearTagRefs() } just runs
             coEvery { dao.clearTrash() } just runs
             coEvery { dao.clearFts() } just runs
             coEvery { imageCacheDao.clearAll() } just runs
@@ -47,6 +48,7 @@ class SettingsRepositoryImplTest {
             repository.setRootDirectory("/tmp/lomo")
 
             coVerify(exactly = 1) { dao.clearAll() }
+            coVerify(exactly = 1) { dao.clearTagRefs() }
             coVerify(exactly = 1) { dao.clearTrash() }
             coVerify(exactly = 1) { dao.clearFts() }
             coVerify(exactly = 1) { imageCacheDao.clearAll() }

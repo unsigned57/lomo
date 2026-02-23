@@ -99,6 +99,7 @@ class MemoMutationHandler
 
             val entity = MemoEntity.fromDomain(newMemo)
             dao.insertMemo(entity)
+            dao.replaceTagRefsForMemo(entity)
             val tokenizedContent =
                 com.lomo.data.util.SearchTokenizer
                     .tokenize(entity.content)
@@ -167,6 +168,7 @@ class MemoMutationHandler
 
                     val finalEntity = MemoEntity.fromDomain(finalUpdatedMemo)
                     dao.insertMemo(finalEntity)
+                    dao.replaceTagRefsForMemo(finalEntity)
                     val tokenizedContent =
                         com.lomo.data.util.SearchTokenizer
                             .tokenize(finalEntity.content)
@@ -215,6 +217,7 @@ class MemoMutationHandler
 
                     val entity = MemoEntity.fromDomain(memo.copy(isDeleted = false))
                     dao.insertMemo(entity)
+                    dao.replaceTagRefsForMemo(entity)
                     dao.deleteTrashMemoById(memo.id)
                     val tokenized =
                         com.lomo.data.util.SearchTokenizer
@@ -307,6 +310,7 @@ class MemoMutationHandler
                     }
 
                     dao.deleteMemoById(memo.id)
+                    dao.deleteTagRefsByMemoId(memo.id)
                     dao.deleteMemoFts(memo.id)
                     dao.insertTrashMemo(TrashMemoEntity.fromDomain(memo.copy(isDeleted = true)))
                 }
