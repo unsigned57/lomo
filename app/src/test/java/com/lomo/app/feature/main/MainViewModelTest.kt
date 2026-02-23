@@ -29,15 +29,11 @@ class MainViewModelTest {
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
     private lateinit var mapper: MemoUiMapper
-    private lateinit var textProcessor: com.lomo.data.util.MemoTextProcessor
+    private lateinit var memoMutator: MainMemoMutator
     private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
     private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var widgetRepository: com.lomo.domain.repository.WidgetRepository
     private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
     private lateinit var updateManager: com.lomo.app.feature.update.UpdateManager
-    private lateinit var createMemoUseCase: com.lomo.domain.usecase.CreateMemoUseCase
-    private lateinit var deleteMemoUseCase: com.lomo.domain.usecase.DeleteMemoUseCase
-    private lateinit var updateMemoUseCase: com.lomo.domain.usecase.UpdateMemoUseCase
 
     @Before
     fun setup() {
@@ -49,15 +45,11 @@ class MainViewModelTest {
         mediaRepository = mockk(relaxed = true)
         dataStore = mockk(relaxed = true)
         mapper = MemoUiMapper()
-        textProcessor = mockk(relaxed = true)
+        memoMutator = mockk(relaxed = true)
         getFilteredMemosUseCase = mockk(relaxed = true)
         imageMapProvider = mockk(relaxed = true)
-        widgetRepository = mockk(relaxed = true)
         audioPlayerManager = mockk(relaxed = true)
         updateManager = mockk(relaxed = true)
-        createMemoUseCase = mockk(relaxed = true)
-        deleteMemoUseCase = mockk(relaxed = true)
-        updateMemoUseCase = mockk(relaxed = true)
 
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.getRootDirectory() } returns flowOf<String?>(null)
@@ -164,13 +156,9 @@ class MainViewModelTest {
             savedStateHandle = savedStateHandle,
             mapper = mapper,
             imageMapProvider = imageMapProvider,
-            textProcessor = textProcessor,
             getFilteredMemosUseCase = getFilteredMemosUseCase,
-            widgetRepository = widgetRepository,
             audioPlayerManager = audioPlayerManager,
             updateManager = updateManager,
-            createMemoUseCase = createMemoUseCase,
-            deleteMemoUseCase = deleteMemoUseCase,
-            updateMemoUseCase = updateMemoUseCase,
+            memoMutator = memoMutator,
         )
 }

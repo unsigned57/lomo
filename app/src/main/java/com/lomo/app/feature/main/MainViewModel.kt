@@ -10,7 +10,6 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
-import com.lomo.domain.repository.WidgetRepository
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
@@ -42,14 +41,10 @@ class MainViewModel
         private val savedStateHandle: SavedStateHandle,
         val mapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
-        private val textProcessor: com.lomo.data.util.MemoTextProcessor,
         private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
-        private val widgetRepository: WidgetRepository,
         private val audioPlayerManager: com.lomo.ui.media.AudioPlayerManager,
         private val updateManager: com.lomo.app.feature.update.UpdateManager,
-        private val createMemoUseCase: com.lomo.domain.usecase.CreateMemoUseCase,
-        private val deleteMemoUseCase: com.lomo.domain.usecase.DeleteMemoUseCase,
-        private val updateMemoUseCase: com.lomo.domain.usecase.UpdateMemoUseCase,
+        private val memoMutator: MainMemoMutator,
     ) : ViewModel() {
         private val _updateUrl = MutableStateFlow<String?>(null)
         val updateUrl: StateFlow<String?> = _updateUrl
@@ -266,9 +261,7 @@ class MainViewModel
             }
             viewModelScope.launch {
                 try {
-                    createMemoUseCase(content)
-                    // Update widget after adding memo
-                    widgetRepository.updateAllWidgets()
+                    memoMutator.addMemo(content)
 
                     // Bug 3: Memo saved, keep the images
                     ephemeralImageFilenames.clear()
@@ -288,9 +281,7 @@ class MainViewModel
                 deletingMemoIds.value = deletingMemoIds.value + memo.id
                 kotlinx.coroutines.delay(300L) // Wait for fade out animation
                 try {
-                    deleteMemoUseCase(memo)
-                    // Update widget after deleting memo
-                    widgetRepository.updateAllWidgets()
+                    memoMutator.deleteMemo(memo)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -307,9 +298,7 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    updateMemoUseCase(memo, newContent)
-                    // Update widget after updating memo
-                    widgetRepository.updateAllWidgets()
+                    memoMutator.updateMemo(memo, newContent)
 
                     // Bug 3: Memo saved, keep the images
                     ephemeralImageFilenames.clear()
@@ -328,10 +317,7 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val newContent = textProcessor.toggleCheckbox(memo.content, lineIndex, checked)
-                    if (newContent != memo.content) {
-                        updateMemoUseCase(memo, newContent)
-                    }
+                    memoMutator.toggleCheckbox(memo, lineIndex, checked)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
