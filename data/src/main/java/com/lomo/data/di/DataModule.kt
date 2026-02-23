@@ -115,12 +115,8 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideMediaRepositoryImpl(
-        imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
-        dataSource: com.lomo.data.source.FileDataSource,
-    ): MediaRepositoryImpl =
+    fun provideMediaRepositoryImpl(dataSource: com.lomo.data.source.FileDataSource): MediaRepositoryImpl =
         MediaRepositoryImpl(
-            imageCacheDao,
             dataSource,
         )
 

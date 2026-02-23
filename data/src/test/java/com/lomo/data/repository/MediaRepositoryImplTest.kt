@@ -1,21 +1,17 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.ImageCacheDao
-import com.lomo.data.local.entity.ImageCacheEntity
 import com.lomo.data.source.FileDataSource
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
 class MediaRepositoryImplTest {
-    @MockK(relaxed = true)
-    private lateinit var imageCacheDao: ImageCacheDao
-
     @MockK(relaxed = true)
     private lateinit var dataSource: FileDataSource
 
@@ -24,35 +20,32 @@ class MediaRepositoryImplTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        repository = MediaRepositoryImpl(imageCacheDao, dataSource)
+        repository = MediaRepositoryImpl(dataSource)
     }
 
     @Test
-    fun `syncImageCache applies differential insert and delete`() =
+    fun `syncImageCache emits file-backed image map`() =
         runTest {
             coEvery { dataSource.getImageRootFlow() } returns flowOf("content://images")
-            coEvery { imageCacheDao.getAllImagesSync() } returns
-                listOf(
-                    ImageCacheEntity(filename = "keep.jpg", uriString = "uri://keep", lastModified = 1L),
-                    ImageCacheEntity(filename = "old.jpg", uriString = "uri://old", lastModified = 2L),
-                )
             coEvery { dataSource.listImageFiles() } returns
                 listOf(
-                    "keep.jpg" to "uri://keep-new",
+                    "keep.jpg" to "uri://keep",
                     "new.jpg" to "uri://new",
                 )
 
             repository.syncImageCache()
 
-            coVerify(exactly = 1) { imageCacheDao.deleteByFilenames(listOf("old.jpg")) }
-            coVerify(exactly = 1) {
-                imageCacheDao.insertImages(
-                    match { images ->
-                        images.size == 1 &&
-                            images.first().filename == "new.jpg" &&
-                            images.first().uriString == "uri://new"
-                    },
-                )
-            }
+            val map = repository.getImageUriMap().first()
+            assertEquals(mapOf("keep.jpg" to "uri://keep", "new.jpg" to "uri://new"), map)
+        }
+
+    @Test
+    fun `syncImageCache clears map when image root is missing`() =
+        runTest {
+            coEvery { dataSource.getImageRootFlow() } returns flowOf(null)
+
+            repository.syncImageCache()
+
+            assertEquals(emptyMap<String, String>(), repository.getImageUriMap().first())
         }
 }
