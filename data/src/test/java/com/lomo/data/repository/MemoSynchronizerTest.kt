@@ -50,14 +50,23 @@ class MemoSynchronizerTest {
         coEvery { dataStore.storageTimestampFormat } returns
             kotlinx.coroutines.flow.flowOf("HH:mm:ss")
 
-        synchronizer =
-            MemoSynchronizer(
+        val mutationHandler =
+            MemoMutationHandler(
                 fileDataSource,
                 memoDao,
                 localFileStateDao,
                 parser,
                 processor,
                 dataStore,
+            )
+
+        synchronizer =
+            MemoSynchronizer(
+                fileDataSource,
+                memoDao,
+                localFileStateDao,
+                parser,
+                mutationHandler,
             )
     }
 

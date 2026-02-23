@@ -1,6 +1,5 @@
 package com.lomo.data.repository
 
-import android.net.Uri
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -9,19 +8,14 @@ import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileDataSource
-import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 class MemoSynchronizer
@@ -31,8 +25,7 @@ class MemoSynchronizer
         private val dao: MemoDao,
         private val localFileStateDao: LocalFileStateDao,
         private val parser: MarkdownParser,
-        private val textProcessor: MemoTextProcessor,
-        private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
+        private val mutationHandler: MemoMutationHandler,
     ) {
         private val mutex = Mutex()
 
@@ -102,7 +95,6 @@ class MemoSynchronizer
                                 existing == null || existing.lastKnownModifiedTime != meta.lastModified
                             }
 
-                        // Parallel parsing with direct Document ID access (faster)
                         // Parallel parsing with batching to prevent OOM
                         val mainMemos = mutableListOf<MemoEntity>()
                         val trashMemos = mutableListOf<TrashMemoEntity>()
@@ -197,10 +189,7 @@ class MemoSynchronizer
                             chunkResults.forEach { (memos, meta) ->
                                 val dateStr = meta.filename.removeSuffix(".md")
 
-                                // NEW: Cross-check against DB to prevent Trash overwriting Main
-                                // If some of these notes are ALREADY in the DB as non-deleted,
-                                // it means we have a duplicate where the note was restored or moved.
-                                // The Main version ALWAYS wins.
+                                // If some note IDs are already active in DB, Main version wins.
                                 val filteredMemos =
                                     memos.filter { trashMemo ->
                                         trashMemo.id !in activeMemoIdsInDb
@@ -218,7 +207,7 @@ class MemoSynchronizer
                             }
                         }
 
-                        // Identitfy deleted/missing files to remove from DB
+                        // Identify deleted/missing files to remove from DB
                         val currentMainStateKeys = mainFilesMetadata.map { it.filename to false }.toSet()
                         val currentTrashStateKeys = trashFilesMetadata.map { it.filename to true }.toSet()
 
@@ -275,7 +264,6 @@ class MemoSynchronizer
                             // Handle file deletions
                             filesToDeleteInDb.forEach { (stateKey, _) ->
                                 val (filename, isTrash) = stateKey
-                                // Find all memos that belong to this file/date and delete them
                                 val date = filename.removeSuffix(".md")
                                 if (isTrash) {
                                     val trashMemosInDb = dao.getTrashMemosByDate(date)
@@ -355,384 +343,16 @@ class MemoSynchronizer
         suspend fun saveMemo(
             content: String,
             timestamp: Long,
-        ) = mutex.withLock {
-            // Read formats from DataStore
-            val filenameFormat = dataStore.storageFilenameFormat.first()
-            val timestampFormat = dataStore.storageTimestampFormat.first()
-
-            val instant = Instant.ofEpochMilli(timestamp)
-            val zoneId = ZoneId.systemDefault()
-            val filename =
-                DateTimeFormatter
-                    .ofPattern(filenameFormat)
-                    .withZone(zoneId)
-                    .format(instant) + ".md"
-            val timeString =
-                DateTimeFormatter
-                    .ofPattern(timestampFormat)
-                    .withZone(zoneId)
-                    .format(instant)
-            val dateString = filename.removeSuffix(".md")
-            val baseCanonicalTimestamp =
-                parser.resolveTimestamp(
-                    dateStr = dateString,
-                    timeStr = timeString,
-                    fallbackTimestampMillis = timestamp,
-                )
-            val existingFileContent = fileDataSource.readFile(filename).orEmpty()
-            val sameTimestampCount = countTimestampOccurrences(existingFileContent, timeString)
-            val safeOffset = if (sameTimestampCount > 999) 999 else sameTimestampCount
-            val canonicalTimestamp = baseCanonicalTimestamp + safeOffset
-
-            val contentHash =
-                content.trim().hashCode().let {
-                    kotlin.math.abs(it).toString(16)
-                }
-            val baseId = "${filename.removeSuffix(".md")}_${timeString}_$contentHash"
-            val collisionIndex =
-                countBaseIdCollisionsInFile(
-                    fileContent = existingFileContent,
-                    dateString = dateString,
-                    fallbackTimestampMillis = timestamp,
-                    baseId = baseId,
-                )
-            val optimisticId = if (collisionIndex == 0) baseId else "${baseId}_$collisionIndex"
-
-            val rawContent = "- $timeString $content"
-            val fileContentToAppend = "\n$rawContent"
-
-            val newMemo =
-                Memo(
-                    id = optimisticId,
-                    content = content,
-                    date = dateString,
-                    timestamp = canonicalTimestamp,
-                    rawContent = rawContent,
-                    tags = textProcessor.extractTags(content),
-                    imageUrls = textProcessor.extractImages(content),
-                    isDeleted = false,
-                )
-
-            // File first
-            val savedUriString = fileDataSource.saveFile(filename, fileContentToAppend, append = true)
-            val metadata = fileDataSource.getFileMetadata(filename)
-            if (metadata == null) throw java.io.IOException("Failed to read metadata after save")
-            upsertMainState(filename, metadata.lastModified, savedUriString)
-
-            // Then DB
-            val entity = MemoEntity.fromDomain(newMemo)
-            dao.insertMemo(entity)
-            val tokenizedContent =
-                com.lomo.data.util.SearchTokenizer
-                    .tokenize(entity.content)
-            dao.insertMemoFts(MemoFtsEntity(entity.id, tokenizedContent))
-        }
+        ) = mutex.withLock { mutationHandler.saveMemo(content, timestamp) }
 
         suspend fun updateMemo(
             memo: Memo,
             newContent: String,
-        ) = mutex.withLock {
-            if (newContent.isBlank()) {
-                deleteMemoInternal(memo)
-                return@withLock
-            }
+        ) = mutex.withLock { mutationHandler.updateMemo(memo, newContent) }
 
-            if (dao.getMemo(memo.id) == null) return@withLock
+        suspend fun deleteMemo(memo: Memo) = mutex.withLock { mutationHandler.deleteMemo(memo) }
 
-            // Read format for updates
-            val timestampFormat = dataStore.storageTimestampFormat.first()
+        suspend fun restoreMemo(memo: Memo) = mutex.withLock { mutationHandler.restoreMemo(memo) }
 
-            val filename = memo.date + ".md"
-            val updatedMemo =
-                memo.copy(
-                    content = newContent,
-                    rawContent = newContent,
-                    timestamp = memo.timestamp,
-                    tags = textProcessor.extractTags(newContent),
-                    imageUrls = textProcessor.extractImages(newContent),
-                )
-
-            val timeString =
-                DateTimeFormatter
-                    .ofPattern(timestampFormat)
-                    .withZone(ZoneId.systemDefault())
-                    .format(Instant.ofEpochMilli(memo.timestamp))
-            val newRawContentFull = "- $timeString $newContent"
-            val finalUpdatedMemo = updatedMemo.copy(rawContent = newRawContentFull)
-
-            // File-first update (write file before DB)
-            val cachedUriString = getMainSafUri(filename)
-            val currentFileContent =
-                if (cachedUriString != null) {
-                    fileDataSource.readFile(android.net.Uri.parse(cachedUriString))
-                        ?: fileDataSource.readFile(filename)
-                } else {
-                    fileDataSource.readFile(filename)
-                }
-
-            if (currentFileContent != null) {
-                val lines = currentFileContent.lines().toMutableList()
-                val success =
-                    textProcessor.replaceMemoBlock(
-                        lines,
-                        memo.rawContent,
-                        memo.timestamp,
-                        newContent,
-                        timeString, // Pass generated timestamp string
-                        memoId = memo.id,
-                    )
-
-                if (success) {
-                    val savedUri = fileDataSource.saveFile(filename, lines.joinToString("\n"), append = false)
-
-                    // Update Sync Metadata
-                    val metadata = fileDataSource.getFileMetadata(filename)
-                    if (metadata != null) {
-                        upsertMainState(filename, metadata.lastModified, savedUri)
-                    }
-
-                    // Then DB
-                    val finalEntity = MemoEntity.fromDomain(finalUpdatedMemo)
-                    dao.insertMemo(finalEntity)
-                    val tokenizedContent =
-                        com.lomo.data.util.SearchTokenizer
-                            .tokenize(finalEntity.content)
-                    dao.insertMemoFts(MemoFtsEntity(finalEntity.id, tokenizedContent))
-                }
-            }
-        }
-
-        suspend fun deleteMemo(memo: Memo) = mutex.withLock { deleteMemoInternal(memo) }
-
-        private suspend fun deleteMemoInternal(memo: Memo) {
-            // Move to Trash File FIRST (before DB update)
-            val filename = memo.date + ".md"
-            val cachedUriString = getMainSafUri(filename)
-            val currentFileContent =
-                if (cachedUriString != null) {
-                    fileDataSource.readFile(android.net.Uri.parse(cachedUriString))
-                        ?: fileDataSource.readFile(filename)
-                } else {
-                    fileDataSource.readFile(filename)
-                }
-            if (currentFileContent == null) return
-            val lines = currentFileContent.lines().toMutableList()
-
-            val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)
-            if (start != -1 && end >= start) {
-                val linesToTrash = lines.subList(start, end + 1)
-                // Prep trash content (ensure tidy boundaries)
-                val trashContent = "\n" + linesToTrash.joinToString("\n") + "\n"
-
-                // Remove from original file first in memory, then commit to disk
-                if (textProcessor.removeMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)) {
-                    // 1. Append to trash file
-                    fileDataSource.saveTrashFile(filename, trashContent)
-
-                    // 2. Commit updated Main File
-                    // Check if file is now empty (only whitespace remaining)
-                    val remainingContent = lines.joinToString("\n").trim()
-                    if (remainingContent.isEmpty()) {
-                        // Delete the empty date file from main folder
-                        val uriToDelete = if (cachedUriString != null) Uri.parse(cachedUriString) else null
-                        fileDataSource.deleteFile(filename, uriToDelete)
-                        localFileStateDao.deleteByFilename(filename, false)
-                    } else {
-                        val uriToSave = if (cachedUriString != null) Uri.parse(cachedUriString) else null
-                        val savedUri = fileDataSource.saveFile(filename, lines.joinToString("\n"), false, uriToSave)
-
-                        // Update Sync Metadata for Main file
-                        val metadata = fileDataSource.getFileMetadata(filename)
-                        if (metadata != null) {
-                            upsertMainState(filename, metadata.lastModified, savedUri)
-                        }
-                    }
-
-                    // 3. Update Trash Metadata (The trash file was updated in saveTrashFile above)
-                    val trashMetadata = fileDataSource.getTrashFileMetadata(filename)
-                    if (trashMetadata != null) {
-                        upsertTrashState(filename, trashMetadata.lastModified)
-                    }
-
-                    // 4. Update DB after file operations succeed
-                    dao.deleteMemoById(memo.id)
-                    dao.deleteMemoFts(memo.id)
-                    dao.insertTrashMemo(TrashMemoEntity.fromDomain(memo.copy(isDeleted = true)))
-                }
-            }
-        }
-
-        suspend fun restoreMemo(memo: Memo) =
-            mutex.withLock {
-                val filename = memo.date + ".md"
-                val trashContent = fileDataSource.readTrashFile(filename) ?: return@withLock
-                val trashLines = trashContent.lines().toMutableList()
-
-                val (start, end) =
-                    textProcessor.findMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)
-                if (start != -1) {
-                    // Remove from Trash FIRST in memory
-                    val restoredLines = trashLines.subList(start, end + 1).toList()
-                    if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
-                        // 1. Append to Main File
-                        // Ensure tidy boundaries without excessive padding
-                        val restoredBlock = "\n" + restoredLines.joinToString("\n") + "\n"
-                        fileDataSource.saveFile(filename, restoredBlock, append = true)
-
-                        // 2. Commit Updated Trash File
-                        val remainingTrash = trashLines.joinToString("\n").trim()
-                        if (remainingTrash.isEmpty()) {
-                            fileDataSource.deleteTrashFile(filename)
-                            localFileStateDao.deleteByFilename(filename, true)
-                        } else {
-                            fileDataSource.saveTrashFile(
-                                filename,
-                                trashLines.joinToString("\n"),
-                                append = false,
-                            )
-                            // Update Trash Metadata after removal
-                            val trashMetadata = fileDataSource.getTrashFileMetadata(filename)
-                            if (trashMetadata != null) {
-                                upsertTrashState(filename, trashMetadata.lastModified)
-                            }
-                        }
-
-                        // 3. Update Main Metadata
-                        val metadata = fileDataSource.getFileMetadata(filename)
-                        if (metadata != null) {
-                            upsertMainState(filename, metadata.lastModified)
-                        }
-
-                        // Update DB: Set isDeleted = false ONLY IF file operations were successful
-                        val entity = MemoEntity.fromDomain(memo.copy(isDeleted = false))
-                        dao.insertMemo(entity)
-                        dao.deleteTrashMemoById(memo.id)
-                        val tokenized =
-                            com.lomo.data.util.SearchTokenizer
-                                .tokenize(entity.content)
-                        dao.insertMemoFts(MemoFtsEntity(entity.id, tokenized))
-                    } else {
-                        Timber.e("restoreMemo: Failed to find memo block in trash file for ${memo.id}")
-                        // Fallback: If removal failed, maybe the note is already gone from file but not DB
-                        // We set it to false in DB anyway to let user see it, but it's dangerous
-                    }
-                }
-            }
-
-        suspend fun deletePermanently(memo: Memo) =
-            mutex.withLock {
-                // Delete from Trash File (DB removal moved inside success block)
-
-                // Delete from Trash File
-                val filename = memo.date + ".md"
-                val trashContent = fileDataSource.readTrashFile(filename) ?: return@withLock
-                val trashLines = trashContent.lines().toMutableList()
-
-                if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
-                    // Check if file is now empty (only whitespace remaining)
-                    val remainingContent = trashLines.joinToString("\n").trim()
-                    if (remainingContent.isEmpty()) {
-                        // Delete the empty date file
-                        fileDataSource.deleteTrashFile(filename)
-                        localFileStateDao.deleteByFilename(filename, true)
-                    } else {
-                        fileDataSource.saveTrashFile(
-                            filename,
-                            trashLines.joinToString("\n"),
-                            append = false,
-                        )
-                    }
-
-                    // Actually remove from DB ONLY IF file operation was successful
-                    dao.deleteTrashMemoById(memo.id)
-                } else {
-                    Timber.e("deletePermanently: Failed to find block for ${memo.id}")
-                }
-
-                // Orphan Image/Voice Cleanup (Issue #3)
-                // Check if any images/voice files in this memo are NOT used by other memos
-                if (memo.imageUrls.isNotEmpty()) {
-                    memo.imageUrls.forEach { path ->
-                        if (path.isNotBlank()) {
-                            // Verify if anyone else uses this file
-                            val count = dao.countMemosWithImage(path, memo.id)
-                            if (count == 0) {
-                                // Safe to delete
-                                if (isVoiceFile(path)) {
-                                    fileDataSource.deleteVoiceFile(path)
-                                } else {
-                                    fileDataSource.deleteImage(path)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-        private suspend fun getMainSafUri(filename: String): String? = localFileStateDao.getByFilename(filename, false)?.safUri
-
-        private suspend fun upsertMainState(
-            filename: String,
-            lastModified: Long,
-            safUri: String? = null,
-        ) {
-            val existing = localFileStateDao.getByFilename(filename, false)
-            localFileStateDao.upsert(
-                LocalFileStateEntity(
-                    filename = filename,
-                    isTrash = false,
-                    safUri = safUri ?: existing?.safUri,
-                    lastKnownModifiedTime = lastModified,
-                ),
-            )
-        }
-
-        private suspend fun upsertTrashState(
-            filename: String,
-            lastModified: Long,
-        ) {
-            localFileStateDao.upsert(
-                LocalFileStateEntity(
-                    filename = filename,
-                    isTrash = true,
-                    lastKnownModifiedTime = lastModified,
-                ),
-            )
-        }
-
-        private fun isVoiceFile(filename: String): Boolean =
-            filename.endsWith(".m4a", ignoreCase = true) ||
-                filename.endsWith(".mp3", ignoreCase = true) ||
-                filename.endsWith(".aac", ignoreCase = true) ||
-                filename.startsWith("voice_", ignoreCase = true)
-
-        private fun countTimestampOccurrences(
-            fileContent: String,
-            timestamp: String,
-        ): Int {
-            if (fileContent.isBlank()) return 0
-            val pattern = Regex("^\\s*-\\s+${Regex.escape(timestamp)}(?:\\s|$).*")
-            return fileContent.lineSequence().count { line ->
-                pattern.matches(line)
-            }
-        }
-
-        private fun countBaseIdCollisionsInFile(
-            fileContent: String,
-            dateString: String,
-            fallbackTimestampMillis: Long,
-            baseId: String,
-        ): Int {
-            if (fileContent.isBlank()) return 0
-
-            val collisionPrefix = "${baseId}_"
-            return parser
-                .parseContent(
-                    content = fileContent,
-                    filename = dateString,
-                    fallbackTimestampMillis = fallbackTimestampMillis,
-                ).count { memo ->
-                    memo.id == baseId || memo.id.startsWith(collisionPrefix)
-                }
-        }
+        suspend fun deletePermanently(memo: Memo) = mutex.withLock { mutationHandler.deletePermanently(memo) }
     }

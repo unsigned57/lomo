@@ -72,16 +72,14 @@ object DataModule {
         dao: MemoDao,
         localFileStateDao: LocalFileStateDao,
         parser: MarkdownParser,
-        processor: com.lomo.data.util.MemoTextProcessor,
-        dataStore: com.lomo.data.local.datastore.LomoDataStore,
+        mutationHandler: com.lomo.data.repository.MemoMutationHandler,
     ): com.lomo.data.repository.MemoSynchronizer =
         com.lomo.data.repository.MemoSynchronizer(
             dataSource,
             dao,
             localFileStateDao,
             parser,
-            processor,
-            dataStore,
+            mutationHandler,
         )
 
     @Provides
