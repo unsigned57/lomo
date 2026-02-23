@@ -1,6 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.ImageCacheDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.share.ShareAuthUtils
@@ -14,7 +13,6 @@ class SettingsRepositoryImpl
     @Inject
     constructor(
         private val dao: MemoDao,
-        private val imageCacheDao: ImageCacheDao,
         private val dataSource: FileDataSource,
         private val dataStore: LomoDataStore,
     ) : SettingsRepository {
@@ -134,6 +132,5 @@ class SettingsRepositoryImpl
             dao.clearAll()
             dao.clearTrash()
             dao.clearFts()
-            imageCacheDao.clearAll()
         }
     }

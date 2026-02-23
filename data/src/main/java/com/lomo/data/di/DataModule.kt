@@ -41,10 +41,6 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideImageCacheDao(database: MemoDatabase): com.lomo.data.local.dao.ImageCacheDao = database.imageCacheDao()
-
-    @Provides
-    @Singleton
     fun provideLocalFileStateDao(database: MemoDatabase): LocalFileStateDao = database.localFileStateDao()
 
     @Provides
@@ -102,13 +98,11 @@ object DataModule {
     @Singleton
     fun provideSettingsRepositoryImpl(
         dao: MemoDao,
-        imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
         dataSource: com.lomo.data.source.FileDataSource,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
     ): SettingsRepositoryImpl =
         SettingsRepositoryImpl(
             dao,
-            imageCacheDao,
             dataSource,
             dataStore,
         )
