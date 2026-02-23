@@ -83,8 +83,8 @@ android {
         applicationId = "com.lomo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.4.1"
+        versionCode = 15
+        versionName = "0.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
