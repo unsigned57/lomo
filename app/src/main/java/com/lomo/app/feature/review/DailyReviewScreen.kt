@@ -25,13 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoEditorSheetHost
+import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.EmptyState
@@ -56,40 +56,15 @@ fun DailyReviewScreen(
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
-    val context = LocalContext.current
     val editorController = rememberMemoEditorController()
 
-    com.lomo.ui.component.menu.MemoMenuHost(
-        onEdit = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
-            if (memo != null) {
-                editorController.openForEdit(memo)
-            }
-        },
-        onDelete = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
-            if (memo != null) {
-                viewModel.deleteMemo(memo)
-            }
-        },
-        onShare = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
-            com.lomo.app.util.ShareUtils.shareMemoAsImage(
-                context = context,
-                content = state.content,
-                style = shareCardStyle,
-                showTime = shareCardShowTime,
-                timestamp = memo?.timestamp,
-                tags = memo?.tags.orEmpty(),
-                activeDayCount = activeDayCount,
-            )
-        },
-        onLanShare = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
-            if (memo != null) {
-                onNavigateToShare(memo.content, memo.timestamp)
-            }
-        },
+    MemoMenuBinder(
+        shareCardStyle = shareCardStyle,
+        shareCardShowTime = shareCardShowTime,
+        activeDayCount = activeDayCount,
+        onEditMemo = editorController::openForEdit,
+        onDeleteMemo = viewModel::deleteMemo,
+        onLanShare = onNavigateToShare,
     ) { showMenu ->
         Scaffold(
             topBar = {

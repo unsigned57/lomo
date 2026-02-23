@@ -31,7 +31,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -41,8 +40,8 @@ import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoEditorSheetHost
+import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.rememberMemoEditorController
-import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -67,44 +66,19 @@ fun SearchScreen(
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val context = LocalContext.current
     val editorController = rememberMemoEditorController()
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
 
-    com.lomo.ui.component.menu.MemoMenuHost(
-        onEdit = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                editorController.openForEdit(memo)
-            }
-        },
-        onDelete = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                viewModel.deleteMemo(memo)
-            }
-        },
-        onShare = { state ->
-            val memo = state.memo as? Memo
-            com.lomo.app.util.ShareUtils.shareMemoAsImage(
-                context = context,
-                content = state.content,
-                style = shareCardStyle,
-                showTime = shareCardShowTime,
-                timestamp = memo?.timestamp,
-                tags = memo?.tags.orEmpty(),
-                activeDayCount = activeDayCount,
-            )
-        },
-        onLanShare = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                onNavigateToShare(memo.content, memo.timestamp)
-            }
-        },
+    MemoMenuBinder(
+        shareCardStyle = shareCardStyle,
+        shareCardShowTime = shareCardShowTime,
+        activeDayCount = activeDayCount,
+        onEditMemo = editorController::openForEdit,
+        onDeleteMemo = viewModel::deleteMemo,
+        onLanShare = onNavigateToShare,
     ) { showMenu ->
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
