@@ -30,13 +30,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoEditorSheetHost
 import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.rememberMemoEditorController
-import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.util.UiState
-import com.lomo.ui.util.formatAsDateTime
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -146,33 +145,14 @@ fun DailyReviewScreen(
                                                     .padding(bottom = 32.dp)
                                                     .verticalScroll(rememberScrollState()),
                                         ) {
-                                            MemoCard(
-                                                content = memo.memo.content,
-                                                processedContent = memo.processedContent,
-                                                timestamp = memo.memo.timestamp,
+                                            MemoCardEntry(
+                                                uiModel = memo,
                                                 dateFormat = dateFormat,
                                                 timeFormat = timeFormat,
-                                                tags = memo.tags,
-                                                onDoubleClick =
-                                                    if (doubleTapEditEnabled) {
-                                                        {
-                                                            editorController.openForEdit(memo.memo)
-                                                        }
-                                                    } else {
-                                                        null
-                                                    },
+                                                doubleTapEditEnabled = doubleTapEditEnabled,
+                                                onMemoEdit = editorController::openForEdit,
+                                                onShowMenu = showMenu,
                                                 onImageClick = onNavigateToImage,
-                                                onMenuClick = {
-                                                    showMenu(
-                                                        com.lomo.ui.component.menu.MemoMenuState(
-                                                            wordCount = memo.memo.content.length,
-                                                            createdTime = memo.memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                                                            content = memo.memo.content,
-                                                            memo = memo.memo,
-                                                        ),
-                                                    )
-                                                },
-                                                menuContent = {},
                                             )
 
                                             Text(

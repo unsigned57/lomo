@@ -19,10 +19,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.util.formatAsDateTime
 
 enum class MemoCardListAnimation {
     FadeIn,
@@ -88,32 +86,14 @@ fun MemoCardList(
                 }
 
             Box(modifier = itemModifier) {
-                MemoCard(
-                    content = memo.content,
-                    processedContent = uiModel.processedContent,
-                    precomputedNode = uiModel.markdownNode,
-                    timestamp = memo.timestamp,
+                MemoCardEntry(
+                    uiModel = uiModel,
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
-                    tags = uiModel.tags,
-                    onDoubleClick =
-                        if (doubleTapEditEnabled) {
-                            { onMemoEdit(memo) }
-                        } else {
-                            null
-                        },
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    onMemoEdit = onMemoEdit,
+                    onShowMenu = onShowMenu,
                     onImageClick = onImageClick,
-                    onMenuClick = {
-                        onShowMenu(
-                            MemoMenuState(
-                                wordCount = memo.content.length,
-                                createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                                content = memo.content,
-                                memo = memo,
-                            ),
-                        )
-                    },
-                    menuContent = {},
                 )
             }
         }
