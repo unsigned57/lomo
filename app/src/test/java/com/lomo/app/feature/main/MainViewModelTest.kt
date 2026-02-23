@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import androidx.lifecycle.SavedStateHandle
+import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.provider.ImageMapProvider
 import io.mockk.coEvery
 import io.mockk.every
@@ -165,6 +166,6 @@ class MainViewModelTest {
                     audioPlayerManager = audioPlayerManager,
                     updateManager = updateManager,
                 ),
-            mediaCoordinator = MainMediaCoordinator(mediaRepository),
+            mediaCoordinator = MainMediaCoordinator(mediaRepository, MemoImageWorkflow(mediaRepository)),
         )
 }
