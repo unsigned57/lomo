@@ -388,17 +388,15 @@ class MemoSynchronizer
                 content.trim().hashCode().let {
                     kotlin.math.abs(it).toString(16)
                 }
-            var baseId = "${filename.removeSuffix(".md")}_${timeString}_$contentHash"
-            var optimisticId = baseId
-            var collisionCount = 1
-
-            // Align with parser behavior: deleted rows should not occupy ID slots for active-file parsing.
-            while (true) {
-                val existing = dao.getMemo(optimisticId)
-                if (existing == null) break
-                optimisticId = "${baseId}_$collisionCount"
-                collisionCount++
-            }
+            val baseId = "${filename.removeSuffix(".md")}_${timeString}_$contentHash"
+            val collisionIndex =
+                countBaseIdCollisionsInFile(
+                    fileContent = existingFileContent,
+                    dateString = dateString,
+                    fallbackTimestampMillis = timestamp,
+                    baseId = baseId,
+                )
+            val optimisticId = if (collisionIndex == 0) baseId else "${baseId}_$collisionIndex"
 
             val rawContent = "- $timeString $content"
             val fileContentToAppend = "\n$rawContent"
@@ -717,5 +715,24 @@ class MemoSynchronizer
             return fileContent.lineSequence().count { line ->
                 pattern.matches(line)
             }
+        }
+
+        private fun countBaseIdCollisionsInFile(
+            fileContent: String,
+            dateString: String,
+            fallbackTimestampMillis: Long,
+            baseId: String,
+        ): Int {
+            if (fileContent.isBlank()) return 0
+
+            val collisionPrefix = "${baseId}_"
+            return parser
+                .parseContent(
+                    content = fileContent,
+                    filename = dateString,
+                    fallbackTimestampMillis = fallbackTimestampMillis,
+                ).count { memo ->
+                    memo.id == baseId || memo.id.startsWith(collisionPrefix)
+                }
         }
     }

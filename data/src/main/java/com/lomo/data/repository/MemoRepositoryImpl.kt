@@ -1,16 +1,10 @@
 package com.lomo.data.repository
 
-import android.net.Uri
 import com.lomo.data.local.dao.MemoDao
-import com.lomo.data.parser.MarkdownParser
-import com.lomo.data.share.ShareAuthUtils
 import com.lomo.data.source.FileDataSource
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -18,29 +12,10 @@ class MemoRepositoryImpl
     @Inject
     constructor(
         private val dao: MemoDao,
-        private val imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
         private val dataSource: FileDataSource,
         private val synchronizer: MemoSynchronizer,
-        private val parser: MarkdownParser,
         private val dataStore: com.lomo.data.local.datastore.LomoDataStore,
-    ) : MemoRepository,
-        SettingsRepository,
-        MediaRepository {
-        override suspend fun setRootDirectory(path: String) {
-            // Clear entire database cache when switching root directory
-            // This ensures data from the previous directory doesn't persist
-            dao.clearAll()
-            dao.clearTrash()
-            dao.clearFts()
-            imageCacheDao.clearAll()
-
-            dataSource.setRoot(path)
-        }
-
-        override suspend fun setImageDirectory(path: String) {
-            dataSource.setImageRoot(path)
-        }
-
+    ) : MemoRepository {
         override fun getRootDirectory(): Flow<String?> = dataSource.getRootFlow()
 
         override suspend fun getRootDirectoryOnce(): String? = dataStore.getRootDirectoryOnce()
@@ -54,28 +29,6 @@ class MemoRepositoryImpl
         override fun getVoiceDirectory(): Flow<String?> = dataSource.getVoiceRootFlow()
 
         override fun getVoiceDisplayName(): Flow<String?> = dataSource.getVoiceRootDisplayNameFlow()
-
-        override suspend fun updateRootUri(uri: String?) {
-            // Clear entire database cache when switching root directory
-            dao.clearAll()
-            dao.clearTrash()
-            dao.clearFts()
-            imageCacheDao.clearAll()
-
-            dataStore.updateRootUri(uri)
-        }
-
-        override suspend fun updateImageUri(uri: String?) {
-            dataStore.updateImageUri(uri)
-        }
-
-        override suspend fun setVoiceDirectory(path: String) {
-            dataSource.setVoiceRoot(path)
-        }
-
-        override suspend fun updateVoiceUri(uri: String?) {
-            dataStore.updateVoiceUri(uri)
-        }
 
         override fun getAllMemosList(): Flow<List<Memo>> = dao.getAllMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
@@ -120,8 +73,6 @@ class MemoRepositoryImpl
         ) {
             synchronizer.updateMemo(memo, newContent)
         }
-
-        // updateLines removed - moved logic to MemoTextProcessor and ViewModel
 
         override suspend fun deleteMemo(memo: Memo) {
             synchronizer.deleteMemo(memo)
@@ -220,158 +171,4 @@ class MemoRepositoryImpl
             synchronizer.deletePermanently(memo)
             refreshMemos()
         }
-
-        override suspend fun saveImage(uri: Uri): String = dataSource.saveImage(uri)
-
-        override suspend fun deleteImage(filename: String) {
-            dataSource.deleteImage(filename)
-        }
-
-        override suspend fun createVoiceFile(filename: String): Uri = dataSource.createVoiceFile(filename)
-
-        override suspend fun deleteVoiceFile(filename: String) {
-            dataSource.deleteVoiceFile(filename)
-        }
-
-        override fun getImageUriMap(): Flow<Map<String, String>> =
-            imageCacheDao.getAllImages().map { entities ->
-                entities.associate { it.filename to it.uriString }
-            }
-
-        override suspend fun syncImageCache() {
-            // Sync logic: Differential sync instead of clear-and-insert-all
-            if (dataSource.getImageRootFlow().first() == null) return
-
-            // Get current state from both sides
-            val existingImages = imageCacheDao.getAllImagesSync()
-            val existingMap = existingImages.associateBy { it.filename }
-            val existingFilenames = existingMap.keys
-
-            val newImages = dataSource.listImageFiles()
-            val newFilenames = newImages.map { it.first }.toSet()
-
-            // Calculate diff
-            val toInsert = newImages.filter { it.first !in existingMap }
-            val toDelete = existingFilenames - newFilenames
-
-            // Apply changes
-            if (toDelete.isNotEmpty()) {
-                imageCacheDao.deleteByFilenames(toDelete.toList())
-            }
-
-            if (toInsert.isNotEmpty()) {
-                val cacheEntities =
-                    toInsert.map { (name, uri) ->
-                        com.lomo.data.local.entity.ImageCacheEntity(
-                            filename = name,
-                            uriString = uri,
-                            lastModified = System.currentTimeMillis(),
-                        )
-                    }
-                imageCacheDao.insertImages(cacheEntities)
-            }
-        }
-
-        override fun getDateFormat(): Flow<String> = dataStore.dateFormat
-
-        override suspend fun setDateFormat(format: String) {
-            dataStore.updateDateFormat(format)
-        }
-
-        override fun getTimeFormat(): Flow<String> = dataStore.timeFormat
-
-        override suspend fun setTimeFormat(format: String) {
-            dataStore.updateTimeFormat(format)
-        }
-
-        override fun getThemeMode(): Flow<String> = dataStore.themeMode
-
-        override suspend fun setThemeMode(mode: String) {
-            dataStore.updateThemeMode(mode)
-        }
-
-        override fun isHapticFeedbackEnabled(): Flow<Boolean> = dataStore.hapticFeedbackEnabled
-
-        override suspend fun setHapticFeedbackEnabled(enabled: Boolean) {
-            dataStore.updateHapticFeedbackEnabled(enabled)
-        }
-
-        override fun isCheckUpdatesOnStartupEnabled(): Flow<Boolean> = dataStore.checkUpdatesOnStartup
-
-        override suspend fun setCheckUpdatesOnStartup(enabled: Boolean) {
-            dataStore.updateCheckUpdatesOnStartup(enabled)
-        }
-
-        override fun isShowInputHintsEnabled(): Flow<Boolean> = dataStore.showInputHints
-
-        override suspend fun setShowInputHints(enabled: Boolean) {
-            dataStore.updateShowInputHints(enabled)
-        }
-
-        override fun isDoubleTapEditEnabled(): Flow<Boolean> = dataStore.doubleTapEditEnabled
-
-        override suspend fun setDoubleTapEditEnabled(enabled: Boolean) {
-            dataStore.updateDoubleTapEditEnabled(enabled)
-        }
-
-        override fun isLanSharePairingConfigured(): Flow<Boolean> = dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
-
-        override suspend fun setLanSharePairingCode(pairingCode: String) {
-            val keyMaterial =
-                ShareAuthUtils.deriveKeyMaterialFromPairingCode(pairingCode)
-                    ?: throw IllegalArgumentException("Pairing code must be 6-64 characters")
-            dataStore.updateLanSharePairingKeyHex(keyMaterial)
-        }
-
-        override suspend fun clearLanSharePairingCode() {
-            dataStore.updateLanSharePairingKeyHex(null)
-        }
-
-        override fun getShareCardStyle(): Flow<String> = dataStore.shareCardStyle
-
-        override suspend fun setShareCardStyle(style: String) {
-            dataStore.updateShareCardStyle(style)
-        }
-
-        override fun isShareCardShowTimeEnabled(): Flow<Boolean> = dataStore.shareCardShowTime
-
-        override suspend fun setShareCardShowTime(enabled: Boolean) {
-            dataStore.updateShareCardShowTime(enabled)
-        }
-
-        override fun isShareCardShowBrandEnabled(): Flow<Boolean> = dataStore.shareCardShowBrand
-
-        override suspend fun setShareCardShowBrand(enabled: Boolean) {
-            dataStore.updateShareCardShowBrand(enabled)
-        }
-
-        override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat
-
-        override suspend fun setStorageFilenameFormat(format: String) {
-            dataStore.updateStorageFilenameFormat(format)
-        }
-
-        override fun getStorageTimestampFormat(): Flow<String> = dataStore.storageTimestampFormat
-
-        override suspend fun setStorageTimestampFormat(format: String) {
-            dataStore.updateStorageTimestampFormat(format)
-        }
-
-        override suspend fun createDefaultImageDirectory(): String? =
-            try {
-                val uri = dataSource.createDirectory("images")
-                setImageDirectory(uri)
-                uri
-            } catch (e: Exception) {
-                null
-            }
-
-        override suspend fun createDefaultVoiceDirectory(): String? =
-            try {
-                val uri = dataSource.createDirectory("voice")
-                setVoiceDirectory(uri)
-                uri
-            } catch (e: Exception) {
-                null
-            }
     }

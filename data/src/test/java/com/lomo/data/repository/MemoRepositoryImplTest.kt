@@ -1,9 +1,7 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.ImageCacheDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileDataSource
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -25,16 +23,10 @@ class MemoRepositoryImplTest {
     private lateinit var dao: MemoDao
 
     @MockK(relaxed = true)
-    private lateinit var imageCacheDao: ImageCacheDao
-
-    @MockK(relaxed = true)
     private lateinit var dataSource: FileDataSource
 
     @MockK(relaxed = true)
     private lateinit var synchronizer: MemoSynchronizer
-
-    @MockK(relaxed = true)
-    private lateinit var parser: MarkdownParser
 
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
@@ -47,10 +39,8 @@ class MemoRepositoryImplTest {
         repository =
             MemoRepositoryImpl(
                 dao = dao,
-                imageCacheDao = imageCacheDao,
                 dataSource = dataSource,
                 synchronizer = synchronizer,
-                parser = parser,
                 dataStore = dataStore,
             )
     }

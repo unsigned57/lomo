@@ -42,6 +42,114 @@ class DirectStorageBackend(
         if (!trashDir.exists()) trashDir.mkdirs()
     }
 
+    // --- Context-aware API ---
+
+    override suspend fun listFilesIn(
+        directory: MemoDirectoryType,
+        targetFilename: String?,
+    ): List<FileContent> =
+        when (directory) {
+            MemoDirectoryType.MAIN -> listFiles(targetFilename)
+            MemoDirectoryType.TRASH -> listTrashFiles()
+        }
+
+    override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
+        when (directory) {
+            MemoDirectoryType.MAIN -> listMetadata()
+            MemoDirectoryType.TRASH -> listTrashMetadata()
+        }
+
+    override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
+        when (directory) {
+            MemoDirectoryType.MAIN -> listMetadataWithIds()
+            MemoDirectoryType.TRASH -> listTrashMetadataWithIds()
+        }
+
+    override suspend fun getFileMetadataIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): FileMetadata? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> getFileMetadata(filename)
+            MemoDirectoryType.TRASH -> getTrashFileMetadata(filename)
+        }
+
+    override suspend fun readFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> readFile(filename)
+            MemoDirectoryType.TRASH -> readTrashFile(filename)
+        }
+
+    override suspend fun readFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): String? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> readFileByDocumentId(documentId)
+            MemoDirectoryType.TRASH -> readTrashFileByDocumentId(documentId)
+        }
+
+    override suspend fun readHeadIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        maxChars: Int,
+    ): String? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> readHead(filename, maxChars)
+            MemoDirectoryType.TRASH -> readTrashFile(filename)?.take(maxChars)
+        }
+
+    override suspend fun readHeadByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+        maxChars: Int,
+    ): String? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> readHeadByDocumentId(documentId, maxChars)
+            MemoDirectoryType.TRASH -> readTrashFileByDocumentId(documentId)?.take(maxChars)
+        }
+
+    override suspend fun saveFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        content: String,
+        append: Boolean,
+        uri: Uri?,
+    ): String? =
+        when (directory) {
+            MemoDirectoryType.MAIN -> {
+                saveFile(filename, content, append, uri)
+            }
+
+            MemoDirectoryType.TRASH -> {
+                saveTrashFile(filename, content, append)
+                null
+            }
+        }
+
+    override suspend fun deleteFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        uri: Uri?,
+    ) {
+        when (directory) {
+            MemoDirectoryType.MAIN -> deleteFile(filename, uri)
+            MemoDirectoryType.TRASH -> deleteTrashFile(filename)
+        }
+    }
+
+    override suspend fun existsIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): Boolean =
+        when (directory) {
+            MemoDirectoryType.MAIN -> exists(filename)
+            MemoDirectoryType.TRASH -> trashExists(filename)
+        }
+
     // --- File listing ---
 
     override suspend fun listFiles(targetFilename: String?): List<FileContent> =

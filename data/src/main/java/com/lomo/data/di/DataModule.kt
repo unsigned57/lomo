@@ -7,7 +7,9 @@ import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRepositoryImpl
+import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -82,27 +84,45 @@ object DataModule {
             dataStore,
         )
 
-    /**
-     * Provides the single [MemoRepositoryImpl] instance that implements
-     * [MemoRepository], [SettingsRepository], and [MediaRepository].
-     */
     @Provides
     @Singleton
     fun provideMemoRepositoryImpl(
         dao: MemoDao,
-        imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
         dataSource: com.lomo.data.source.FileDataSource,
         synchronizer: com.lomo.data.repository.MemoSynchronizer,
-        parser: MarkdownParser,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
     ): MemoRepositoryImpl =
         MemoRepositoryImpl(
             dao,
-            imageCacheDao,
             dataSource,
             synchronizer,
-            parser,
             dataStore,
+        )
+
+    @Provides
+    @Singleton
+    fun provideSettingsRepositoryImpl(
+        dao: MemoDao,
+        imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
+        dataSource: com.lomo.data.source.FileDataSource,
+        dataStore: com.lomo.data.local.datastore.LomoDataStore,
+    ): SettingsRepositoryImpl =
+        SettingsRepositoryImpl(
+            dao,
+            imageCacheDao,
+            dataSource,
+            dataStore,
+        )
+
+    @Provides
+    @Singleton
+    fun provideMediaRepositoryImpl(
+        imageCacheDao: com.lomo.data.local.dao.ImageCacheDao,
+        dataSource: com.lomo.data.source.FileDataSource,
+    ): MediaRepositoryImpl =
+        MediaRepositoryImpl(
+            imageCacheDao,
+            dataSource,
         )
 
     @Provides
@@ -111,11 +131,11 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideSettingsRepository(impl: MemoRepositoryImpl): SettingsRepository = impl
+    fun provideSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository = impl
 
     @Provides
     @Singleton
-    fun provideMediaRepository(impl: MemoRepositoryImpl): MediaRepository = impl
+    fun provideMediaRepository(impl: MediaRepositoryImpl): MediaRepository = impl
 
     @Provides
     @Singleton

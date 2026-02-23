@@ -10,8 +10,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import javax.inject.Inject
 
 interface FileDataSource {
@@ -33,65 +31,130 @@ interface FileDataSource {
 
     suspend fun setVoiceRoot(pathOrUri: String)
 
-    suspend fun listFiles(targetFilename: String? = null): List<FileContent>
+    // Context-aware API
 
-    suspend fun listTrashFiles(): List<FileContent>
+    suspend fun listFilesIn(
+        directory: MemoDirectoryType,
+        targetFilename: String? = null,
+    ): List<FileContent>
 
-    suspend fun listMetadata(): List<FileMetadata>
+    suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata>
 
-    suspend fun listTrashMetadata(): List<FileMetadata>
+    suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>
 
-    suspend fun listMetadataWithIds(): List<FileMetadataWithId>
+    suspend fun readFileByDocumentIdIn(
+        directory: MemoDirectoryType,
+        documentId: String,
+    ): String?
 
-    suspend fun listTrashMetadataWithIds(): List<FileMetadataWithId>
-
-    suspend fun readFileByDocumentId(documentId: String): String?
-
-    suspend fun readTrashFileByDocumentId(documentId: String): String?
-
-    suspend fun readHead(
+    suspend fun readHeadIn(
+        directory: MemoDirectoryType,
         filename: String,
         maxChars: Int = 256,
     ): String?
 
-    suspend fun readHeadByDocumentId(
+    suspend fun readHeadByDocumentIdIn(
+        directory: MemoDirectoryType,
         documentId: String,
         maxChars: Int = 256,
     ): String?
 
-    suspend fun readFile(filename: String): String?
+    suspend fun readFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): String?
 
     suspend fun readFile(uri: Uri): String?
 
-    suspend fun readTrashFile(filename: String): String?
-
-    suspend fun saveFile(
+    suspend fun saveFileIn(
+        directory: MemoDirectoryType,
         filename: String,
         content: String,
         append: Boolean = false,
         uri: Uri? = null,
     ): String?
 
-    suspend fun saveTrashFile(
-        filename: String,
-        content: String,
-        append: Boolean = true,
-    )
-
-    suspend fun deleteFile(
+    suspend fun deleteFileIn(
+        directory: MemoDirectoryType,
         filename: String,
         uri: Uri? = null,
     )
 
-    suspend fun deleteTrashFile(filename: String)
+    suspend fun getFileMetadataIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): FileMetadata?
 
-    suspend fun getFileMetadata(filename: String): FileMetadata?
+    suspend fun existsIn(
+        directory: MemoDirectoryType,
+        filename: String,
+    ): Boolean
 
-    suspend fun getTrashFileMetadata(filename: String): FileMetadata?
+    // Backward-compatible wrappers
 
-    suspend fun exists(filename: String): Boolean
+    suspend fun listFiles(targetFilename: String? = null): List<FileContent> = listFilesIn(MemoDirectoryType.MAIN, targetFilename)
 
-    suspend fun trashExists(filename: String): Boolean
+    suspend fun listTrashFiles(): List<FileContent> = listFilesIn(MemoDirectoryType.TRASH)
+
+    suspend fun listMetadata(): List<FileMetadata> = listMetadataIn(MemoDirectoryType.MAIN)
+
+    suspend fun listTrashMetadata(): List<FileMetadata> = listMetadataIn(MemoDirectoryType.TRASH)
+
+    suspend fun listMetadataWithIds(): List<FileMetadataWithId> = listMetadataWithIdsIn(MemoDirectoryType.MAIN)
+
+    suspend fun listTrashMetadataWithIds(): List<FileMetadataWithId> = listMetadataWithIdsIn(MemoDirectoryType.TRASH)
+
+    suspend fun readFileByDocumentId(documentId: String): String? = readFileByDocumentIdIn(MemoDirectoryType.MAIN, documentId)
+
+    suspend fun readTrashFileByDocumentId(documentId: String): String? = readFileByDocumentIdIn(MemoDirectoryType.TRASH, documentId)
+
+    suspend fun readHead(
+        filename: String,
+        maxChars: Int = 256,
+    ): String? = readHeadIn(MemoDirectoryType.MAIN, filename, maxChars)
+
+    suspend fun readHeadByDocumentId(
+        documentId: String,
+        maxChars: Int = 256,
+    ): String? = readHeadByDocumentIdIn(MemoDirectoryType.MAIN, documentId, maxChars)
+
+    suspend fun readFile(filename: String): String? = readFileIn(MemoDirectoryType.MAIN, filename)
+
+    suspend fun readTrashFile(filename: String): String? = readFileIn(MemoDirectoryType.TRASH, filename)
+
+    suspend fun saveFile(
+        filename: String,
+        content: String,
+        append: Boolean = false,
+        uri: Uri? = null,
+    ): String? = saveFileIn(MemoDirectoryType.MAIN, filename, content, append, uri)
+
+    suspend fun saveTrashFile(
+        filename: String,
+        content: String,
+        append: Boolean = true,
+    ) {
+        saveFileIn(MemoDirectoryType.TRASH, filename, content, append, uri = null)
+    }
+
+    suspend fun deleteFile(
+        filename: String,
+        uri: Uri? = null,
+    ) {
+        deleteFileIn(MemoDirectoryType.MAIN, filename, uri)
+    }
+
+    suspend fun deleteTrashFile(filename: String) {
+        deleteFileIn(MemoDirectoryType.TRASH, filename, uri = null)
+    }
+
+    suspend fun getFileMetadata(filename: String): FileMetadata? = getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+
+    suspend fun getTrashFileMetadata(filename: String): FileMetadata? = getFileMetadataIn(MemoDirectoryType.TRASH, filename)
+
+    suspend fun exists(filename: String): Boolean = existsIn(MemoDirectoryType.MAIN, filename)
+
+    suspend fun trashExists(filename: String): Boolean = existsIn(MemoDirectoryType.TRASH, filename)
 
     suspend fun saveImage(uri: Uri): String
 
@@ -252,71 +315,66 @@ class FileDataSourceImpl
 
         // --- Delegated file operations ---
 
-        override suspend fun listFiles(targetFilename: String?): List<FileContent> = getBackend()?.listFiles(targetFilename) ?: emptyList()
+        override suspend fun listFilesIn(
+            directory: MemoDirectoryType,
+            targetFilename: String?,
+        ): List<FileContent> = getBackend()?.listFilesIn(directory, targetFilename) ?: emptyList()
 
-        override suspend fun listTrashFiles(): List<FileContent> = getBackend()?.listTrashFiles() ?: emptyList()
+        override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
+            getBackend()?.listMetadataIn(directory) ?: emptyList()
 
-        override suspend fun listMetadata(): List<FileMetadata> = getBackend()?.listMetadata() ?: emptyList()
-
-        override suspend fun listTrashMetadata(): List<FileMetadata> = getBackend()?.listTrashMetadata() ?: emptyList()
-
-        override suspend fun listMetadataWithIds(): List<FileMetadataWithId> = getBackend()?.listMetadataWithIds() ?: emptyList()
-
-        override suspend fun listTrashMetadataWithIds(): List<FileMetadataWithId> = getBackend()?.listTrashMetadataWithIds() ?: emptyList()
-
-        override suspend fun readFile(filename: String): String? = getBackend()?.readFile(filename)
+        override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
+            getBackend()?.listMetadataWithIdsIn(directory) ?: emptyList()
 
         override suspend fun readFile(uri: Uri): String? = getBackend()?.readFile(uri)
 
-        override suspend fun readTrashFile(filename: String): String? = getBackend()?.readTrashFile(filename)
+        override suspend fun readFileByDocumentIdIn(
+            directory: MemoDirectoryType,
+            documentId: String,
+        ): String? = getBackend()?.readFileByDocumentIdIn(directory, documentId)
 
-        override suspend fun readFileByDocumentId(documentId: String): String? = getBackend()?.readFileByDocumentId(documentId)
-
-        override suspend fun readTrashFileByDocumentId(documentId: String): String? = getBackend()?.readTrashFileByDocumentId(documentId)
-
-        override suspend fun readHead(
+        override suspend fun readHeadIn(
+            directory: MemoDirectoryType,
             filename: String,
             maxChars: Int,
-        ): String? = getBackend()?.readHead(filename, maxChars)
+        ): String? = getBackend()?.readHeadIn(directory, filename, maxChars)
 
-        override suspend fun readHeadByDocumentId(
+        override suspend fun readHeadByDocumentIdIn(
+            directory: MemoDirectoryType,
             documentId: String,
             maxChars: Int,
-        ): String? = getBackend()?.readHeadByDocumentId(documentId, maxChars)
+        ): String? = getBackend()?.readHeadByDocumentIdIn(directory, documentId, maxChars)
 
-        override suspend fun saveFile(
+        override suspend fun readFileIn(
+            directory: MemoDirectoryType,
+            filename: String,
+        ): String? = getBackend()?.readFileIn(directory, filename)
+
+        override suspend fun saveFileIn(
+            directory: MemoDirectoryType,
             filename: String,
             content: String,
             append: Boolean,
             uri: Uri?,
-        ): String? = getBackend()?.saveFile(filename, content, append, uri)
+        ): String? = getBackend()?.saveFileIn(directory, filename, content, append, uri)
 
-        override suspend fun saveTrashFile(
-            filename: String,
-            content: String,
-            append: Boolean,
-        ) {
-            getBackend()?.saveTrashFile(filename, content, append)
-        }
-
-        override suspend fun deleteFile(
+        override suspend fun deleteFileIn(
+            directory: MemoDirectoryType,
             filename: String,
             uri: Uri?,
         ) {
-            getBackend()?.deleteFile(filename, uri)
+            getBackend()?.deleteFileIn(directory, filename, uri)
         }
 
-        override suspend fun deleteTrashFile(filename: String) {
-            getBackend()?.deleteTrashFile(filename)
-        }
+        override suspend fun getFileMetadataIn(
+            directory: MemoDirectoryType,
+            filename: String,
+        ): FileMetadata? = getBackend()?.getFileMetadataIn(directory, filename)
 
-        override suspend fun getFileMetadata(filename: String): FileMetadata? = getBackend()?.getFileMetadata(filename)
-
-        override suspend fun getTrashFileMetadata(filename: String): FileMetadata? = getBackend()?.getTrashFileMetadata(filename)
-
-        override suspend fun exists(filename: String): Boolean = getBackend()?.exists(filename) ?: false
-
-        override suspend fun trashExists(filename: String): Boolean = getBackend()?.trashExists(filename) ?: false
+        override suspend fun existsIn(
+            directory: MemoDirectoryType,
+            filename: String,
+        ): Boolean = getBackend()?.existsIn(directory, filename) ?: false
 
         // --- Image operations (require special handling for source URI resolution) ---
 
