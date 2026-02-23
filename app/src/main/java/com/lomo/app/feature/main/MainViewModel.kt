@@ -139,6 +139,8 @@ class MainViewModel
         private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
         val uiState: StateFlow<MainScreenState> = _uiState
 
+        private val deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
+
         private val _rootDirectory = MutableStateFlow<String?>(null)
         val rootDirectory: StateFlow<String?> = _rootDirectory
 
@@ -176,20 +178,30 @@ class MainViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<MemoUiModel>> =
-            combine(memos, rootDirectory, imageDirectory, imageMap) { currentMemos, rootDir, imageDir, currentImageMap ->
+            combine(
+                memos,
+                rootDirectory,
+                imageDirectory,
+                imageMap,
+                deletingMemoIds,
+            ) { currentMemos, rootDir, imageDir, currentImageMap, deletingIds ->
                 MemoMappingBundle(
                     memos = currentMemos,
                     rootDirectory = rootDir,
                     imageDirectory = imageDir,
                     imageMap = currentImageMap,
+                    deletingIds = deletingIds,
                 )
             }.mapLatest { bundle ->
-                mapper.mapToUiModels(
-                    memos = bundle.memos,
-                    rootPath = bundle.rootDirectory,
-                    imagePath = bundle.imageDirectory,
-                    imageMap = bundle.imageMap,
-                )
+                mapper
+                    .mapToUiModels(
+                        memos = bundle.memos,
+                        rootPath = bundle.rootDirectory,
+                        imagePath = bundle.imageDirectory,
+                        imageMap = bundle.imageMap,
+                    ).map { uiModel ->
+                        uiModel.copy(isDeleting = bundle.deletingIds.contains(uiModel.memo.id))
+                    }
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         private data class MemoMappingBundle(
@@ -197,6 +209,7 @@ class MainViewModel
             val rootDirectory: String?,
             val imageDirectory: String?,
             val imageMap: Map<String, android.net.Uri>,
+            val deletingIds: Set<String>,
         )
 
         fun onDirectorySelected(path: String) {
@@ -268,6 +281,8 @@ class MainViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
+                deletingMemoIds.value = deletingMemoIds.value + memo.id
+                kotlinx.coroutines.delay(300L) // Wait for fade out animation
                 try {
                     deleteMemoUseCase(memo)
                     // Update widget after deleting memo
@@ -276,6 +291,8 @@ class MainViewModel
                     throw e
                 } catch (e: Exception) {
                     _errorMessage.value = e.message
+                } finally {
+                    deletingMemoIds.value = deletingMemoIds.value - memo.id
                 }
             }
         }

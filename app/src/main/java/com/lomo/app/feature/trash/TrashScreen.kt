@@ -34,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -114,6 +115,15 @@ fun TrashScreen(
                     contentType = { "memo" },
                 ) { uiModel ->
                     val memo = uiModel.memo
+                    val deleteAlpha by androidx.compose.animation.core.animateFloatAsState(
+                        targetValue = if (uiModel.isDeleting) 0f else 1f,
+                        animationSpec =
+                            androidx.compose.animation.core.tween(
+                                durationMillis = 300,
+                                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                            ),
+                        label = "DeleteAlpha",
+                    )
 
                     Box(
                         modifier =
@@ -126,9 +136,12 @@ fun TrashScreen(
                                             0f at 300
                                             1f at 300 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
                                         },
-                                    fadeOutSpec = snap(),
+                                    fadeOutSpec = null,
                                     placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                ).fillMaxWidth(),
+                                ).fillMaxWidth()
+                                .graphicsLayer {
+                                    this.alpha = deleteAlpha
+                                },
                     ) {
                         MemoCard(
                             content = memo.content,

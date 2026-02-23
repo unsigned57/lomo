@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -279,20 +280,26 @@ fun SearchScreen(
                                 contentType = { "memo" },
                             ) { uiModel ->
                                 val memo = uiModel.memo
+                                val animatedAlpha =
+                                    remember {
+                                        androidx.compose.animation.core
+                                            .Animatable(0f)
+                                    }
+                                LaunchedEffect(memo.id) {
+                                    animatedAlpha.animateTo(
+                                        targetValue = 1f,
+                                        animationSpec =
+                                            androidx.compose.animation.core.tween(
+                                                durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
+                                                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                                            ),
+                                    )
+                                }
                                 Box(
                                     modifier =
-                                        Modifier
-                                            .animateItem(
-                                                fadeInSpec =
-                                                    keyframes {
-                                                        durationMillis = 1000
-                                                        0f at 0
-                                                        0f at com.lomo.ui.theme.MotionTokens.DurationLong2
-                                                        1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                                    },
-                                                fadeOutSpec = snap(),
-                                                placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                            ),
+                                        Modifier.graphicsLayer {
+                                            this.alpha = animatedAlpha.value
+                                        },
                                 ) {
                                     MemoCard(
                                         content = memo.content,

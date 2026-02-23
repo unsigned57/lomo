@@ -20,9 +20,11 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.imageLoader
@@ -112,6 +114,16 @@ internal fun MemoListContent(
                 key = { it.memo.id },
                 contentType = { "memo" },
             ) { uiModel ->
+                val deleteAlpha by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (uiModel.isDeleting) 0f else 1f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 300,
+                            easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                        ),
+                    label = "DeleteAlpha",
+                )
+
                 MemoItemContent(
                     uiModel = uiModel,
                     onTodoClick = onTodoClick,
@@ -135,7 +147,10 @@ internal fun MemoListContent(
                                     },
                                 fadeOutSpec = null,
                                 placementSpec = spring(stiffness = Spring.StiffnessLow),
-                            ).fillMaxWidth(),
+                            ).fillMaxWidth()
+                            .graphicsLayer {
+                                this.alpha = deleteAlpha
+                            },
                 )
             }
         }
