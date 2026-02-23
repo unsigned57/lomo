@@ -3,6 +3,8 @@ package com.lomo.app.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -52,35 +55,42 @@ class SearchViewModel
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
-        val dateFormat: StateFlow<String> =
+        private val defaultPreferences = AppPreferencesState.defaults()
+
+        private val appPreferences: StateFlow<AppPreferencesState> =
             settingsRepository
-                .getDateFormat()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.DATE_FORMAT)
+                .observeAppPreferences()
+                .stateInViewModel(viewModelScope, defaultPreferences)
+
+        val dateFormat: StateFlow<String> =
+            appPreferences
+                .map { it.dateFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.dateFormat)
 
         val timeFormat: StateFlow<String> =
-            settingsRepository
-                .getTimeFormat()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.TIME_FORMAT)
+            appPreferences
+                .map { it.timeFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.timeFormat)
 
         val shareCardStyle: StateFlow<String> =
-            settingsRepository
-                .getShareCardStyle()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_STYLE)
+            appPreferences
+                .map { it.shareCardStyle }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardStyle)
 
         val shareCardShowTime: StateFlow<Boolean> =
-            settingsRepository
-                .isShareCardShowTimeEnabled()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME)
+            appPreferences
+                .map { it.shareCardShowTime }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardShowTime)
 
         val shareCardShowBrand: StateFlow<Boolean> =
-            settingsRepository
-                .isShareCardShowBrandEnabled()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND)
+            appPreferences
+                .map { it.shareCardShowBrand }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardShowBrand)
 
         val doubleTapEditEnabled: StateFlow<Boolean> =
-            settingsRepository
-                .isDoubleTapEditEnabled()
-                .stateInViewModel(viewModelScope, com.lomo.data.util.PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED)
+            appPreferences
+                .map { it.doubleTapEditEnabled }
+                .stateInViewModel(viewModelScope, defaultPreferences.doubleTapEditEnabled)
 
         val activeDayCount: StateFlow<Int> =
             repository

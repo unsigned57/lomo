@@ -2,15 +2,19 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -43,15 +47,22 @@ class TrashViewModel
                 .getDeletedMemosList()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        val dateFormat: StateFlow<String> =
+        private val defaultPreferences = AppPreferencesState.defaults()
+
+        private val appPreferences: StateFlow<AppPreferencesState> =
             settingsRepository
-                .getDateFormat()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lomo.data.util.PreferenceKeys.Defaults.DATE_FORMAT)
+                .observeAppPreferences()
+                .stateInViewModel(viewModelScope, defaultPreferences)
+
+        val dateFormat: StateFlow<String> =
+            appPreferences
+                .map { it.dateFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.dateFormat)
 
         val timeFormat: StateFlow<String> =
-            settingsRepository
-                .getTimeFormat()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lomo.data.util.PreferenceKeys.Defaults.TIME_FORMAT)
+            appPreferences
+                .map { it.timeFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.timeFormat)
 
         val rootDirectory: StateFlow<String?> =
             repository

@@ -4,11 +4,14 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.BuildConfig
+import com.lomo.app.feature.preferences.AppPreferencesState
+import com.lomo.app.feature.preferences.observeAppPreferences
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
 import com.lomo.domain.repository.WidgetRepository
+import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -477,27 +481,22 @@ class MainViewModel
             dataStore.updateLastAppVersion(currentVersion)
         }
 
-        val dateFormat: StateFlow<String> =
+        private val defaultPreferences = AppPreferencesState.defaults()
+
+        private val appPreferences: StateFlow<AppPreferencesState> =
             settingsRepository
-                .getDateFormat()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.DATE_FORMAT,
-                )
+                .observeAppPreferences()
+                .stateInViewModel(viewModelScope, defaultPreferences)
+
+        val dateFormat: StateFlow<String> =
+            appPreferences
+                .map { it.dateFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.dateFormat)
 
         val timeFormat: StateFlow<String> =
-            settingsRepository
-                .getTimeFormat()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.TIME_FORMAT,
-                )
+            appPreferences
+                .map { it.timeFormat }
+                .stateInViewModel(viewModelScope, defaultPreferences.timeFormat)
 
         val activeDayCount: StateFlow<Int> =
             repository
@@ -511,83 +510,39 @@ class MainViewModel
                 )
 
         val hapticFeedbackEnabled: StateFlow<Boolean> =
-            settingsRepository
-                .isHapticFeedbackEnabled()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue =
-                        com.lomo.data.util.PreferenceKeys.Defaults
-                            .HAPTIC_FEEDBACK_ENABLED,
-                )
+            appPreferences
+                .map { it.hapticFeedbackEnabled }
+                .stateInViewModel(viewModelScope, defaultPreferences.hapticFeedbackEnabled)
 
         val showInputHints: StateFlow<Boolean> =
-            settingsRepository
-                .isShowInputHintsEnabled()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.SHOW_INPUT_HINTS,
-                )
+            appPreferences
+                .map { it.showInputHints }
+                .stateInViewModel(viewModelScope, defaultPreferences.showInputHints)
 
         val doubleTapEditEnabled: StateFlow<Boolean> =
-            settingsRepository
-                .isDoubleTapEditEnabled()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED,
-                )
+            appPreferences
+                .map { it.doubleTapEditEnabled }
+                .stateInViewModel(viewModelScope, defaultPreferences.doubleTapEditEnabled)
 
         val shareCardStyle: StateFlow<String> =
-            settingsRepository
-                .getShareCardStyle()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_STYLE,
-                )
+            appPreferences
+                .map { it.shareCardStyle }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardStyle)
 
         val shareCardShowTime: StateFlow<Boolean> =
-            settingsRepository
-                .isShareCardShowTimeEnabled()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME,
-                )
+            appPreferences
+                .map { it.shareCardShowTime }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardShowTime)
 
         val shareCardShowBrand: StateFlow<Boolean> =
-            settingsRepository
-                .isShareCardShowBrandEnabled()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
-                )
+            appPreferences
+                .map { it.shareCardShowBrand }
+                .stateInViewModel(viewModelScope, defaultPreferences.shareCardShowBrand)
 
         val themeMode: StateFlow<String> =
-            settingsRepository
-                .getThemeMode()
-                .stateIn(
-                    scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
-                    initialValue = com.lomo.data.util.PreferenceKeys.Defaults.THEME_MODE,
-                )
+            appPreferences
+                .map { it.themeMode }
+                .stateInViewModel(viewModelScope, defaultPreferences.themeMode)
 
         fun clearError() {
             _errorMessage.value = null
