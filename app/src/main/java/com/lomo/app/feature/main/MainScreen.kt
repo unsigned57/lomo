@@ -58,6 +58,7 @@ import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -161,41 +162,40 @@ fun MainScreen(
     }
 
     // Shared Content Observation
-    val sharedContent by viewModel.sharedContent.collectAsStateWithLifecycle()
+    var pendingSharedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
-    LaunchedEffect(sharedContent, imageDir) {
-        val content = sharedContent
-        if (content != null) {
+    LaunchedEffect(Unit) {
+        viewModel.sharedContentEvents.collect { content ->
             when (content) {
                 is MainViewModel.SharedContent.Text -> {
                     val cur = editorController.inputValue.text
-                    // Prevent duplicate processing if content is already in input (heuristic)
-                    // But strictly, consumeSharedContent handles this.
-                    // Just proceed.
                     val newText = if (cur.isEmpty()) content.content else "$cur\n${content.content}"
                     editorController.updateInputValue(TextFieldValue(newText, TextRange(newText.length)))
                     editorController.ensureVisible()
-                    viewModel.consumeSharedContent()
                 }
 
                 is MainViewModel.SharedContent.Image -> {
-                    if (imageDir != null) {
-                        // Logic handled via saving image in ViewModel then appending markdown
-                        viewModel.saveImage(
-                            uri = content.uri,
-                            onResult = { path ->
-                                editorController.appendImageMarkdown(path)
-                                editorController.ensureVisible()
-                                viewModel.consumeSharedContent()
-                            },
-                        )
-                    } else {
-                        // Trigger directory setup if missing
+                    pendingSharedImageUri = content.uri
+                    if (imageDir == null) {
                         directorySetupType = DirectorySetupType.Image
                     }
                 }
             }
         }
+    }
+
+    LaunchedEffect(imageDir, pendingSharedImageUri) {
+        val targetUri = pendingSharedImageUri ?: return@LaunchedEffect
+        if (imageDir == null) return@LaunchedEffect
+
+        viewModel.saveImage(
+            uri = targetUri,
+            onResult = { path ->
+                editorController.appendImageMarkdown(path)
+                editorController.ensureVisible()
+                pendingSharedImageUri = null
+            },
+        )
     }
 
     // Effect: Error Handling

@@ -14,6 +14,7 @@ import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -93,7 +95,7 @@ class MainViewModel
             ) : MainScreenState
         }
 
-        // Shared Content State
+        // Shared content is modeled as one-shot events to avoid UI -> ViewModel consume round-trips.
         sealed interface SharedContent {
             data class Text(
                 val content: String,
@@ -104,19 +106,15 @@ class MainViewModel
             ) : SharedContent
         }
 
-        private val _sharedContent = MutableStateFlow<SharedContent?>(null)
-        val sharedContent: StateFlow<SharedContent?> = _sharedContent
+        private val sharedContentEventsChannel = Channel<SharedContent>(capacity = Channel.BUFFERED)
+        val sharedContentEvents = sharedContentEventsChannel.receiveAsFlow()
 
         fun handleSharedText(text: String) {
-            _sharedContent.value = SharedContent.Text(text)
+            sharedContentEventsChannel.trySend(SharedContent.Text(text))
         }
 
         fun handleSharedImage(uri: android.net.Uri) {
-            _sharedContent.value = SharedContent.Image(uri)
-        }
-
-        fun consumeSharedContent() {
-            _sharedContent.value = null
+            sharedContentEventsChannel.trySend(SharedContent.Image(uri))
         }
 
         private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
