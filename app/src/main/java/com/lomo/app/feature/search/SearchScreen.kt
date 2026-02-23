@@ -1,18 +1,11 @@
 package com.lomo.app.feature.search
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -37,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -46,12 +38,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.memo.MemoCardList
+import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoEditorSheetHost
 import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.EmptyState
-import com.lomo.ui.util.formatAsDateTime
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -217,69 +209,16 @@ fun SearchScreen(
                     }
 
                     else -> {
-                        LazyColumn(
+                        MemoCardList(
+                            memos = searchResults,
+                            dateFormat = dateFormat,
+                            timeFormat = timeFormat,
+                            doubleTapEditEnabled = doubleTapEditEnabled,
+                            onMemoEdit = editorController::openForEdit,
+                            onShowMenu = showMenu,
+                            animation = MemoCardListAnimation.FadeIn,
                             contentPadding = PaddingValues(top = 16.dp, start = 16.dp, end = 16.dp, bottom = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(
-                                items = searchResults,
-                                key = { it.memo.id },
-                                contentType = { "memo" },
-                            ) { uiModel ->
-                                val memo = uiModel.memo
-                                val animatedAlpha =
-                                    remember {
-                                        androidx.compose.animation.core
-                                            .Animatable(0f)
-                                    }
-                                LaunchedEffect(memo.id) {
-                                    animatedAlpha.animateTo(
-                                        targetValue = 1f,
-                                        animationSpec =
-                                            androidx.compose.animation.core.tween(
-                                                durationMillis = com.lomo.ui.theme.MotionTokens.DurationLong2,
-                                                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
-                                            ),
-                                    )
-                                }
-                                Box(
-                                    modifier =
-                                        Modifier.graphicsLayer {
-                                            this.alpha = animatedAlpha.value
-                                        },
-                                ) {
-                                    MemoCard(
-                                        content = memo.content,
-                                        processedContent = uiModel.processedContent,
-                                        precomputedNode = uiModel.markdownNode,
-                                        timestamp = memo.timestamp,
-                                        dateFormat = dateFormat,
-                                        timeFormat = timeFormat,
-                                        tags = uiModel.tags,
-                                        onDoubleClick =
-                                            if (doubleTapEditEnabled) {
-                                                {
-                                                    editorController.openForEdit(memo)
-                                                }
-                                            } else {
-                                                null
-                                            },
-                                        onMenuClick = {
-                                            showMenu(
-                                                com.lomo.ui.component.menu.MemoMenuState(
-                                                    wordCount = memo.content.length,
-                                                    createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                                                    content = memo.content,
-                                                    memo = memo,
-                                                ),
-                                            )
-                                        },
-                                        menuContent = {},
-                                    )
-                                }
-                            }
-                        }
+                        )
                     }
                 }
             }

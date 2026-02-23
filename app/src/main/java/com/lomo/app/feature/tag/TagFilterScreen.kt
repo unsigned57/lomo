@@ -1,10 +1,5 @@
 package com.lomo.app.feature.tag
 
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,8 +8,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.outlined.Tag
@@ -34,12 +27,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.app.feature.memo.MemoCardList
+import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoEditorSheetHost
 import com.lomo.app.feature.memo.rememberMemoEditorController
-import com.lomo.ui.component.card.MemoCard
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.menu.MemoMenuHost
-import com.lomo.ui.util.formatAsDateTime
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -145,7 +138,15 @@ fun TagFilterScreen(
                     )
                 }
             } else {
-                LazyColumn(
+                MemoCardList(
+                    memos = memos,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    onMemoEdit = editorController::openForEdit,
+                    onShowMenu = showMenu,
+                    onImageClick = onNavigateToImage,
+                    animation = MemoCardListAnimation.Placement,
                     contentPadding =
                         PaddingValues(
                             top = padding.calculateTopPadding() + 16.dp,
@@ -153,63 +154,7 @@ fun TagFilterScreen(
                             end = 16.dp,
                             bottom = 16.dp,
                         ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    items(
-                        items = memos,
-                        key = { it.memo.id },
-                        contentType = { "memo" },
-                    ) { uiModel ->
-                        val memo = uiModel.memo
-
-                        Box(
-                            modifier =
-                                Modifier
-                                    .animateItem(
-                                        fadeInSpec =
-                                            keyframes {
-                                                durationMillis = 1000
-                                                0f at 0
-                                                0f at com.lomo.ui.theme.MotionTokens.DurationLong2
-                                                1f at 1000 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                            },
-                                        fadeOutSpec = snap(),
-                                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                                    ),
-                        ) {
-                            MemoCard(
-                                content = memo.content,
-                                processedContent = uiModel.processedContent,
-                                precomputedNode = uiModel.markdownNode,
-                                timestamp = memo.timestamp,
-                                dateFormat = dateFormat,
-                                timeFormat = timeFormat,
-                                tags = uiModel.tags,
-                                onDoubleClick =
-                                    if (doubleTapEditEnabled) {
-                                        {
-                                            editorController.openForEdit(memo)
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                onImageClick = onNavigateToImage,
-                                onMenuClick = {
-                                    showMenu(
-                                        com.lomo.ui.component.menu.MemoMenuState(
-                                            wordCount = memo.content.length,
-                                            createdTime = memo.timestamp.formatAsDateTime(dateFormat, timeFormat),
-                                            content = memo.content,
-                                            memo = memo,
-                                        ),
-                                    )
-                                },
-                                menuContent = {},
-                            )
-                        }
-                    }
-                }
+                )
             }
         }
 
