@@ -32,6 +32,8 @@ class MemoSavePlanFactory
             filenameFormat: String,
             timestampFormat: String,
             existingFileContent: String,
+            precomputedSameTimestampCount: Int? = null,
+            precomputedCollisionCount: Int? = null,
         ): MemoSavePlan {
             val instant = Instant.ofEpochMilli(timestamp)
             val zoneId = ZoneId.systemDefault()
@@ -53,7 +55,7 @@ class MemoSavePlanFactory
                     timeStr = timeString,
                     fallbackTimestampMillis = timestamp,
                 )
-            val sameTimestampCount = countTimestampOccurrences(existingFileContent, timeString)
+            val sameTimestampCount = precomputedSameTimestampCount ?: countTimestampOccurrences(existingFileContent, timeString)
             val safeOffset = if (sameTimestampCount > 999) 999 else sameTimestampCount
             val canonicalTimestamp = baseCanonicalTimestamp + safeOffset
 
@@ -65,13 +67,12 @@ class MemoSavePlanFactory
                         kotlin.math.abs(it).toString(16)
                     }
             val baseId = "${dateString}_${timeString}_$contentHash"
-            val collisionIndex =
-                countBaseIdCollisionsInFile(
-                    fileContent = existingFileContent,
-                    dateString = dateString,
-                    fallbackTimestampMillis = timestamp,
-                    baseId = baseId,
-                )
+            val collisionIndex = precomputedCollisionCount ?: countBaseIdCollisionsInFile(
+                fileContent = existingFileContent,
+                dateString = dateString,
+                fallbackTimestampMillis = timestamp,
+                baseId = baseId,
+            )
             val optimisticId = if (collisionIndex == 0) baseId else "${baseId}_$collisionIndex"
             val rawContent = "- $timeString $content"
 

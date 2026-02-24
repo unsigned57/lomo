@@ -11,6 +11,9 @@ import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
 import com.lomo.domain.validation.MemoContentValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -27,12 +30,24 @@ class MemoEditorViewModel
         private val appWidgetRepository: AppWidgetRepository,
     ) : ViewModel() {
         val controller = MemoEditorController()
+        private var prewarmTodayJob: Job? = null
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
         fun openForCreate(initialText: String = "") {
             controller.openForCreate(initialText)
+            prewarmTodayJob?.cancel()
+            prewarmTodayJob =
+                viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    repository.prewarmTodayMemoTarget()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Best-effort warm-up for first memo write path.
+                }
+            }
         }
 
         fun appendSharedText(text: String) {
@@ -48,15 +63,19 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
+                    prewarmTodayJob?.join()
+                    prewarmTodayJob = null
                     if (settingsRepository.getRootDirectoryOnce() == null) {
                         _errorMessage.value = "Please select a folder first"
                         return@launch
                     }
                     validator.validateForCreate(content)
                     repository.saveMemo(content)
-                    appWidgetRepository.updateAllWidgets()
-                    mediaCoordinator.clearTrackedImages()
                     onSuccess?.invoke()
+                    mediaCoordinator.clearTrackedImages()
+                    viewModelScope.launch(Dispatchers.IO) {
+                        runCatching { appWidgetRepository.updateAllWidgets() }
+                    }
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -102,12 +121,35 @@ class MemoEditorViewModel
 
         fun discardInputs() {
             viewModelScope.launch {
+                var cleanupError: Throwable? = null
+                try {
+                    prewarmTodayJob?.cancelAndJoin()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    cleanupError = e
+                } finally {
+                    prewarmTodayJob = null
+                }
+
                 try {
                     mediaCoordinator.discardTrackedImages()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to discard input")
+                    if (cleanupError == null) cleanupError = e
+                }
+
+                try {
+                    repository.cleanupTodayPrewarmedMemoTarget()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (cleanupError == null) cleanupError = e
+                }
+
+                cleanupError?.let { error ->
+                    _errorMessage.value = error.userMessage("Failed to discard input")
                 }
             }
         }

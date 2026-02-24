@@ -12,6 +12,7 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
+import kotlin.math.abs
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.ZoneId
@@ -38,22 +39,38 @@ class MemoMutationHandler
         ) {
             val filenameFormat = dataStore.storageFilenameFormat.first()
             val timestampFormat = dataStore.storageTimestampFormat.first()
-            val candidateFilename =
+            val zoneId = ZoneId.systemDefault()
+            val instant = Instant.ofEpochMilli(timestamp)
+            val dateString =
                 DateTimeFormatter
                     .ofPattern(filenameFormat)
-                    .format(
-                        Instant
-                            .ofEpochMilli(timestamp)
-                            .atZone(ZoneId.systemDefault()),
-                    ) + ".md"
-            val existingFileContent = fileDataSource.readFileIn(MemoDirectoryType.MAIN, candidateFilename).orEmpty()
+                    .withZone(zoneId)
+                    .format(instant)
+            val timeString =
+                DateTimeFormatter
+                    .ofPattern(timestampFormat)
+                    .withZone(zoneId)
+                    .format(instant)
+            val contentHash = abs(content.trim().hashCode()).toString(16)
+            val baseId = "${dateString}_${timeString}_$contentHash"
+            val precomputedCollisionCount =
+                dao.countMemoIdCollisions(
+                    baseId = baseId,
+                    globPattern = "${baseId}_*",
+                )
+            val precomputedSameTimestampCount = dao.countMemosByIdGlob("${dateString}_${timeString}_*")
+            val candidateFilename = "$dateString.md"
+            val cachedUriString = getMainSafUri(candidateFilename)
+            val cachedUri = cachedUriString.toPersistedUriOrNull()
             val savePlan =
                 savePlanFactory.create(
                     content = content,
                     timestamp = timestamp,
                     filenameFormat = filenameFormat,
                     timestampFormat = timestampFormat,
-                    existingFileContent = existingFileContent,
+                    existingFileContent = "",
+                    precomputedSameTimestampCount = precomputedSameTimestampCount,
+                    precomputedCollisionCount = precomputedCollisionCount,
                 )
 
             val savedUriString =
@@ -62,12 +79,73 @@ class MemoMutationHandler
                     filename = savePlan.filename,
                     content = "\n${savePlan.rawContent}",
                     append = true,
+                    uri = cachedUri,
                 )
-            val metadata = fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, savePlan.filename)
-            if (metadata == null) throw java.io.IOException("Failed to read metadata after save")
-            upsertMainState(savePlan.filename, metadata.lastModified, savedUriString)
+            upsertMainState(savePlan.filename, System.currentTimeMillis(), savedUriString)
 
             persistMainMemoEntity(MemoEntity.fromDomain(savePlan.memo))
+        }
+
+        suspend fun prewarmTodayMemoTarget(timestamp: Long) {
+            val filenameFormat = dataStore.storageFilenameFormat.first()
+            val dateString =
+                DateTimeFormatter
+                    .ofPattern(filenameFormat)
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(timestamp))
+            val filename = "$dateString.md"
+            val existingState = localFileStateDao.getByFilename(filename, false)
+            if (existingState?.safUri.toPersistedUriOrNull() != null) return
+
+            val savedUriString =
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = "",
+                    append = true,
+                    uri = null,
+                )
+            upsertMainState(
+                filename = filename,
+                lastModified = System.currentTimeMillis(),
+                safUri = savedUriString ?: existingState?.safUri,
+            )
+        }
+
+        suspend fun cleanupTodayPrewarmedMemoTarget(timestamp: Long) {
+            val filenameFormat = dataStore.storageFilenameFormat.first()
+            val dateString =
+                DateTimeFormatter
+                    .ofPattern(filenameFormat)
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochMilli(timestamp))
+            if (dao.countMemosByIdGlob("${dateString}_*") > 0) return
+
+            val filename = "$dateString.md"
+            val cachedUriString = getMainSafUri(filename)
+            val cachedUri = cachedUriString.toPersistedUriOrNull()
+            val fileContent =
+                if (cachedUri != null) {
+                    fileDataSource.readFile(cachedUri)
+                        ?: fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+                } else {
+                    fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+                }
+
+            when {
+                fileContent == null -> {
+                    localFileStateDao.deleteByFilename(filename, false)
+                }
+
+                fileContent.isBlank() -> {
+                    fileDataSource.deleteFileIn(
+                        directory = MemoDirectoryType.MAIN,
+                        filename = filename,
+                        uri = cachedUri,
+                    )
+                    localFileStateDao.deleteByFilename(filename, false)
+                }
+            }
         }
 
         suspend fun updateMemo(
@@ -98,9 +176,10 @@ class MemoMutationHandler
             val finalUpdatedMemo = updatedMemo.copy(rawContent = "- $timeString $newContent")
 
             val cachedUriString = getMainSafUri(filename)
+            val cachedUri = cachedUriString.toPersistedUriOrNull()
             val currentFileContent =
-                if (cachedUriString != null) {
-                    fileDataSource.readFile(Uri.parse(cachedUriString))
+                if (cachedUri != null) {
+                    fileDataSource.readFile(cachedUri)
                         ?: fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
                 } else {
                     fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
@@ -154,6 +233,12 @@ class MemoMutationHandler
         }
 
         private suspend fun getMainSafUri(filename: String): String? = localFileStateDao.getByFilename(filename, false)?.safUri
+
+        private fun String?.toPersistedUriOrNull(): Uri? {
+            val value = this ?: return null
+            if (!(value.startsWith("content://") || value.startsWith("file://"))) return null
+            return Uri.parse(value)
+        }
 
         private suspend fun upsertMainState(
             filename: String,
