@@ -5,9 +5,10 @@ plugins {
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
-    // alias(libs.plugins.androidxBaselineProfile) apply false
+    alias(libs.plugins.androidxBaselineProfile) apply false
     alias(libs.plugins.versionCatalogUpdate)
     alias(libs.plugins.benManesVersions)
+    alias(libs.plugins.ktlint) apply false
 }
 
 val kotlinVersion = libs.versions.kotlin.get()
@@ -20,6 +21,8 @@ subprojects {
             force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion")
         }
     }
+
+    apply(plugin = "org.jlleitschuh.gradle.ktlint")
 }
 
 // Configure the dependency update check to only offer stable versions

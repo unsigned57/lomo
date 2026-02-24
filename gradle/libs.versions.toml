@@ -13,7 +13,7 @@ datastore = "1.2.0"
 documentfile = "1.1.0"
 espressoCore = "3.7.0"
 glance = "1.1.1"
-hilt = "2.59.1"
+hilt = "2.59.2"
 hiltWork = "1.3.0"
 immutableCollections = "0.4.0"
 javaxInject = "1"
@@ -21,6 +21,7 @@ junit = "4.13.2"
 junitVersion = "1.3.0"
 kotlin = "2.3.10"
 ksp = "2.3.6"
+ktlint = "14.0.1"
 ktor = "3.4.0"
 lifecycleRuntimeCompose = "2.10.0"
 lifecycleRuntimeKtx = "2.10.0"
@@ -108,4 +109,5 @@ hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-versionCatalogUpdate = "nl.littlerobots.version-catalog-update:1.0.1"
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
+versionCatalogUpdate = "nl.littlerobots.version-catalog-update:1.1.0"

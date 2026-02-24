@@ -14,7 +14,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
-    // alias(libs.plugins.androidxBaselineProfile)
+    // id("androidx.baselineprofile")
 }
 
 val artifactBaseName =
@@ -139,6 +139,11 @@ android {
         buildConfig = true
     }
 
+    composeCompiler {
+        // Remove Compose source information in release builds
+        includeSourceInformation = false
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -251,5 +256,10 @@ kotlin {
                 .fromTarget("25"),
         )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
+        freeCompilerArgs.addAll(
+            "-Xno-call-assertions",
+            "-Xno-param-assertions",
+            "-Xno-receiver-assertions",
+        )
     }
 }
