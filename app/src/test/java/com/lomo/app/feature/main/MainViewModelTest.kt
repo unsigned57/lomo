@@ -4,6 +4,10 @@ import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.repository.AppWidgetRepository
+import com.lomo.data.util.MemoTextProcessor
+import com.lomo.domain.model.Memo
+import com.lomo.domain.validation.MemoContentValidator
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -30,9 +34,8 @@ class MainViewModelTest {
     private lateinit var settingsRepository: com.lomo.domain.repository.SettingsRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
+    private lateinit var appWidgetRepository: AppWidgetRepository
     private lateinit var memoFlowProcessor: MemoFlowProcessor
-    private lateinit var memoMutator: MainMemoMutator
-    private lateinit var getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase
     private lateinit var imageMapProvider: ImageMapProvider
     private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
 
@@ -45,14 +48,16 @@ class MainViewModelTest {
         settingsRepository = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
         dataStore = mockk(relaxed = true)
+        appWidgetRepository = mockk(relaxed = true)
         memoFlowProcessor = MemoFlowProcessor(MemoUiMapper())
-        memoMutator = mockk(relaxed = true)
-        getFilteredMemosUseCase = mockk(relaxed = true)
         imageMapProvider = mockk(relaxed = true)
         audioPlayerManager = mockk(relaxed = true)
 
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.isSyncing() } returns flowOf(false)
+        every { repository.getAllMemosList() } returns flowOf(emptyList<Memo>())
+        every { repository.searchMemosList(any()) } returns flowOf(emptyList<Memo>())
+        every { repository.getMemosByTagList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getActiveDayCount() } returns flowOf(0)
         every { settingsRepository.getRootDirectory() } returns flowOf<String?>(null)
         coEvery { settingsRepository.getRootDirectoryOnce() } returns null
@@ -72,8 +77,6 @@ class MainViewModelTest {
 
         coEvery { dataStore.getLastAppVersionOnce() } returns ""
         coEvery { dataStore.updateLastAppVersion(any()) } returns Unit
-
-        every { getFilteredMemosUseCase.invoke(any(), any()) } returns flowOf(emptyList())
     }
 
     @After
@@ -154,12 +157,10 @@ class MainViewModelTest {
             savedStateHandle = savedStateHandle,
             memoFlowProcessor = memoFlowProcessor,
             imageMapProvider = imageMapProvider,
-            getFilteredMemosUseCase = getFilteredMemosUseCase,
-            memoActionDelegate =
-                MainMemoActionDelegate(
-                    memoMutator = memoMutator,
-                    mediaCoordinator = MainMediaCoordinator(mediaRepository, MemoImageWorkflow(mediaRepository)),
-                ),
+            memoContentValidator = MemoContentValidator(),
+            mainMediaCoordinator = MainMediaCoordinator(mediaRepository, MemoImageWorkflow(mediaRepository)),
+            appWidgetRepository = appWidgetRepository,
+            textProcessor = MemoTextProcessor(),
             startupCoordinator =
                 MainStartupCoordinator(
                     repository = repository,

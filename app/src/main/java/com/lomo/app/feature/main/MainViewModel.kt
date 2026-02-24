@@ -8,14 +8,19 @@ import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.repository.AppWidgetRepository
+import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
-import com.lomo.ui.util.stateInViewModel
+import com.lomo.domain.validation.MemoContentValidator
+import com.lomo.ui.component.navigation.SidebarStats
+import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,10 +28,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 @HiltViewModel
@@ -38,8 +47,10 @@ class MainViewModel
         private val savedStateHandle: SavedStateHandle,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val imageMapProvider: ImageMapProvider,
-        private val getFilteredMemosUseCase: com.lomo.domain.usecase.GetFilteredMemosUseCase,
-        private val memoActionDelegate: MainMemoActionDelegate,
+        private val memoContentValidator: MemoContentValidator,
+        private val mainMediaCoordinator: MainMediaCoordinator,
+        private val appWidgetRepository: AppWidgetRepository,
+        private val textProcessor: MemoTextProcessor,
         private val startupCoordinator: MainStartupCoordinator,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
@@ -108,23 +119,69 @@ class MainViewModel
                 .getVoiceDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+        val allMemos: StateFlow<List<Memo>> =
+            repository
+                .getAllMemosList()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        data class SidebarUiState(
+            val stats: SidebarStats = SidebarStats(),
+            val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
+            val tags: List<SidebarTag> = emptyList(),
+        )
+
+        val sidebarUiState: StateFlow<SidebarUiState> =
+            allMemos
+                .map { memos ->
+                    val localDates =
+                        memos.map { memo ->
+                            Instant
+                                .ofEpochMilli(memo.timestamp)
+                                .atZone(ZoneId.systemDefault())
+                                .toLocalDate()
+                        }
+
+                    val tagCounts =
+                        memos
+                            .asSequence()
+                            .flatMap { memo -> memo.tags.distinct().asSequence() }
+                            .groupingBy { tag -> tag }
+                            .eachCount()
+
+                    SidebarUiState(
+                        stats =
+                            SidebarStats(
+                                memoCount = memos.size,
+                                tagCount = tagCounts.size,
+                                dayCount = localDates.distinct().size,
+                            ),
+                        memoCountByDate = localDates.groupingBy { it }.eachCount(),
+                        tags =
+                            tagCounts
+                                .map { (name, count) -> SidebarTag(name = name, count = count) }
+                                .sortedByDescending { sidebarTag -> sidebarTag.count },
+                    )
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SidebarUiState())
+
         fun createDefaultDirectories(
             forImage: Boolean,
             forVoice: Boolean,
         ) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .createDefaultDirectories(forImage, forVoice)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to create directories")
-                    }
+                try {
+                    mainMediaCoordinator.createDefaultDirectories(forImage, forVoice)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to create directories")
+                }
             }
         }
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
             combine(_searchQuery, _selectedTag) { query: String, tag: String? -> query to tag }
-                .flatMapLatest { (query, tag) -> getFilteredMemosUseCase(query, tag) }
+                .flatMapLatest { (query, tag) -> resolveMemoFlow(query, tag) }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -176,53 +233,19 @@ class MainViewModel
             }
         }
 
-        fun addMemo(content: String) {
-            if (_rootDirectory.value == null) {
-                _errorMessage.value = "Please select a folder first"
-                return
-            }
-            if (content.isBlank()) {
-                _errorMessage.value = com.lomo.domain.validation.MemoContentValidator.EMPTY_CONTENT_MESSAGE
-                return
-            }
-            if (content.length > com.lomo.domain.AppConfig.MAX_MEMO_LENGTH) {
-                _errorMessage.value =
-                    com.lomo.domain.validation.MemoContentValidator
-                        .lengthExceededMessage()
-                return
-            }
-            viewModelScope.launch {
-                memoActionDelegate
-                    .addMemo(content)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage()
-                    }
-            }
-        }
-
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
                 deletingMemoIds.value = deletingMemoIds.value + memo.id
                 kotlinx.coroutines.delay(300L) // Wait for fade out animation
-                memoActionDelegate
-                    .deleteMemo(memo)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage()
-                    }
+                try {
+                    repository.deleteMemo(memo)
+                    appWidgetRepository.updateAllWidgets()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage()
+                }
                 deletingMemoIds.value = deletingMemoIds.value - memo.id
-            }
-        }
-
-        fun updateMemo(
-            memo: Memo,
-            newContent: String,
-        ) {
-            viewModelScope.launch {
-                memoActionDelegate
-                    .updateMemo(memo, newContent)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage()
-                    }
             }
         }
 
@@ -232,41 +255,19 @@ class MainViewModel
             checked: Boolean,
         ) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .toggleCheckbox(memo, lineIndex, checked)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to update todo")
+                try {
+                    val newContent = textProcessor.toggleCheckbox(memo.content, lineIndex, checked)
+                    if (newContent != memo.content) {
+                        memoContentValidator.validateForUpdate(newContent)
+                        repository.updateMemo(memo, newContent)
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to update todo")
+                }
             }
         }
-
-        fun saveImage(
-            uri: android.net.Uri,
-            onResult: (String) -> Unit,
-            onError: (() -> Unit)? = null,
-        ) {
-            viewModelScope.launch {
-                memoActionDelegate
-                    .saveImage(uri)
-                    .onSuccess(onResult)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to save image")
-                        onError?.invoke()
-                    }
-            }
-        }
-
-        fun discardInputs() {
-            viewModelScope.launch {
-                memoActionDelegate
-                    .discardInputs()
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to discard input")
-                    }
-            }
-        }
-
-        // Sidebar stats logic moved to SidebarViewModel
 
         init {
             // P1-002 Fix: Consolidated initialization to prevent race condition
@@ -283,7 +284,6 @@ class MainViewModel
                         updateRootDirectoryUiState(dir)
                     }
             }
-
             // Voice directory collector - pass to AudioPlayerManager for voice file resolution
             startupCoordinator.observeVoiceDirectoryChanges().launchIn(viewModelScope)
 
@@ -310,7 +310,13 @@ class MainViewModel
                 .drop(1)
                 .onEach { path: String? ->
                     if (path != null) {
-                        memoActionDelegate.syncImageCacheBestEffort()
+                        try {
+                            mainMediaCoordinator.syncImageCacheBestEffort()
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            // Best-effort background sync.
+                        }
                     }
                 }.launchIn(viewModelScope)
 
@@ -325,11 +331,13 @@ class MainViewModel
 
         fun syncImageCacheNow() {
             viewModelScope.launch {
-                memoActionDelegate
-                    .syncImageCacheBestEffort()
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to sync image cache")
-                    }
+                try {
+                    mainMediaCoordinator.syncImageCacheBestEffort()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to sync image cache")
+                }
             }
         }
 
@@ -342,6 +350,16 @@ class MainViewModel
         fun clearError() {
             _errorMessage.value = null
         }
+
+        private fun resolveMemoFlow(
+            query: String,
+            tag: String?,
+        ): Flow<List<Memo>> =
+            when {
+                !tag.isNullOrBlank() -> repository.getMemosByTagList(tag)
+                query.isNotBlank() -> repository.searchMemosList(query)
+                else -> allMemos
+            }
 
         private fun Throwable.userMessage(prefix: String? = null): String =
             when {

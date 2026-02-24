@@ -45,15 +45,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
+import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
-import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.async
@@ -95,7 +93,7 @@ fun MainScreen(
     onNavigateToGallery: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = hiltViewModel(),
-    sidebarViewModel: SidebarViewModel = hiltViewModel(),
+    editorViewModel: MemoEditorViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
 ) {
     // Collect Flow state safely with Lifecycle awareness using collectAsStateWithLifecycle
@@ -104,8 +102,9 @@ fun MainScreen(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
-    val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
+    val sidebarUiState by viewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
+    val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
     val hapticEnabled = appPreferences.hapticFeedbackEnabled
@@ -138,7 +137,7 @@ fun MainScreen(
             androidx.compose.foundation.lazy
                 .LazyListState()
         }
-    val editorController = rememberMemoEditorController()
+    val editorController = editorViewModel.controller
 
     // Local UI State
     var isRefreshing by remember { mutableStateOf(false) }
@@ -168,10 +167,7 @@ fun MainScreen(
         viewModel.sharedContentEvents.collect { content ->
             when (content) {
                 is MainViewModel.SharedContent.Text -> {
-                    val cur = editorController.inputValue.text
-                    val newText = if (cur.isEmpty()) content.content else "$cur\n${content.content}"
-                    editorController.updateInputValue(TextFieldValue(newText, TextRange(newText.length)))
-                    editorController.ensureVisible()
+                    editorViewModel.appendSharedText(content.content)
                 }
 
                 is MainViewModel.SharedContent.Image -> {
@@ -188,7 +184,7 @@ fun MainScreen(
         val targetUri = pendingSharedImageUri ?: return@LaunchedEffect
         if (imageDir == null) return@LaunchedEffect
 
-        viewModel.saveImage(
+        editorViewModel.saveImage(
             uri = targetUri,
             onResult = { path ->
                 editorController.appendImageMarkdown(path)
@@ -206,6 +202,13 @@ fun MainScreen(
         }
     }
 
+    LaunchedEffect(editorErrorMessage) {
+        editorErrorMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            editorViewModel.clearError()
+        }
+    }
+
     val allTags = remember(sidebarUiState.tags) { sidebarUiState.tags.map { it.name }.sorted() }
 
     MemoInteractionHost(
@@ -215,14 +218,15 @@ fun MainScreen(
         imageDirectory = imageDir,
         controller = editorController,
         onDeleteMemo = viewModel::deleteMemo,
-        onUpdateMemo = viewModel::updateMemo,
+        onUpdateMemo = editorViewModel::updateMemo,
         onCreateMemo = { content ->
-            viewModel.addMemo(content)
-            pendingNewMemoScroll = true
+            editorViewModel.createMemo(content) {
+                pendingNewMemoScroll = true
+            }
         },
-        onSaveImage = viewModel::saveImage,
+        onSaveImage = editorViewModel::saveImage,
         onLanShare = onNavigateToShare,
-        onDismiss = viewModel::discardInputs,
+        onDismiss = editorViewModel::discardInputs,
         onImageDirectoryMissing = { directorySetupType = DirectorySetupType.Image },
         onCameraCaptureError = { error ->
             scope.launch {
@@ -307,7 +311,7 @@ fun MainScreen(
                         onFabClick = {
                             haptic.longPress()
                             if (viewModel.uiState.value is MainViewModel.MainScreenState.Ready) {
-                                editorController.openForCreate()
+                                editorViewModel.openForCreate()
                             } else {
                                 onNavigateToSettings()
                             }

@@ -4,7 +4,7 @@ import android.net.Uri
 import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.usecase.UpdateMemoUseCase
+import com.lomo.domain.validation.MemoContentValidator
 import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
@@ -12,7 +12,7 @@ class MemoActionDelegate
     @Inject
     constructor(
         private val memoRepository: MemoRepository,
-        private val updateMemoUseCase: UpdateMemoUseCase,
+        private val memoContentValidator: MemoContentValidator,
         private val imageWorkflow: MemoImageWorkflow,
     ) {
         suspend fun deleteMemo(memo: Memo): Result<Unit> =
@@ -25,7 +25,8 @@ class MemoActionDelegate
             newContent: String,
         ): Result<Unit> =
             runAction {
-                updateMemoUseCase(memo, newContent)
+                memoContentValidator.validateForUpdate(newContent)
+                memoRepository.updateMemo(memo, newContent)
             }
 
         suspend fun saveImage(uri: Uri): Result<String> =

@@ -1,7 +1,6 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.TagCount
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -10,13 +9,6 @@ import kotlinx.coroutines.flow.Flow
 interface MemoRepository {
     // Data operations
     fun getAllMemosList(): Flow<List<Memo>>
-
-    suspend fun getRandomMemos(limit: Int): List<Memo>
-
-    suspend fun getDailyReviewMemos(
-        limit: Int,
-        seedDate: java.time.LocalDate,
-    ): List<Memo>
 
     suspend fun refreshMemos()
 
@@ -39,16 +31,7 @@ interface MemoRepository {
 
     fun getMemosByTagList(tag: String): Flow<List<Memo>>
 
-    // Stats
-    fun getMemoCount(): Flow<Int>
-
     fun getActiveDayCount(): Flow<Int>
-
-    fun getAllTimestamps(): Flow<List<Long>>
-
-    fun getTagCounts(): Flow<List<TagCount>>
-
-    fun getAllTags(): Flow<List<String>>
 
     // Trash
     fun getDeletedMemosList(): Flow<List<Memo>>

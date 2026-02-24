@@ -11,6 +11,7 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.ui.util.UiState
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,7 @@ class DailyReviewViewModel
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val memoActionDelegate: MemoActionDelegate,
+        private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
@@ -66,7 +68,7 @@ class DailyReviewViewModel
                     try {
                         // Use today's date for seeded random
                         val today = java.time.LocalDate.now()
-                        val rawMemos = repository.getDailyReviewMemos(10, today)
+                        val rawMemos = dailyReviewQueryUseCase(limit = 10, seedDate = today)
 
                         if (rawMemos.isEmpty()) {
                             _uiState.value = UiState.Success(emptyList())

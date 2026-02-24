@@ -15,28 +15,6 @@ class MemoRepositoryImpl
     ) : MemoRepository {
         override fun getAllMemosList(): Flow<List<Memo>> = dao.getAllMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
-        override suspend fun getRandomMemos(limit: Int): List<Memo> = dao.getRandomMemos(limit).map { it.toDomain() }
-
-        override suspend fun getDailyReviewMemos(
-            limit: Int,
-            seedDate: java.time.LocalDate,
-        ): List<Memo> {
-            if (limit <= 0) return emptyList()
-
-            val total = dao.getMemoCountSync()
-            if (total <= 0) return emptyList()
-
-            val safeLimit = limit.coerceAtMost(total)
-            val maxOffset = (total - safeLimit).coerceAtLeast(0)
-            val offset =
-                if (maxOffset == 0) {
-                    0
-                } else {
-                    kotlin.random.Random(seedDate.toEpochDay()).nextInt(maxOffset + 1)
-                }
-            return dao.getMemosPage(limit = safeLimit, offset = offset).map { it.toDomain() }
-        }
-
         override suspend fun refreshMemos() {
             synchronizer.refresh()
         }
@@ -102,21 +80,7 @@ class MemoRepositoryImpl
         override fun getMemosByTagList(tag: String): Flow<List<Memo>> =
             dao.getMemosByTagFlow(tag, "$tag/%").map { entities -> entities.map { it.toDomain() } }
 
-        override fun getAllTags(): Flow<List<String>> = dao.getAllTagsFlow()
-
-        override fun getMemoCount(): Flow<Int> = dao.getMemoCount()
-
         override fun getActiveDayCount(): Flow<Int> = dao.getActiveDayCount()
-
-        override fun getAllTimestamps(): Flow<List<Long>> = dao.getAllTimestamps()
-
-        override fun getTagCounts(): Flow<List<com.lomo.domain.model.TagCount>> =
-            dao.getTagCountsFlow().map { rows ->
-                rows.map { row ->
-                    com.lomo.domain.model
-                        .TagCount(row.name, row.count)
-                }
-            }
 
         override fun getDeletedMemosList(): Flow<List<Memo>> = dao.getDeletedMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
