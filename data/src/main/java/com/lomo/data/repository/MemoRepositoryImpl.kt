@@ -29,14 +29,6 @@ class MemoRepositoryImpl
             synchronizer.saveMemoAsync(content, timestamp)
         }
 
-        override suspend fun prewarmTodayMemoTarget(timestamp: Long) {
-            synchronizer.prewarmTodayMemoTarget(timestamp)
-        }
-
-        override suspend fun cleanupTodayPrewarmedMemoTarget(timestamp: Long) {
-            synchronizer.cleanupTodayPrewarmedMemoTarget(timestamp)
-        }
-
         override suspend fun updateMemo(
             memo: Memo,
             newContent: String,

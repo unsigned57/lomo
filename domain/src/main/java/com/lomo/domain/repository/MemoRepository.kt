@@ -19,10 +19,6 @@ interface MemoRepository {
         timestamp: Long = System.currentTimeMillis(),
     )
 
-    suspend fun prewarmTodayMemoTarget(timestamp: Long = System.currentTimeMillis())
-
-    suspend fun cleanupTodayPrewarmedMemoTarget(timestamp: Long = System.currentTimeMillis())
-
     suspend fun updateMemo(
         memo: Memo,
         newContent: String,

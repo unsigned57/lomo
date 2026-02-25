@@ -75,12 +75,6 @@ class MemoSynchronizer
             requestOutboxDrain()
         }
 
-        suspend fun prewarmTodayMemoTarget(timestamp: Long) =
-            mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.prewarmTodayMemoTarget(timestamp) } }
-
-        suspend fun cleanupTodayPrewarmedMemoTarget(timestamp: Long) =
-            mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.cleanupTodayPrewarmedMemoTarget(timestamp) } }
-
         suspend fun updateMemo(
             memo: Memo,
             newContent: String,

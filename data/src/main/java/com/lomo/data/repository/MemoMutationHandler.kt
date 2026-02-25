@@ -77,68 +77,6 @@ class MemoMutationHandler
             upsertMainState(savePlan.filename, System.currentTimeMillis(), savedUriString)
         }
 
-        suspend fun prewarmTodayMemoTarget(timestamp: Long) {
-            val filenameFormat = dataStore.storageFilenameFormat.first()
-            val dateString =
-                DateTimeFormatter
-                    .ofPattern(filenameFormat)
-                    .withZone(ZoneId.systemDefault())
-                    .format(Instant.ofEpochMilli(timestamp))
-            val filename = "$dateString.md"
-            val existingState = localFileStateDao.getByFilename(filename, false)
-            if (existingState?.safUri.toPersistedUriOrNull() != null) return
-
-            val savedUriString =
-                fileDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = filename,
-                    content = "",
-                    append = true,
-                    uri = null,
-                )
-            upsertMainState(
-                filename = filename,
-                lastModified = System.currentTimeMillis(),
-                safUri = savedUriString ?: existingState?.safUri,
-            )
-        }
-
-        suspend fun cleanupTodayPrewarmedMemoTarget(timestamp: Long) {
-            val filenameFormat = dataStore.storageFilenameFormat.first()
-            val dateString =
-                DateTimeFormatter
-                    .ofPattern(filenameFormat)
-                    .withZone(ZoneId.systemDefault())
-                    .format(Instant.ofEpochMilli(timestamp))
-            if (dao.countMemosByIdGlob("${dateString}_*") > 0) return
-
-            val filename = "$dateString.md"
-            val cachedUriString = getMainSafUri(filename)
-            val cachedUri = cachedUriString.toPersistedUriOrNull()
-            val fileContent =
-                if (cachedUri != null) {
-                    fileDataSource.readFile(cachedUri)
-                        ?: fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
-                } else {
-                    fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
-                }
-
-            when {
-                fileContent == null -> {
-                    localFileStateDao.deleteByFilename(filename, false)
-                }
-
-                fileContent.isBlank() -> {
-                    fileDataSource.deleteFileIn(
-                        directory = MemoDirectoryType.MAIN,
-                        filename = filename,
-                        uri = cachedUri,
-                    )
-                    localFileStateDao.deleteByFilename(filename, false)
-                }
-            }
-        }
-
         suspend fun updateMemo(
             memo: Memo,
             newContent: String,
