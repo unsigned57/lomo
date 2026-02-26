@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import com.lomo.domain.model.Memo
+import io.mockk.mockk
 import org.commonmark.node.FencedCodeBlock
 import org.commonmark.node.HardLineBreak
 import org.commonmark.node.Link
@@ -10,6 +11,7 @@ import org.commonmark.node.SoftLineBreak
 import org.commonmark.node.Text
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,7 +27,8 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val renderedText = collectTextLiterals(uiModel.markdownNode.node).joinToString("\n")
+        val markdownNode = requireNotNull(uiModel.markdownNode)
+        val renderedText = collectTextLiterals(markdownNode.node).joinToString("\n")
 
         assertTrue(uiModel.processedContent.contains("#work"))
         assertTrue(uiModel.processedContent.contains("#todo"))
@@ -50,7 +53,7 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val root = uiModel.markdownNode.node
+        val root = requireNotNull(uiModel.markdownNode).node
         val renderedText = collectTextLiterals(root).joinToString("\n")
         val codeLiterals = collectNodes(root).filterIsInstance<FencedCodeBlock>().map { it.literal.orEmpty() }
         val linkDestinations = collectNodes(root).filterIsInstance<Link>().map { it.destination.orEmpty() }
@@ -74,8 +77,9 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val paragraphs = collectNodes(uiModel.markdownNode.node).filterIsInstance<Paragraph>()
-        val renderedText = collectTextLiterals(uiModel.markdownNode.node).joinToString("\n")
+        val markdownNode = requireNotNull(uiModel.markdownNode)
+        val paragraphs = collectNodes(markdownNode.node).filterIsInstance<Paragraph>()
+        val renderedText = collectTextLiterals(markdownNode.node).joinToString("\n")
 
         assertEquals(1, paragraphs.size)
         assertTrue(renderedText.contains("body line"))
@@ -96,7 +100,8 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val paragraph = collectNodes(uiModel.markdownNode.node).filterIsInstance<Paragraph>().first()
+        val markdownNode = requireNotNull(uiModel.markdownNode)
+        val paragraph = collectNodes(markdownNode.node).filterIsInstance<Paragraph>().first()
         val firstChild = paragraph.firstChild
         val firstText =
             collectNodes(paragraph)
@@ -107,6 +112,79 @@ class MemoUiMapperTest {
         assertFalse(firstChild is SoftLineBreak || firstChild is HardLineBreak)
         assertFalse(firstText.startsWith("\n"))
         assertEquals("正文", firstText)
+    }
+
+    @Test
+    fun `mapToUiModel resolves image cache by basename and decoded path`() {
+        val cachedUri = mockk<android.net.Uri>(relaxed = true)
+        val memo =
+            memo(
+                content = "![img](assets/foo%20bar.png)",
+                tags = emptyList(),
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = mapOf("foo bar.png" to cachedUri),
+            )
+
+        assertNotEquals("![img](/memo/assets/foo%20bar.png)", uiModel.processedContent)
+    }
+
+    @Test
+    fun `mapToUiModel keeps file scheme image url as absolute path`() {
+        val memo =
+            memo(
+                content = "![img](file:///storage/emulated/0/Pictures/a.png)",
+                tags = emptyList(),
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = emptyMap(),
+            )
+
+        assertEquals("![img](file:///storage/emulated/0/Pictures/a.png)", uiModel.processedContent)
+    }
+
+    @Test
+    fun `mapToUiModel reparses markdown when processed content changed`() {
+        val memo =
+            memo(
+                content = "![img](foo.png)",
+                tags = emptyList(),
+            )
+        val cachedUri = mockk<android.net.Uri>(relaxed = true)
+
+        val initial =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = emptyMap(),
+                precomputeMarkdown = true,
+            )
+        val initialNode = requireNotNull(initial.markdownNode)
+
+        val updated =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = mapOf("foo.png" to cachedUri),
+                precomputeMarkdown = true,
+                existingNode = initialNode,
+                existingProcessedContent = initial.processedContent,
+            )
+
+        assertNotEquals(initial.processedContent, updated.processedContent)
+        assertFalse(updated.markdownNode === initialNode)
     }
 
     private fun memo(

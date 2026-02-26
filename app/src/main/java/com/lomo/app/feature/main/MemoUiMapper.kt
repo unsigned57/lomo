@@ -20,6 +20,9 @@ import org.commonmark.node.Paragraph
 import org.commonmark.node.SoftLineBreak
 import org.commonmark.node.Text
 import java.io.File
+import java.net.URI
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 
 class MemoUiMapper
@@ -31,6 +34,7 @@ class MemoUiMapper
             imagePath: String?,
             imageMap: Map<String, Uri>,
             deletingIds: Set<String> = emptySet(),
+            precomputeMarkdown: Boolean = true,
         ): List<MemoUiModel> =
             withContext(Dispatchers.Default) {
                 memos.map { memo ->
@@ -40,6 +44,7 @@ class MemoUiMapper
                         imagePath = imagePath,
                         imageMap = imageMap,
                         isDeleting = memo.id in deletingIds,
+                        precomputeMarkdown = precomputeMarkdown,
                     )
                 }
             }
@@ -50,9 +55,21 @@ class MemoUiMapper
             imagePath: String?,
             imageMap: Map<String, Uri>,
             isDeleting: Boolean = false,
+            precomputeMarkdown: Boolean = true,
+            existingNode: ImmutableNode? = null,
+            existingProcessedContent: String? = null,
         ): MemoUiModel {
             val processedContent = buildProcessedContent(memo.content, rootPath, imagePath, imageMap)
-            val parsedNode = applyTagEraser(MarkdownParser.parse(processedContent), memo.tags)
+            val canReuseExistingNode =
+                existingNode != null &&
+                    existingProcessedContent != null &&
+                    existingProcessedContent == processedContent
+            val parsedNode =
+                when {
+                    canReuseExistingNode -> existingNode
+                    precomputeMarkdown -> applyTagEraser(MarkdownParser.parse(processedContent), memo.tags)
+                    else -> null
+                }
             val imageUrls = extractImageUrls(processedContent)
 
             return MemoUiModel(
@@ -75,7 +92,7 @@ class MemoUiMapper
 
             resolvedContent =
                 WIKI_IMAGE_REGEX.replace(resolvedContent) { match ->
-                    val path = match.groupValues[1]
+                    val path = sanitizeWikiImagePath(match.groupValues[1])
                     val resolved =
                         resolveImageModel(path, isWikiStyle = true, rootPath = rootPath, imagePath = imagePath, imageMap = imageMap)
                     val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
@@ -113,36 +130,136 @@ class MemoUiMapper
             imagePath: String?,
             imageMap: Map<String, Uri>,
         ): Any {
-            val cacheKey = if (imageUrl.startsWith("../")) imageUrl.substringAfterLast("/") else imageUrl
-            imageMap[cacheKey]?.let { return it }
+            val normalizedImageUrl = normalizeImageUrl(imageUrl)
+            findCachedImageUri(normalizedImageUrl, imageMap)?.let { return it }
 
-            if (imageUrl.startsWith("/") || imageUrl.startsWith("content://") || imageUrl.startsWith("http")) {
-                return imageUrl
+            if (isAbsoluteOrRemoteImageUrl(normalizedImageUrl)) {
+                return normalizedImageUrl
             }
 
             val basePath = if (isWikiStyle) (imagePath ?: rootPath) else rootPath
             if (basePath != null) {
-                if (basePath.startsWith("content://") || basePath.startsWith("file://")) {
-                    if (imageUrl.startsWith("../")) {
-                        return imageUrl
-                    }
-                    return Uri
-                        .parse(basePath)
-                        .buildUpon()
-                        .appendPath(imageUrl)
-                        .build()
-                        .toString()
+                if (basePath.startsWith("content://")) {
+                    return normalizedImageUrl
                 }
 
-                return if (imageUrl.startsWith("../")) {
-                    val parentDir = File(basePath).parent ?: basePath
-                    File(parentDir, imageUrl.removePrefix("../"))
-                } else {
-                    File(basePath, imageUrl)
+                val relativePath = stripLeadingCurrentDir(normalizedImageUrl)
+                val normalizedBasePath =
+                    if (basePath.startsWith("file://")) {
+                        parseUriPath(basePath) ?: basePath
+                    } else {
+                        basePath
+                    }
+                return resolveRelativeFile(normalizedBasePath, relativePath)
+            }
+            return normalizedImageUrl
+        }
+
+        private fun findCachedImageUri(
+            imageUrl: String,
+            imageMap: Map<String, Uri>,
+        ): Uri? {
+            if (imageMap.isEmpty()) return null
+            val candidates = buildImageMapCandidates(imageUrl)
+            return candidates.firstNotNullOfOrNull { key -> imageMap[key] }
+        }
+
+        private fun buildImageMapCandidates(imageUrl: String): List<String> {
+            val candidates = LinkedHashSet<String>()
+
+            fun addCandidate(raw: String?) {
+                val value = raw?.trim().orEmpty()
+                if (value.isNotEmpty()) {
+                    candidates.add(value)
                 }
             }
-            return imageUrl
+
+            fun addPathForms(raw: String?) {
+                val normalized = normalizeImageUrl(raw.orEmpty())
+                if (normalized.isBlank()) return
+                addCandidate(normalized)
+                addCandidate(decodeUrlComponent(normalized))
+                val noQuery = normalized.substringBefore('?').substringBefore('#')
+                addCandidate(noQuery)
+                addCandidate(decodeUrlComponent(noQuery))
+                val stripped = stripLeadingRelativeSegments(noQuery)
+                addCandidate(stripped)
+                val basename = stripped.substringAfterLast('/')
+                addCandidate(basename)
+                addCandidate(decodeUrlComponent(basename))
+
+                if (normalized.startsWith("file://") || normalized.startsWith("content://")) {
+                    addCandidate(extractLastPathSegment(normalized))
+                }
+            }
+
+            addPathForms(imageUrl)
+            return candidates.toList()
         }
+
+        private fun sanitizeWikiImagePath(rawPath: String): String = rawPath.substringBefore('|').trim()
+
+        private fun normalizeImageUrl(raw: String): String =
+            raw
+                .trim()
+                .removeSurrounding("<", ">")
+                .replace('\\', '/')
+
+        private fun stripLeadingCurrentDir(path: String): String {
+            var result = path
+            while (result.startsWith("./")) {
+                result = result.removePrefix("./")
+            }
+            return result
+        }
+
+        private fun stripLeadingRelativeSegments(path: String): String {
+            var result = stripLeadingCurrentDir(path)
+            while (result.startsWith("../")) {
+                result = result.removePrefix("../")
+            }
+            return result.trimStart('/')
+        }
+
+        private fun resolveRelativeFile(
+            basePath: String,
+            relativePath: String,
+        ): File {
+            var base = File(basePath)
+            var path = relativePath
+
+            while (path.startsWith("../")) {
+                base = base.parentFile ?: base
+                path = path.removePrefix("../")
+            }
+            path = stripLeadingCurrentDir(path)
+            return File(base, path)
+        }
+
+        private fun isAbsoluteOrRemoteImageUrl(imageUrl: String): Boolean {
+            val lower = imageUrl.lowercase()
+            return lower.startsWith("/") ||
+                lower.startsWith("content://") ||
+                lower.startsWith("file://") ||
+                lower.startsWith("http://") ||
+                lower.startsWith("https://") ||
+                lower.startsWith("data:image/")
+        }
+
+        private fun decodeUrlComponent(value: String): String =
+            runCatching {
+                URLDecoder.decode(value, StandardCharsets.UTF_8.name())
+            }.getOrDefault(value)
+
+        private fun parseUriPath(value: String): String? =
+            runCatching {
+                URI(value).path
+            }.getOrNull()
+
+        private fun extractLastPathSegment(value: String): String? =
+            parseUriPath(value)
+                ?.substringAfterLast('/')
+                ?.takeIf { it.isNotBlank() }
 
         private fun extractImageUrls(content: String): ImmutableList<String> {
             val imageUrls = mutableListOf<String>()

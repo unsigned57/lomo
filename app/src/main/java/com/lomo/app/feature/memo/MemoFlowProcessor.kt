@@ -9,6 +9,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -24,14 +25,22 @@ class MemoFlowProcessor
             rootDirectory: Flow<String?>,
             imageDirectory: Flow<String?>,
             imageMap: Flow<Map<String, Uri>>,
+            prioritizeMemoIds: Flow<Set<String>> = flowOf(emptySet()),
         ): Flow<List<MemoUiModel>> {
             val memoCache = createMemoCache()
-            return combine(memos, rootDirectory, imageDirectory, imageMap) { currentMemos, rootDir, imageDir, currentImageMap ->
+            return combine(
+                memos,
+                rootDirectory,
+                imageDirectory,
+                imageMap,
+                prioritizeMemoIds,
+            ) { currentMemos, rootDir, imageDir, currentImageMap, currentPriorityIds ->
                 MappingContext(
                     memos = currentMemos,
                     rootDirectory = rootDir,
                     imageDirectory = imageDir,
                     imageMap = currentImageMap,
+                    prioritizedMemoIds = currentPriorityIds,
                 )
             }.distinctUntilChanged()
                 .mapLatest { context -> mapWithCache(context, memoCache) }
@@ -51,6 +60,7 @@ class MemoFlowProcessor
                     rootDirectory = rootDir,
                     imageDirectory = imageDir,
                     imageMap = currentImageMap,
+                    prioritizedMemoIds = emptySet(),
                 )
             }.distinctUntilChanged()
                 .mapLatest { context -> mapWithCache(context, memoCache) }
@@ -71,15 +81,30 @@ class MemoFlowProcessor
                         rootDirectory = context.rootDirectory,
                         imageDirectory = context.imageDirectory,
                         imageMapSize = context.imageMap.size,
-                        imageMapHash = context.imageMap.hashCode(),
+                        imageMapIdentity = System.identityHashCode(context.imageMap),
                     )
+                val prioritizedIds =
+                    if (context.prioritizedMemoIds.isNotEmpty()) {
+                        context.prioritizedMemoIds
+                    } else {
+                        context.memos
+                            .asSequence()
+                            .take(DEFAULT_PRIORITY_WINDOW_SIZE)
+                            .map { it.id }
+                            .toSet()
+                    }
                 val activeIds = HashSet<String>(context.memos.size)
                 val uiModels = ArrayList<MemoUiModel>(context.memos.size)
 
                 context.memos.forEach { memo ->
                     activeIds += memo.id
                     val cached = memoCache[memo.id]
-                    if (cached != null && cached.memo == memo && cached.environment == environment) {
+                    val shouldPrecompute = memo.id in prioritizedIds
+                    if (cached != null &&
+                        cached.memo == memo &&
+                        cached.environment == environment &&
+                        (!shouldPrecompute || cached.uiModel.markdownNode != null)
+                    ) {
                         uiModels += cached.uiModel
                     } else {
                         val mapped =
@@ -88,6 +113,9 @@ class MemoFlowProcessor
                                 rootPath = context.rootDirectory,
                                 imagePath = context.imageDirectory,
                                 imageMap = context.imageMap,
+                                precomputeMarkdown = shouldPrecompute,
+                                existingNode = cached?.uiModel?.markdownNode,
+                                existingProcessedContent = cached?.uiModel?.processedContent,
                             )
                         memoCache[memo.id] =
                             CachedMemoUiModel(
@@ -133,13 +161,14 @@ class MemoFlowProcessor
             val rootDirectory: String?,
             val imageDirectory: String?,
             val imageMap: Map<String, Uri>,
+            val prioritizedMemoIds: Set<String>,
         )
 
         private data class MappingEnvironment(
             val rootDirectory: String?,
             val imageDirectory: String?,
             val imageMapSize: Int,
-            val imageMapHash: Int,
+            val imageMapIdentity: Int,
         )
 
         private data class CachedMemoUiModel(
@@ -151,5 +180,6 @@ class MemoFlowProcessor
         private companion object {
             private const val INITIAL_CACHE_CAPACITY = 256
             private const val MAX_CACHE_SIZE = 2048
+            private const val DEFAULT_PRIORITY_WINDOW_SIZE = 20
         }
     }
