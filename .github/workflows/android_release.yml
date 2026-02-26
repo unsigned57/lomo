@@ -8,7 +8,7 @@ on:
 
 jobs:
   baseline:
-    runs-on: macos-latest
+    runs-on: macos-14
     env:
       NDK_VERSION: 29.0.14206865
     steps:
@@ -36,11 +36,17 @@ jobs:
         with:
           api-level: 34
           target: google_apis
-          arch: x86_64
+          # macos-latest is Apple Silicon (aarch64), so emulator image must be arm64-v8a.
+          arch: arm64-v8a
           profile: pixel_7
           disable-animations: true
           emulator-options: -no-window -noaudio -no-boot-anim -gpu swiftshader_indirect
           script: ./gradlew :app:generateReleaseBaselineProfile --stacktrace
+
+      - name: Validate Generated Baseline Profiles
+        run: |
+          test -s app/src/release/generated/baselineProfiles/baseline-prof.txt
+          test -s app/src/release/generated/baselineProfiles/startup-prof.txt
 
       - name: Upload Baseline Profiles
         uses: actions/upload-artifact@v4
@@ -76,6 +82,11 @@ jobs:
           name: baseline-profiles
           path: app/src/release/generated/baselineProfiles
 
+      - name: Validate Downloaded Baseline Profiles
+        run: |
+          test -s app/src/release/generated/baselineProfiles/baseline-prof.txt
+          test -s app/src/release/generated/baselineProfiles/startup-prof.txt
+
       - name: Decode Keystore
         env:
           ENCODED_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
@@ -92,6 +103,13 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
+
+      - name: Verify Baseline Embedded In APK
+        run: |
+          APK_PATH="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+          unzip -l "$APK_PATH" > /tmp/apk-contents.txt
+          grep -q "assets/dexopt/baseline.prof" /tmp/apk-contents.txt
+          grep -q "assets/dexopt/baseline.profm" /tmp/apk-contents.txt
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

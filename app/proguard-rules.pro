@@ -58,3 +58,8 @@
 -dontwarn org.eclipse.jetty.npn.NextProtoNego$ServerProvider
 -dontwarn org.eclipse.jetty.npn.NextProtoNego
 -dontwarn reactor.blockhound.integration.**
+
+# JGit optional desktop/JVM integrations not available on Android runtime.
+-dontwarn java.lang.ProcessHandle
+-dontwarn javax.management.**
+-dontwarn org.ietf.jgss.**

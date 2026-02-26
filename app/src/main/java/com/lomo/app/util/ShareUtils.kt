@@ -28,17 +28,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import com.lomo.app.R
+import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
+import com.lomo.ui.text.scriptAwareFor
+import com.lomo.ui.text.scriptAwareTextAlign
 import java.io.File
 import java.io.FileOutputStream
 import java.time.Instant
@@ -52,6 +58,7 @@ object ShareUtils {
     private const val TAG = "ShareUtils"
     private const val MAX_SHARE_CONTENT_CHARS = 4000
     private const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
+    private const val MAX_SHARE_BODY_LINES = 60
     private val markdownTextProcessor =
         com.lomo.data.util
             .MemoTextProcessor()
@@ -369,6 +376,8 @@ object ShareUtils {
                 bodyText.length <= 180 -> 18.sp
                 else -> 16.sp
             }
+        val bodyLines = remember(bodyText) { buildShareBodyLines(bodyText) }
+        val secondaryTextColor = Color(palette.secondaryText)
 
         Box(
             modifier =
@@ -419,23 +428,27 @@ object ShareUtils {
                     }
 
                     if (!title.isNullOrBlank()) {
+                        val titleStyle =
+                            TextStyle(
+                                color = secondaryTextColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                lineHeight = 20.sp,
+                            ).scriptAwareFor(title)
                         Text(
                             text = title,
-                            color = Color(palette.secondaryText),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
+                            style = titleStyle,
+                            textAlign = title.scriptAwareTextAlign(),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    Text(
-                        text = bodyText,
-                        color = Color(palette.bodyText),
-                        fontSize = bodyTextSize,
-                        lineHeight = (bodyTextSize.value * 1.32f).sp,
-                        fontWeight = FontWeight.Medium,
+                    ShareCardBodyText(
+                        lines = bodyLines,
+                        bodyTextSize = bodyTextSize,
+                        palette = palette,
                     )
                 }
 
@@ -467,6 +480,110 @@ object ShareUtils {
                                 )
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    private enum class ShareBodyLineType {
+        Paragraph,
+        Bullet,
+        Quote,
+        Code,
+        Blank,
+    }
+
+    private data class ShareBodyLine(
+        val text: String,
+        val type: ShareBodyLineType,
+    )
+
+    @Composable
+    private fun ShareCardBodyText(
+        lines: List<ShareBodyLine>,
+        bodyTextSize: androidx.compose.ui.unit.TextUnit,
+        palette: ShareCardPalette,
+    ) {
+        val bodyColor = Color(palette.bodyText)
+        val secondaryColor = Color(palette.secondaryText)
+        val codeBackground = Color(palette.tagBg).copy(alpha = 0.16f)
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            lines.forEach { line ->
+                when (line.type) {
+                    ShareBodyLineType.Blank -> {
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    ShareBodyLineType.Code -> {
+                        val codeStyle =
+                            TextStyle(
+                                color = bodyColor.copy(alpha = 0.92f),
+                                fontSize = (bodyTextSize.value * 0.84f).sp,
+                                lineHeight = (bodyTextSize.value * 1.35f).sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.Monospace,
+                            ).scriptAwareFor(line.text)
+                        Box(
+                            modifier =
+                                Modifier
+                                    .fillMaxWidth()
+                                    .background(codeBackground, RoundedCornerShape(10.dp))
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = line.text,
+                                style = codeStyle,
+                                textAlign = line.text.scriptAwareTextAlign(),
+                            )
+                        }
+                    }
+
+                    ShareBodyLineType.Quote -> {
+                        val quoteStyle =
+                            TextStyle(
+                                color = secondaryColor,
+                                fontSize = (bodyTextSize.value * 0.9f).sp,
+                                lineHeight = (bodyTextSize.value * 1.45f).sp,
+                                fontWeight = FontWeight.Normal,
+                            ).scriptAwareFor(line.text)
+                        Text(
+                            text = line.text,
+                            style = quoteStyle,
+                            textAlign = line.text.scriptAwareTextAlign(),
+                            modifier = Modifier.padding(start = 2.dp),
+                        )
+                    }
+
+                    ShareBodyLineType.Bullet -> {
+                        val bulletStyle =
+                            TextStyle(
+                                color = bodyColor,
+                                fontSize = (bodyTextSize.value * 0.94f).sp,
+                                lineHeight = (bodyTextSize.value * 1.45f).sp,
+                                fontWeight = FontWeight.Medium,
+                            ).scriptAwareFor(line.text)
+                        Text(
+                            text = line.text,
+                            style = bulletStyle,
+                            textAlign = line.text.scriptAwareTextAlign(),
+                        )
+                    }
+
+                    ShareBodyLineType.Paragraph -> {
+                        val paragraphStyle =
+                            TextStyle(
+                                color = bodyColor,
+                                fontSize = bodyTextSize,
+                                lineHeight = (bodyTextSize.value * 1.48f).sp,
+                                fontWeight = FontWeight.Normal,
+                            ).scriptAwareFor(line.text)
+                        Text(
+                            text = line.text,
+                            style = paragraphStyle,
+                            textAlign = line.text.scriptAwareTextAlign(),
+                        )
                     }
                 }
             }
@@ -528,11 +645,64 @@ object ShareUtils {
         return stripped.trim()
     }
 
+    private fun buildShareBodyLines(bodyText: String): List<ShareBodyLine> {
+        if (bodyText.isBlank()) return listOf(ShareBodyLine("", ShareBodyLineType.Paragraph))
+
+        val lines = mutableListOf<ShareBodyLine>()
+        var previousWasBlank = false
+
+        bodyText
+            .replace('\t', ' ')
+            .lineSequence()
+            .forEach { rawLine ->
+                if (lines.size >= MAX_SHARE_BODY_LINES) return@forEach
+
+                val line = rawLine.trimEnd()
+                val trimmed = line.trimStart()
+
+                if (trimmed.isBlank()) {
+                    if (!previousWasBlank && lines.isNotEmpty()) {
+                        lines += ShareBodyLine("", ShareBodyLineType.Blank)
+                    }
+                    previousWasBlank = true
+                    return@forEach
+                }
+
+                val typedLine =
+                    when {
+                        line.startsWith("    ") -> {
+                            ShareBodyLine(trimmed, ShareBodyLineType.Code)
+                        }
+
+                        trimmed.startsWith("│ ") -> {
+                            ShareBodyLine(trimmed.removePrefix("│ ").trim().normalizeCjkMixedSpacingForDisplay(), ShareBodyLineType.Quote)
+                        }
+
+                        trimmed.startsWith("☐") || trimmed.startsWith("☑") || trimmed.startsWith("• ") -> {
+                            ShareBodyLine(trimmed.normalizeCjkMixedSpacingForDisplay(), ShareBodyLineType.Bullet)
+                        }
+
+                        else -> {
+                            ShareBodyLine(trimmed.normalizeCjkMixedSpacingForDisplay(), ShareBodyLineType.Paragraph)
+                        }
+                    }
+                lines += typedLine
+                previousWasBlank = false
+            }
+
+        if (lines.isEmpty()) return listOf(ShareBodyLine("", ShareBodyLineType.Paragraph))
+        return lines
+    }
+
     private fun renderMarkdownForShare(
         context: Context,
         content: String,
     ): String {
         var str = content.replace("\r\n", "\n")
+
+        // Preserve heading intent in plain-text rendering.
+        str = str.replace(Regex("(?m)^\\s*#{1,2}\\s+"), "✦ ")
+        str = str.replace(Regex("(?m)^\\s*#{3,6}\\s+"), "• ")
 
         // Convert fenced code blocks to indented plain text blocks.
         str =
@@ -563,7 +733,21 @@ object ShareUtils {
         str = str.replace(Regex("`([^`]+)`"), "「$1」")
         str = str.replace(Regex("~~(.*?)~~"), "$1")
         str = str.replace(Regex("(?m)^>\\s?"), "│ ")
+        str = str.replace(Regex("(?m)^\\s*\\d+\\.\\s+"), "• ")
+        str = str.replace(Regex("(?m)^\\s*[-+*]\\s+"), "• ")
         str = str.replace(Regex("(?m)^\\s*[-*_]{3,}\\s*$"), "")
+
+        str =
+            str
+                .lineSequence()
+                .joinToString("\n") { line ->
+                    val trimmedRight = line.trimEnd()
+                    if (trimmedRight.startsWith("    ")) {
+                        trimmedRight
+                    } else {
+                        trimmedRight.replace(Regex(" {2,}"), " ")
+                    }
+                }
         str = str.replace(Regex("\\n{3,}"), "\n\n")
         return str.trim()
     }
