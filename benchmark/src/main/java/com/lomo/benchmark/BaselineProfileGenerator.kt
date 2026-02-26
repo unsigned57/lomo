@@ -47,6 +47,8 @@ class BaselineProfileGenerator {
 
         baselineRule.collect(
             packageName = TARGET_PACKAGE,
+            maxIterations = 5,
+            stableIterations = 2,
             includeInStartupProfile = true,
         ) {
             pressHome()
@@ -58,7 +60,7 @@ class BaselineProfileGenerator {
             runLargeListScrollPath()
             val createdMarker = runCreateMemoPath()
             runEditMemoPath(createdMarker)
-            runDeleteTwoMemosPath(createdMarker)
+            runDeleteTwoMemosPath()
             runTrashRestoreAndPermanentDeletePath(createdMarker)
             runSearchPath()
         }
@@ -70,7 +72,7 @@ class BaselineProfileGenerator {
             "am broadcast -W " +
                 "-a ${BenchmarkSetupContract.ACTION_PREPARE} " +
                 "-n $TARGET_PACKAGE/$receiver " +
-                "--ei ${BenchmarkSetupContract.EXTRA_SEED_COUNT} 180 " +
+                "--ei ${BenchmarkSetupContract.EXTRA_SEED_COUNT} 80 " +
                 "--ez ${BenchmarkSetupContract.EXTRA_RESET} true"
         val result = device.executeShellCommand(shell)
         val success = result.contains("result=-1") && result.contains("prepared:")
@@ -83,8 +85,8 @@ class BaselineProfileGenerator {
     }
 
     private fun MacrobenchmarkScope.runLargeListScrollPath() {
-        repeat(8) { swipeUp() }
-        repeat(3) { swipeDown() }
+        repeat(3) { swipeUp() }
+        repeat(1) { swipeDown() }
     }
 
     private fun MacrobenchmarkScope.runCreateMemoPath(): String {
@@ -118,29 +120,49 @@ class BaselineProfileGenerator {
         waitMemoTextContainsOrThrow(createdMarker)
     }
 
-    private fun MacrobenchmarkScope.runDeleteTwoMemosPath(createdMarker: String) {
-        openMemoMenuByTextContainsOrThrow(listOf(createdMarker))
-        clickActionWithHorizontalFallbackOrThrow(DELETE_TEXT_CANDIDATES)
-        device.waitForIdle()
-        Thread.sleep(400L)
+    private fun MacrobenchmarkScope.runDeleteTwoMemosPath() {
+        scrollToTop()
+        deleteFirstVisibleMemoOrThrow()
+        Thread.sleep(260L)
 
-        openMemoMenuByTextContainsOrThrow(SEED_MEMO_TEXT_HINTS)
+        swipeDownTimes(3)
+        deleteFirstVisibleMemoOrThrow()
+        Thread.sleep(260L)
+    }
+
+    private fun MacrobenchmarkScope.deleteFirstVisibleMemoOrThrow() {
+        val target = findFirstVisibleMemoAnchor()
+        check(target != null) { "Cannot find first visible memo anchor for deletion" }
+        longPressObjectCenter(target.clickableAncestorOrSelf())
+        check(findAnyText(MENU_OPEN_TEXT_HINTS) != null) { "Memo menu did not open for first visible item" }
         clickActionWithHorizontalFallbackOrThrow(DELETE_TEXT_CANDIDATES)
         device.waitForIdle()
-        Thread.sleep(400L)
+    }
+
+    private fun MacrobenchmarkScope.findFirstVisibleMemoAnchor(): UiObject2? {
+        val minY = (device.displayHeight * 0.16f).toInt()
+        return DELETE_TARGET_TEXT_HINTS
+            .asSequence()
+            .flatMap { hint -> device.findObjects(By.textContains(hint)).asSequence() }
+            .filter { node ->
+                val b = node.visibleBounds
+                b.width() > 0 && b.height() > 0 && b.centerY() > minY
+            }.minByOrNull { it.visibleBounds.centerY() }
     }
 
     private fun MacrobenchmarkScope.runTrashRestoreAndPermanentDeletePath(createdMarker: String) {
         openTrashFromDrawerOrThrow()
 
-        openMemoMenuByTextContainsOrThrow(listOf(createdMarker))
-        clickByAnyTextOrThrow(RESTORE_TEXT_CANDIDATES)
+        openMemoMenuByTextContainsFastOrThrow(listOf(createdMarker))
+        clickActionWithHorizontalFallbackOrThrow(RESTORE_TEXT_CANDIDATES)
         device.waitForIdle()
-        Thread.sleep(400L)
+        Thread.sleep(220L)
 
-        openMemoMenuByTextContainsOrThrow(SEED_MEMO_TEXT_HINTS)
-        clickByAnyTextOrThrow(DELETE_PERMANENTLY_TEXT_CANDIDATES)
+        // Validate permanent-delete path on the current first visible trash item.
+        openFirstVisibleCardMenuByMoreOptionsOrThrow()
+        clickActionWithHorizontalFallbackOrThrow(DELETE_PERMANENTLY_TEXT_CANDIDATES)
         device.waitForIdle()
+        Thread.sleep(220L)
 
         device.pressBack()
         device.waitForIdle()
@@ -149,13 +171,49 @@ class BaselineProfileGenerator {
     private fun MacrobenchmarkScope.runSearchPath() {
         clickByAnyDescriptionOrThrow(SEARCH_DESC_CANDIDATES)
 
-        val editor = waitEditorFieldOrThrow()
-        editor.text = "perf-path-1"
-        device.waitForIdle()
+        enterSearchQueryOrThrow("perf-path-1")
+        dismissSearchKeyboard()
 
         repeat(2) { swipeUp() }
 
-        clickByAnyDescriptionOrThrow(CLEAR_SEARCH_DESC_CANDIDATES)
+        val clear = findAnyDescription(CLEAR_SEARCH_DESC_CANDIDATES)
+        if (clear != null) {
+            tapObjectCenter(clear.clickableAncestorOrSelf())
+            device.waitForIdle()
+        } else {
+            device.pressBack()
+            device.waitForIdle()
+        }
+    }
+
+    private fun MacrobenchmarkScope.enterSearchQueryOrThrow(query: String) {
+        repeat(2) { attempt ->
+            val editor = waitEditorFieldOrThrow()
+            tapObjectCenter(editor.clickableAncestorOrSelf())
+            device.waitForIdle()
+            runCatching {
+                editor.text = query
+                device.waitForIdle()
+            }.onFailure {
+                if (attempt == 1) {
+                    throw IllegalStateException("Cannot input search query: $query", it)
+                }
+                Thread.sleep(120L)
+                return@repeat
+            }
+
+            if (findAnyDescription(CLEAR_SEARCH_DESC_CANDIDATES) != null) return
+            Thread.sleep(120L)
+        }
+
+        error("Search query not applied: $query")
+    }
+
+    private fun MacrobenchmarkScope.dismissSearchKeyboard() {
+        // Search screen handles IME "Search" action by hiding keyboard.
+        device.pressEnter()
+        device.waitForIdle()
+        Thread.sleep(150L)
     }
 
     private fun MacrobenchmarkScope.runSettingsEnterBackPath() {
@@ -189,7 +247,7 @@ class BaselineProfileGenerator {
             Thread.sleep(220L)
         }
 
-        repeat(6) {
+        repeat(2) {
             if (findAnyDescription(MENU_DESC_CANDIDATES) != null) return
             val close = findAnyDescription(CLOSE_DESC_CANDIDATES)
             if (close != null) {
@@ -251,12 +309,12 @@ class BaselineProfileGenerator {
 
         if (tryOpenMemoMenu(candidates)) return
 
-        // Prefer scrolling down the list first (swipe up), then reverse once.
-        repeat(8) {
+        // Fast mode: minimal scroll attempts, fail immediately if still not found.
+        repeat(4) {
             swipeUp()
             if (tryOpenMemoMenu(candidates)) return
         }
-        repeat(5) {
+        repeat(2) {
             swipeDown()
             if (tryOpenMemoMenu(candidates)) return
         }
@@ -264,10 +322,48 @@ class BaselineProfileGenerator {
         error("Cannot open memo menu for text candidates: $candidates")
     }
 
+    private fun MacrobenchmarkScope.openMemoMenuByTextContainsFastOrThrow(candidates: List<String>) {
+        if (findAnyDescription(SETTINGS_DESC_CANDIDATES) != null) {
+            device.pressBack()
+            device.waitForIdle()
+            Thread.sleep(120L)
+        }
+
+        if (tryOpenMemoMenu(candidates)) return
+
+        // Faster path for trash page where item count is small.
+        repeat(2) {
+            swipeUp()
+            if (tryOpenMemoMenu(candidates)) return
+        }
+        swipeDown()
+        if (tryOpenMemoMenu(candidates)) return
+
+        error("Cannot quickly open memo menu for text candidates: $candidates")
+    }
+
     private fun MacrobenchmarkScope.tryOpenMemoMenu(candidates: List<String>): Boolean {
         val target = findAnyTextContains(candidates) ?: return false
         longPressObjectCenter(target.clickableAncestorOrSelf())
         return findAnyText(MENU_OPEN_TEXT_HINTS) != null
+    }
+
+    private fun MacrobenchmarkScope.openFirstVisibleCardMenuByMoreOptionsOrThrow() {
+        val minY = (device.displayHeight * 0.16f).toInt()
+        val target =
+            MORE_OPTIONS_DESC_CANDIDATES
+                .asSequence()
+                .flatMap { desc ->
+                    device.findObjects(By.desc(desc)).asSequence() +
+                        device.findObjects(By.descContains(desc)).asSequence()
+                }.filter { node ->
+                    val b = node.visibleBounds
+                    b.width() > 0 && b.height() > 0 && b.centerY() > minY
+                }.minByOrNull { it.visibleBounds.centerY() }
+        check(target != null) { "Cannot find first visible card menu button" }
+        tapObjectCenter(target.clickableAncestorOrSelf())
+        device.waitForIdle()
+        check(findAnyText(MENU_OPEN_TEXT_HINTS) != null) { "Card menu did not open from More options button" }
     }
 
     private fun MacrobenchmarkScope.waitEditorFieldOrThrow(): UiObject2 {
@@ -329,8 +425,8 @@ class BaselineProfileGenerator {
     private fun MacrobenchmarkScope.clickActionWithHorizontalFallbackOrThrow(candidates: List<String>) {
         if (clickMenuActionTarget(candidates)) return
 
-        // Memo action sheet can be horizontally scrollable on smaller screens.
-        repeat(4) {
+        // Fast mode: one horizontal retry only.
+        repeat(1) {
             swipeActionSheetLeft()
             if (clickMenuActionTarget(candidates)) return
         }
@@ -435,6 +531,14 @@ class BaselineProfileGenerator {
         device.waitForIdle()
     }
 
+    private fun MacrobenchmarkScope.scrollToTop() {
+        repeat(5) { swipeDown() }
+    }
+
+    private fun MacrobenchmarkScope.swipeDownTimes(times: Int) {
+        repeat(times.coerceAtLeast(0)) { swipeDown() }
+    }
+
     private fun MacrobenchmarkScope.swipeActionSheetLeft() {
         val y = (device.displayHeight * 0.78f).toInt()
         val startX = (device.displayWidth * 0.88f).toInt()
@@ -481,24 +585,26 @@ class BaselineProfileGenerator {
 
     companion object {
         private const val TARGET_PACKAGE = "com.lomo.app"
-        private const val SHORT_TIMEOUT_MS = 4_500L
-        private val MENU_DESC_CANDIDATES = listOf("Menu", "菜单")
-        private val SEARCH_DESC_CANDIDATES = listOf("Search", "搜索")
-        private val CLEAR_SEARCH_DESC_CANDIDATES = listOf("Clear search", "清除搜索")
-        private val CLOSE_DESC_CANDIDATES = listOf("Close", "关闭")
-        private val SETTINGS_DESC_CANDIDATES = listOf("Settings", "设置")
-        private val CANCEL_TEXT_CANDIDATES = listOf("Cancel", "取消")
-        private val NAVIGATE_UP_DESC_CANDIDATES = listOf("Navigate up", "返回", "Back")
-        private val FAB_DESC_CANDIDATES = listOf("New Memo", "新建备忘录")
-        private val SEND_DESC_CANDIDATES = listOf("Send", "发送")
-        private val EDIT_TEXT_CANDIDATES = listOf("Edit", "编辑")
-        private val DELETE_TEXT_CANDIDATES = listOf("Delete", "删除")
-        private val TRASH_TEXT_CANDIDATES = listOf("Trash", "回收站")
-        private val RESTORE_TEXT_CANDIDATES = listOf("Restore", "恢复")
-        private val DELETE_PERMANENTLY_TEXT_CANDIDATES = listOf("Delete Permanently", "永久删除")
-        private val MENU_ACTION_TEXT_HINTS = listOf("Copy", "复制", "Edit", "编辑", "Delete", "删除")
+        private const val SHORT_TIMEOUT_MS = 2_200L
+        private val MENU_DESC_CANDIDATES = listOf("Menu")
+        private val SEARCH_DESC_CANDIDATES = listOf("Search")
+        private val CLEAR_SEARCH_DESC_CANDIDATES = listOf("Clear search")
+        private val CLOSE_DESC_CANDIDATES = listOf("Close")
+        private val SETTINGS_DESC_CANDIDATES = listOf("Settings")
+        private val CANCEL_TEXT_CANDIDATES = listOf("Cancel")
+        private val NAVIGATE_UP_DESC_CANDIDATES = listOf("Navigate up", "Back")
+        private val FAB_DESC_CANDIDATES = listOf("New Memo")
+        private val SEND_DESC_CANDIDATES = listOf("Send")
+        private val EDIT_TEXT_CANDIDATES = listOf("Edit")
+        private val DELETE_TEXT_CANDIDATES = listOf("Delete")
+        private val TRASH_TEXT_CANDIDATES = listOf("Trash")
+        private val RESTORE_TEXT_CANDIDATES = listOf("Restore")
+        private val DELETE_PERMANENTLY_TEXT_CANDIDATES = listOf("Delete Permanently")
+        private val MORE_OPTIONS_DESC_CANDIDATES = listOf("More options")
+        private val MENU_ACTION_TEXT_HINTS = listOf("Copy", "Edit", "Delete")
         private val MENU_OPEN_TEXT_HINTS =
-            MENU_ACTION_TEXT_HINTS + listOf("Restore", "恢复", "Delete Permanently", "永久删除")
+            MENU_ACTION_TEXT_HINTS + listOf("Restore", "Delete Permanently")
+        private val DELETE_TARGET_TEXT_HINTS = listOf("BPCREATE", "Benchmark memo", "perf-path-")
         private val SEED_MEMO_TEXT_HINTS = listOf("Benchmark memo", "perf-path-")
     }
 }
