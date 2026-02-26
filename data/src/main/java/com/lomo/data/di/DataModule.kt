@@ -9,9 +9,11 @@ import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
+import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
@@ -114,6 +116,27 @@ object DataModule {
     @Provides
     @Singleton
     fun provideMediaRepository(impl: MediaRepositoryImpl): MediaRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideGitSyncRepositoryImpl(
+        gitSyncEngine: com.lomo.data.git.GitSyncEngine,
+        credentialStore: com.lomo.data.git.GitCredentialStore,
+        dataStore: com.lomo.data.local.datastore.LomoDataStore,
+        memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
+        safGitMirrorBridge: com.lomo.data.git.SafGitMirrorBridge,
+    ): GitSyncRepositoryImpl =
+        GitSyncRepositoryImpl(
+            gitSyncEngine,
+            credentialStore,
+            dataStore,
+            memoSynchronizer,
+            safGitMirrorBridge,
+        )
+
+    @Provides
+    @Singleton
+    fun provideGitSyncRepository(impl: GitSyncRepositoryImpl): GitSyncRepository = impl
 
     @Provides
     @Singleton

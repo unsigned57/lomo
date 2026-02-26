@@ -9,8 +9,13 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.app.BuildConfig
+import com.lomo.data.worker.GitSyncWorker
 import com.lomo.data.worker.SyncWorker
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.time.Duration
 import javax.inject.Inject
@@ -20,6 +25,7 @@ class LomoApplication :
     Application(),
     Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
@@ -32,10 +38,19 @@ class LomoApplication :
             Timber.plant(Timber.DebugTree())
         }
 
-        try {
-            schedulePeriodicSync()
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to schedule sync")
+        // Defer non-critical worker registration off the main thread.
+        appScope.launch {
+            try {
+                schedulePeriodicSync()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to schedule sync")
+            }
+
+            try {
+                scheduleGitSync()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to schedule git sync")
+            }
         }
     }
 
@@ -57,6 +72,25 @@ class LomoApplication :
                 SyncWorker.WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
                 syncRequest,
+            )
+    }
+
+    private fun scheduleGitSync() {
+        val gitSyncRequest =
+            PeriodicWorkRequestBuilder<GitSyncWorker>(Duration.ofHours(1))
+                .setConstraints(
+                    Constraints
+                        .Builder()
+                        .setRequiredNetworkType(NetworkType.CONNECTED)
+                        .build(),
+                ).build()
+
+        WorkManager
+            .getInstance(this)
+            .enqueueUniquePeriodicWork(
+                GitSyncWorker.WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                gitSyncRequest,
             )
     }
 }

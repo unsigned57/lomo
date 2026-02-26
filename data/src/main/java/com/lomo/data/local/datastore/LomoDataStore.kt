@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lomo.data.util.PreferenceKeys
@@ -62,6 +63,13 @@ class LomoDataStore
             val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
             val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
             val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
+            val GIT_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ENABLED)
+            val GIT_REMOTE_URL = stringPreferencesKey(PreferenceKeys.GIT_REMOTE_URL)
+            val GIT_AUTHOR_NAME = stringPreferencesKey(PreferenceKeys.GIT_AUTHOR_NAME)
+            val GIT_AUTHOR_EMAIL = stringPreferencesKey(PreferenceKeys.GIT_AUTHOR_EMAIL)
+            val GIT_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_ENABLED)
+            val GIT_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_INTERVAL)
+            val GIT_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.GIT_LAST_SYNC_TIME)
         }
 
         // Storage Settings
@@ -455,5 +463,106 @@ class LomoDataStore
                     prefs[Keys.LAST_APP_VERSION] = version
                 }
             }
+        }
+
+        // Git Sync Settings
+        val gitSyncEnabled: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_SYNC_ENABLED]
+                        ?: PreferenceKeys.Defaults.GIT_SYNC_ENABLED
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncEnabled flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_SYNC_ENABLED)
+                }
+
+        val gitRemoteUrl: Flow<String?> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.GIT_REMOTE_URL] }
+                .catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitRemoteUrl flow", e)
+                    emit(null)
+                }
+
+        val gitAuthorName: Flow<String> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_AUTHOR_NAME]
+                        ?: PreferenceKeys.Defaults.GIT_AUTHOR_NAME
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitAuthorName flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_AUTHOR_NAME)
+                }
+
+        val gitAuthorEmail: Flow<String> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_AUTHOR_EMAIL]
+                        ?: PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitAuthorEmail flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL)
+                }
+
+        val gitAutoSyncEnabled: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_AUTO_SYNC_ENABLED]
+                        ?: PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitAutoSyncEnabled flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED)
+                }
+
+        val gitAutoSyncInterval: Flow<String> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_AUTO_SYNC_INTERVAL]
+                        ?: PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitAutoSyncInterval flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL)
+                }
+
+        val gitLastSyncTime: Flow<Long> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.GIT_LAST_SYNC_TIME] ?: 0L }
+                .catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitLastSyncTime flow", e)
+                    emit(0L)
+                }
+
+        suspend fun updateGitSyncEnabled(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ENABLED] = enabled }
+        }
+
+        suspend fun updateGitRemoteUrl(url: String?) {
+            dataStore.edit { prefs ->
+                if (url.isNullOrBlank()) {
+                    prefs.remove(Keys.GIT_REMOTE_URL)
+                } else {
+                    prefs[Keys.GIT_REMOTE_URL] = url
+                }
+            }
+        }
+
+        suspend fun updateGitAuthorName(name: String) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_AUTHOR_NAME] = name }
+        }
+
+        suspend fun updateGitAuthorEmail(email: String) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_AUTHOR_EMAIL] = email }
+        }
+
+        suspend fun updateGitAutoSyncEnabled(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_AUTO_SYNC_ENABLED] = enabled }
+        }
+
+        suspend fun updateGitAutoSyncInterval(interval: String) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_AUTO_SYNC_INTERVAL] = interval }
+        }
+
+        suspend fun updateGitLastSyncTime(timestamp: Long) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_LAST_SYNC_TIME] = timestamp }
         }
     }

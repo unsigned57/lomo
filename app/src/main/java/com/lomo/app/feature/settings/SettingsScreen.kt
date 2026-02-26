@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import android.content.Intent
+import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
@@ -26,11 +27,15 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -60,6 +65,7 @@ import androidx.core.os.LocaleListCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.domain.model.GitSyncState
 import com.lomo.ui.component.dialog.SelectionDialog
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
@@ -94,6 +100,16 @@ fun SettingsScreen(
     val lanShareDeviceName by viewModel.lanShareDeviceName.collectAsStateWithLifecycle()
     val pairingCodeError by viewModel.pairingCodeError.collectAsStateWithLifecycle()
 
+    val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
+    val gitRemoteUrl by viewModel.gitRemoteUrl.collectAsStateWithLifecycle()
+    val gitPatConfigured by viewModel.gitPatConfigured.collectAsStateWithLifecycle()
+    val gitAuthorName by viewModel.gitAuthorName.collectAsStateWithLifecycle()
+    val gitAuthorEmail by viewModel.gitAuthorEmail.collectAsStateWithLifecycle()
+    val gitAutoSyncEnabled by viewModel.gitAutoSyncEnabled.collectAsStateWithLifecycle()
+    val gitAutoSyncInterval by viewModel.gitAutoSyncInterval.collectAsStateWithLifecycle()
+    val gitLastSyncTime by viewModel.gitLastSyncTime.collectAsStateWithLifecycle()
+    val gitSyncState by viewModel.gitSyncState.collectAsStateWithLifecycle()
+
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val haptic = LocalAppHapticFeedback.current
@@ -112,12 +128,24 @@ fun SettingsScreen(
     var showDeviceNameDialog by remember { mutableStateOf(false) }
     var deviceNameInput by remember { mutableStateOf("") }
 
+    var showGitRemoteUrlDialog by remember { mutableStateOf(false) }
+    var gitRemoteUrlInput by remember { mutableStateOf("") }
+    var showGitPatDialog by remember { mutableStateOf(false) }
+    var gitPatInput by remember { mutableStateOf("") }
+    var gitPatVisible by remember { mutableStateOf(false) }
+    var showGitAuthorNameDialog by remember { mutableStateOf(false) }
+    var gitAuthorNameInput by remember { mutableStateOf("") }
+    var showGitAuthorEmailDialog by remember { mutableStateOf(false) }
+    var gitAuthorEmailInput by remember { mutableStateOf("") }
+    var showGitSyncIntervalDialog by remember { mutableStateOf(false) }
+
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
     val themeModes = listOf("system", "light", "dark")
     val shareCardStyles = listOf("warm", "clean", "dark")
     val filenameFormats = listOf("yyyy_MM_dd", "yyyy-MM-dd", "yyyy.MM.dd", "yyyyMMdd", "MM-dd-yyyy")
     val timestampFormats = listOf("HH:mm:ss", "HH:mm")
+    val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
 
     val themeModeLabels =
         mapOf(
@@ -137,6 +165,14 @@ fun SettingsScreen(
             "en" to stringResource(R.string.settings_english),
             "zh-CN" to stringResource(R.string.settings_simplified_chinese),
             "zh-Hans-CN" to stringResource(R.string.settings_simplified_chinese),
+        )
+    val gitSyncIntervalLabels =
+        mapOf(
+            "30min" to stringResource(R.string.settings_git_sync_interval_30min),
+            "1h" to stringResource(R.string.settings_git_sync_interval_1h),
+            "6h" to stringResource(R.string.settings_git_sync_interval_6h),
+            "12h" to stringResource(R.string.settings_git_sync_interval_12h),
+            "24h" to stringResource(R.string.settings_git_sync_interval_24h),
         )
 
     val currentLocales = AppCompatDelegate.getApplicationLocales()
@@ -382,6 +418,96 @@ fun SettingsScreen(
                         checked = shareCardShowBrand,
                         onCheckedChange = { viewModel.updateShareCardShowBrand(it) },
                     )
+                }
+
+                SettingsGroup(title = stringResource(R.string.settings_group_git_sync)) {
+                    SwitchPreferenceItem(
+                        title = stringResource(R.string.settings_git_sync_enable),
+                        subtitle = stringResource(R.string.settings_git_sync_enable_subtitle),
+                        icon = Icons.Outlined.Sync,
+                        checked = gitSyncEnabled,
+                        onCheckedChange = { viewModel.updateGitSyncEnabled(it) },
+                    )
+                    if (gitSyncEnabled) {
+                        SettingsDivider()
+                        PreferenceItem(
+                            title = stringResource(R.string.settings_git_remote_url),
+                            subtitle = gitRemoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
+                            icon = Icons.Outlined.Link,
+                            onClick = {
+                                gitRemoteUrlInput = gitRemoteUrl
+                                showGitRemoteUrlDialog = true
+                            },
+                        )
+                        SettingsDivider()
+                        PreferenceItem(
+                            title = stringResource(R.string.settings_git_pat),
+                            subtitle =
+                                stringResource(
+                                    if (gitPatConfigured) {
+                                        R.string.settings_git_pat_configured
+                                    } else {
+                                        R.string.settings_git_pat_not_set
+                                    },
+                                ),
+                            icon = Icons.Default.Lock,
+                            onClick = {
+                                gitPatInput = ""
+                                gitPatVisible = false
+                                showGitPatDialog = true
+                            },
+                        )
+                        SettingsDivider()
+                        PreferenceItem(
+                            title = stringResource(R.string.settings_git_author_name),
+                            subtitle = gitAuthorName.ifBlank { stringResource(R.string.settings_not_set) },
+                            icon = Icons.Outlined.Person,
+                            onClick = {
+                                gitAuthorNameInput = gitAuthorName
+                                showGitAuthorNameDialog = true
+                            },
+                        )
+                        SettingsDivider()
+                        PreferenceItem(
+                            title = stringResource(R.string.settings_git_author_email),
+                            subtitle = gitAuthorEmail.ifBlank { stringResource(R.string.settings_not_set) },
+                            icon = Icons.Outlined.Email,
+                            onClick = {
+                                gitAuthorEmailInput = gitAuthorEmail
+                                showGitAuthorEmailDialog = true
+                            },
+                        )
+                        SettingsDivider()
+                        SwitchPreferenceItem(
+                            title = stringResource(R.string.settings_git_auto_sync),
+                            subtitle = stringResource(R.string.settings_git_auto_sync_subtitle),
+                            icon = Icons.Outlined.Schedule,
+                            checked = gitAutoSyncEnabled,
+                            onCheckedChange = { viewModel.updateGitAutoSyncEnabled(it) },
+                        )
+                        if (gitAutoSyncEnabled) {
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_sync_interval),
+                                subtitle = gitSyncIntervalLabels[gitAutoSyncInterval] ?: gitAutoSyncInterval,
+                                icon = Icons.Outlined.Schedule,
+                                onClick = { showGitSyncIntervalDialog = true },
+                            )
+                        }
+                        SettingsDivider()
+                        PreferenceItem(
+                            title = stringResource(R.string.settings_git_sync_now),
+                            subtitle = gitSyncNowSubtitle(gitSyncState, gitLastSyncTime),
+                            icon = Icons.Outlined.Sync,
+                            onClick = {
+                                if (gitSyncState !is GitSyncState.Syncing &&
+                                    gitSyncState !is GitSyncState.Initializing
+                                ) {
+                                    viewModel.triggerGitSyncNow()
+                                }
+                            },
+                        )
+                    }
                 }
 
                 SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
@@ -662,7 +788,198 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (showGitRemoteUrlDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitRemoteUrlDialog = false },
+            title = { Text(stringResource(R.string.settings_git_remote_url)) },
+            text = {
+                OutlinedTextField(
+                    value = gitRemoteUrlInput,
+                    onValueChange = { gitRemoteUrlInput = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateGitRemoteUrl(gitRemoteUrlInput.trim())
+                        showGitRemoteUrlDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitRemoteUrlDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (showGitPatDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitPatDialog = false },
+            title = { Text(stringResource(R.string.settings_git_pat_dialog_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = stringResource(R.string.settings_git_pat_dialog_message),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = gitPatInput,
+                        onValueChange = { gitPatInput = it },
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.settings_git_pat_hint)) },
+                        visualTransformation =
+                            if (gitPatVisible) {
+                                VisualTransformation.None
+                            } else {
+                                PasswordVisualTransformation()
+                            },
+                        trailingIcon = {
+                            TextButton(onClick = { gitPatVisible = !gitPatVisible }) {
+                                Text(
+                                    text =
+                                        if (gitPatVisible) {
+                                            stringResource(R.string.share_password_hide)
+                                        } else {
+                                            stringResource(R.string.share_password_show)
+                                        },
+                                )
+                            }
+                        },
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateGitPat(gitPatInput.trim())
+                        showGitPatDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitPatDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (showGitAuthorNameDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitAuthorNameDialog = false },
+            title = { Text(stringResource(R.string.settings_git_author_name)) },
+            text = {
+                OutlinedTextField(
+                    value = gitAuthorNameInput,
+                    onValueChange = { gitAuthorNameInput = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.settings_git_author_name_hint)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateGitAuthorName(gitAuthorNameInput.trim())
+                        showGitAuthorNameDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitAuthorNameDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (showGitAuthorEmailDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitAuthorEmailDialog = false },
+            title = { Text(stringResource(R.string.settings_git_author_email)) },
+            text = {
+                OutlinedTextField(
+                    value = gitAuthorEmailInput,
+                    onValueChange = { gitAuthorEmailInput = it },
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.settings_git_author_email_hint)) },
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.updateGitAuthorEmail(gitAuthorEmailInput.trim())
+                        showGitAuthorEmailDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitAuthorEmailDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    if (showGitSyncIntervalDialog) {
+        SelectionDialog(
+            title = stringResource(R.string.settings_git_select_sync_interval),
+            options = gitSyncIntervals,
+            currentSelection = gitAutoSyncInterval,
+            onDismiss = { showGitSyncIntervalDialog = false },
+            onSelect = {
+                viewModel.updateGitAutoSyncInterval(it)
+                showGitSyncIntervalDialog = false
+            },
+            labelProvider = { gitSyncIntervalLabels[it] ?: it },
+        )
+    }
 }
+
+@Composable
+private fun gitSyncNowSubtitle(state: GitSyncState, lastSyncTime: Long): String =
+    when (state) {
+        is GitSyncState.Syncing -> stringResource(R.string.settings_git_sync_status_syncing)
+        is GitSyncState.Initializing -> stringResource(R.string.settings_git_sync_status_initializing)
+        is GitSyncState.Error ->
+            stringResource(
+                R.string.settings_git_sync_status_error,
+                localizeGitSyncErrorMessage(state.message),
+            )
+        is GitSyncState.NotConfigured -> stringResource(R.string.settings_git_sync_status_not_configured)
+        else -> {
+            if (lastSyncTime > 0) {
+                val relative = DateUtils.getRelativeTimeSpanString(
+                    lastSyncTime,
+                    System.currentTimeMillis(),
+                    DateUtils.MINUTE_IN_MILLIS,
+                ).toString()
+                stringResource(R.string.settings_git_sync_now_subtitle, relative)
+            } else {
+                stringResource(R.string.settings_git_sync_never)
+            }
+        }
+    }
+
+@Composable
+private fun localizeGitSyncErrorMessage(message: String): String =
+    if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) {
+        stringResource(R.string.settings_git_sync_direct_path_required)
+    } else {
+        message
+    }
 
 @Composable
 private fun SettingsDivider() {

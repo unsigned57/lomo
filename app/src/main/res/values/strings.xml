@@ -217,4 +217,40 @@
     <string name="settings_github">GitHub Repository</string>
     <string name="settings_github_subtitle">View source code on GitHub</string>
 
+    <!-- Git Sync -->
+    <string name="settings_group_git_sync">Git Sync</string>
+    <string name="settings_git_sync_enable">Enable Git Sync</string>
+    <string name="settings_git_sync_enable_subtitle">Sync memos to a GitHub repository</string>
+    <string name="settings_git_remote_url">Repository URL</string>
+    <string name="settings_git_remote_url_hint">https://github.com/user/repo.git</string>
+    <string name="settings_git_pat">Personal Access Token</string>
+    <string name="settings_git_pat_configured">Configured (tap to update)</string>
+    <string name="settings_git_pat_not_set">Not configured</string>
+    <string name="settings_git_pat_dialog_title">Set Personal Access Token</string>
+    <string name="settings_git_pat_dialog_message">Create a token at GitHub Settings > Developer settings > Personal access tokens. Requires repo scope.</string>
+    <string name="settings_git_pat_hint">ghp_...</string>
+    <string name="settings_git_author_name">Author Name</string>
+    <string name="settings_git_author_name_hint">Name for git commits</string>
+    <string name="settings_git_author_email">Author Email</string>
+    <string name="settings_git_author_email_hint">Email for git commits</string>
+    <string name="settings_git_auto_sync">Auto Sync</string>
+    <string name="settings_git_auto_sync_subtitle">Automatically sync in the background</string>
+    <string name="settings_git_sync_interval">Sync Interval</string>
+    <string name="settings_git_select_sync_interval">Select Sync Interval</string>
+    <string name="settings_git_sync_now">Sync Now</string>
+    <string name="settings_git_sync_now_subtitle">Last synced: %1$s</string>
+    <string name="settings_git_sync_never">Never synced</string>
+    <string name="settings_git_sync_status_idle">Idle</string>
+    <string name="settings_git_sync_status_syncing">Syncing...</string>
+    <string name="settings_git_sync_status_success">Synced</string>
+    <string name="settings_git_sync_status_error">Error: %1$s</string>
+    <string name="settings_git_sync_status_not_configured">Not configured</string>
+    <string name="settings_git_sync_status_initializing">Initializing...</string>
+    <string name="settings_git_sync_direct_path_required">Git sync requires direct path mode. Please set memo directory using a file path instead of SAF.</string>
+    <string name="settings_git_sync_interval_30min">30 minutes</string>
+    <string name="settings_git_sync_interval_1h">1 hour</string>
+    <string name="settings_git_sync_interval_6h">6 hours</string>
+    <string name="settings_git_sync_interval_12h">12 hours</string>
+    <string name="settings_git_sync_interval_24h">24 hours</string>
+
 </resources>

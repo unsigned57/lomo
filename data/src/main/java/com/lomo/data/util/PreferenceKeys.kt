@@ -35,6 +35,15 @@ object PreferenceKeys {
     const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
     const val LAST_APP_VERSION = "last_app_version"
 
+    // Git Sync
+    const val GIT_SYNC_ENABLED = "git_sync_enabled"
+    const val GIT_REMOTE_URL = "git_remote_url"
+    const val GIT_AUTHOR_NAME = "git_author_name"
+    const val GIT_AUTHOR_EMAIL = "git_author_email"
+    const val GIT_AUTO_SYNC_ENABLED = "git_auto_sync_enabled"
+    const val GIT_AUTO_SYNC_INTERVAL = "git_auto_sync_interval"
+    const val GIT_LAST_SYNC_TIME = "git_last_sync_time"
+
     // Default values
     object Defaults {
         const val DATE_FORMAT = "yyyy-MM-dd"
@@ -52,5 +61,12 @@ object PreferenceKeys {
         // Storage Defaults
         const val STORAGE_FILENAME_FORMAT = "yyyy_MM_dd"
         const val STORAGE_TIMESTAMP_FORMAT = "HH:mm:ss"
+
+        // Git Sync Defaults
+        const val GIT_SYNC_ENABLED = false
+        const val GIT_AUTO_SYNC_ENABLED = false
+        const val GIT_AUTO_SYNC_INTERVAL = "1h"
+        const val GIT_AUTHOR_NAME = "Lomo"
+        const val GIT_AUTHOR_EMAIL = ""
     }
 }

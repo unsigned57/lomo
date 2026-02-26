@@ -59,6 +59,10 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.kotlinx.serialization.json)
 
+    // Git sync
+    implementation(libs.jgit)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // Logging
     implementation(libs.timber)
 

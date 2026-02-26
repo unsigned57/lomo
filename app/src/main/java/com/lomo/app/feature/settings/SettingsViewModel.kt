@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.data.share.ShareServiceManager
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,6 +23,7 @@ class SettingsViewModel
     constructor(
         private val settings: SettingsRepository,
         private val shareServiceManager: ShareServiceManager,
+        private val gitSyncRepo: GitSyncRepository,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
             settings
@@ -282,5 +285,115 @@ class SettingsViewModel
             viewModelScope.launch {
                 shareServiceManager.setLanShareDeviceName(deviceName)
             }
+        }
+
+        // Git Sync
+        val gitSyncEnabled: StateFlow<Boolean> =
+            gitSyncRepo
+                .isGitSyncEnabled()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_SYNC_ENABLED,
+                )
+
+        val gitRemoteUrl: StateFlow<String> =
+            gitSyncRepo
+                .getRemoteUrl()
+                .map { it ?: "" }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+
+        private val _gitPatConfigured = MutableStateFlow(false)
+        val gitPatConfigured: StateFlow<Boolean> = _gitPatConfigured.asStateFlow()
+
+        val gitAuthorName: StateFlow<String> =
+            gitSyncRepo
+                .getAuthorName()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_AUTHOR_NAME,
+                )
+
+        val gitAuthorEmail: StateFlow<String> =
+            gitSyncRepo
+                .getAuthorEmail()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL,
+                )
+
+        val gitAutoSyncEnabled: StateFlow<Boolean> =
+            gitSyncRepo
+                .getAutoSyncEnabled()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED,
+                )
+
+        val gitAutoSyncInterval: StateFlow<String> =
+            gitSyncRepo
+                .getAutoSyncInterval()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL,
+                )
+
+        val gitLastSyncTime: StateFlow<Long> =
+            gitSyncRepo
+                .getLastSyncTime()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+        val gitSyncState: StateFlow<GitSyncState> =
+            gitSyncRepo
+                .syncState()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    GitSyncState.Idle,
+                )
+
+        init {
+            viewModelScope.launch {
+                _gitPatConfigured.value = gitSyncRepo.getToken() != null
+            }
+        }
+
+        fun updateGitSyncEnabled(enabled: Boolean) {
+            viewModelScope.launch { gitSyncRepo.setGitSyncEnabled(enabled) }
+        }
+
+        fun updateGitRemoteUrl(url: String) {
+            viewModelScope.launch { gitSyncRepo.setRemoteUrl(url) }
+        }
+
+        fun updateGitPat(token: String) {
+            viewModelScope.launch {
+                gitSyncRepo.setToken(token)
+                _gitPatConfigured.value = token.isNotBlank()
+            }
+        }
+
+        fun updateGitAuthorName(name: String) {
+            viewModelScope.launch { gitSyncRepo.setAuthorInfo(name, gitAuthorEmail.value) }
+        }
+
+        fun updateGitAuthorEmail(email: String) {
+            viewModelScope.launch { gitSyncRepo.setAuthorInfo(gitAuthorName.value, email) }
+        }
+
+        fun updateGitAutoSyncEnabled(enabled: Boolean) {
+            viewModelScope.launch { gitSyncRepo.setAutoSyncEnabled(enabled) }
+        }
+
+        fun updateGitAutoSyncInterval(interval: String) {
+            viewModelScope.launch { gitSyncRepo.setAutoSyncInterval(interval) }
+        }
+
+        fun triggerGitSyncNow() {
+            viewModelScope.launch { gitSyncRepo.sync() }
         }
     }
