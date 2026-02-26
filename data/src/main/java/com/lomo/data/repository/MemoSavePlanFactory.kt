@@ -3,9 +3,10 @@ package com.lomo.data.repository
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 data class MemoSavePlan(
@@ -38,13 +39,13 @@ class MemoSavePlanFactory
             val instant = Instant.ofEpochMilli(timestamp)
             val zoneId = ZoneId.systemDefault()
             val filename =
-                DateTimeFormatter
-                    .ofPattern(filenameFormat)
+                StorageFilenameFormats
+                    .formatter(filenameFormat)
                     .withZone(zoneId)
                     .format(instant) + ".md"
             val timeString =
-                DateTimeFormatter
-                    .ofPattern(timestampFormat)
+                StorageTimestampFormats
+                    .formatter(timestampFormat)
                     .withZone(zoneId)
                     .format(instant)
             val dateString = filename.removeSuffix(".md")

@@ -69,6 +69,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import com.lomo.ui.component.dialog.SelectionDialog
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
@@ -146,8 +148,8 @@ fun SettingsScreen(
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
     val themeModes = listOf("system", "light", "dark")
     val shareCardStyles = listOf("warm", "clean", "dark")
-    val filenameFormats = listOf("yyyy_MM_dd", "yyyy-MM-dd", "yyyy.MM.dd", "yyyyMMdd", "MM-dd-yyyy")
-    val timestampFormats = listOf("HH:mm:ss", "HH:mm")
+    val filenameFormats = StorageFilenameFormats.supportedPatterns
+    val timestampFormats = StorageTimestampFormats.supportedPatterns
     val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
 
     val themeModeLabels =

@@ -15,6 +15,8 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import kotlin.math.abs
 import kotlinx.coroutines.flow.first
 import java.time.Instant
@@ -240,13 +242,13 @@ class MemoMutationHandler
             val zoneId = ZoneId.systemDefault()
             val instant = Instant.ofEpochMilli(timestamp)
             val dateString =
-                DateTimeFormatter
-                    .ofPattern(filenameFormat)
+                StorageFilenameFormats
+                    .formatter(filenameFormat)
                     .withZone(zoneId)
                     .format(instant)
             val timeString =
-                DateTimeFormatter
-                    .ofPattern(timestampFormat)
+                StorageTimestampFormats
+                    .formatter(timestampFormat)
                     .withZone(zoneId)
                     .format(instant)
             val contentHash = abs(content.trim().hashCode()).toString(16)
@@ -359,8 +361,8 @@ class MemoMutationHandler
 
         private suspend fun formatMemoTime(timestamp: Long): String {
             val timestampFormat = dataStore.storageTimestampFormat.first()
-            return DateTimeFormatter
-                .ofPattern(timestampFormat)
+            return StorageTimestampFormats
+                .formatter(timestampFormat)
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.ofEpochMilli(timestamp))
         }

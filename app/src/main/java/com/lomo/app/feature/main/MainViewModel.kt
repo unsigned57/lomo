@@ -13,6 +13,7 @@ import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.validation.MemoContentValidator
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
@@ -142,9 +143,7 @@ class MainViewModel
                     memoCountByDateRaw
                         .asSequence()
                         .mapNotNull { (dateStr, count) ->
-                            runCatching { LocalDate.parse(dateStr) }
-                                .getOrNull()
-                                ?.let { parsed -> parsed to count }
+                            StorageFilenameFormats.parseOrNull(dateStr)?.let { parsed -> parsed to count }
                         }.toMap()
 
                 SidebarUiState(

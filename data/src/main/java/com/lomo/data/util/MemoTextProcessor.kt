@@ -1,5 +1,6 @@
 package com.lomo.data.util
 
+import com.lomo.domain.util.StorageTimestampFormats
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -9,10 +10,6 @@ class MemoTextProcessor
     @Inject
     constructor() {
         companion object {
-            // Permissive regex: Matches HH:mm OR HH:mm:ss
-            private val MEMO_BLOCK_END = Regex("^\\s*-\\s+\\d{1,2}:\\d{2}(?::\\d{2})?(?:\\s|$).*")
-            private val MEMO_BLOCK_HEADER = Regex("^\\s*-\\s+(\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\s+(.*))?$")
-            private val MEMO_ID_PATTERN = Regex("^(.*)_(\\d{1,2}:\\d{2}(?::\\d{2})?)_([0-9a-f]+)(?:_(\\d+))?$")
             private val TAG_PATTERN = Regex("(?:^|\\s)#([\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*)")
             private val MD_IMAGE_PATTERN = Regex("!\\[.*?\\]\\((.*?)\\)")
             private val WIKI_IMAGE_PATTERN = Regex("!\\[\\[(.*?)\\]\\]")
@@ -71,14 +68,13 @@ class MemoTextProcessor
             }
 
             // 3. Last fallback: timestamp-only match.
-            // We try HH:mm:ss first, then HH:mm
             val zone = ZoneId.systemDefault()
-            val formats = listOf("HH:mm:ss", "HH:mm")
+            val formats = StorageTimestampFormats.supportedPatterns
 
             for (fmt in formats) {
                 val timestampPart =
-                    DateTimeFormatter
-                        .ofPattern(fmt)
+                    StorageTimestampFormats
+                        .formatter(fmt)
                         .withZone(zone)
                         .format(Instant.ofEpochMilli(timestamp))
 
@@ -277,8 +273,8 @@ class MemoTextProcessor
             val blocks = mutableListOf<MemoBlock>()
             var index = 0
             while (index < lines.size) {
-                val headerMatch = MEMO_BLOCK_HEADER.matchEntire(lines[index])
-                if (headerMatch == null) {
+                val header = StorageTimestampFormats.parseMemoHeaderLine(lines[index])
+                if (header == null) {
                     index++
                     continue
                 }
@@ -286,13 +282,12 @@ class MemoTextProcessor
                 val start = index
                 var end = index
                 index++
-                while (index < lines.size && !MEMO_BLOCK_END.matches(lines[index])) {
+                while (index < lines.size && !isMemoHeaderLine(lines[index])) {
                     end = index
                     index++
                 }
 
-                val firstLineContent = headerMatch.groupValues.getOrNull(2).orEmpty()
-                val contentBuilder = StringBuilder(firstLineContent)
+                val contentBuilder = StringBuilder(header.contentPart)
                 for (lineIndex in (start + 1)..end) {
                     if (lineIndex !in lines.indices) continue
                     val line = lines[lineIndex]
@@ -307,7 +302,7 @@ class MemoTextProcessor
                     MemoBlock(
                         startIndex = start,
                         endIndex = end,
-                        timePart = headerMatch.groupValues[1],
+                        timePart = header.timePart,
                         content = contentBuilder.toString().trim(),
                     ),
                 )
@@ -316,16 +311,37 @@ class MemoTextProcessor
         }
 
         private fun parseMemoId(memoId: String): ParsedMemoId? {
-            val match = MEMO_ID_PATTERN.matchEntire(memoId) ?: return null
-            val collisionIndex =
-                match.groupValues
-                    .getOrNull(4)
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.toIntOrNull() ?: 0
+            val trimmed = memoId.trim()
+            if (trimmed.isEmpty()) return null
+
+            val parts = trimmed.split('_')
+            if (parts.size < 3) return null
+
+            val tail = parts.last()
+            val collisionIndex = if (tail.all(Char::isDigit)) tail.toIntOrNull() ?: return null else 0
+            val coreParts = if (collisionIndex > 0) parts.dropLast(1) else parts
+            if (coreParts.size < 3) return null
+
+            val contentHash = coreParts.last()
+            if (!contentHash.matches(Regex("^[0-9a-f]+$"))) return null
+
+            // ID schema: {date}_{time}_{contentHash}[_{collision}]
+            // Date may contain underscores, and time may also contain underscores depending on selected format.
+            // We find the split point by validating time suffix candidates.
+            val dateAndTimeParts = coreParts.dropLast(1)
+            var timePart: String? = null
+            for (start in 1 until dateAndTimeParts.size) {
+                val candidate = dateAndTimeParts.subList(start, dateAndTimeParts.size).joinToString("_")
+                if (StorageTimestampFormats.parseOrNull(candidate) != null) {
+                    timePart = candidate
+                    break
+                }
+            }
+            val resolvedTimePart = timePart ?: return null
 
             return ParsedMemoId(
-                timePart = match.groupValues[2],
-                contentHash = match.groupValues[3],
+                timePart = resolvedTimePart,
+                contentHash = contentHash,
                 collisionIndex = collisionIndex,
             )
         }
@@ -336,13 +352,16 @@ class MemoTextProcessor
         ): Int {
             var endIndex = startIndex
             for (j in (startIndex + 1) until lines.size) {
-                if (lines[j].matches(MEMO_BLOCK_END)) {
+                if (isMemoHeaderLine(lines[j])) {
                     break
                 }
                 endIndex = j
             }
             return endIndex
         }
+
+        private fun isMemoHeaderLine(line: String): Boolean =
+            StorageTimestampFormats.parseMemoHeaderLine(line) != null
 
         private fun contentHash(content: String): String =
             content.trim().hashCode().let {

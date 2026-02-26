@@ -5,6 +5,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.share.ShareAuthUtils
 import com.lomo.data.source.FileDataSource
 import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -77,13 +79,13 @@ class SettingsRepositoryImpl
         override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat
 
         override suspend fun setStorageFilenameFormat(format: String) {
-            dataStore.updateStorageFilenameFormat(format)
+            dataStore.updateStorageFilenameFormat(StorageFilenameFormats.normalize(format))
         }
 
         override fun getStorageTimestampFormat(): Flow<String> = dataStore.storageTimestampFormat
 
         override suspend fun setStorageTimestampFormat(format: String) {
-            dataStore.updateStorageTimestampFormat(format)
+            dataStore.updateStorageTimestampFormat(StorageTimestampFormats.normalize(format))
         }
 
         override fun isHapticFeedbackEnabled(): Flow<Boolean> = dataStore.hapticFeedbackEnabled

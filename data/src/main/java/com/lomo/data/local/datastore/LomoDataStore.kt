@@ -11,6 +11,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -119,8 +121,10 @@ class LomoDataStore
         val storageFilenameFormat: Flow<String> =
             dataStore.data
                 .map { prefs ->
-                    prefs[Keys.STORAGE_FILENAME_FORMAT]
-                        ?: PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT
+                    StorageFilenameFormats.normalize(
+                        prefs[Keys.STORAGE_FILENAME_FORMAT]
+                            ?: PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT,
+                    )
                 }.catch { e ->
                     timber.log.Timber.e(
                         "LomoDataStore",
@@ -133,8 +137,10 @@ class LomoDataStore
         val storageTimestampFormat: Flow<String> =
             dataStore.data
                 .map { prefs ->
-                    prefs[Keys.STORAGE_TIMESTAMP_FORMAT]
-                        ?: PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT
+                    StorageTimestampFormats.normalize(
+                        prefs[Keys.STORAGE_TIMESTAMP_FORMAT]
+                            ?: PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT,
+                    )
                 }.catch { e ->
                     timber.log.Timber.e(
                         "LomoDataStore",
@@ -371,11 +377,15 @@ class LomoDataStore
         }
 
         suspend fun updateStorageFilenameFormat(format: String) {
-            dataStore.edit { prefs -> prefs[Keys.STORAGE_FILENAME_FORMAT] = format }
+            dataStore.edit { prefs ->
+                prefs[Keys.STORAGE_FILENAME_FORMAT] = StorageFilenameFormats.normalize(format)
+            }
         }
 
         suspend fun updateStorageTimestampFormat(format: String) {
-            dataStore.edit { prefs -> prefs[Keys.STORAGE_TIMESTAMP_FORMAT] = format }
+            dataStore.edit { prefs ->
+                prefs[Keys.STORAGE_TIMESTAMP_FORMAT] = StorageTimestampFormats.normalize(format)
+            }
         }
 
         suspend fun updateDateFormat(format: String) {

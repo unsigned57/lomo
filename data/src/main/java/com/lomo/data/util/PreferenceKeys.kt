@@ -1,5 +1,8 @@
 package com.lomo.data.util
 
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
+
 /**
  * Centralized preference key constants to avoid magic strings and ensure consistency across the
  * app.
@@ -59,8 +62,8 @@ object PreferenceKeys {
         const val SHARE_CARD_SHOW_BRAND = true
 
         // Storage Defaults
-        const val STORAGE_FILENAME_FORMAT = "yyyy_MM_dd"
-        const val STORAGE_TIMESTAMP_FORMAT = "HH:mm:ss"
+        const val STORAGE_FILENAME_FORMAT = StorageFilenameFormats.DEFAULT_PATTERN
+        const val STORAGE_TIMESTAMP_FORMAT = StorageTimestampFormats.DEFAULT_PATTERN
 
         // Git Sync Defaults
         const val GIT_SYNC_ENABLED = false

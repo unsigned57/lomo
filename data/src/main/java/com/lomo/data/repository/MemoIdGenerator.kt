@@ -2,10 +2,11 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,14 +45,14 @@ class MemoIdGenerator
                 val zoneId = ZoneId.systemDefault()
 
                 val filename =
-                    DateTimeFormatter
-                        .ofPattern(filenameFormat)
+                    StorageFilenameFormats
+                        .formatter(filenameFormat)
                         .withZone(zoneId)
                         .format(instant) + ".md"
 
                 val timeString =
-                    DateTimeFormatter
-                        .ofPattern(timestampFormat)
+                    StorageTimestampFormats
+                        .formatter(timestampFormat)
                         .withZone(zoneId)
                         .format(instant)
 
@@ -74,8 +75,8 @@ class MemoIdGenerator
          */
         suspend fun formatTimestamp(timestamp: Long): String {
             val timestampFormat = dataStore.storageTimestampFormat.first()
-            return DateTimeFormatter
-                .ofPattern(timestampFormat)
+            return StorageTimestampFormats
+                .formatter(timestampFormat)
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.ofEpochMilli(timestamp))
         }
@@ -85,8 +86,8 @@ class MemoIdGenerator
          */
         suspend fun generateFilename(timestamp: Long): String {
             val filenameFormat = dataStore.storageFilenameFormat.first()
-            return DateTimeFormatter
-                .ofPattern(filenameFormat)
+            return StorageFilenameFormats
+                .formatter(filenameFormat)
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.ofEpochMilli(timestamp)) + ".md"
         }

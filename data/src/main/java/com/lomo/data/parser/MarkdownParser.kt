@@ -2,16 +2,14 @@ package com.lomo.data.parser
 
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.util.StorageTimestampFormats
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.DateTimeFormatterBuilder
-import java.time.format.ResolverStyle
-import java.util.Locale
 import javax.inject.Inject
 
 class MarkdownParser
@@ -19,43 +17,6 @@ class MarkdownParser
     constructor(
         private val textProcessor: MemoTextProcessor,
     ) {
-        companion object {
-            private val SUPPORTED_FILENAME_DATE_FORMATS =
-                listOf(
-                    "yyyy_MM_dd",
-                    "yyyy-MM-dd",
-                    "yyyy.MM.dd",
-                    "yyyyMMdd",
-                    "MM-dd-yyyy",
-                )
-
-            private val DATE_FORMATTERS =
-                SUPPORTED_FILENAME_DATE_FORMATS.map { pattern ->
-                    DateTimeFormatter
-                        .ofPattern(pattern.replace("yyyy", "uuuu"), Locale.US)
-                        .withResolverStyle(ResolverStyle.STRICT)
-                }
-
-            private val FLEXIBLE_TIME_FORMATTER: DateTimeFormatter =
-                DateTimeFormatterBuilder()
-                    .parseStrict()
-                    .appendPattern("H:mm")
-                    .optionalStart()
-                    .appendPattern(":ss")
-                    .optionalEnd()
-                    .toFormatter(Locale.US)
-        }
-
-        // Use lazy delegation for expensive regex compilation.
-        // Regex is only compiled when first accessed, saving initialization cost.
-        // Regex: - HH:mm:ss [Content]
-        // Flexible:
-        // ^\s*-\s+ : Allow leading whitespace, dash, and one or more spaces
-        // (\d{1,2}:\d{2}(?::\d{2})?) : Capture HH:mm or HH:mm:ss
-        // (?:\s+(.*))?$ : Optional space and remaining content
-        private val timePattern by lazy {
-            Regex("^\\s*-\\s+(\\d{1,2}:\\d{2}(?::\\d{2})?)(?:\\s+(.*))?$")
-        }
 
         fun parseFile(file: File): List<Memo> {
             if (!file.exists()) return emptyList()
@@ -132,12 +93,11 @@ class MarkdownParser
             }
 
             for (line in lines) {
-                val match = timePattern.matchEntire(line)
-                if (match != null) {
+                val header = StorageTimestampFormats.parseMemoHeaderLine(line)
+                if (header != null) {
                     addMemo()
-                    currentTimestamp = match.groupValues.getOrElse(1) { "" }
-                    val contentPart = match.groupValues.getOrElse(2) { "" }
-                    currentContentBuilder = StringBuilder(contentPart)
+                    currentTimestamp = header.timePart
+                    currentContentBuilder = StringBuilder(header.contentPart)
                     currentRawBuilder = StringBuilder(line)
                 } else {
                     if (currentTimestamp.isNotEmpty()) {
@@ -186,20 +146,10 @@ class MarkdownParser
             }
 
         private fun parseLocalDate(dateStr: String): LocalDate? =
-            DATE_FORMATTERS.firstNotNullOfOrNull { formatter ->
-                try {
-                    LocalDate.parse(dateStr, formatter)
-                } catch (_: Exception) {
-                    null
-                }
-            }
+            StorageFilenameFormats.parseOrNull(dateStr)
 
         private fun parseLocalTime(timeStr: String): LocalTime? =
-            try {
-                LocalTime.parse(timeStr, FLEXIBLE_TIME_FORMATTER)
-            } catch (_: Exception) {
-                null
-            }
+            StorageTimestampFormats.parseOrNull(timeStr)
 
         private fun extractTags(content: String): List<String> {
             // Delegate to shared utility class to avoid duplication
