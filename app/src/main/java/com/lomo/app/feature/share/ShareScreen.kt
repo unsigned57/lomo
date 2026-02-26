@@ -68,10 +68,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -987,10 +987,11 @@ private fun DeviceSearchingState(modifier: Modifier = Modifier) {
             modifier =
                 Modifier
                     .size(64.dp)
-                    .alpha(pulseAlpha)
                     .graphicsLayer {
+                        alpha = pulseAlpha
                         scaleX = pulseScale
                         scaleY = pulseScale
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
                     },
         )
         Spacer(modifier = Modifier.height(AppSpacing.Medium))

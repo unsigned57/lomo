@@ -219,6 +219,15 @@ interface MemoDao {
     fun getAllTimestamps(): Flow<List<Long>>
 
     @Query(
+        """
+        SELECT date, COUNT(*) AS count
+        FROM Lomo
+        GROUP BY date
+        """,
+    )
+    fun getMemoCountByDateFlow(): Flow<List<DateCountRow>>
+
+    @Query(
         "SELECT COUNT(*) FROM Lomo WHERE imageUrls LIKE '%' || :imagePath || '%' AND id != :excludeId",
     )
     suspend fun countMemosWithImage(
@@ -294,5 +303,10 @@ interface MemoDao {
 
 data class TagCountRow(
     val name: String,
+    val count: Int,
+)
+
+data class DateCountRow(
+    val date: String,
     val count: Int,
 )

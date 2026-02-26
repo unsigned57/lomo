@@ -6,10 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -365,24 +368,61 @@ fun SettingsScreen(
                             }
                         },
                     )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_lan_share_pairing_code),
-                        subtitle =
-                            stringResource(
-                                if (lanSharePairingConfigured) {
-                                    R.string.settings_lan_share_pairing_configured
-                                } else {
-                                    R.string.settings_lan_share_pairing_not_set
+                    AnimatedVisibility(
+                        visible = lanShareE2eEnabled,
+                        enter =
+                            expandVertically(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationMedium2,
+                                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                                    ),
+                            ) +
+                                fadeIn(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationMedium2,
+                                            easing = MotionTokens.EasingEmphasizedDecelerate,
+                                        ),
+                                ),
+                        exit =
+                            shrinkVertically(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationShort4,
+                                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                                    ),
+                            ) +
+                                fadeOut(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationShort4,
+                                            easing = MotionTokens.EasingEmphasizedAccelerate,
+                                        ),
+                                ),
+                        label = "LanPairingVisibility",
+                    ) {
+                        Column {
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_lan_share_pairing_code),
+                                subtitle =
+                                    stringResource(
+                                        if (lanSharePairingConfigured) {
+                                            R.string.settings_lan_share_pairing_configured
+                                        } else {
+                                            R.string.settings_lan_share_pairing_not_set
+                                        },
+                                    ),
+                                icon = Icons.Default.Lock,
+                                onClick = {
+                                    lanPairingCodeVisible = false
+                                    viewModel.clearPairingCodeError()
+                                    showLanPairingDialog = true
                                 },
-                            ),
-                        icon = Icons.Default.Lock,
-                        onClick = {
-                            lanPairingCodeVisible = false
-                            viewModel.clearPairingCodeError()
-                            showLanPairingDialog = true
-                        },
-                    )
+                            )
+                        }
+                    }
                     SettingsDivider()
                     PreferenceItem(
                         title = stringResource(R.string.share_device_name_label),
@@ -428,85 +468,155 @@ fun SettingsScreen(
                         checked = gitSyncEnabled,
                         onCheckedChange = { viewModel.updateGitSyncEnabled(it) },
                     )
-                    if (gitSyncEnabled) {
-                        SettingsDivider()
-                        PreferenceItem(
-                            title = stringResource(R.string.settings_git_remote_url),
-                            subtitle = gitRemoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
-                            icon = Icons.Outlined.Link,
-                            onClick = {
-                                gitRemoteUrlInput = gitRemoteUrl
-                                showGitRemoteUrlDialog = true
-                            },
-                        )
-                        SettingsDivider()
-                        PreferenceItem(
-                            title = stringResource(R.string.settings_git_pat),
-                            subtitle =
-                                stringResource(
-                                    if (gitPatConfigured) {
-                                        R.string.settings_git_pat_configured
-                                    } else {
-                                        R.string.settings_git_pat_not_set
-                                    },
+                    AnimatedVisibility(
+                        visible = gitSyncEnabled,
+                        enter =
+                            expandVertically(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationMedium2,
+                                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                                    ),
+                            ) +
+                                fadeIn(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationMedium2,
+                                            easing = MotionTokens.EasingEmphasizedDecelerate,
+                                        ),
                                 ),
-                            icon = Icons.Default.Lock,
-                            onClick = {
-                                gitPatInput = ""
-                                gitPatVisible = false
-                                showGitPatDialog = true
-                            },
-                        )
-                        SettingsDivider()
-                        PreferenceItem(
-                            title = stringResource(R.string.settings_git_author_name),
-                            subtitle = gitAuthorName.ifBlank { stringResource(R.string.settings_not_set) },
-                            icon = Icons.Outlined.Person,
-                            onClick = {
-                                gitAuthorNameInput = gitAuthorName
-                                showGitAuthorNameDialog = true
-                            },
-                        )
-                        SettingsDivider()
-                        PreferenceItem(
-                            title = stringResource(R.string.settings_git_author_email),
-                            subtitle = gitAuthorEmail.ifBlank { stringResource(R.string.settings_not_set) },
-                            icon = Icons.Outlined.Email,
-                            onClick = {
-                                gitAuthorEmailInput = gitAuthorEmail
-                                showGitAuthorEmailDialog = true
-                            },
-                        )
-                        SettingsDivider()
-                        SwitchPreferenceItem(
-                            title = stringResource(R.string.settings_git_auto_sync),
-                            subtitle = stringResource(R.string.settings_git_auto_sync_subtitle),
-                            icon = Icons.Outlined.Schedule,
-                            checked = gitAutoSyncEnabled,
-                            onCheckedChange = { viewModel.updateGitAutoSyncEnabled(it) },
-                        )
-                        if (gitAutoSyncEnabled) {
+                        exit =
+                            shrinkVertically(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MotionTokens.DurationShort4,
+                                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                                    ),
+                            ) +
+                                fadeOut(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationShort4,
+                                            easing = MotionTokens.EasingEmphasizedAccelerate,
+                                        ),
+                                ),
+                        label = "GitSyncAdvancedVisibility",
+                    ) {
+                        Column {
                             SettingsDivider()
                             PreferenceItem(
-                                title = stringResource(R.string.settings_git_sync_interval),
-                                subtitle = gitSyncIntervalLabels[gitAutoSyncInterval] ?: gitAutoSyncInterval,
+                                title = stringResource(R.string.settings_git_remote_url),
+                                subtitle = gitRemoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
+                                icon = Icons.Outlined.Link,
+                                onClick = {
+                                    gitRemoteUrlInput = gitRemoteUrl
+                                    showGitRemoteUrlDialog = true
+                                },
+                            )
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_pat),
+                                subtitle =
+                                    stringResource(
+                                        if (gitPatConfigured) {
+                                            R.string.settings_git_pat_configured
+                                        } else {
+                                            R.string.settings_git_pat_not_set
+                                        },
+                                    ),
+                                icon = Icons.Default.Lock,
+                                onClick = {
+                                    gitPatInput = ""
+                                    gitPatVisible = false
+                                    showGitPatDialog = true
+                                },
+                            )
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_author_name),
+                                subtitle = gitAuthorName.ifBlank { stringResource(R.string.settings_not_set) },
+                                icon = Icons.Outlined.Person,
+                                onClick = {
+                                    gitAuthorNameInput = gitAuthorName
+                                    showGitAuthorNameDialog = true
+                                },
+                            )
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_author_email),
+                                subtitle = gitAuthorEmail.ifBlank { stringResource(R.string.settings_not_set) },
+                                icon = Icons.Outlined.Email,
+                                onClick = {
+                                    gitAuthorEmailInput = gitAuthorEmail
+                                    showGitAuthorEmailDialog = true
+                                },
+                            )
+                            SettingsDivider()
+                            SwitchPreferenceItem(
+                                title = stringResource(R.string.settings_git_auto_sync),
+                                subtitle = stringResource(R.string.settings_git_auto_sync_subtitle),
                                 icon = Icons.Outlined.Schedule,
-                                onClick = { showGitSyncIntervalDialog = true },
+                                checked = gitAutoSyncEnabled,
+                                onCheckedChange = { viewModel.updateGitAutoSyncEnabled(it) },
+                            )
+                            AnimatedVisibility(
+                                visible = gitAutoSyncEnabled,
+                                enter =
+                                    expandVertically(
+                                        animationSpec =
+                                            tween(
+                                                durationMillis = MotionTokens.DurationMedium2,
+                                                easing = MotionTokens.EasingEmphasizedDecelerate,
+                                            ),
+                                    ) +
+                                        fadeIn(
+                                            animationSpec =
+                                                tween(
+                                                    durationMillis = MotionTokens.DurationMedium2,
+                                                    easing = MotionTokens.EasingEmphasizedDecelerate,
+                                                ),
+                                        ),
+                                exit =
+                                    shrinkVertically(
+                                        animationSpec =
+                                            tween(
+                                                durationMillis = MotionTokens.DurationShort4,
+                                                easing = MotionTokens.EasingEmphasizedAccelerate,
+                                            ),
+                                    ) +
+                                        fadeOut(
+                                            animationSpec =
+                                                tween(
+                                                    durationMillis = MotionTokens.DurationShort4,
+                                                    easing = MotionTokens.EasingEmphasizedAccelerate,
+                                                ),
+                                        ),
+                                label = "GitAutoSyncIntervalVisibility",
+                            ) {
+                                Column {
+                                    SettingsDivider()
+                                    PreferenceItem(
+                                        title = stringResource(R.string.settings_git_sync_interval),
+                                        subtitle = gitSyncIntervalLabels[gitAutoSyncInterval] ?: gitAutoSyncInterval,
+                                        icon = Icons.Outlined.Schedule,
+                                        onClick = { showGitSyncIntervalDialog = true },
+                                    )
+                                }
+                            }
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_sync_now),
+                                subtitle = gitSyncNowSubtitle(gitSyncState, gitLastSyncTime),
+                                icon = Icons.Outlined.Sync,
+                                onClick = {
+                                    if (gitSyncState !is GitSyncState.Syncing &&
+                                        gitSyncState !is GitSyncState.Initializing
+                                    ) {
+                                        viewModel.triggerGitSyncNow()
+                                    }
+                                },
                             )
                         }
-                        SettingsDivider()
-                        PreferenceItem(
-                            title = stringResource(R.string.settings_git_sync_now),
-                            subtitle = gitSyncNowSubtitle(gitSyncState, gitLastSyncTime),
-                            icon = Icons.Outlined.Sync,
-                            onClick = {
-                                if (gitSyncState !is GitSyncState.Syncing &&
-                                    gitSyncState !is GitSyncState.Initializing
-                                ) {
-                                    viewModel.triggerGitSyncNow()
-                                }
-                            },
-                        )
                     }
                 }
 

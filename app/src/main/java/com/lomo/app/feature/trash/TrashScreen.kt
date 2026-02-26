@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
@@ -155,6 +156,7 @@ fun TrashScreen(
                                 ).fillMaxWidth()
                                 .graphicsLayer {
                                     this.alpha = deleteAlpha
+                                    compositingStrategy = CompositingStrategy.ModulateAlpha
                                 },
                     ) {
                         MemoCard(

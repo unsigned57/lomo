@@ -77,6 +77,14 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/lomo_widget_info" />
         </receiver>
+
+        <receiver
+            android:name=".benchmark.BenchmarkSetupReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.lomo.app.action.BENCHMARK_PREPARE" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

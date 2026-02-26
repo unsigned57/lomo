@@ -19,23 +19,24 @@ import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
-import java.time.ZoneId
 import javax.inject.Inject
 
 @HiltViewModel
@@ -106,6 +107,7 @@ class MainViewModel
 
         private val _rootDirectory = MutableStateFlow<String?>(null)
         val rootDirectory: StateFlow<String?> = _rootDirectory
+        private val visibleMemoIds = MutableStateFlow<Set<String>>(emptySet())
 
         val imageDirectory: StateFlow<String?> =
             settingsRepository
@@ -133,20 +135,17 @@ class MainViewModel
         val sidebarUiState: StateFlow<SidebarUiState> =
             combine(
                 repository.getMemoCountFlow(),
-                repository.getMemoTimestampsFlow(),
+                repository.getMemoCountByDateFlow(),
                 repository.getTagCountsFlow(),
-            ) { memoCount, timestamps, tagCounts ->
-                val zoneId = ZoneId.systemDefault()
+            ) { memoCount, memoCountByDateRaw, tagCounts ->
                 val memoCountByDate =
-                    timestamps
+                    memoCountByDateRaw
                         .asSequence()
-                        .map { timestamp ->
-                            Instant
-                                .ofEpochMilli(timestamp)
-                                .atZone(zoneId)
-                                .toLocalDate()
-                        }.groupingBy { it }
-                        .eachCount()
+                        .mapNotNull { (dateStr, count) ->
+                            runCatching { LocalDate.parse(dateStr) }
+                                .getOrNull()
+                                ?.let { parsed -> parsed to count }
+                        }.toMap()
 
                 SidebarUiState(
                     stats =
@@ -161,7 +160,8 @@ class MainViewModel
                             .sortedWith(compareByDescending<com.lomo.domain.repository.MemoTagCount> { it.count }.thenBy { it.name })
                             .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
                 )
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SidebarUiState())
+            }.flowOn(Dispatchers.Default)
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SidebarUiState())
 
         fun createDefaultDirectories(
             forImage: Boolean,
@@ -202,6 +202,7 @@ class MainViewModel
                     rootDirectory = rootDirectory,
                     imageDirectory = imageDirectory,
                     imageMap = imageMap,
+                    prioritizeMemoIds = visibleMemoIds,
                 ),
                 deletingMemoIds,
             ) { uiModels, deletingIds ->
@@ -211,7 +212,7 @@ class MainViewModel
             }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun onDirectorySelected(path: String) {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 settingsRepository.setRootDirectory(path)
                 repository.refreshMemos()
             }
@@ -232,7 +233,7 @@ class MainViewModel
         }
 
         fun refresh() {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 try {
                     repository.refreshMemos()
                 } catch (e: kotlinx.coroutines.CancellationException) {
@@ -343,6 +344,8 @@ class MainViewModel
 
             // Auto-refresh memos when root directory changes
             rootDirectory
+                .drop(1)
+                .distinctUntilChanged()
                 .onEach { path: String? ->
                     if (path != null) {
                         refresh()
@@ -370,6 +373,12 @@ class MainViewModel
 
         fun clearError() {
             _errorMessage.value = null
+        }
+
+        fun updateVisibleMemoIds(ids: Set<String>) {
+            if (visibleMemoIds.value != ids) {
+                visibleMemoIds.value = ids
+            }
         }
 
         private fun resolveMemoFlow(
@@ -401,7 +410,7 @@ class MainViewModel
 data class MemoUiModel(
     val memo: Memo,
     val processedContent: String,
-    val markdownNode: com.lomo.ui.component.markdown.ImmutableNode,
+    val markdownNode: com.lomo.ui.component.markdown.ImmutableNode?,
     val tags: ImmutableList<String>,
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val isDeleting: Boolean = false,

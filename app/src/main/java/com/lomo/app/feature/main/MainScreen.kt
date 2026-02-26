@@ -451,6 +451,7 @@ fun MainScreen(
                                             listState = listState,
                                             isRefreshing = isRefreshing,
                                             onRefresh = actions.onRefresh,
+                                            onVisibleMemoIdsChanged = viewModel::updateVisibleMemoIds,
                                             onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
                                             dateFormat = dateFormat,
                                             timeFormat = timeFormat,

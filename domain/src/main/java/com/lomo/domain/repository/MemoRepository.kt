@@ -35,6 +35,8 @@ interface MemoRepository {
 
     fun getMemoTimestampsFlow(): Flow<List<Long>>
 
+    fun getMemoCountByDateFlow(): Flow<Map<String, Int>>
+
     fun getTagCountsFlow(): Flow<List<MemoTagCount>>
 
     fun getActiveDayCount(): Flow<Int>

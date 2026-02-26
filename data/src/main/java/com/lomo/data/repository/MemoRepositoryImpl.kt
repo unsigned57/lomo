@@ -4,7 +4,9 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
@@ -14,7 +16,11 @@ class MemoRepositoryImpl
         private val dao: MemoDao,
         private val synchronizer: MemoSynchronizer,
     ) : MemoRepository {
-        override fun getAllMemosList(): Flow<List<Memo>> = dao.getAllMemosFlow().map { entities -> entities.map { it.toDomain() } }
+        override fun getAllMemosList(): Flow<List<Memo>> =
+            dao
+                .getAllMemosFlow()
+                .map { entities -> entities.map { it.toDomain() } }
+                .flowOn(Dispatchers.Default)
 
         override suspend fun refreshMemos() {
             synchronizer.refresh()
@@ -75,26 +81,49 @@ class MemoRepositoryImpl
                 } else {
                     dao.searchMemosFlow(trimmed)
                 }
-            return source.map { entities -> entities.map { it.toDomain() } }
+            return source
+                .map { entities -> entities.map { it.toDomain() } }
+                .flowOn(Dispatchers.Default)
         }
 
         override fun getMemosByTagList(tag: String): Flow<List<Memo>> =
-            dao.getMemosByTagFlow(tag, "$tag/%").map { entities -> entities.map { it.toDomain() } }
+            dao
+                .getMemosByTagFlow(tag, "$tag/%")
+                .map { entities -> entities.map { it.toDomain() } }
+                .flowOn(Dispatchers.Default)
 
         override fun getMemoCountFlow(): Flow<Int> = dao.getMemoCount()
 
         override fun getMemoTimestampsFlow(): Flow<List<Long>> = dao.getAllTimestamps()
 
+        override fun getMemoCountByDateFlow(): Flow<Map<String, Int>> =
+            dao
+                .getMemoCountByDateFlow()
+                .map { rows ->
+                    buildMap(rows.size) {
+                        rows.forEach { row ->
+                            put(row.date, row.count)
+                        }
+                    }
+                }.flowOn(Dispatchers.Default)
+
         override fun getTagCountsFlow(): Flow<List<MemoTagCount>> =
-            dao.getTagCountsFlow().map { rows ->
-                rows.map { row ->
-                    MemoTagCount(name = row.name, count = row.count)
+            dao
+                .getTagCountsFlow()
+                .map { rows ->
+                    rows.map { row ->
+                        MemoTagCount(name = row.name, count = row.count)
+                    }
                 }
-            }
+                .flowOn(Dispatchers.Default)
 
         override fun getActiveDayCount(): Flow<Int> = dao.getActiveDayCount()
 
-        override fun getDeletedMemosList(): Flow<List<Memo>> = dao.getDeletedMemosFlow().map { entities -> entities.map { it.toDomain() } }
+        override fun getDeletedMemosList(): Flow<List<Memo>> =
+            dao
+                .getDeletedMemosFlow()
+                .map { entities -> entities.map { it.toDomain() } }
+                .flowOn(Dispatchers.Default)
 
         override suspend fun restoreMemo(memo: Memo) {
             synchronizer.restoreMemoAsync(memo)

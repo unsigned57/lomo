@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ internal fun MemoListContent(
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
+    onVisibleMemoIdsChanged: (Set<String>) -> Unit,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -61,6 +63,20 @@ internal fun MemoListContent(
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.layoutInfo.visibleItemsInfo.size
         }.collect { (firstVisible, visibleCount) ->
+            if (memos.isNotEmpty()) {
+                val endExclusive =
+                    (firstVisible + visibleCount + 8)
+                        .coerceAtMost(memos.size)
+                val prioritizedIds =
+                    (firstVisible until endExclusive)
+                        .asSequence()
+                        .map { index -> memos[index].memo.id }
+                        .toSet()
+                onVisibleMemoIdsChanged(prioritizedIds)
+            } else {
+                onVisibleMemoIdsChanged(emptySet())
+            }
+
             val preloadRange = (firstVisible + visibleCount)..(firstVisible + visibleCount + 5)
             preloadRange.forEach { index ->
                 if (index in memos.indices) {
@@ -155,6 +171,7 @@ internal fun MemoListContent(
                             ).fillMaxWidth()
                             .graphicsLayer {
                                 this.alpha = deleteAlpha
+                                compositingStrategy = CompositingStrategy.ModulateAlpha
                             },
                 )
             }
