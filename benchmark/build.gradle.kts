@@ -1,5 +1,6 @@
 plugins {
     id("com.android.test")
+    alias(libs.plugins.androidxBaselineProfile)
     // Kotlin is built-in for test modules in AGP 9.0+
 }
 
@@ -45,6 +46,6 @@ dependencies {
     implementation(project(":app"))
     implementation(libs.androidx.junit)
     implementation(libs.androidx.espresso.core)
-    implementation("androidx.benchmark:benchmark-macro-junit4:1.4.1")
-    implementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    implementation(libs.androidx.benchmark.macro.junit4)
+    implementation(libs.androidx.test.uiautomator)
 }

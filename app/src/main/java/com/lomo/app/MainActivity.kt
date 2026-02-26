@@ -42,7 +42,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         enableEdgeToEdge()
-        shareServiceManager.startServices()
         handleIntent(intent)
 
         setContent {
@@ -62,6 +61,11 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+
+        // Network service bootstrap is not required for first frame rendering.
+        window.decorView.post {
+            shareServiceManager.startServices()
         }
     }
 

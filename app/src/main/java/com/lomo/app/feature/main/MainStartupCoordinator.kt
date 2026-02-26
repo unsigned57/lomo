@@ -23,9 +23,12 @@ class MainStartupCoordinator
         suspend fun initializeRootDirectory(): String? {
             val rootDirectory = settingsRepository.getRootDirectoryOnce()
             audioPlayerManager.setRootDirectory(rootDirectory)
-            warmImageCacheOnStartup()
-            resyncCachesIfAppVersionChanged(rootDirectory)
             return rootDirectory
+        }
+
+        suspend fun runDeferredStartupTasks(rootDir: String?) {
+            warmImageCacheOnStartup()
+            resyncCachesIfAppVersionChanged(rootDir)
         }
 
         fun observeRootDirectoryChanges(): Flow<String?> =

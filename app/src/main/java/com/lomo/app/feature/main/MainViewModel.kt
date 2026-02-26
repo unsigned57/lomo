@@ -292,6 +292,12 @@ class MainViewModel
                 val initialDir = startupCoordinator.initializeRootDirectory()
                 updateRootDirectoryUiState(initialDir)
 
+                // Step 1.5: Delay non-critical startup warmups to avoid blocking first render.
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(350L)
+                    startupCoordinator.runDeferredStartupTasks(initialDir)
+                }
+
                 // Step 2: Listen for subsequent updates (drop first to avoid duplicate)
                 startupCoordinator
                     .observeRootDirectoryChanges()

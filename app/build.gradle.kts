@@ -14,7 +14,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
-    // id("androidx.baselineprofile")
+    alias(libs.plugins.androidxBaselineProfile)
 }
 
 val artifactBaseName =
@@ -153,6 +153,10 @@ android {
     }
 }
 
+baselineProfile {
+    dexLayoutOptimization = true
+}
+
 val releaseVersionName = android.defaultConfig.versionName ?: "0.0.0"
 
 val renameReleaseApkArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
@@ -212,6 +216,7 @@ dependencies {
 
     // WorkManager
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.profileinstaller)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
@@ -245,7 +250,7 @@ dependencies {
     implementation(libs.androidx.media3.common)
 
     // Baseline Profile
-    // baselineProfile(project(":benchmark"))
+    baselineProfile(project(":benchmark"))
 }
 
 kotlin {
