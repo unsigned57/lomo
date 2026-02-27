@@ -218,4 +218,52 @@
     <string name="settings_github">项目主页</string>
     <string name="settings_github_subtitle">去 GitHub 查看源代码</string>
 
+    <!-- Git Sync -->
+    <string name="settings_group_git_sync">Git 同步</string>
+    <string name="settings_git_sync_enable">启用 Git 同步</string>
+    <string name="settings_git_sync_enable_subtitle">将备忘录同步到 GitHub 仓库</string>
+    <string name="settings_git_remote_url">仓库地址</string>
+    <string name="settings_git_remote_url_hint">https://github.com/user/repo.git</string>
+    <string name="settings_git_pat">个人访问令牌</string>
+    <string name="settings_git_pat_configured">已配置（点击更新）</string>
+    <string name="settings_git_pat_not_set">未配置</string>
+    <string name="settings_git_pat_dialog_title">设置个人访问令牌</string>
+    <string name="settings_git_pat_dialog_message">在 GitHub Settings > Developer settings > Personal access tokens 创建令牌，需要 repo 权限。</string>
+    <string name="settings_git_pat_hint">ghp_...</string>
+    <string name="settings_git_author_name">作者名称</string>
+    <string name="settings_git_author_name_hint">Git 提交使用的名称</string>
+    <string name="settings_git_author_email">作者邮箱</string>
+    <string name="settings_git_author_email_hint">Git 提交使用的邮箱</string>
+    <string name="settings_git_auto_sync">自动同步</string>
+    <string name="settings_git_auto_sync_subtitle">在后台自动同步</string>
+    <string name="settings_git_sync_interval">同步间隔</string>
+    <string name="settings_git_select_sync_interval">选择同步间隔</string>
+    <string name="settings_git_sync_now">立即同步</string>
+    <string name="settings_git_sync_now_subtitle">上次同步：%1$s</string>
+    <string name="settings_git_sync_never">从未同步</string>
+    <string name="settings_git_sync_status_idle">空闲</string>
+    <string name="settings_git_sync_status_syncing">同步中...</string>
+    <string name="settings_git_sync_status_pulling">拉取中...</string>
+    <string name="settings_git_sync_status_committing">提交中...</string>
+    <string name="settings_git_sync_status_pushing">推送中...</string>
+    <string name="settings_git_sync_status_success">已同步</string>
+    <string name="settings_git_sync_status_error">错误：%1$s</string>
+    <string name="settings_git_sync_status_not_configured">未配置</string>
+    <string name="settings_git_sync_status_initializing">初始化中...</string>
+    <string name="settings_git_sync_direct_path_required">Git 同步需要直接路径模式，请使用文件路径而非 SAF 设置备忘录目录。</string>
+    <string name="settings_git_sync_interval_30min">30 分钟</string>
+    <string name="settings_git_sync_interval_1h">1 小时</string>
+    <string name="settings_git_sync_interval_6h">6 小时</string>
+    <string name="settings_git_sync_interval_12h">12 小时</string>
+    <string name="settings_git_sync_interval_24h">24 小时</string>
+    <string name="settings_git_test_connection">测试连接</string>
+    <string name="settings_git_test_connection_testing">测试中...</string>
+    <string name="settings_git_test_connection_success">连接成功</string>
+    <string name="settings_git_test_connection_failed">连接失败：%1$s</string>
+    <string name="settings_git_reset_repo">重置 Git 仓库</string>
+    <string name="settings_git_reset_repo_subtitle">删除本地 .git 数据并重新开始</string>
+    <string name="settings_git_reset_repo_confirm_title">重置 Git 仓库？</string>
+    <string name="settings_git_reset_repo_confirm_message">此操作将删除本地 .git 目录。你的备忘录文件不会受到影响，但需要重新初始化同步。</string>
+    <string name="action_reset">重置</string>
+
 </resources>
