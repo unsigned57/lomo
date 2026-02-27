@@ -14,7 +14,6 @@ import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.RebaseCommand
 import org.eclipse.jgit.api.RebaseResult
-import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.lib.BranchTrackingStatus
 import org.eclipse.jgit.lib.PersonIdent
 import org.eclipse.jgit.merge.MergeStrategy
@@ -199,12 +198,12 @@ class GitSyncEngine
             }
         }
 
-        suspend fun sync(rootDir: File): GitSyncResult =
+        suspend fun sync(rootDir: File, remoteUrl: String): GitSyncResult =
             mutex.withLock {
                 withContext(Dispatchers.IO) {
                     _syncState.value = GitSyncState.Syncing
                     try {
-                        val result = doSync(rootDir)
+                        val result = doSync(rootDir, remoteUrl)
                         when (result) {
                             is GitSyncResult.Success -> {
                                 val now = System.currentTimeMillis()
@@ -228,7 +227,7 @@ class GitSyncEngine
                 }
             }
 
-        private suspend fun doSync(rootDir: File): GitSyncResult {
+        private suspend fun doSync(rootDir: File, remoteUrl: String): GitSyncResult {
             val credentials = credentialProviders()
                 ?: return GitSyncResult.Error("No Personal Access Token configured")
 
@@ -239,6 +238,9 @@ class GitSyncEngine
 
             val git = Git.open(rootDir)
             git.use { g ->
+                // Ensure remote URL matches current settings
+                ensureRemote(g, remoteUrl)
+
                 val author = authorIdent()
                 val branch = g.repository.branch ?: "main"
 
@@ -283,11 +285,12 @@ class GitSyncEngine
                 val remoteBranchRef = g.repository.resolve(remoteBranch)
 
                 if (remoteBranchRef != null) {
-                    // Rebase local onto remote
+                    // Rebase local onto remote (use RECURSIVE — fair 3-way merge,
+                    // falls back to local-priority merge on conflict).
                     try {
                         val rebaseResult = g.rebase()
                             .setUpstream(remoteBranch)
-                            .setStrategy(MergeStrategy.THEIRS)
+                            .setStrategy(MergeStrategy.RECURSIVE)
                             .call()
 
                         when (rebaseResult.status) {
@@ -317,10 +320,6 @@ class GitSyncEngine
                                 Timber.w("Unexpected rebase status: ${rebaseResult.status}")
                                 g.rebase()
                                     .setOperation(RebaseCommand.Operation.ABORT)
-                                    .call()
-                                g.reset()
-                                    .setMode(ResetCommand.ResetType.HARD)
-                                    .setRef("HEAD")
                                     .call()
                             }
                         }

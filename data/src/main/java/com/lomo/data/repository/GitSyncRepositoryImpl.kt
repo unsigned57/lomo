@@ -152,7 +152,7 @@ class GitSyncRepositoryImpl
                 if (initResult is GitSyncResult.Error) return initResult
             }
 
-            val result = gitSyncEngine.sync(rootDir)
+            val result = gitSyncEngine.sync(rootDir, remoteUrl)
 
             if (result is GitSyncResult.Success && !safRootUri.isNullOrBlank()) {
                 try {

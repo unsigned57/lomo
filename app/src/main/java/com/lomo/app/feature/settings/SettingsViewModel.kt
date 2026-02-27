@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.domain.repository.LanShareService
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.data.worker.GitSyncScheduler
 import com.lomo.domain.model.GitSyncState
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
@@ -28,6 +29,7 @@ class SettingsViewModel
         private val preferences: PreferencesRepository,
         private val shareServiceManager: LanShareService,
         private val gitSyncRepo: GitSyncRepository,
+        private val gitSyncScheduler: GitSyncScheduler,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
             directorySettings
@@ -367,11 +369,23 @@ class SettingsViewModel
         }
 
         fun updateGitSyncEnabled(enabled: Boolean) {
-            viewModelScope.launch { gitSyncRepo.setGitSyncEnabled(enabled) }
+            viewModelScope.launch {
+                gitSyncRepo.setGitSyncEnabled(enabled)
+                gitSyncScheduler.reschedule()
+            }
         }
 
         fun updateGitRemoteUrl(url: String) {
-            viewModelScope.launch { gitSyncRepo.setRemoteUrl(url) }
+            viewModelScope.launch {
+                val normalized = url.removeSuffix("/")
+                gitSyncRepo.setRemoteUrl(normalized)
+            }
+        }
+
+        fun isValidGitRemoteUrl(url: String): Boolean {
+            val trimmed = url.trim()
+            if (trimmed.isBlank()) return true // allow clearing
+            return trimmed.startsWith("https://") && trimmed.count { it == '/' } >= 3
         }
 
         fun updateGitPat(token: String) {
@@ -390,11 +404,17 @@ class SettingsViewModel
         }
 
         fun updateGitAutoSyncEnabled(enabled: Boolean) {
-            viewModelScope.launch { gitSyncRepo.setAutoSyncEnabled(enabled) }
+            viewModelScope.launch {
+                gitSyncRepo.setAutoSyncEnabled(enabled)
+                gitSyncScheduler.reschedule()
+            }
         }
 
         fun updateGitAutoSyncInterval(interval: String) {
-            viewModelScope.launch { gitSyncRepo.setAutoSyncInterval(interval) }
+            viewModelScope.launch {
+                gitSyncRepo.setAutoSyncInterval(interval)
+                gitSyncScheduler.reschedule()
+            }
         }
 
         fun triggerGitSyncNow() {

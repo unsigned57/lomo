@@ -902,6 +902,7 @@ fun SettingsScreen(
     }
 
     if (showGitRemoteUrlDialog) {
+        val isUrlValid = viewModel.isValidGitRemoteUrl(gitRemoteUrlInput)
         AlertDialog(
             onDismissRequest = { showGitRemoteUrlDialog = false },
             title = { Text(stringResource(R.string.settings_git_remote_url)) },
@@ -911,6 +912,12 @@ fun SettingsScreen(
                     onValueChange = { gitRemoteUrlInput = it },
                     singleLine = true,
                     label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
+                    isError = gitRemoteUrlInput.isNotBlank() && !isUrlValid,
+                    supportingText = if (gitRemoteUrlInput.isNotBlank() && !isUrlValid) {
+                        { Text("URL must start with https://") }
+                    } else {
+                        null
+                    },
                 )
             },
             confirmButton = {
@@ -919,6 +926,7 @@ fun SettingsScreen(
                         viewModel.updateGitRemoteUrl(gitRemoteUrlInput.trim())
                         showGitRemoteUrlDialog = false
                     },
+                    enabled = isUrlValid,
                 ) {
                     Text(stringResource(R.string.action_save))
                 }

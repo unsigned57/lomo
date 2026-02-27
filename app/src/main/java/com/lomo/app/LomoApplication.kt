@@ -9,7 +9,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.app.BuildConfig
-import com.lomo.data.worker.GitSyncWorker
+import com.lomo.data.worker.GitSyncScheduler
 import com.lomo.data.worker.SyncWorker
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +25,7 @@ class LomoApplication :
     Application(),
     Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var gitSyncScheduler: GitSyncScheduler
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration
@@ -47,7 +48,7 @@ class LomoApplication :
             }
 
             try {
-                scheduleGitSync()
+                gitSyncScheduler.reschedule()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to schedule git sync")
             }
@@ -75,22 +76,4 @@ class LomoApplication :
             )
     }
 
-    private fun scheduleGitSync() {
-        val gitSyncRequest =
-            PeriodicWorkRequestBuilder<GitSyncWorker>(Duration.ofHours(1))
-                .setConstraints(
-                    Constraints
-                        .Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build(),
-                ).build()
-
-        WorkManager
-            .getInstance(this)
-            .enqueueUniquePeriodicWork(
-                GitSyncWorker.WORK_NAME,
-                ExistingPeriodicWorkPolicy.KEEP,
-                gitSyncRequest,
-            )
-    }
 }
