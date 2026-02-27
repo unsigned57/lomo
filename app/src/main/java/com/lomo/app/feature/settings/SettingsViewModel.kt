@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.domain.repository.LanShareService
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.data.worker.GitSyncScheduler
+import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncState
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
@@ -419,5 +420,44 @@ class SettingsViewModel
 
         fun triggerGitSyncNow() {
             viewModelScope.launch { gitSyncRepo.sync() }
+        }
+
+        // Connection test
+        sealed interface ConnectionTestState {
+            data object Idle : ConnectionTestState
+            data object Testing : ConnectionTestState
+            data class Success(val message: String) : ConnectionTestState
+            data class Error(val message: String) : ConnectionTestState
+        }
+
+        private val _connectionTestState = MutableStateFlow<ConnectionTestState>(ConnectionTestState.Idle)
+        val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
+
+        fun testGitConnection() {
+            viewModelScope.launch {
+                _connectionTestState.value = ConnectionTestState.Testing
+                val result = gitSyncRepo.testConnection()
+                _connectionTestState.value = when (result) {
+                    is GitSyncResult.Success -> ConnectionTestState.Success(result.message)
+                    is GitSyncResult.Error -> ConnectionTestState.Error(result.message)
+                    else -> ConnectionTestState.Error("Unexpected result")
+                }
+            }
+        }
+
+        fun resetConnectionTestState() {
+            _connectionTestState.value = ConnectionTestState.Idle
+        }
+
+        // Reset repository
+        private val _resetInProgress = MutableStateFlow(false)
+        val resetInProgress: StateFlow<Boolean> = _resetInProgress.asStateFlow()
+
+        fun resetGitRepository() {
+            viewModelScope.launch {
+                _resetInProgress.value = true
+                gitSyncRepo.resetRepository()
+                _resetInProgress.value = false
+            }
         }
     }

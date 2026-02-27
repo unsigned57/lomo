@@ -8,8 +8,14 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncState
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.repository.GitSyncRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
@@ -25,6 +31,27 @@ class GitSyncRepositoryImpl
     ) : GitSyncRepository {
         companion object {
             private const val MSG_PAT_REQUIRED = "No Personal Access Token configured"
+            private const val MEMO_CHANGE_DEBOUNCE_MS = 30_000L
+        }
+
+        private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+        init {
+            @OptIn(FlowPreview::class)
+            syncScope.launch {
+                memoSynchronizer.outboxDrainCompleted
+                    .debounce(MEMO_CHANGE_DEBOUNCE_MS)
+                    .collect {
+                        try {
+                            val enabled = dataStore.gitSyncEnabled.first()
+                            if (enabled) {
+                                sync()
+                            }
+                        } catch (e: Exception) {
+                            Timber.w(e, "Event-driven git sync failed")
+                        }
+                    }
+            }
         }
 
         override fun isGitSyncEnabled(): Flow<Boolean> = dataStore.gitSyncEnabled
@@ -209,6 +236,36 @@ class GitSyncRepositoryImpl
         }
 
         override fun syncState(): Flow<GitSyncState> = gitSyncEngine.syncState
+
+        override suspend fun testConnection(): GitSyncResult {
+            val remoteUrl = dataStore.gitRemoteUrl.first()
+            if (remoteUrl.isNullOrBlank()) {
+                return GitSyncResult.Error("Repository URL is not configured")
+            }
+            if (credentialStore.getToken().isNullOrBlank()) {
+                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+            }
+            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                gitSyncEngine.testConnection(remoteUrl)
+            }
+        }
+
+        override suspend fun resetRepository(): GitSyncResult {
+            val directRootDir = resolveRootDir()
+            if (directRootDir != null) {
+                return gitSyncEngine.resetRepository(directRootDir)
+            }
+            val safRootUri = resolveSafRootUri()
+            if (!safRootUri.isNullOrBlank()) {
+                return try {
+                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                    gitSyncEngine.resetRepository(mirrorDir)
+                } catch (e: Exception) {
+                    GitSyncResult.Error("Reset failed: ${e.message}", e)
+                }
+            }
+            return GitSyncResult.Error("Memo directory is not configured")
+        }
 
         private suspend fun resolveRootDir(): File? {
             // Git sync prefers direct filesystem path when available.

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Vibration
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Info
@@ -114,6 +115,8 @@ fun SettingsScreen(
     val gitAutoSyncInterval by viewModel.gitAutoSyncInterval.collectAsStateWithLifecycle()
     val gitLastSyncTime by viewModel.gitLastSyncTime.collectAsStateWithLifecycle()
     val gitSyncState by viewModel.gitSyncState.collectAsStateWithLifecycle()
+    val connectionTestState by viewModel.connectionTestState.collectAsStateWithLifecycle()
+    val resetInProgress by viewModel.resetInProgress.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -143,6 +146,7 @@ fun SettingsScreen(
     var showGitAuthorEmailDialog by remember { mutableStateOf(false) }
     var gitAuthorEmailInput by remember { mutableStateOf("") }
     var showGitSyncIntervalDialog by remember { mutableStateOf(false) }
+    var showGitResetConfirmDialog by remember { mutableStateOf(false) }
 
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
@@ -618,6 +622,34 @@ fun SettingsScreen(
                                     }
                                 },
                             )
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_test_connection),
+                                subtitle = when (connectionTestState) {
+                                    is SettingsViewModel.ConnectionTestState.Idle -> ""
+                                    is SettingsViewModel.ConnectionTestState.Testing ->
+                                        stringResource(R.string.settings_git_test_connection_testing)
+                                    is SettingsViewModel.ConnectionTestState.Success ->
+                                        stringResource(R.string.settings_git_test_connection_success)
+                                    is SettingsViewModel.ConnectionTestState.Error ->
+                                        stringResource(
+                                            R.string.settings_git_test_connection_failed,
+                                            (connectionTestState as SettingsViewModel.ConnectionTestState.Error).message,
+                                        )
+                                },
+                                icon = Icons.Outlined.Link,
+                                onClick = {
+                                    viewModel.resetConnectionTestState()
+                                    viewModel.testGitConnection()
+                                },
+                            )
+                            SettingsDivider()
+                            PreferenceItem(
+                                title = stringResource(R.string.settings_git_reset_repo),
+                                subtitle = stringResource(R.string.settings_git_reset_repo_subtitle),
+                                icon = Icons.Outlined.DeleteForever,
+                                onClick = { showGitResetConfirmDialog = true },
+                            )
                         }
                     }
                 }
@@ -1066,12 +1098,38 @@ fun SettingsScreen(
             labelProvider = { gitSyncIntervalLabels[it] ?: it },
         )
     }
+
+    if (showGitResetConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitResetConfirmDialog = false },
+            title = { Text(stringResource(R.string.settings_git_reset_repo_confirm_title)) },
+            text = { Text(stringResource(R.string.settings_git_reset_repo_confirm_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resetGitRepository()
+                        showGitResetConfirmDialog = false
+                    },
+                    enabled = !resetInProgress,
+                ) {
+                    Text(stringResource(R.string.action_reset))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGitResetConfirmDialog = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
 private fun gitSyncNowSubtitle(state: GitSyncState, lastSyncTime: Long): String =
     when (state) {
-        is GitSyncState.Syncing -> stringResource(R.string.settings_git_sync_status_syncing)
+        is GitSyncState.Syncing.Pulling -> stringResource(R.string.settings_git_sync_status_pulling)
+        is GitSyncState.Syncing.Committing -> stringResource(R.string.settings_git_sync_status_committing)
+        is GitSyncState.Syncing.Pushing -> stringResource(R.string.settings_git_sync_status_pushing)
         is GitSyncState.Initializing -> stringResource(R.string.settings_git_sync_status_initializing)
         is GitSyncState.Error ->
             stringResource(

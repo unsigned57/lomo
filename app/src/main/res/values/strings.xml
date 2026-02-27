@@ -242,6 +242,9 @@
     <string name="settings_git_sync_never">Never synced</string>
     <string name="settings_git_sync_status_idle">Idle</string>
     <string name="settings_git_sync_status_syncing">Syncing...</string>
+    <string name="settings_git_sync_status_pulling">Pulling...</string>
+    <string name="settings_git_sync_status_committing">Committing...</string>
+    <string name="settings_git_sync_status_pushing">Pushing...</string>
     <string name="settings_git_sync_status_success">Synced</string>
     <string name="settings_git_sync_status_error">Error: %1$s</string>
     <string name="settings_git_sync_status_not_configured">Not configured</string>
@@ -252,5 +255,14 @@
     <string name="settings_git_sync_interval_6h">6 hours</string>
     <string name="settings_git_sync_interval_12h">12 hours</string>
     <string name="settings_git_sync_interval_24h">24 hours</string>
+    <string name="settings_git_test_connection">Test Connection</string>
+    <string name="settings_git_test_connection_testing">Testing...</string>
+    <string name="settings_git_test_connection_success">Connection successful</string>
+    <string name="settings_git_test_connection_failed">Connection failed: %1$s</string>
+    <string name="settings_git_reset_repo">Reset Git Repository</string>
+    <string name="settings_git_reset_repo_subtitle">Delete local .git data and start fresh</string>
+    <string name="settings_git_reset_repo_confirm_title">Reset Git Repository?</string>
+    <string name="settings_git_reset_repo_confirm_message">This will delete the local .git directory. Your memo files will not be affected, but you will need to re-initialize sync.</string>
+    <string name="action_reset">Reset</string>
 
 </resources>

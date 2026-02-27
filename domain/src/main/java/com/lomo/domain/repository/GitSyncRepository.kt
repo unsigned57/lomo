@@ -27,6 +27,8 @@ interface GitSyncRepository {
     suspend fun initOrClone(): GitSyncResult
     suspend fun sync(): GitSyncResult
     suspend fun getStatus(): GitSyncStatus
+    suspend fun testConnection(): GitSyncResult
+    suspend fun resetRepository(): GitSyncResult
 
     // State observation
     fun syncState(): Flow<GitSyncState>

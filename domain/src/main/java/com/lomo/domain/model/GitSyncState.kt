@@ -2,7 +2,11 @@ package com.lomo.domain.model
 
 sealed interface GitSyncState {
     data object Idle : GitSyncState
-    data object Syncing : GitSyncState
+    sealed interface Syncing : GitSyncState {
+        data object Pulling : Syncing
+        data object Committing : Syncing
+        data object Pushing : Syncing
+    }
     data class Success(val timestamp: Long, val summary: String) : GitSyncState
     data class Error(val message: String, val timestamp: Long) : GitSyncState
     data object NotConfigured : GitSyncState

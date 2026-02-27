@@ -5,7 +5,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -23,6 +27,12 @@ class MemoSynchronizer
         private val flushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val outboxDrainSignal = Channel<Unit>(Channel.CONFLATED)
 
+        private val _outboxDrainCompleted = MutableSharedFlow<Unit>(
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+        val outboxDrainCompleted: SharedFlow<Unit> = _outboxDrainCompleted.asSharedFlow()
+
         // Sync state for UI observation - helps prevent writes during active sync
         private val _isSyncing = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSyncing
@@ -36,6 +46,7 @@ class MemoSynchronizer
                         mutex.withLock {
                             drainOutboxLocked()
                         }
+                        _outboxDrainCompleted.tryEmit(Unit)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {

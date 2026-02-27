@@ -110,6 +110,15 @@ class SafGitMirrorBridge
             val localFile = File(mirrorDir, relativePath)
             localFile.parentFile?.mkdirs()
 
+            // Incremental copy: skip if lastModified and length match
+            val docModified = document.lastModified()
+            val docLength = document.length()
+            if (localFile.exists() && docModified > 0 &&
+                localFile.lastModified() == docModified && localFile.length() == docLength
+            ) {
+                return
+            }
+
             val input =
                 context.contentResolver.openInputStream(document.uri)
                     ?: throw IOException("Failed to open input stream for ${document.uri}")
@@ -158,6 +167,18 @@ class SafGitMirrorBridge
                 deleteRecursively(target)
                 target = null
             }
+
+            // Incremental write: skip if lastModified and length match
+            if (target != null && target.isFile) {
+                val safModified = target.lastModified()
+                val safLength = target.length()
+                if (safModified > 0 && localFile.lastModified() > 0 &&
+                    safModified == localFile.lastModified() && safLength == localFile.length()
+                ) {
+                    return
+                }
+            }
+
             if (target == null) {
                 target =
                     parent.createFile(mimeTypeFor(filename), filename)
