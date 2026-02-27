@@ -3,7 +3,7 @@
 [English](README.md) | 中文
 
 Lomo 是一款基于 Jetpack Compose 和 Material 3 构建的 Android 本地优先 Markdown 备忘录应用。
-它将你的笔记作为纯文本 `.md` 文件保存在本地的设备上——没有任何**数字围栏**，你可以使用任何你喜欢的方式（如 Syncthing, Nextcloud 等）进行同步。
+它将你的笔记作为纯文本 `.md` 文件保存在本地的设备上——没有任何**数字围栏**，支持 Git 备份，或者你可以使用任何你喜欢的方式（如 Syncthing, Nextcloud 等）进行同步。
 
 <p align="center">
   <img src="docs/screenshots/01_menu.png" width="32%" />
@@ -36,6 +36,7 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
 - **搜索**：支持全文索引搜索。
 - **语音记录**：支持语音记录。
 - **局域网分享**：支持通过局域网将笔记分享到其他lomo应用。
+- **Git 备份**：支持通过 Git 将笔记备份至 Github。
 
 ## 技术栈
 
