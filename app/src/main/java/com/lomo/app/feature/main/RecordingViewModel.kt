@@ -3,8 +3,8 @@ package com.lomo.app.feature.main
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.SettingsRepository
-import com.lomo.domain.repository.VoiceRecorder
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.device.VoiceRecorder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,7 +29,7 @@ import javax.inject.Inject
 class RecordingViewModel
     @Inject
     constructor(
-        private val settingsRepository: SettingsRepository,
+        private val settingsRepository: DirectorySettingsRepository,
         private val mediaRepository: MediaRepository,
         private val voiceRecorder: VoiceRecorder,
     ) : ViewModel() {

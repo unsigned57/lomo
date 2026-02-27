@@ -1,6 +1,6 @@
 package com.lomo.app.feature.update
 
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
@@ -13,7 +13,7 @@ data class AppUpdateInfo(
 class AppUpdateChecker
     @Inject
     constructor(
-        private val settingsRepository: SettingsRepository,
+        private val settingsRepository: PreferencesRepository,
         private val updateManager: UpdateManager,
     ) {
         suspend fun checkForStartupUpdate(): AppUpdateInfo? {

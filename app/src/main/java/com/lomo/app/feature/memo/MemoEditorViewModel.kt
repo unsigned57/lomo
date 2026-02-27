@@ -8,7 +8,7 @@ import com.lomo.app.feature.main.MainMediaCoordinator
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.validation.MemoContentValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +22,7 @@ class MemoEditorViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: SettingsRepository,
+        private val settingsRepository: DirectorySettingsRepository,
         private val validator: MemoContentValidator,
         private val mediaCoordinator: MainMediaCoordinator,
         private val appWidgetRepository: AppWidgetRepository,
@@ -54,7 +54,7 @@ class MemoEditorViewModel
                         return@launch
                     }
                     validator.validateForCreate(content)
-                    repository.saveMemo(content)
+                    repository.saveMemo(content, System.currentTimeMillis())
                     onSuccess?.invoke()
                     mediaCoordinator.clearTrackedImages()
                     viewModelScope.launch(Dispatchers.IO) {

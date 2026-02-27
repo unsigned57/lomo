@@ -2,11 +2,14 @@ package com.lomo.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.data.share.ShareServiceManager
+import com.lomo.domain.repository.LanShareService
 import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,30 +24,31 @@ import javax.inject.Inject
 class SettingsViewModel
     @Inject
     constructor(
-        private val settings: SettingsRepository,
-        private val shareServiceManager: ShareServiceManager,
+        private val directorySettings: DirectorySettingsRepository,
+        private val preferences: PreferencesRepository,
+        private val shareServiceManager: LanShareService,
         private val gitSyncRepo: GitSyncRepository,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
-            settings
+            directorySettings
                 .getRootDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val imageDirectory: StateFlow<String> =
-            settings
+            directorySettings
                 .getImageDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val voiceDirectory: StateFlow<String> =
-            settings
+            directorySettings
                 .getVoiceDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val dateFormat: StateFlow<String> =
-            settings
+            preferences
                 .getDateFormat()
                 .stateIn(
                     viewModelScope,
@@ -53,7 +57,7 @@ class SettingsViewModel
                 )
 
         val timeFormat: StateFlow<String> =
-            settings
+            preferences
                 .getTimeFormat()
                 .stateIn(
                     viewModelScope,
@@ -61,17 +65,17 @@ class SettingsViewModel
                     PreferenceKeys.Defaults.TIME_FORMAT,
                 )
 
-        val themeMode: StateFlow<String> =
-            settings
+        val themeMode: StateFlow<ThemeMode> =
+            preferences
                 .getThemeMode()
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.THEME_MODE,
+                    ThemeMode.SYSTEM,
                 )
 
         val hapticFeedbackEnabled: StateFlow<Boolean> =
-            settings
+            preferences
                 .isHapticFeedbackEnabled()
                 .stateIn(
                     viewModelScope,
@@ -80,7 +84,7 @@ class SettingsViewModel
                 )
 
         val showInputHints: StateFlow<Boolean> =
-            settings
+            preferences
                 .isShowInputHintsEnabled()
                 .stateIn(
                     viewModelScope,
@@ -89,7 +93,7 @@ class SettingsViewModel
                 )
 
         val doubleTapEditEnabled: StateFlow<Boolean> =
-            settings
+            preferences
                 .isDoubleTapEditEnabled()
                 .stateIn(
                     viewModelScope,
@@ -98,7 +102,7 @@ class SettingsViewModel
                 )
 
         val storageFilenameFormat: StateFlow<String> =
-            settings
+            preferences
                 .getStorageFilenameFormat()
                 .stateIn(
                     viewModelScope,
@@ -107,7 +111,7 @@ class SettingsViewModel
                 )
 
         val storageTimestampFormat: StateFlow<String> =
-            settings
+            preferences
                 .getStorageTimestampFormat()
                 .stateIn(
                     viewModelScope,
@@ -116,7 +120,7 @@ class SettingsViewModel
                 )
 
         val checkUpdatesOnStartup: StateFlow<Boolean> =
-            settings
+            preferences
                 .isCheckUpdatesOnStartupEnabled()
                 .stateIn(
                     viewModelScope,
@@ -124,17 +128,17 @@ class SettingsViewModel
                     PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP,
                 )
 
-        val shareCardStyle: StateFlow<String> =
-            settings
+        val shareCardStyle: StateFlow<ShareCardStyle> =
+            preferences
                 .getShareCardStyle()
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.SHARE_CARD_STYLE,
+                    ShareCardStyle.CLEAN,
                 )
 
         val shareCardShowTime: StateFlow<Boolean> =
-            settings
+            preferences
                 .isShareCardShowTimeEnabled()
                 .stateIn(
                     viewModelScope,
@@ -143,7 +147,7 @@ class SettingsViewModel
                 )
 
         val shareCardShowBrand: StateFlow<Boolean> =
-            settings
+            preferences
                 .isShareCardShowBrandEnabled()
                 .stateIn(
                     viewModelScope,
@@ -182,75 +186,75 @@ class SettingsViewModel
         val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
 
         fun updateRootDirectory(path: String) {
-            viewModelScope.launch { settings.setRootDirectory(path) }
+            viewModelScope.launch { directorySettings.setRootDirectory(path) }
         }
 
         fun updateRootUri(uriString: String) {
-            viewModelScope.launch { settings.updateRootUri(uriString) }
+            viewModelScope.launch { directorySettings.updateRootUri(uriString) }
         }
 
         fun updateImageDirectory(path: String) {
-            viewModelScope.launch { settings.setImageDirectory(path) }
+            viewModelScope.launch { directorySettings.setImageDirectory(path) }
         }
 
         fun updateImageUri(uriString: String) {
-            viewModelScope.launch { settings.updateImageUri(uriString) }
+            viewModelScope.launch { directorySettings.updateImageUri(uriString) }
         }
 
         fun updateVoiceDirectory(path: String) {
-            viewModelScope.launch { settings.setVoiceDirectory(path) }
+            viewModelScope.launch { directorySettings.setVoiceDirectory(path) }
         }
 
         fun updateVoiceUri(uriString: String) {
-            viewModelScope.launch { settings.updateVoiceUri(uriString) }
+            viewModelScope.launch { directorySettings.updateVoiceUri(uriString) }
         }
 
         fun updateDateFormat(format: String) {
-            viewModelScope.launch { settings.setDateFormat(format) }
+            viewModelScope.launch { preferences.setDateFormat(format) }
         }
 
         fun updateTimeFormat(format: String) {
-            viewModelScope.launch { settings.setTimeFormat(format) }
+            viewModelScope.launch { preferences.setTimeFormat(format) }
         }
 
-        fun updateThemeMode(mode: String) {
-            viewModelScope.launch { settings.setThemeMode(mode) }
+        fun updateThemeMode(mode: ThemeMode) {
+            viewModelScope.launch { preferences.setThemeMode(mode) }
         }
 
         fun updateStorageFilenameFormat(format: String) {
-            viewModelScope.launch { settings.setStorageFilenameFormat(format) }
+            viewModelScope.launch { preferences.setStorageFilenameFormat(format) }
         }
 
         fun updateStorageTimestampFormat(format: String) {
-            viewModelScope.launch { settings.setStorageTimestampFormat(format) }
+            viewModelScope.launch { preferences.setStorageTimestampFormat(format) }
         }
 
         fun updateHapticFeedback(enabled: Boolean) {
-            viewModelScope.launch { settings.setHapticFeedbackEnabled(enabled) }
+            viewModelScope.launch { preferences.setHapticFeedbackEnabled(enabled) }
         }
 
         fun updateShowInputHints(enabled: Boolean) {
-            viewModelScope.launch { settings.setShowInputHints(enabled) }
+            viewModelScope.launch { preferences.setShowInputHints(enabled) }
         }
 
         fun updateDoubleTapEditEnabled(enabled: Boolean) {
-            viewModelScope.launch { settings.setDoubleTapEditEnabled(enabled) }
+            viewModelScope.launch { preferences.setDoubleTapEditEnabled(enabled) }
         }
 
         fun updateCheckUpdatesOnStartup(enabled: Boolean) {
-            viewModelScope.launch { settings.setCheckUpdatesOnStartup(enabled) }
+            viewModelScope.launch { preferences.setCheckUpdatesOnStartup(enabled) }
         }
 
-        fun updateShareCardStyle(style: String) {
-            viewModelScope.launch { settings.setShareCardStyle(style) }
+        fun updateShareCardStyle(style: ShareCardStyle) {
+            viewModelScope.launch { preferences.setShareCardStyle(style) }
         }
 
         fun updateShareCardShowTime(enabled: Boolean) {
-            viewModelScope.launch { settings.setShareCardShowTime(enabled) }
+            viewModelScope.launch { preferences.setShareCardShowTime(enabled) }
         }
 
         fun updateShareCardShowBrand(enabled: Boolean) {
-            viewModelScope.launch { settings.setShareCardShowBrand(enabled) }
+            viewModelScope.launch { preferences.setShareCardShowBrand(enabled) }
         }
 
         fun updateLanShareE2eEnabled(enabled: Boolean) {

@@ -10,7 +10,8 @@ import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,7 +32,8 @@ class SearchViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: SettingsRepository,
+        private val directorySettings: DirectorySettingsRepository,
+        private val preferencesRepository: PreferencesRepository,
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val memoActionDelegate: MemoActionDelegate,
@@ -40,19 +42,19 @@ class SearchViewModel
         val searchQuery: StateFlow<String> = _searchQuery
 
         val rootDirectory: StateFlow<String?> =
-            settingsRepository
+            directorySettings
                 .getRootDirectory()
                 .stateInViewModel(viewModelScope, null)
 
         val imageDirectory: StateFlow<String?> =
-            settingsRepository
+            directorySettings
                 .getImageDirectory()
                 .stateInViewModel(viewModelScope, null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            settingsRepository.appPreferencesState(viewModelScope)
+            preferencesRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)

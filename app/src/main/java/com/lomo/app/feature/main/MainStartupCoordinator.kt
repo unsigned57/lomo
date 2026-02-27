@@ -4,7 +4,7 @@ import com.lomo.app.BuildConfig
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.ui.media.AudioPlayerManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
@@ -16,7 +16,7 @@ class MainStartupCoordinator
     constructor(
         private val repository: MemoRepository,
         private val mediaRepository: MediaRepository,
-        private val settingsRepository: SettingsRepository,
+        private val settingsRepository: DirectorySettingsRepository,
         private val dataStore: LomoDataStore,
         private val audioPlayerManager: AudioPlayerManager,
     ) {

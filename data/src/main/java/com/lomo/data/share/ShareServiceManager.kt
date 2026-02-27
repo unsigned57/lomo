@@ -13,6 +13,7 @@ import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.model.ShareAttachmentInfo
 import com.lomo.domain.model.SharePayload
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.MediaRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -46,7 +47,7 @@ class ShareServiceManager
         private val dataSource: FileDataSource,
         private val dataStore: LomoDataStore,
         private val mediaRepository: MediaRepository,
-    ) {
+    ) : LanShareService {
         companion object {
             private const val TAG = "ShareServiceManager"
             private const val MAX_DEVICE_NAME_CHARS = 32
@@ -62,19 +63,19 @@ class ShareServiceManager
         private val server = LomoShareServer()
         private var client = createShareClient()
 
-        val discoveredDevices: StateFlow<List<DiscoveredDevice>> = nsdService.discoveredDevices
+        override val discoveredDevices: StateFlow<List<DiscoveredDevice>> = nsdService.discoveredDevices
 
         private val _incomingShare = MutableStateFlow<IncomingShareState>(IncomingShareState.None)
-        val incomingShare: StateFlow<IncomingShareState> = _incomingShare.asStateFlow()
+        override val incomingShare: StateFlow<IncomingShareState> = _incomingShare.asStateFlow()
 
         private val _transferState = MutableStateFlow<ShareTransferState>(ShareTransferState.Idle)
-        val transferState: StateFlow<ShareTransferState> = _transferState.asStateFlow()
+        override val transferState: StateFlow<ShareTransferState> = _transferState.asStateFlow()
         private val pairingCodeInputState = MutableStateFlow("")
 
-        val lanShareE2eEnabled = dataStore.lanShareE2eEnabled
-        val lanSharePairingConfigured = dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
-        val lanSharePairingCode: StateFlow<String> = pairingCodeInputState.asStateFlow()
-        val lanShareDeviceName = dataStore.lanShareDeviceName.map { sanitizeDeviceName(it) ?: getFallbackDeviceName() }
+        override val lanShareE2eEnabled = dataStore.lanShareE2eEnabled
+        override val lanSharePairingConfigured = dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
+        override val lanSharePairingCode: StateFlow<String> = pairingCodeInputState.asStateFlow()
+        override val lanShareDeviceName = dataStore.lanShareDeviceName.map { sanitizeDeviceName(it) ?: getFallbackDeviceName() }
 
         private var serverPort: Int = 0
         private val localUuid = Uuid.random().toString()
@@ -91,7 +92,7 @@ class ShareServiceManager
 
         // --- Lifecycle ---
 
-        fun startServices() {
+        override fun startServices() {
             val shouldStart =
                 synchronized(serviceStateLock) {
                     if (servicesStarted) {
@@ -155,7 +156,7 @@ class ShareServiceManager
             }
         }
 
-        fun stopServices() {
+        override fun stopServices() {
             synchronized(serviceStateLock) {
                 servicesStarted = false
                 discoveryStarted = false
@@ -177,7 +178,7 @@ class ShareServiceManager
             Timber.tag(TAG).d("Services stopped")
         }
 
-        fun startDiscovery() {
+        override fun startDiscovery() {
             val shouldStart =
                 synchronized(serviceStateLock) {
                     if (discoveryStarted) {
@@ -191,7 +192,7 @@ class ShareServiceManager
             nsdService.startDiscovery(localUuid)
         }
 
-        fun stopDiscovery() {
+        override fun stopDiscovery() {
             synchronized(serviceStateLock) {
                 discoveryStarted = false
             }
@@ -207,11 +208,11 @@ class ShareServiceManager
          * @param timestamp Memo original timestamp.
          * @param attachmentUris Map of filename -> content URI for images/audio in the memo.
          */
-        suspend fun sendMemo(
+        override suspend fun sendMemo(
             device: DiscoveredDevice,
             content: String,
             timestamp: Long,
-            attachmentUris: Map<String, Uri>,
+            attachmentUris: Map<String, String>,
         ): Result<Unit> =
             withContext(Dispatchers.IO) {
                 try {
@@ -227,7 +228,8 @@ class ShareServiceManager
 
                     _transferState.value = ShareTransferState.Sending
 
-                    val resolvedAttachmentUris = resolveAttachmentUris(attachmentUris)
+                    val parsedUris = attachmentUris.mapValues { (_, v) -> Uri.parse(v) }
+                    val resolvedAttachmentUris = resolveAttachmentUris(parsedUris)
                     if (resolvedAttachmentUris.size != attachmentUris.size) {
                         val missingCount = attachmentUris.size - resolvedAttachmentUris.size
                         val message = "Failed to resolve $missingCount attachment(s)"
@@ -320,27 +322,27 @@ class ShareServiceManager
                 }
             }
 
-        fun resetTransferState() {
+        override fun resetTransferState() {
             _transferState.value = ShareTransferState.Idle
         }
 
         // --- Receiving ---
 
-        fun acceptIncoming() {
+        override fun acceptIncoming() {
             server.acceptIncoming()
             _incomingShare.value = IncomingShareState.None
         }
 
-        fun rejectIncoming() {
+        override fun rejectIncoming() {
             server.rejectIncoming()
             _incomingShare.value = IncomingShareState.None
         }
 
-        suspend fun setLanShareE2eEnabled(enabled: Boolean) {
+        override suspend fun setLanShareE2eEnabled(enabled: Boolean) {
             dataStore.updateLanShareE2eEnabled(enabled)
         }
 
-        suspend fun setLanSharePairingCode(pairingCode: String) {
+        override suspend fun setLanSharePairingCode(pairingCode: String) {
             val normalized = pairingCode.trim()
             val keyMaterial =
                 ShareAuthUtils.deriveKeyMaterialFromPairingCode(normalized)
@@ -349,18 +351,18 @@ class ShareServiceManager
             pairingCodeInputState.value = normalized
         }
 
-        suspend fun clearLanSharePairingCode() {
+        override suspend fun clearLanSharePairingCode() {
             dataStore.updateLanSharePairingKeyHex(null)
             pairingCodeInputState.value = ""
         }
 
-        suspend fun setLanShareDeviceName(deviceName: String) {
+        override suspend fun setLanShareDeviceName(deviceName: String) {
             val sanitized = sanitizeDeviceName(deviceName)
             dataStore.updateLanShareDeviceName(sanitized)
             refreshServiceRegistration()
         }
 
-        suspend fun requiresPairingBeforeSend(): Boolean {
+        override suspend fun requiresPairingBeforeSend(): Boolean {
             val e2eEnabled = dataStore.lanShareE2eEnabled.first()
             if (!e2eEnabled) return false
             return !ShareAuthUtils.isValidKeyHex(dataStore.lanSharePairingKeyHex.first())

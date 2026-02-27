@@ -2,7 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.domain.model.Memo
-import com.lomo.domain.repository.MemoTagCount
+import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +21,9 @@ class MemoRepositoryImpl
                 .getAllMemosFlow()
                 .map { entities -> entities.map { it.toDomain() } }
                 .flowOn(Dispatchers.Default)
+
+        override suspend fun getRecentMemos(limit: Int): List<Memo> =
+            dao.getRecentMemos(limit).map { it.toDomain() }
 
         override suspend fun refreshMemos() {
             synchronizer.refresh()

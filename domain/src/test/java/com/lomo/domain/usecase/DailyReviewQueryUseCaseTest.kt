@@ -63,6 +63,6 @@ class DailyReviewQueryUseCaseTest {
             timestamp = index.toLong(),
             content = "content_$index",
             rawContent = "- 00:00:00 content_$index",
-            date = "2026_02_24",
+            dateKey = "2026_02_24",
         )
 }

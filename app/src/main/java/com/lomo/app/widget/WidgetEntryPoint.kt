@@ -1,6 +1,6 @@
 package com.lomo.app.widget
 
-import com.lomo.data.local.dao.MemoDao
+import com.lomo.domain.repository.MemoRepository
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
@@ -12,7 +12,7 @@ import dagger.hilt.components.SingletonComponent
 @EntryPoint
 @InstallIn(SingletonComponent::class)
 interface WidgetEntryPoint {
-    fun memoDao(): MemoDao
+    fun memoRepository(): MemoRepository
 
     fun textProcessor(): com.lomo.data.util.MemoTextProcessor
 }

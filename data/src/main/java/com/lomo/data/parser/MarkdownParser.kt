@@ -84,7 +84,7 @@ class MarkdownParser
                             timestamp = timestampLong,
                             content = fullContent,
                             rawContent = fullRaw,
-                            date = filename,
+                            dateKey = filename,
                             tags = extractTags(fullContent),
                             imageUrls = extractImages(fullContent),
                         ),

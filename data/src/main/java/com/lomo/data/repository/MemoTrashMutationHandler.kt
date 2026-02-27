@@ -39,7 +39,7 @@ class MemoTrashMutationHandler
         }
 
         suspend fun moveToTrashFileOnly(memo: Memo): Boolean {
-            val filename = memo.date + ".md"
+            val filename = memo.dateKey + ".md"
             val cachedUriString = getMainSafUri(filename)
             val currentFileContent =
                 if (cachedUriString != null) {
@@ -108,7 +108,7 @@ class MemoTrashMutationHandler
         }
 
         suspend fun restoreFromTrashFileOnly(memo: Memo): Boolean {
-            val filename = memo.date + ".md"
+            val filename = memo.dateKey + ".md"
             val trashContent = fileDataSource.readFileIn(MemoDirectoryType.TRASH, filename) ?: return false
             val trashLines = trashContent.lines().toMutableList()
 
@@ -155,7 +155,7 @@ class MemoTrashMutationHandler
         }
 
         suspend fun deleteFromTrashPermanently(memo: Memo) {
-            val filename = memo.date + ".md"
+            val filename = memo.dateKey + ".md"
             val trashContent = fileDataSource.readFileIn(MemoDirectoryType.TRASH, filename) ?: return
             val trashLines = trashContent.lines().toMutableList()
 

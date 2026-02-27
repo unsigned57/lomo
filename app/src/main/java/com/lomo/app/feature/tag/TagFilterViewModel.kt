@@ -11,7 +11,8 @@ import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -26,7 +27,8 @@ class TagFilterViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val memoRepository: MemoRepository,
-        private val settingsRepository: SettingsRepository,
+        private val directorySettings: DirectorySettingsRepository,
+        private val preferencesRepository: PreferencesRepository,
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val memoActionDelegate: MemoActionDelegate,
@@ -34,17 +36,17 @@ class TagFilterViewModel
         val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
 
         private val rootDirectory: StateFlow<String?> =
-            settingsRepository
+            directorySettings
                 .getRootDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private val imageDirectory: StateFlow<String?> =
-            settingsRepository
+            directorySettings
                 .getImageDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            settingsRepository.appPreferencesState(viewModelScope)
+            preferencesRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             memoRepository.activeDayCountState(viewModelScope)

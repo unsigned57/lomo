@@ -7,6 +7,8 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.validation.MemoContentValidator
 import io.mockk.coEvery
 import io.mockk.every
@@ -31,7 +33,8 @@ class MainViewModelTest {
 
     private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var repository: com.lomo.domain.repository.MemoRepository
-    private lateinit var settingsRepository: com.lomo.domain.repository.SettingsRepository
+    private lateinit var directorySettings: com.lomo.domain.repository.DirectorySettingsRepository
+    private lateinit var preferencesRepository: com.lomo.domain.repository.PreferencesRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
     private lateinit var appWidgetRepository: AppWidgetRepository
@@ -45,7 +48,8 @@ class MainViewModelTest {
 
         savedStateHandle = SavedStateHandle()
         repository = mockk(relaxed = true)
-        settingsRepository = mockk(relaxed = true)
+        directorySettings = mockk(relaxed = true)
+        preferencesRepository = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
         dataStore = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
@@ -60,23 +64,23 @@ class MainViewModelTest {
         every { repository.getMemosByTagList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMemoCountFlow() } returns flowOf(0)
         every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
-        every { repository.getTagCountsFlow() } returns flowOf(emptyList<com.lomo.domain.repository.MemoTagCount>())
+        every { repository.getTagCountsFlow() } returns flowOf(emptyList<com.lomo.domain.model.MemoTagCount>())
         every { repository.getActiveDayCount() } returns flowOf(0)
-        every { settingsRepository.getRootDirectory() } returns flowOf<String?>(null)
-        coEvery { settingsRepository.getRootDirectoryOnce() } returns null
-        every { settingsRepository.getImageDirectory() } returns flowOf<String?>(null)
-        every { settingsRepository.getVoiceDirectory() } returns flowOf<String?>(null)
+        every { directorySettings.getRootDirectory() } returns flowOf<String?>(null)
+        coEvery { directorySettings.getRootDirectoryOnce() } returns null
+        every { directorySettings.getImageDirectory() } returns flowOf<String?>(null)
+        every { directorySettings.getVoiceDirectory() } returns flowOf<String?>(null)
 
-        every { settingsRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-        every { settingsRepository.getTimeFormat() } returns flowOf("HH:mm")
-        every { settingsRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-        every { settingsRepository.isShowInputHintsEnabled() } returns flowOf(true)
-        every { settingsRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-        every { settingsRepository.getShareCardStyle() } returns flowOf("default")
-        every { settingsRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-        every { settingsRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-        every { settingsRepository.getThemeMode() } returns flowOf("system")
-        every { settingsRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
+        every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+        every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
+        every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(true)
+        every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
+        every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+        every { preferencesRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
+        every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+        every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
+        every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
+        every { preferencesRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
 
         coEvery { dataStore.getLastAppVersionOnce() } returns ""
         coEvery { dataStore.updateLastAppVersion(any()) } returns Unit
@@ -156,7 +160,8 @@ class MainViewModelTest {
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             repository = repository,
-            settingsRepository = settingsRepository,
+            settingsRepository = directorySettings,
+            preferencesRepository = preferencesRepository,
             savedStateHandle = savedStateHandle,
             memoFlowProcessor = memoFlowProcessor,
             imageMapProvider = imageMapProvider,
@@ -168,7 +173,7 @@ class MainViewModelTest {
                 MainStartupCoordinator(
                     repository = repository,
                     mediaRepository = mediaRepository,
-                    settingsRepository = settingsRepository,
+                    settingsRepository = directorySettings,
                     dataStore = dataStore,
                     audioPlayerManager = audioPlayerManager,
                 ),

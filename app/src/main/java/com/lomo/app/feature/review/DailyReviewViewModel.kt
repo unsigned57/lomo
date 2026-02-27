@@ -10,7 +10,8 @@ import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.ui.util.UiState
 import com.lomo.ui.util.stateInViewModel
@@ -28,7 +29,8 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: SettingsRepository,
+        private val directorySettings: DirectorySettingsRepository,
+        private val preferencesRepository: PreferencesRepository,
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val memoActionDelegate: MemoActionDelegate,
@@ -39,13 +41,13 @@ class DailyReviewViewModel
         private var loadJob: Job? = null
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            settingsRepository.appPreferencesState(viewModelScope)
+            preferencesRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
 
         val imageDirectory: StateFlow<String?> =
-            settingsRepository
+            directorySettings
                 .getImageDirectory()
                 .stateIn(
                     scope = viewModelScope,

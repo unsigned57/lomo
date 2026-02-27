@@ -123,7 +123,7 @@ class MemoMutationHandler
             }
 
             val timeString = formatMemoTime(memo.timestamp)
-            val filename = memo.date + ".md"
+            val filename = memo.dateKey + ".md"
             val cachedUriString = getMainSafUri(filename)
             val cachedUri = cachedUriString.toPersistedUriOrNull()
             val currentFileContent =
@@ -274,7 +274,7 @@ class MemoMutationHandler
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.CREATE,
                 memoId = savePlan.memo.id,
-                memoDate = savePlan.memo.date,
+                memoDate = savePlan.memo.dateKey,
                 memoTimestamp = savePlan.memo.timestamp,
                 memoRawContent = savePlan.memo.rawContent,
                 newContent = savePlan.memo.content,
@@ -288,7 +288,7 @@ class MemoMutationHandler
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.UPDATE,
                 memoId = sourceMemo.id,
-                memoDate = sourceMemo.date,
+                memoDate = sourceMemo.dateKey,
                 memoTimestamp = sourceMemo.timestamp,
                 memoRawContent = sourceMemo.rawContent,
                 newContent = newContent,
@@ -299,7 +299,7 @@ class MemoMutationHandler
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.DELETE,
                 memoId = sourceMemo.id,
-                memoDate = sourceMemo.date,
+                memoDate = sourceMemo.dateKey,
                 memoTimestamp = sourceMemo.timestamp,
                 memoRawContent = sourceMemo.rawContent,
                 newContent = null,
@@ -310,7 +310,7 @@ class MemoMutationHandler
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.RESTORE,
                 memoId = sourceMemo.id,
-                memoDate = sourceMemo.date,
+                memoDate = sourceMemo.dateKey,
                 memoTimestamp = sourceMemo.timestamp,
                 memoRawContent = sourceMemo.rawContent,
                 newContent = sourceMemo.content,
@@ -323,7 +323,7 @@ class MemoMutationHandler
                 timestamp = item.memoTimestamp,
                 content = item.newContent.orEmpty(),
                 rawContent = item.memoRawContent,
-                date = item.memoDate,
+                dateKey = item.memoDate,
             )
 
         private suspend fun flushCreateFromOutbox(item: MemoFileOutboxEntity): Boolean {

@@ -12,7 +12,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.util.ProvideHapticFeedback
-import com.lomo.data.share.ShareServiceManager
+import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.theme.LomoTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -23,7 +23,7 @@ class MainActivity : AppCompatActivity() {
 
     @Inject lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
 
-    @Inject lateinit var shareServiceManager: ShareServiceManager
+    @Inject lateinit var shareServiceManager: LanShareService
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -46,7 +46,7 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-            LomoTheme(themeMode = appPreferences.themeMode) {
+            LomoTheme(themeMode = appPreferences.themeMode.value) {
                 ProvideHapticFeedback(dataStore) { hapticEnabled ->
                     com.lomo.ui.util.ProvideAppHapticFeedback(enabled = hapticEnabled) {
                         androidx.compose.runtime.CompositionLocalProvider(

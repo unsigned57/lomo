@@ -1,8 +1,10 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.ui.util.stateInViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -15,11 +17,11 @@ import kotlinx.coroutines.flow.combine
 data class AppPreferencesState(
     val dateFormat: String,
     val timeFormat: String,
-    val themeMode: String,
+    val themeMode: ThemeMode,
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
-    val shareCardStyle: String,
+    val shareCardStyle: ShareCardStyle,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
 ) {
@@ -28,18 +30,18 @@ data class AppPreferencesState(
             AppPreferencesState(
                 dateFormat = PreferenceKeys.Defaults.DATE_FORMAT,
                 timeFormat = PreferenceKeys.Defaults.TIME_FORMAT,
-                themeMode = PreferenceKeys.Defaults.THEME_MODE,
+                themeMode = ThemeMode.SYSTEM,
                 hapticFeedbackEnabled = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
                 showInputHints = PreferenceKeys.Defaults.SHOW_INPUT_HINTS,
                 doubleTapEditEnabled = PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED,
-                shareCardStyle = PreferenceKeys.Defaults.SHARE_CARD_STYLE,
+                shareCardStyle = ShareCardStyle.CLEAN,
                 shareCardShowTime = PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
             )
     }
 }
 
-fun SettingsRepository.observeAppPreferences(): Flow<AppPreferencesState> =
+fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
     combine(
         combine(
             getDateFormat(),
@@ -83,7 +85,7 @@ fun SettingsRepository.observeAppPreferences(): Flow<AppPreferencesState> =
         )
     }
 
-fun SettingsRepository.appPreferencesState(scope: CoroutineScope): StateFlow<AppPreferencesState> =
+fun PreferencesRepository.appPreferencesState(scope: CoroutineScope): StateFlow<AppPreferencesState> =
     observeAppPreferences()
         .stateInViewModel(scope, AppPreferencesState.defaults())
 
@@ -94,14 +96,14 @@ fun MemoRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =
 private data class BasePreferences(
     val dateFormat: String,
     val timeFormat: String,
-    val themeMode: String,
+    val themeMode: ThemeMode,
     val hapticFeedbackEnabled: Boolean,
     val showInputHints: Boolean,
 )
 
 private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
-    val shareCardStyle: String,
+    val shareCardStyle: ShareCardStyle,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
 )

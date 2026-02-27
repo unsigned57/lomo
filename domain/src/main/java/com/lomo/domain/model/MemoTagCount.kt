@@ -1,6 +1,6 @@
 package com.lomo.domain.model
 
-data class TagCount(
+data class MemoTagCount(
     val name: String,
     val count: Int,
 )

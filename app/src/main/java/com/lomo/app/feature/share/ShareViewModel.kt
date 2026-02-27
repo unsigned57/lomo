@@ -1,10 +1,9 @@
 package com.lomo.app.feature.share
 
-import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.data.share.ShareServiceManager
+import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,7 +20,7 @@ import javax.inject.Inject
 class ShareViewModel
     @Inject
     constructor(
-        private val shareServiceManager: ShareServiceManager,
+        private val shareServiceManager: LanShareService,
         private val textProcessor: com.lomo.data.util.MemoTextProcessor,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
@@ -125,14 +124,10 @@ class ShareViewModel
             Timber.d("ShareViewModel cleared: discovery stopped")
         }
 
-        private fun extractAttachmentUris(content: String): Map<String, Uri> {
-            val attachments = mutableMapOf<String, Uri>()
+        private fun extractAttachmentUris(content: String): Map<String, String> {
+            val attachments = mutableMapOf<String, String>()
             textProcessor.extractLocalAttachmentPaths(content).forEach { path ->
-                try {
-                    attachments[path] = Uri.parse(path)
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to parse attachment URI: $path")
-                }
+                attachments[path] = path
             }
 
             return attachments

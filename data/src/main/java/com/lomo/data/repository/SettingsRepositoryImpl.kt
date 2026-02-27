@@ -2,9 +2,11 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.share.ShareAuthUtils
 import com.lomo.data.source.FileDataSource
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.util.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
@@ -17,7 +19,8 @@ class SettingsRepositoryImpl
         private val dao: MemoDao,
         private val dataSource: FileDataSource,
         private val dataStore: LomoDataStore,
-    ) : SettingsRepository {
+    ) : DirectorySettingsRepository,
+        PreferencesRepository {
         override fun getRootDirectory(): Flow<String?> = dataSource.getRootFlow()
 
         override suspend fun getRootDirectoryOnce(): String? = dataStore.getRootDirectoryOnce()
@@ -70,10 +73,10 @@ class SettingsRepositoryImpl
             dataStore.updateTimeFormat(format)
         }
 
-        override fun getThemeMode(): Flow<String> = dataStore.themeMode
+        override fun getThemeMode(): Flow<ThemeMode> = dataStore.themeMode.map { ThemeMode.fromValue(it) }
 
-        override suspend fun setThemeMode(mode: String) {
-            dataStore.updateThemeMode(mode)
+        override suspend fun setThemeMode(mode: ThemeMode) {
+            dataStore.updateThemeMode(mode.value)
         }
 
         override fun getStorageFilenameFormat(): Flow<String> = dataStore.storageFilenameFormat
@@ -112,23 +115,10 @@ class SettingsRepositoryImpl
             dataStore.updateDoubleTapEditEnabled(enabled)
         }
 
-        override fun isLanSharePairingConfigured(): Flow<Boolean> = dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
+        override fun getShareCardStyle(): Flow<ShareCardStyle> = dataStore.shareCardStyle.map { ShareCardStyle.fromValue(it) }
 
-        override suspend fun setLanSharePairingCode(pairingCode: String) {
-            val keyMaterial =
-                ShareAuthUtils.deriveKeyMaterialFromPairingCode(pairingCode)
-                    ?: throw IllegalArgumentException("Pairing code must be 6-64 characters")
-            dataStore.updateLanSharePairingKeyHex(keyMaterial)
-        }
-
-        override suspend fun clearLanSharePairingCode() {
-            dataStore.updateLanSharePairingKeyHex(null)
-        }
-
-        override fun getShareCardStyle(): Flow<String> = dataStore.shareCardStyle
-
-        override suspend fun setShareCardStyle(style: String) {
-            dataStore.updateShareCardStyle(style)
+        override suspend fun setShareCardStyle(style: ShareCardStyle) {
+            dataStore.updateShareCardStyle(style.value)
         }
 
         override fun isShareCardShowTimeEnabled(): Flow<Boolean> = dataStore.shareCardShowTime

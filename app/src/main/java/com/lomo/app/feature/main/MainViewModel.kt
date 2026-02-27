@@ -11,8 +11,10 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.validation.MemoContentValidator
 import com.lomo.ui.component.navigation.SidebarStats
@@ -45,7 +47,8 @@ class MainViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: SettingsRepository,
+        private val settingsRepository: DirectorySettingsRepository,
+        private val preferencesRepository: PreferencesRepository,
         private val savedStateHandle: SavedStateHandle,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val imageMapProvider: ImageMapProvider,
@@ -156,7 +159,7 @@ class MainViewModel
                     memoCountByDate = memoCountByDate,
                     tags =
                         tagCounts
-                            .sortedWith(compareByDescending<com.lomo.domain.repository.MemoTagCount> { it.count }.thenBy { it.name })
+                            .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
                             .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
                 )
             }.flowOn(Dispatchers.Default)
@@ -365,7 +368,7 @@ class MainViewModel
         }
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            settingsRepository.appPreferencesState(viewModelScope)
+            preferencesRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)

@@ -110,7 +110,7 @@ fun MainScreen(
     val hapticEnabled = appPreferences.hapticFeedbackEnabled
     val showInputHints = appPreferences.showInputHints
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
-    val shareCardStyle = appPreferences.shareCardStyle
+    val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
 

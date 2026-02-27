@@ -49,7 +49,7 @@ fun DailyReviewScreen(
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
-    val shareCardStyle = appPreferences.shareCardStyle
+    val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()

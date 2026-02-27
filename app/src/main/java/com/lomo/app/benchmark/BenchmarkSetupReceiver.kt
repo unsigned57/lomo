@@ -6,7 +6,7 @@ import android.content.Context
 import android.content.Intent
 import com.lomo.app.BuildConfig
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +17,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class BenchmarkSetupReceiver : BroadcastReceiver() {
-    @Inject lateinit var settingsRepository: SettingsRepository
+    @Inject lateinit var settingsRepository: DirectorySettingsRepository
     @Inject lateinit var memoRepository: MemoRepository
 
     override fun onReceive(

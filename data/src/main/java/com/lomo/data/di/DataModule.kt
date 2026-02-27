@@ -16,7 +16,8 @@ import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.SettingsRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.PreferencesRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -111,7 +112,11 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository = impl
+    fun provideDirectorySettingsRepository(impl: SettingsRepositoryImpl): DirectorySettingsRepository = impl
+
+    @Provides
+    @Singleton
+    fun providePreferencesRepository(impl: SettingsRepositoryImpl): PreferencesRepository = impl
 
     @Provides
     @Singleton
@@ -140,5 +145,9 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideVoiceRecorder(audioRecorder: com.lomo.data.media.AudioRecorder): com.lomo.domain.repository.VoiceRecorder = audioRecorder
+    fun provideVoiceRecorder(audioRecorder: com.lomo.data.media.AudioRecorder): com.lomo.domain.device.VoiceRecorder = audioRecorder
+
+    @Provides
+    @Singleton
+    fun provideLanShareService(impl: com.lomo.data.share.ShareServiceManager): com.lomo.domain.repository.LanShareService = impl
 }

@@ -28,7 +28,7 @@ data class TrashMemoEntity(
             timestamp = timestamp,
             content = content,
             rawContent = rawContent,
-            date = date,
+            dateKey = date,
             tags = if (tags.isEmpty()) emptyList() else tags.split(","),
             imageUrls = if (imageUrls.isEmpty()) emptyList() else imageUrls.split(","),
             isDeleted = true,
@@ -41,7 +41,7 @@ data class TrashMemoEntity(
                 timestamp = memo.timestamp,
                 content = memo.content,
                 rawContent = memo.rawContent,
-                date = memo.date,
+                date = memo.dateKey,
                 tags = memo.tags.joinToString(","),
                 imageUrls = memo.imageUrls.joinToString(","),
             )

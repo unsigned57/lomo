@@ -196,7 +196,7 @@ class MemoUiMapperTest {
             timestamp = 0L,
             content = content,
             rawContent = content,
-            date = "2026_02_23",
+            dateKey = "2026_02_23",
             tags = tags,
         )
 

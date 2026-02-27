@@ -146,23 +146,23 @@ fun SettingsScreen(
 
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
-    val themeModes = listOf("system", "light", "dark")
-    val shareCardStyles = listOf("warm", "clean", "dark")
+    val themeModes = com.lomo.domain.model.ThemeMode.entries
+    val shareCardStyles = com.lomo.domain.model.ShareCardStyle.entries
     val filenameFormats = StorageFilenameFormats.supportedPatterns
     val timestampFormats = StorageTimestampFormats.supportedPatterns
     val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
 
     val themeModeLabels =
         mapOf(
-            "system" to stringResource(R.string.settings_system),
-            "light" to stringResource(R.string.settings_light_mode),
-            "dark" to stringResource(R.string.settings_dark_mode),
+            com.lomo.domain.model.ThemeMode.SYSTEM to stringResource(R.string.settings_system),
+            com.lomo.domain.model.ThemeMode.LIGHT to stringResource(R.string.settings_light_mode),
+            com.lomo.domain.model.ThemeMode.DARK to stringResource(R.string.settings_dark_mode),
         )
     val shareCardStyleLabels =
         mapOf(
-            "warm" to stringResource(R.string.share_card_style_warm),
-            "clean" to stringResource(R.string.share_card_style_clean),
-            "dark" to stringResource(R.string.share_card_style_dark),
+            com.lomo.domain.model.ShareCardStyle.WARM to stringResource(R.string.share_card_style_warm),
+            com.lomo.domain.model.ShareCardStyle.CLEAN to stringResource(R.string.share_card_style_clean),
+            com.lomo.domain.model.ShareCardStyle.DARK to stringResource(R.string.share_card_style_dark),
         )
     val languageLabels =
         mapOf(
@@ -334,7 +334,7 @@ fun SettingsScreen(
                     SettingsDivider()
                     PreferenceItem(
                         title = stringResource(R.string.settings_theme_mode),
-                        subtitle = themeModeLabels[themeMode] ?: themeMode,
+                        subtitle = themeModeLabels[themeMode] ?: themeMode.value,
                         icon = Icons.Outlined.Brightness6,
                         onClick = { showThemeDialog = true },
                     )
@@ -440,7 +440,7 @@ fun SettingsScreen(
                 SettingsGroup(title = stringResource(R.string.settings_group_share_card)) {
                     PreferenceItem(
                         title = stringResource(R.string.settings_share_card_style),
-                        subtitle = shareCardStyleLabels[shareCardStyle] ?: shareCardStyle,
+                        subtitle = shareCardStyleLabels[shareCardStyle] ?: shareCardStyle.value,
                         icon = Icons.Outlined.Description,
                         onClick = { showShareCardStyleDialog = true },
                     )
@@ -706,7 +706,7 @@ fun SettingsScreen(
                 viewModel.updateThemeMode(it)
                 showThemeDialog = false
             },
-            labelProvider = { themeModeLabels[it] ?: it },
+            labelProvider = { themeModeLabels[it] ?: it.value },
         )
     }
 
@@ -766,7 +766,7 @@ fun SettingsScreen(
                 viewModel.updateShareCardStyle(it)
                 showShareCardStyleDialog = false
             },
-            labelProvider = { shareCardStyleLabels[it] ?: it },
+            labelProvider = { shareCardStyleLabels[it] ?: it.value },
         )
     }
 

@@ -1,6 +1,7 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoTagCount
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -10,13 +11,15 @@ interface MemoRepository {
     // Data operations
     fun getAllMemosList(): Flow<List<Memo>>
 
+    suspend fun getRecentMemos(limit: Int): List<Memo>
+
     suspend fun refreshMemos()
 
     fun isSyncing(): Flow<Boolean>
 
     suspend fun saveMemo(
         content: String,
-        timestamp: Long = System.currentTimeMillis(),
+        timestamp: Long,
     )
 
     suspend fun updateMemo(
@@ -48,8 +51,3 @@ interface MemoRepository {
 
     suspend fun deletePermanently(memo: Memo)
 }
-
-data class MemoTagCount(
-    val name: String,
-    val count: Int,
-)

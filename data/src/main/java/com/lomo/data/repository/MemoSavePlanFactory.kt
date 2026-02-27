@@ -11,7 +11,7 @@ import javax.inject.Inject
 
 data class MemoSavePlan(
     val filename: String,
-    val date: String,
+    val dateKey: String,
     val timestamp: Long,
     val rawContent: String,
     val memo: Memo,
@@ -81,7 +81,7 @@ class MemoSavePlanFactory
                 Memo(
                     id = optimisticId,
                     content = content,
-                    date = dateString,
+                    dateKey = dateString,
                     timestamp = canonicalTimestamp,
                     rawContent = rawContent,
                     tags = textProcessor.extractTags(content),
@@ -91,7 +91,7 @@ class MemoSavePlanFactory
 
             return MemoSavePlan(
                 filename = filename,
-                date = dateString,
+                dateKey = dateString,
                 timestamp = canonicalTimestamp,
                 rawContent = rawContent,
                 memo = memo,

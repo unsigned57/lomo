@@ -33,7 +33,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.lomo.app.MainActivity
 import com.lomo.app.R
-import com.lomo.data.local.entity.MemoEntity
+import com.lomo.domain.model.Memo
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -55,14 +55,14 @@ class LomoWidget : GlanceAppWidget() {
                 context.applicationContext,
                 WidgetEntryPoint::class.java,
             )
-        val memoDao = entryPoint.memoDao()
+        val memoRepository = entryPoint.memoRepository()
         val textProcessor = entryPoint.textProcessor()
 
         // Fetch recent memos
         val recentMemos =
             withContext(Dispatchers.IO) {
                 try {
-                    memoDao.getRecentMemos(3)
+                    memoRepository.getRecentMemos(3)
                 } catch (e: Exception) {
                     emptyList()
                 }
@@ -78,7 +78,7 @@ class LomoWidget : GlanceAppWidget() {
     @Composable
     private fun WidgetContent(
         context: Context,
-        memos: List<MemoEntity>,
+        memos: List<Memo>,
         textProcessor: com.lomo.data.util.MemoTextProcessor,
     ) {
         // Main container with rounded corners and white background
@@ -176,7 +176,7 @@ class LomoWidget : GlanceAppWidget() {
     @Composable
     private fun MemoItem(
         context: Context,
-        memo: MemoEntity,
+        memo: Memo,
         textProcessor: com.lomo.data.util.MemoTextProcessor,
         isLast: Boolean = false,
     ) {

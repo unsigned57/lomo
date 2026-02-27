@@ -28,13 +28,13 @@ import androidx.navigation.compose.rememberNavController
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.update.AppUpdateViewModel
 import com.lomo.app.navigation.LomoNavHost
-import com.lomo.data.share.ShareServiceManager
+import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.component.markdown.MarkdownRenderer
 
 @Composable
 fun LomoAppRoot(
     viewModel: MainViewModel,
-    shareServiceManager: ShareServiceManager,
+    shareServiceManager: LanShareService,
     initialAction: String? = null,
     appUpdateViewModel: AppUpdateViewModel = hiltViewModel(),
 ) {
