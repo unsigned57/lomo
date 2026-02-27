@@ -47,8 +47,8 @@ class BaselineProfileGenerator {
 
         baselineRule.collect(
             packageName = TARGET_PACKAGE,
-            maxIterations = 5,
-            stableIterations = 2,
+            maxIterations = 10,
+            stableIterations = 3,
             includeInStartupProfile = true,
         ) {
             pressHome()
