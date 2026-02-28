@@ -1,11 +1,13 @@
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.TaskAction
 import org.gradle.work.DisableCachingByDefault
+import java.io.File
 import java.util.Locale
 
 plugins {
@@ -21,6 +23,14 @@ val artifactBaseName =
     rootProject.name
         .lowercase(Locale.ROOT)
         .replace(Regex("[^a-z0-9._-]+"), "-")
+
+private val requiredReleaseSigningEnvVars =
+    listOf(
+        "KEYSTORE_FILE",
+        "KEYSTORE_PASSWORD",
+        "KEY_ALIAS",
+        "KEY_PASSWORD",
+    )
 
 @DisableCachingByDefault(because = "Renames generated artifacts after packaging")
 abstract class RenameReleaseArtifactTask : DefaultTask() {
@@ -74,6 +84,38 @@ abstract class RenameReleaseArtifactTask : DefaultTask() {
     }
 }
 
+@DisableCachingByDefault(because = "Validates environment variables before release signing")
+abstract class VerifyReleaseSigningTask : DefaultTask() {
+    @get:Input
+    abstract val requiredEnvVars: ListProperty<String>
+
+    @get:Input
+    abstract val disallowedKeystoreName: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val missingEnv =
+            requiredEnvVars.get().filter { envName ->
+                System.getenv(envName).isNullOrBlank()
+            }
+        check(missingEnv.isEmpty()) {
+            "Missing required release signing environment variables: ${missingEnv.joinToString(", ")}"
+        }
+
+        val keystorePath = checkNotNull(System.getenv("KEYSTORE_FILE")) { "KEYSTORE_FILE is required for release builds." }.trim()
+        val keystoreFile = File(keystorePath)
+        check(keystoreFile.exists()) {
+            "Release signing keystore does not exist: $keystorePath"
+        }
+        check(keystoreFile.isFile) {
+            "Release signing keystore path is not a file: $keystorePath"
+        }
+        check(!keystoreFile.name.equals(disallowedKeystoreName.get(), ignoreCase = true)) {
+            "Release signing cannot use debug.keystore. Please provide a production keystore in KEYSTORE_FILE."
+        }
+    }
+}
+
 android {
     namespace = "com.lomo.app"
     compileSdk = 36
@@ -83,8 +125,8 @@ android {
         applicationId = "com.lomo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 21
-        versionName = "0.6.1"
+        versionCode = 22
+        versionName = "0.6.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -94,15 +136,13 @@ android {
 
     signingConfigs {
         create("release") {
-            val envKeystoreFile = System.getenv("KEYSTORE_FILE")?.let { file(it) } ?: file("debug.keystore")
-            val envKeystorePassword = System.getenv("KEYSTORE_PASSWORD") ?: "android"
-            val envKeyAlias = System.getenv("KEY_ALIAS") ?: "androiddebugkey"
-            val envKeyPassword = System.getenv("KEY_PASSWORD") ?: "android"
-
-            storeFile = envKeystoreFile
-            storePassword = envKeystorePassword
-            keyAlias = envKeyAlias
-            keyPassword = envKeyPassword
+            val keystorePath = System.getenv("KEYSTORE_FILE")?.trim().orEmpty()
+            if (keystorePath.isNotBlank()) {
+                storeFile = file(keystorePath)
+            }
+            storePassword = System.getenv("KEYSTORE_PASSWORD")?.trim().orEmpty()
+            keyAlias = System.getenv("KEY_ALIAS")?.trim().orEmpty()
+            keyPassword = System.getenv("KEY_PASSWORD")?.trim().orEmpty()
         }
     }
 
@@ -158,6 +198,29 @@ baselineProfile {
 }
 
 val releaseVersionName = android.defaultConfig.versionName ?: "0.0.0"
+
+val verifyReleaseSigningEnv by tasks.registering(VerifyReleaseSigningTask::class) {
+    group = "verification"
+    description = "Validates required environment variables for release signing."
+    requiredEnvVars.set(requiredReleaseSigningEnvVars)
+    disallowedKeystoreName.set("debug.keystore")
+}
+
+tasks
+    .matching {
+        it.name in
+            setOf(
+                "validateSigningRelease",
+                "packageRelease",
+                "packageReleaseUniversalApk",
+                "assembleRelease",
+                "bundleRelease",
+                "signReleaseBundle",
+                "packageReleaseBundle",
+            )
+    }.configureEach {
+        dependsOn(verifyReleaseSigningEnv)
+    }
 
 val renameReleaseApkArtifacts by tasks.registering(RenameReleaseArtifactTask::class) {
     artifactBaseNameInput.set(artifactBaseName)

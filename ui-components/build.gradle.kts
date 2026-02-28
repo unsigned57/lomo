@@ -34,7 +34,6 @@ dependencies {
     implementation(libs.androidx.activity.compose) // For rememberLauncherForActivityResult
 
     // Extended Icons
-    // Extended Icons
     implementation(libs.androidx.material.icons.extended)
 
     // Coil
@@ -43,7 +42,7 @@ dependencies {
 
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)
-    api(libs.kotlinx.collections.immutable)
+    implementation(libs.kotlinx.collections.immutable)
 
     // CommonMark
     api(libs.commonmark)
