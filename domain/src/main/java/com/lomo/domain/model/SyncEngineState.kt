@@ -1,16 +1,16 @@
 package com.lomo.domain.model
 
-sealed interface GitSyncState {
-    data object Idle : GitSyncState
-    sealed interface Syncing : GitSyncState {
+sealed interface SyncEngineState {
+    data object Idle : SyncEngineState
+    sealed interface Syncing : SyncEngineState {
         data object Pulling : Syncing
         data object Committing : Syncing
         data object Pushing : Syncing
     }
-    data class Success(val timestamp: Long, val summary: String) : GitSyncState
-    data class Error(val message: String, val timestamp: Long) : GitSyncState
-    data object NotConfigured : GitSyncState
-    data object Initializing : GitSyncState
+    data class Success(val timestamp: Long, val summary: String) : SyncEngineState
+    data class Error(val message: String, val timestamp: Long) : SyncEngineState
+    data object NotConfigured : SyncEngineState
+    data object Initializing : SyncEngineState
 }
 
 data class GitSyncStatus(

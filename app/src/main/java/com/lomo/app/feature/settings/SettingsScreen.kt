@@ -70,7 +70,7 @@ import androidx.core.os.LocaleListCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
-import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.util.StorageTimestampFormats
 import com.lomo.ui.component.dialog.SelectionDialog
@@ -634,8 +634,8 @@ fun SettingsScreen(
                                 subtitle = gitSyncNowSubtitle(gitSyncState, gitLastSyncTime),
                                 icon = Icons.Outlined.Sync,
                                 onClick = {
-                                    if (gitSyncState !is GitSyncState.Syncing &&
-                                        gitSyncState !is GitSyncState.Initializing
+                                    if (gitSyncState !is SyncEngineState.Syncing &&
+                                        gitSyncState !is SyncEngineState.Initializing
                                     ) {
                                         viewModel.triggerGitSyncNow()
                                     }
@@ -1144,18 +1144,18 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun gitSyncNowSubtitle(state: GitSyncState, lastSyncTime: Long): String =
+private fun gitSyncNowSubtitle(state: SyncEngineState, lastSyncTime: Long): String =
     when (state) {
-        is GitSyncState.Syncing.Pulling -> stringResource(R.string.settings_git_sync_status_pulling)
-        is GitSyncState.Syncing.Committing -> stringResource(R.string.settings_git_sync_status_committing)
-        is GitSyncState.Syncing.Pushing -> stringResource(R.string.settings_git_sync_status_pushing)
-        is GitSyncState.Initializing -> stringResource(R.string.settings_git_sync_status_initializing)
-        is GitSyncState.Error ->
+        is SyncEngineState.Syncing.Pulling -> stringResource(R.string.settings_git_sync_status_pulling)
+        is SyncEngineState.Syncing.Committing -> stringResource(R.string.settings_git_sync_status_committing)
+        is SyncEngineState.Syncing.Pushing -> stringResource(R.string.settings_git_sync_status_pushing)
+        is SyncEngineState.Initializing -> stringResource(R.string.settings_git_sync_status_initializing)
+        is SyncEngineState.Error ->
             stringResource(
                 R.string.settings_git_sync_status_error,
                 localizeGitSyncErrorMessage(state.message),
             )
-        is GitSyncState.NotConfigured -> stringResource(R.string.settings_git_sync_status_not_configured)
+        is SyncEngineState.NotConfigured -> stringResource(R.string.settings_git_sync_status_not_configured)
         else -> {
             if (lastSyncTime > 0) {
                 val relative = DateUtils.getRelativeTimeSpanString(

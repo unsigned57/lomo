@@ -12,6 +12,7 @@ import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
@@ -324,6 +325,7 @@ class MemoMutationHandler
                 content = item.newContent.orEmpty(),
                 rawContent = item.memoRawContent,
                 dateKey = item.memoDate,
+                localDate = MemoLocalDateResolver.resolve(item.memoDate),
             )
 
         private suspend fun flushCreateFromOutbox(item: MemoFileOutboxEntity): Boolean {

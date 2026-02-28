@@ -2,7 +2,7 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.GitSyncStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,8 +38,8 @@ class GitSyncEngine
         private val dataStore: LomoDataStore,
     ) {
         private val mutex = Mutex()
-        private val _syncState = MutableStateFlow<GitSyncState>(GitSyncState.Idle)
-        val syncState: StateFlow<GitSyncState> = _syncState
+        private val _syncState = MutableStateFlow<SyncEngineState>(SyncEngineState.Idle)
+        val syncState: StateFlow<SyncEngineState> = _syncState
 
         @Volatile
         private var cachedCredentialIndex: Int = -1
@@ -58,11 +58,11 @@ class GitSyncEngine
         }
 
         fun markNotConfigured() {
-            _syncState.value = GitSyncState.NotConfigured
+            _syncState.value = SyncEngineState.NotConfigured
         }
 
         fun markError(message: String) {
-            _syncState.value = GitSyncState.Error(message, System.currentTimeMillis())
+            _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
         }
 
         private suspend fun authorIdent(): PersonIdent {
@@ -82,27 +82,27 @@ class GitSyncEngine
         suspend fun initOrClone(rootDir: File, remoteUrl: String): GitSyncResult =
             mutex.withLock {
                 withContext(Dispatchers.IO) {
-                    _syncState.value = GitSyncState.Initializing
+                    _syncState.value = SyncEngineState.Initializing
                     try {
                         val result = doInitOrClone(rootDir, remoteUrl)
                         when (result) {
                             is GitSyncResult.Success ->
-                                _syncState.value = GitSyncState.Success(
+                                _syncState.value = SyncEngineState.Success(
                                     System.currentTimeMillis(),
                                     result.message,
                                 )
                             is GitSyncResult.Error ->
-                                _syncState.value = GitSyncState.Error(
+                                _syncState.value = SyncEngineState.Error(
                                     result.message,
                                     System.currentTimeMillis(),
                                 )
-                            else -> _syncState.value = GitSyncState.Idle
+                            else -> _syncState.value = SyncEngineState.Idle
                         }
                         result
                     } catch (e: Exception) {
                         Timber.e(e, "Git init/clone failed")
                         val msg = e.message ?: "Unknown error"
-                        _syncState.value = GitSyncState.Error(msg, System.currentTimeMillis())
+                        _syncState.value = SyncEngineState.Error(msg, System.currentTimeMillis())
                         GitSyncResult.Error(msg, e)
                     }
                 }
@@ -290,27 +290,27 @@ class GitSyncEngine
         suspend fun sync(rootDir: File, remoteUrl: String): GitSyncResult =
             mutex.withLock {
                 withContext(Dispatchers.IO) {
-                    _syncState.value = GitSyncState.Syncing.Committing
+                    _syncState.value = SyncEngineState.Syncing.Committing
                     try {
                         val result = doSync(rootDir, remoteUrl)
                         when (result) {
                             is GitSyncResult.Success -> {
                                 val now = System.currentTimeMillis()
                                 dataStore.updateGitLastSyncTime(now)
-                                _syncState.value = GitSyncState.Success(now, result.message)
+                                _syncState.value = SyncEngineState.Success(now, result.message)
                             }
                             is GitSyncResult.Error ->
-                                _syncState.value = GitSyncState.Error(
+                                _syncState.value = SyncEngineState.Error(
                                     result.message,
                                     System.currentTimeMillis(),
                                 )
-                            else -> _syncState.value = GitSyncState.Idle
+                            else -> _syncState.value = SyncEngineState.Idle
                         }
                         result
                     } catch (e: Exception) {
                         Timber.e(e, "Git sync failed")
                         val msg = e.message ?: "Unknown error"
-                        _syncState.value = GitSyncState.Error(msg, System.currentTimeMillis())
+                        _syncState.value = SyncEngineState.Error(msg, System.currentTimeMillis())
                         GitSyncResult.Error(msg, e)
                     }
                 }
@@ -336,7 +336,7 @@ class GitSyncEngine
                 val branch = g.repository.branch ?: "main"
 
                 // 1. Stage all changes
-                _syncState.value = GitSyncState.Syncing.Committing
+                _syncState.value = SyncEngineState.Syncing.Committing
                 g.add().addFilepattern(".").call()
                 // Also stage deletions
                 g.add().addFilepattern(".").setUpdate(true).call()
@@ -361,7 +361,7 @@ class GitSyncEngine
                 }
 
                 // 3. Fetch remote
-                _syncState.value = GitSyncState.Syncing.Pulling
+                _syncState.value = SyncEngineState.Syncing.Pulling
                 try {
                     runWithCredentialFallback(credentials, "Fetch") { provider ->
                         g.fetch()
@@ -372,7 +372,7 @@ class GitSyncEngine
                 } catch (e: Exception) {
                     Timber.w(e, "Fetch failed")
                     // If fetch fails (e.g. no remote branch yet), just push
-                    _syncState.value = GitSyncState.Syncing.Pushing
+                    _syncState.value = SyncEngineState.Syncing.Pushing
                     return tryPush(g, credentials, branch, "Synced (push only)")
                 }
 
@@ -438,7 +438,7 @@ class GitSyncEngine
                 }
 
                 // 5. Push to remote
-                _syncState.value = GitSyncState.Syncing.Pushing
+                _syncState.value = SyncEngineState.Syncing.Pushing
                 return tryPush(g, credentials, branch, "Synced")
             }
         }
@@ -671,7 +671,7 @@ class GitSyncEngine
                         if (gitDir.exists()) {
                             gitDir.deleteRecursively()
                         }
-                        _syncState.value = GitSyncState.Idle
+                        _syncState.value = SyncEngineState.Idle
                         GitSyncResult.Success("Repository reset")
                     } catch (e: Exception) {
                         Timber.e(e, "Failed to reset repository")

@@ -1,7 +1,7 @@
 package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.MemoVersion
 import kotlinx.coroutines.flow.Flow
@@ -39,5 +39,5 @@ interface GitSyncRepository {
     suspend fun getMemoVersionHistory(dateKey: String, memoTimestamp: Long): List<MemoVersion>
 
     // State observation
-    fun syncState(): Flow<GitSyncState>
+    fun syncState(): Flow<SyncEngineState>
 }

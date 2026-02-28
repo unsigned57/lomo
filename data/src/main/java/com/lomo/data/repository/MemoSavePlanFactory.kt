@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.util.StorageFilenameFormats
@@ -84,6 +85,7 @@ class MemoSavePlanFactory
                     dateKey = dateString,
                     timestamp = canonicalTimestamp,
                     rawContent = rawContent,
+                    localDate = MemoLocalDateResolver.resolve(dateString),
                     tags = textProcessor.extractTags(content),
                     imageUrls = textProcessor.extractImages(content),
                     isDeleted = false,

@@ -7,7 +7,7 @@ import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.repository.GitSyncRepository
@@ -306,7 +306,7 @@ class GitSyncRepositoryImpl
             return status.copy(lastSyncTime = if (lastSync > 0) lastSync else null)
         }
 
-        override fun syncState(): Flow<GitSyncState> = gitSyncEngine.syncState
+        override fun syncState(): Flow<SyncEngineState> = gitSyncEngine.syncState
 
         override suspend fun testConnection(): GitSyncResult {
             val remoteUrl = dataStore.gitRemoteUrl.first()

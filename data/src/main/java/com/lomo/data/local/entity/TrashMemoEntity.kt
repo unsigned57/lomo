@@ -3,6 +3,7 @@ package com.lomo.data.local.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.domain.model.Memo
 
 @Entity(
@@ -29,6 +30,7 @@ data class TrashMemoEntity(
             content = content,
             rawContent = rawContent,
             dateKey = date,
+            localDate = MemoLocalDateResolver.resolve(date),
             tags = if (tags.isEmpty()) emptyList() else tags.split(","),
             imageUrls = if (imageUrls.isEmpty()) emptyList() else imageUrls.split(","),
             isDeleted = true,

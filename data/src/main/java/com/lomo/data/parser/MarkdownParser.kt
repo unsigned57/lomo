@@ -1,5 +1,6 @@
 package com.lomo.data.parser
 
+import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.util.StorageFilenameFormats
@@ -85,6 +86,7 @@ class MarkdownParser
                             content = fullContent,
                             rawContent = fullRaw,
                             dateKey = filename,
+                            localDate = MemoLocalDateResolver.resolve(filename),
                             tags = extractTags(fullContent),
                             imageUrls = extractImages(fullContent),
                         ),

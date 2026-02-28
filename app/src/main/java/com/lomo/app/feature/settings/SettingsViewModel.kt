@@ -3,7 +3,7 @@ package com.lomo.app.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.GitSyncState
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DirectorySettingsRepository
@@ -372,13 +372,13 @@ class SettingsViewModel
                 .getLastSyncTime()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
-        val gitSyncState: StateFlow<GitSyncState> =
+        val gitSyncState: StateFlow<SyncEngineState> =
             gitSyncRepo
                 .syncState()
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    GitSyncState.Idle,
+                    SyncEngineState.Idle,
                 )
 
         init {

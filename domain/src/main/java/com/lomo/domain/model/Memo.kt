@@ -1,6 +1,5 @@
 package com.lomo.domain.model
 
-import com.lomo.domain.util.StorageFilenameFormats
 import java.time.LocalDate
 
 data class Memo(
@@ -9,7 +8,7 @@ data class Memo(
     val content: String,
     val rawContent: String, // Full line content including timestamp
     val dateKey: String, // Filename stem (e.g. "2026_02_27"), format varies
-    val localDate: LocalDate? = StorageFilenameFormats.parseOrNull(dateKey),
+    val localDate: LocalDate? = null,
     val tags: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
     val isDeleted: Boolean = false,
