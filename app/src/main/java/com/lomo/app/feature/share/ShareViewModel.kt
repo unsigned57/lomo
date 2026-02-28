@@ -132,8 +132,10 @@ class ShareViewModel
                 try {
                     shareServiceManager.setLanSharePairingCode(pairingCode)
                     _pairingCodeError.value = null
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
                 } catch (e: Exception) {
-                    _pairingCodeError.value = e.message ?: "Pairing code must be 6-64 characters"
+                    _pairingCodeError.value = INVALID_PAIRING_CODE_ERROR_MESSAGE
                 }
             }
         }
@@ -219,6 +221,7 @@ class ShareViewModel
                     "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
                     RegexOption.IGNORE_CASE,
                 )
+            private const val INVALID_PAIRING_CODE_ERROR_MESSAGE = "Pairing code must be 6-64 characters"
         }
 
         private fun reportOperationError(
@@ -226,8 +229,32 @@ class ShareViewModel
             fallbackMessage: String,
         ) {
             if (throwable is CancellationException) throw throwable
-            val message = throwable.message?.takeIf { it.isNotBlank() } ?: fallbackMessage
+            val message =
+                sanitizeUserFacingMessage(
+                    rawMessage = throwable.message,
+                    fallbackMessage = fallbackMessage,
+                )
             _operationError.value = message
             Timber.e(throwable, "ShareViewModel operation failed: %s", message)
         }
+
+        private fun sanitizeUserFacingMessage(
+            rawMessage: String?,
+            fallbackMessage: String,
+        ): String {
+            val message = rawMessage?.trim().orEmpty()
+            if (message.isBlank()) return fallbackMessage
+            if (looksTechnicalErrorMessage(message)) return fallbackMessage
+            return message
+        }
+
+        private fun looksTechnicalErrorMessage(message: String): Boolean =
+            message.length > 200 ||
+                message.contains('\n') ||
+                message.contains('\r') ||
+                message.contains("exception", ignoreCase = true) ||
+                message.contains("java.", ignoreCase = true) ||
+                message.contains("kotlin.", ignoreCase = true) ||
+                message.contains("stacktrace", ignoreCase = true) ||
+                message.contains("\tat")
     }

@@ -1,7 +1,5 @@
 package com.lomo.app.feature.memo
 
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.repository.AppWidgetRepository
@@ -30,22 +28,10 @@ class MemoEditorViewModel
         private val mediaRepository: MediaRepository,
         private val appWidgetRepository: AppWidgetRepository,
     ) : ViewModel() {
-        val controller = MemoEditorController()
         private val trackedImageFilenames = mutableSetOf<String>()
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
-
-        fun openForCreate(initialText: String = "") {
-            controller.openForCreate(initialText)
-        }
-
-        fun appendSharedText(text: String) {
-            val current = controller.inputValue.text
-            val newText = if (current.isEmpty()) text else "$current\n$text"
-            controller.updateInputValue(TextFieldValue(newText, TextRange(newText.length)))
-            controller.ensureVisible()
-        }
 
         fun createMemo(
             content: String,

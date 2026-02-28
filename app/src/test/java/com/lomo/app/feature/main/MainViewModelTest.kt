@@ -25,6 +25,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -159,6 +160,62 @@ class MainViewModelTest {
 
             assertEquals("", viewModel.searchQuery.value)
             assertNull(viewModel.selectedTag.value)
+        }
+
+    @Test
+    fun `handleSharedText enqueues text event and consume removes it`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.handleSharedText("shared text")
+            val queued = viewModel.sharedContentEvents.value
+            assertEquals(1, queued.size)
+            assertEquals("shared text", (queued.first().payload as MainViewModel.SharedContent.Text).content)
+
+            viewModel.consumeSharedContentEvent(queued.first().id)
+            assertTrue(viewModel.sharedContentEvents.value.isEmpty())
+        }
+
+    @Test
+    fun `handleSharedImage keeps pending queue until explicitly consumed`() =
+        runTest {
+            val viewModel = createViewModel()
+            val firstUri = mockk<android.net.Uri>(relaxed = true)
+            val secondUri = mockk<android.net.Uri>(relaxed = true)
+
+            viewModel.handleSharedImage(firstUri)
+            viewModel.handleSharedImage(secondUri)
+
+            val pending = viewModel.pendingSharedImageEvents.value
+            assertEquals(2, pending.size)
+            assertEquals(firstUri, pending[0].payload)
+            assertEquals(secondUri, pending[1].payload)
+
+            viewModel.consumePendingSharedImageEvent(pending[0].id)
+
+            val remaining = viewModel.pendingSharedImageEvents.value
+            assertEquals(1, remaining.size)
+            assertEquals(secondUri, remaining.single().payload)
+        }
+
+    @Test
+    fun `uiState is no-directory when root is missing`() =
+        runTest {
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(MainViewModel.MainScreenState.NoDirectory, viewModel.uiState.value)
+        }
+
+    @Test
+    fun `uiState is ready when root exists`() =
+        runTest {
+            every { appConfigRepository.getRootDirectory() } returns flowOf("/tmp/root")
+            coEvery { appConfigRepository.getRootDirectoryOnce() } returns "/tmp/root"
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(MainViewModel.MainScreenState.Ready, viewModel.uiState.value)
         }
 
     private fun createViewModel(): MainViewModel =

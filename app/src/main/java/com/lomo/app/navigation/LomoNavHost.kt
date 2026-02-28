@@ -59,7 +59,6 @@ fun LomoNavHost(
                             onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
                             onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
                             onNavigateToSearch = { navController.navigate(NavRoute.Search) },
-                            onNavigateToMemo = { _, _ -> },
                             onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
                             onNavigateToImage = { url ->
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())

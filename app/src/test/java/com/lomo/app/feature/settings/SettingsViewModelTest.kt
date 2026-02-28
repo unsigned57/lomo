@@ -12,6 +12,7 @@ import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -21,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -111,6 +113,46 @@ class SettingsViewModelTest {
                 viewModel.connectionTestState.value,
             )
             assertEquals("network down", viewModel.operationError.value)
+        }
+
+    @Test
+    fun `testGitConnection sanitizes technical error result message`() =
+        runTest {
+            coEvery { gitSyncRepo.testConnection() } returns
+                GitSyncResult.Error("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute")
+            val viewModel = createViewModel()
+
+            viewModel.testGitConnection()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                SettingsViewModel.ConnectionTestState.Error("Failed to test Git connection"),
+                viewModel.connectionTestState.value,
+            )
+        }
+
+    @Test
+    fun `updateLanSharePairingCode surfaces validation errors`() =
+        runTest {
+            coEvery { shareServiceManager.setLanSharePairingCode(any()) } throws IllegalArgumentException("invalid code")
+            val viewModel = createViewModel()
+
+            viewModel.updateLanSharePairingCode("bad")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
+        }
+
+    @Test
+    fun `updateLanSharePairingCode keeps pairingCodeError clear on cancellation`() =
+        runTest {
+            coEvery { shareServiceManager.setLanSharePairingCode(any()) } throws CancellationException("cancelled")
+            val viewModel = createViewModel()
+
+            viewModel.updateLanSharePairingCode("123456")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.pairingCodeError.value)
         }
 
     private fun createViewModel(): SettingsViewModel =

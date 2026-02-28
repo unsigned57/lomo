@@ -36,6 +36,12 @@ import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
 
+private const val PRELOAD_LOOKAHEAD_COUNT = 5
+private const val PRELOAD_PRIORITIZE_EXTRA = 8
+private const val PRELOAD_EVENT_THROTTLE_MS = 150L
+private const val PRELOAD_URL_DEDUPE_MS = 12_000L
+private const val PRELOAD_TRACKED_URL_LIMIT = 512
+
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     ExperimentalMaterial3Api::class,
@@ -50,7 +56,6 @@ internal fun MemoListContent(
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
-    onMemoClick: (String, String) -> Unit,
     onMemoDoubleClick: (Memo) -> Unit = {},
     doubleTapEditEnabled: Boolean = true,
     onTagClick: (String) -> Unit,
@@ -60,14 +65,15 @@ internal fun MemoListContent(
     val pullState = rememberPullToRefreshState()
     val context = LocalContext.current
     val imageLoader = context.imageLoader
+    val preloadGate = remember { ImagePreloadGate() }
 
-    LaunchedEffect(listState, memos) {
+    LaunchedEffect(listState, memos, preloadGate) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.layoutInfo.visibleItemsInfo.size
         }.collect { (firstVisible, visibleCount) ->
             if (memos.isNotEmpty()) {
                 val endExclusive =
-                    (firstVisible + visibleCount + 8)
+                    (firstVisible + visibleCount + PRELOAD_PRIORITIZE_EXTRA)
                         .coerceAtMost(memos.size)
                 val prioritizedIds =
                     (firstVisible until endExclusive)
@@ -79,21 +85,22 @@ internal fun MemoListContent(
                 onVisibleMemoIdsChanged(emptySet())
             }
 
-            val preloadRange = (firstVisible + visibleCount)..(firstVisible + visibleCount + 5)
-            preloadRange.forEach { index ->
-                if (index in memos.indices) {
-                    val uiModel = memos[index]
-                    uiModel.imageUrls.forEach { url ->
-                        if (url.isNotBlank()) {
-                            val request =
-                                ImageRequest
-                                    .Builder(context)
-                                    .data(url)
-                                    .build()
-                            imageLoader.enqueue(request)
-                        }
-                    }
-                }
+            val preloadStart = firstVisible + visibleCount
+            val preloadEnd = preloadStart + PRELOAD_LOOKAHEAD_COUNT
+            val preloadCandidates =
+                (preloadStart..preloadEnd)
+                    .asSequence()
+                    .filter { index -> index in memos.indices }
+                    .flatMap { index -> memos[index].imageUrls.asSequence() }
+                    .toList()
+            val urlsToPreload = preloadGate.selectUrlsToEnqueue(preloadCandidates)
+            urlsToPreload.forEach { url ->
+                val request =
+                    ImageRequest
+                        .Builder(context)
+                        .data(url)
+                        .build()
+                imageLoader.enqueue(request)
             }
         }
     }
@@ -151,7 +158,6 @@ internal fun MemoListContent(
                     uiModel = uiModel,
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
-                    onMemoClick = { memo -> onMemoClick(memo.id, memo.content) },
                     onTodoClick = stableTodoClick,
                     onTagClick = onTagClick,
                     onMemoEdit = onMemoDoubleClick,
@@ -177,6 +183,72 @@ internal fun MemoListContent(
                             },
                 )
             }
+        }
+    }
+}
+
+internal class ImagePreloadGate(
+    private val eventThrottleMs: Long = PRELOAD_EVENT_THROTTLE_MS,
+    private val dedupeWindowMs: Long = PRELOAD_URL_DEDUPE_MS,
+    private val maxTrackedUrls: Int = PRELOAD_TRACKED_URL_LIMIT,
+    private val nowMs: () -> Long = { System.currentTimeMillis() },
+) {
+    private val lastEnqueueAtMsByUrl = LinkedHashMap<String, Long>()
+    private var lastEventAtMs: Long? = null
+
+    fun selectUrlsToEnqueue(candidates: Iterable<String>): List<String> {
+        val now = nowMs()
+        if (shouldThrottle(now)) {
+            return emptyList()
+        }
+        evictExpired(now)
+        val result = mutableListOf<String>()
+        val seenInBatch = HashSet<String>()
+        candidates.forEach { rawUrl ->
+            val url = rawUrl.trim()
+            if (url.isBlank() || !seenInBatch.add(url)) {
+                return@forEach
+            }
+            val lastEnqueueAt = lastEnqueueAtMsByUrl[url]
+            if (lastEnqueueAt == null || now - lastEnqueueAt >= dedupeWindowMs) {
+                lastEnqueueAtMsByUrl[url] = now
+                result += url
+            }
+        }
+        trimTrackingMap()
+        return result
+    }
+
+    private fun shouldThrottle(now: Long): Boolean {
+        val lastEventAt = lastEventAtMs
+        if (lastEventAt != null && now - lastEventAt < eventThrottleMs) {
+            return true
+        }
+        lastEventAtMs = now
+        return false
+    }
+
+    private fun evictExpired(now: Long) {
+        if (lastEnqueueAtMsByUrl.isEmpty()) {
+            return
+        }
+        val iterator = lastEnqueueAtMsByUrl.entries.iterator()
+        while (iterator.hasNext()) {
+            val (_, lastEnqueueAt) = iterator.next()
+            if (now - lastEnqueueAt > dedupeWindowMs) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun trimTrackingMap() {
+        if (lastEnqueueAtMsByUrl.size <= maxTrackedUrls) {
+            return
+        }
+        val iterator = lastEnqueueAtMsByUrl.entries.iterator()
+        while (lastEnqueueAtMsByUrl.size > maxTrackedUrls && iterator.hasNext()) {
+            iterator.next()
+            iterator.remove()
         }
     }
 }

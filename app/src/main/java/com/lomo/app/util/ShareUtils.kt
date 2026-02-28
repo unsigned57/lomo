@@ -72,6 +72,9 @@ object ShareUtils {
     private const val MAX_SHARE_CONTENT_CHARS = 4000
     private const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
     private const val MAX_SHARE_BODY_LINES = 60
+    private const val SHARED_MEMO_CACHE_DIR = "shared_memos"
+    private const val SHARED_MEMO_CACHE_MAX_FILES = 40
+    private const val SHARED_MEMO_CACHE_MAX_AGE_MS = 48L * 60 * 60 * 1000
     private val SHARE_CARD_TIME_FORMATTER: DateTimeFormatter =
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
@@ -218,11 +221,21 @@ object ShareUtils {
         val file =
             try {
                 withContext(Dispatchers.IO) {
-                    val dir = File(context.cacheDir, "shared_memos").apply { mkdirs() }
+                    val dir = File(context.cacheDir, SHARED_MEMO_CACHE_DIR).apply { mkdirs() }
+                    SharedMemoCacheCleaner.cleanup(
+                        directory = dir,
+                        maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
+                        maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
+                    )
                     val output = File(dir, "memo_share_${System.currentTimeMillis()}.png")
                     FileOutputStream(output).use { out ->
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                     }
+                    SharedMemoCacheCleaner.cleanup(
+                        directory = dir,
+                        maxFiles = SHARED_MEMO_CACHE_MAX_FILES,
+                        maxAgeMs = SHARED_MEMO_CACHE_MAX_AGE_MS,
+                    )
                     output
                 }
             } finally {
@@ -1013,9 +1026,7 @@ object ShareUtils {
             stripped.replace(Regex("(^|\\s)#[\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*")) { match ->
                 if (match.value.startsWith(" ") || match.value.startsWith("\t")) " " else ""
             }
-        stripped = stripped.replace(Regex(" {2,}"), " ")
-        stripped = stripped.replace(Regex("\\n{3,}"), "\n\n")
-        return stripped.trim()
+        return MarkdownCleanupFormatter.collapseSpacing(stripped)
     }
 
     private fun buildShareBodyLines(bodyText: String): List<ShareBodyLine> {
@@ -1097,7 +1108,7 @@ object ShareUtils {
                 context.getString(R.string.share_card_placeholder_audio),
             )
 
-        str = stripMarkdownForShare(str)
+        str = MarkdownCleanupFormatter.stripForPlainText(str)
         str = str.replace("[Image]", context.getString(R.string.share_card_placeholder_image))
         str =
             str.replace(Regex("\\[Image:\\s*(.*?)]")) { match ->
@@ -1118,24 +1129,10 @@ object ShareUtils {
                     if (trimmedRight.startsWith("    ")) {
                         trimmedRight
                     } else {
-                        trimmedRight.replace(Regex(" {2,}"), " ")
+                        MarkdownCleanupFormatter.collapseSpacing(trimmedRight, trim = false)
                     }
                 }
-        str = str.replace(Regex("\\n{3,}"), "\n\n")
-        return str.trim()
-    }
-
-    private fun stripMarkdownForShare(content: String): String {
-        var str = content
-        str = str.replace(Regex("(?m)^#{1,6}\\s+"), "")
-        str = str.replace(Regex("(\\*\\*|__)"), "")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[ \\]"), "☐")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[x\\]"), "☑")
-        str = str.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "[Image]")
-        str = str.replace(Regex("!\\[\\[(.*?)\\]\\]"), "[Image: $1]")
-        str = str.replace(Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)"), "$1")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s+"), "• ")
-        return str.trim()
+        return MarkdownCleanupFormatter.collapseSpacing(str)
     }
 
     private fun resolvePalette(style: String): ShareCardPalette =
@@ -1191,4 +1188,41 @@ object ShareUtils {
                 )
             }
         }
+}
+
+internal object SharedMemoCacheCleaner {
+    fun cleanup(
+        directory: File,
+        maxFiles: Int,
+        maxAgeMs: Long,
+        nowMs: Long = System.currentTimeMillis(),
+    ) {
+        val files = directory.listFiles()?.filter { it.isFile } ?: return
+        if (files.isEmpty()) {
+            return
+        }
+
+        val staleThreshold = nowMs - maxAgeMs
+        files
+            .asSequence()
+            .filter { it.lastModified() < staleThreshold }
+            .forEach { file ->
+                runCatching { file.delete() }
+            }
+
+        val remainingFiles =
+            directory
+                .listFiles()
+                ?.filter { it.isFile }
+                ?.sortedByDescending { it.lastModified() }
+                ?: return
+        if (remainingFiles.size <= maxFiles) {
+            return
+        }
+        remainingFiles
+            .drop(maxFiles)
+            .forEach { file ->
+                runCatching { file.delete() }
+            }
+    }
 }

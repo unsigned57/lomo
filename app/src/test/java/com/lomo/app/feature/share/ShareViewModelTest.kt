@@ -9,6 +9,7 @@ import com.lomo.domain.repository.LanShareService
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -84,6 +86,37 @@ class ShareViewModelTest {
         }
 
     @Test
+    fun `sendMemo falls back for technical error message`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.sendMemo(any(), any(), any(), any()) } returns
+                Result.failure(IllegalStateException("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall"))
+
+            val viewModel =
+                ShareViewModel(
+                    shareServiceManager = shareService,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.sendMemo(
+                DiscoveredDevice(
+                    name = "Peer",
+                    host = "192.168.1.2",
+                    port = 1080,
+                ),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Failed to send memo", viewModel.operationError.value)
+        }
+
+    @Test
     fun `missing share payload exposes operationError`() =
         runTest {
             val viewModel =
@@ -96,5 +129,51 @@ class ShareViewModelTest {
                 "Share content is unavailable. Please reopen the share page.",
                 viewModel.operationError.value,
             )
+        }
+
+    @Test
+    fun `updateLanSharePairingCode surfaces validation errors`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.setLanSharePairingCode(any()) } throws IllegalArgumentException("invalid code")
+            val viewModel =
+                ShareViewModel(
+                    shareServiceManager = shareService,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.updateLanSharePairingCode("bad")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
+        }
+
+    @Test
+    fun `updateLanSharePairingCode keeps pairingCodeError clear on cancellation`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.setLanSharePairingCode(any()) } throws CancellationException("cancelled")
+            val viewModel =
+                ShareViewModel(
+                    shareServiceManager = shareService,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.updateLanSharePairingCode("123456")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.pairingCodeError.value)
         }
 }

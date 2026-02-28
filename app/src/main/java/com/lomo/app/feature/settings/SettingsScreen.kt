@@ -271,6 +271,7 @@ fun SettingsScreen(
                     message = error,
                     conflictSummary = gitConflictSummary,
                     directPathRequired = gitDirectPathRequired,
+                    unknownError = unknownErrorMessage,
                 ),
             )
         }
@@ -423,88 +424,29 @@ fun SettingsScreen(
                     )
                 }
 
-                SettingsGroup(title = stringResource(R.string.share_lan_title)) {
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.share_e2e_enabled_title),
-                        subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
-                        icon = Icons.Default.Lock,
-                        checked = lanShareE2eEnabled,
-                        onCheckedChange = { enabled ->
-                            viewModel.updateLanShareE2eEnabled(enabled)
-                            if (enabled && !lanSharePairingConfigured) {
-                                lanPairingCodeInput = ""
-                                lanPairingCodeVisible = false
-                                viewModel.clearPairingCodeError()
-                                showLanPairingDialog = true
-                            }
-                        },
-                    )
-                    AnimatedVisibility(
-                        visible = lanShareE2eEnabled,
-                        enter =
-                            expandVertically(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationMedium2,
-                                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                                    ),
-                            ) +
-                                fadeIn(
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationMedium2,
-                                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                                        ),
-                                ),
-                        exit =
-                            shrinkVertically(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationShort4,
-                                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                                    ),
-                            ) +
-                                fadeOut(
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationShort4,
-                                            easing = MotionTokens.EasingEmphasizedAccelerate,
-                                        ),
-                                ),
-                        label = "LanPairingVisibility",
-                    ) {
-                        Column {
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_lan_share_pairing_code),
-                                subtitle =
-                                    stringResource(
-                                        if (lanSharePairingConfigured) {
-                                            R.string.settings_lan_share_pairing_configured
-                                        } else {
-                                            R.string.settings_lan_share_pairing_not_set
-                                        },
-                                    ),
-                                icon = Icons.Default.Lock,
-                                onClick = {
-                                    lanPairingCodeVisible = false
-                                    viewModel.clearPairingCodeError()
-                                    showLanPairingDialog = true
-                                },
-                            )
+                LanShareSettingsGroup(
+                    lanShareE2eEnabled = lanShareE2eEnabled,
+                    lanSharePairingConfigured = lanSharePairingConfigured,
+                    lanShareDeviceName = lanShareDeviceName,
+                    onToggleE2e = { enabled ->
+                        viewModel.updateLanShareE2eEnabled(enabled)
+                        if (enabled && !lanSharePairingConfigured) {
+                            lanPairingCodeInput = ""
+                            lanPairingCodeVisible = false
+                            viewModel.clearPairingCodeError()
+                            showLanPairingDialog = true
                         }
-                    }
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.share_device_name_label),
-                        subtitle = lanShareDeviceName.ifBlank { stringResource(R.string.settings_not_set) },
-                        icon = Icons.Outlined.PhoneAndroid,
-                        onClick = {
-                            deviceNameInput = lanShareDeviceName
-                            showDeviceNameDialog = true
-                        },
-                    )
-                }
+                    },
+                    onOpenPairingDialog = {
+                        lanPairingCodeVisible = false
+                        viewModel.clearPairingCodeError()
+                        showLanPairingDialog = true
+                    },
+                    onOpenDeviceNameDialog = {
+                        deviceNameInput = lanShareDeviceName
+                        showDeviceNameDialog = true
+                    },
+                )
 
                 SettingsGroup(title = stringResource(R.string.settings_group_share_card)) {
                     PreferenceItem(
@@ -1233,6 +1175,84 @@ fun SettingsScreen(
 }
 
 @Composable
+private fun LanShareSettingsGroup(
+    lanShareE2eEnabled: Boolean,
+    lanSharePairingConfigured: Boolean,
+    lanShareDeviceName: String,
+    onToggleE2e: (Boolean) -> Unit,
+    onOpenPairingDialog: () -> Unit,
+    onOpenDeviceNameDialog: () -> Unit,
+) {
+    SettingsGroup(title = stringResource(R.string.share_lan_title)) {
+        SwitchPreferenceItem(
+            title = stringResource(R.string.share_e2e_enabled_title),
+            subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
+            icon = Icons.Default.Lock,
+            checked = lanShareE2eEnabled,
+            onCheckedChange = onToggleE2e,
+        )
+        AnimatedVisibility(
+            visible = lanShareE2eEnabled,
+            enter =
+                expandVertically(
+                    animationSpec =
+                        tween(
+                            durationMillis = MotionTokens.DurationMedium2,
+                            easing = MotionTokens.EasingEmphasizedDecelerate,
+                        ),
+                ) +
+                    fadeIn(
+                        animationSpec =
+                            tween(
+                                durationMillis = MotionTokens.DurationMedium2,
+                                easing = MotionTokens.EasingEmphasizedDecelerate,
+                            ),
+                    ),
+            exit =
+                shrinkVertically(
+                    animationSpec =
+                        tween(
+                            durationMillis = MotionTokens.DurationShort4,
+                            easing = MotionTokens.EasingEmphasizedAccelerate,
+                        ),
+                ) +
+                    fadeOut(
+                        animationSpec =
+                            tween(
+                                durationMillis = MotionTokens.DurationShort4,
+                                easing = MotionTokens.EasingEmphasizedAccelerate,
+                            ),
+                    ),
+            label = "LanPairingVisibility",
+        ) {
+            Column {
+                SettingsDivider()
+                PreferenceItem(
+                    title = stringResource(R.string.settings_lan_share_pairing_code),
+                    subtitle =
+                        stringResource(
+                            if (lanSharePairingConfigured) {
+                                R.string.settings_lan_share_pairing_configured
+                            } else {
+                                R.string.settings_lan_share_pairing_not_set
+                            },
+                        ),
+                    icon = Icons.Default.Lock,
+                    onClick = onOpenPairingDialog,
+                )
+            }
+        }
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.share_device_name_label),
+            subtitle = lanShareDeviceName.ifBlank { stringResource(R.string.settings_not_set) },
+            icon = Icons.Outlined.PhoneAndroid,
+            onClick = onOpenDeviceNameDialog,
+        )
+    }
+}
+
+@Composable
 private fun gitSyncNowSubtitle(state: SyncEngineState, lastSyncTime: Long): String =
     when (state) {
         is SyncEngineState.Syncing.Pulling -> stringResource(R.string.settings_git_sync_status_pulling)
@@ -1265,6 +1285,8 @@ private fun localizeGitSyncErrorMessage(message: String): String =
         stringResource(R.string.settings_git_sync_conflict_summary)
     } else if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) {
         stringResource(R.string.settings_git_sync_direct_path_required)
+    } else if (looksTechnicalErrorMessage(message)) {
+        stringResource(R.string.error_unknown)
     } else {
         message
     }
@@ -1281,10 +1303,12 @@ private fun localizeGitSyncErrorMessage(
     message: String,
     conflictSummary: String,
     directPathRequired: String,
+    unknownError: String,
 ): String =
     when {
         isGitSyncConflictError(message) -> conflictSummary
         message.startsWith("Git sync requires direct path mode", ignoreCase = true) -> directPathRequired
+        looksTechnicalErrorMessage(message) -> unknownError
         else -> message
     }
 
@@ -1313,7 +1337,20 @@ private fun localizePairingCodeError(raw: String): String {
         }
 
         else -> {
-            detail
+            stringResource(R.string.share_error_unknown)
         }
     }
+}
+
+private fun looksTechnicalErrorMessage(message: String): Boolean {
+    val detail = message.trim()
+    if (detail.isBlank()) return true
+    return detail.length > 200 ||
+        detail.contains('\n') ||
+        detail.contains('\r') ||
+        detail.contains("exception", ignoreCase = true) ||
+        detail.contains("java.", ignoreCase = true) ||
+        detail.contains("kotlin.", ignoreCase = true) ||
+        detail.contains("stacktrace", ignoreCase = true) ||
+        detail.contains("\tat")
 }

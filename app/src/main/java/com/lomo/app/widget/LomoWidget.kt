@@ -33,6 +33,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import com.lomo.app.MainActivity
 import com.lomo.app.R
+import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.model.Memo
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
@@ -234,15 +235,6 @@ class LomoWidget : GlanceAppWidget() {
     }
 
     private fun stripMarkdown(content: String): String {
-        var str = content
-        str = str.replace(Regex("(?m)^#{1,6}\\s+"), "")
-        str = str.replace(Regex("(\\*\\*|__)"), "")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[ \\]"), "☐")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[x\\]"), "☑")
-        str = str.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "[Image]")
-        str = str.replace(Regex("!\\[\\[(.*?)\\]\\]"), "[Image: $1]")
-        str = str.replace(Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)"), "$1")
-        str = str.replace(Regex("(?m)^\\s*[-*+]\\s+"), "• ")
-        return str.trim()
+        return MarkdownCleanupFormatter.stripForPlainText(content)
     }
 }

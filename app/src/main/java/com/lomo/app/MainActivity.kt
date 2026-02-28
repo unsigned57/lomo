@@ -11,7 +11,6 @@ import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.util.ProvideHapticFeedback
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.theme.LomoTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -47,16 +46,14 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
             LomoTheme(themeMode = appPreferences.themeMode.value) {
-                ProvideHapticFeedback(appPreferences.hapticFeedbackEnabled) { hapticEnabled ->
-                    com.lomo.ui.util.ProvideAppHapticFeedback(enabled = hapticEnabled) {
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            com.lomo.ui.media.LocalAudioPlayerManager provides audioPlayerManager,
-                        ) {
-                            LomoAppRoot(
-                                viewModel = viewModel,
-                                shareServiceManager = shareServiceManager,
-                            )
-                        }
+                com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.lomo.ui.media.LocalAudioPlayerManager provides audioPlayerManager,
+                    ) {
+                        LomoAppRoot(
+                            viewModel = viewModel,
+                            shareServiceManager = shareServiceManager,
+                        )
                     }
                 }
             }
@@ -76,21 +73,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
-            Intent.ACTION_SEND -> {
-                if (intent.type?.startsWith("text/") == true) {
-                    intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-                        viewModel.handleSharedText(text)
-                    }
-                } else if (intent.type?.startsWith("image/") == true) {
-                    androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
-                        viewModel.handleSharedImage(uri)
-                    } ?: run {
-                        intent.clipData?.getItemAt(0)?.uri?.let { uri ->
-                            viewModel.handleSharedImage(uri)
-                        }
-                    }
-                }
-            }
+            Intent.ACTION_SEND,
+            Intent.ACTION_SEND_MULTIPLE
+            -> handleShareIntent(intent)
 
             ACTION_NEW_MEMO -> {
                 viewModel.requestCreateMemo()
@@ -103,6 +88,59 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun handleShareIntent(intent: Intent) {
+        val type = intent.type.orEmpty()
+        if (type.startsWith("text/")) {
+            extractSharedTexts(intent).forEach(viewModel::handleSharedText)
+            return
+        }
+        if (type.startsWith("image/")) {
+            extractSharedImageUris(intent).forEach(viewModel::handleSharedImage)
+            return
+        }
+        // Fallback for mixed or missing MIME type.
+        extractSharedTexts(intent).forEach(viewModel::handleSharedText)
+        extractSharedImageUris(intent).forEach(viewModel::handleSharedImage)
+    }
+
+    private fun extractSharedTexts(intent: Intent): List<String> {
+        val texts = mutableListOf<String>()
+        intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
+            if (text.isNotBlank()) {
+                texts += text
+            }
+        }
+        @Suppress("DEPRECATION")
+        intent.getStringArrayListExtra(Intent.EXTRA_TEXT)?.forEach { text ->
+            if (text.isNotBlank()) {
+                texts += text
+            }
+        }
+        @Suppress("DEPRECATION")
+        intent.getCharSequenceArrayListExtra(Intent.EXTRA_TEXT)?.forEach { text ->
+            val normalized = text?.toString()
+            if (!normalized.isNullOrBlank()) {
+                texts += normalized
+            }
+        }
+        return texts.distinct()
+    }
+
+    private fun extractSharedImageUris(intent: Intent): List<Uri> {
+        val uris = mutableListOf<Uri>()
+        androidx.core.content.IntentCompat
+            .getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            ?.let(uris::add)
+        @Suppress("DEPRECATION")
+        intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.forEach(uris::add)
+        intent.clipData?.let { clipData ->
+            repeat(clipData.itemCount) { index ->
+                clipData.getItemAt(index).uri?.let(uris::add)
+            }
+        }
+        return uris.distinct()
     }
 
     override fun onDestroy() {

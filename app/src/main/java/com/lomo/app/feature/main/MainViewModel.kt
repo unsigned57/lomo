@@ -76,19 +76,13 @@ class MainViewModel
 
             data object NoDirectory : MainScreenState
 
-            data class Ready(
-                val hasData: Boolean,
-            ) : MainScreenState
+            data object Ready : MainScreenState
         }
 
         // Shared content is modeled as pending events with explicit consume semantics.
         sealed interface SharedContent {
             data class Text(
                 val content: String,
-            ) : SharedContent
-
-            data class Image(
-                val uri: android.net.Uri,
             ) : SharedContent
         }
 
@@ -107,6 +101,9 @@ class MainViewModel
         private val _sharedContentEvents = MutableStateFlow<List<PendingEvent<SharedContent>>>(emptyList())
         val sharedContentEvents: StateFlow<List<PendingEvent<SharedContent>>> = _sharedContentEvents
 
+        private val _pendingSharedImageEvents = MutableStateFlow<List<PendingEvent<android.net.Uri>>>(emptyList())
+        val pendingSharedImageEvents: StateFlow<List<PendingEvent<android.net.Uri>>> = _pendingSharedImageEvents
+
         fun handleSharedText(text: String) {
             _sharedContentEvents.update { events ->
                 val pending = newSharedContentEvent(SharedContent.Text(text))
@@ -115,14 +112,18 @@ class MainViewModel
         }
 
         fun handleSharedImage(uri: android.net.Uri) {
-            _sharedContentEvents.update { events ->
-                val pending = newSharedContentEvent(SharedContent.Image(uri))
+            _pendingSharedImageEvents.update { events ->
+                val pending = PendingEvent(id = nextPendingEventId(), payload = uri)
                 (events + pending).takeLast(64)
             }
         }
 
         fun consumeSharedContentEvent(eventId: Long) {
             _sharedContentEvents.update { events -> events.filterNot { it.id == eventId } }
+        }
+
+        fun consumePendingSharedImageEvent(eventId: Long) {
+            _pendingSharedImageEvents.update { events -> events.filterNot { it.id == eventId } }
         }
 
         sealed interface AppAction {
@@ -362,7 +363,7 @@ class MainViewModel
                 if (directory == null) {
                     MainScreenState.NoDirectory
                 } else {
-                    MainScreenState.Ready(hasData = true)
+                    MainScreenState.Ready
                 }
         }
 

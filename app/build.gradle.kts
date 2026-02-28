@@ -164,7 +164,6 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             // Enable R8 full mode checks (global flag set in gradle.properties)
-            // Enable R8 full mode checks (global flag set in gradle.properties)
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = signingConfigs.getByName("release")
         }
@@ -173,7 +172,6 @@ android {
         sourceCompatibility = JavaVersion.toVersion(25)
         targetCompatibility = JavaVersion.toVersion(25)
     }
-    // compilerOptions removed from here
     buildFeatures {
         compose = true
         buildConfig = true

@@ -6,12 +6,14 @@ import com.lomo.domain.device.VoiceRecorder
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
@@ -66,13 +68,18 @@ class RecordingViewModel
                     val filename = "voice_$timestamp.m4a"
 
                     // 1. Create file via repository (handles Voice Backend logic)
-                    val target = mediaRepository.createVoiceFile(filename)
+                    val target =
+                        withContext(Dispatchers.IO) {
+                            mediaRepository.createVoiceFile(filename)
+                        }
 
                     currentRecordingTarget = target
                     currentRecordingFilename = filename
 
                     // 2. Start recording to the file URI
-                    voiceRecorder.start(target)
+                    withContext(Dispatchers.IO) {
+                        voiceRecorder.start(target)
+                    }
                     _isRecording.value = true
                     _recordingDuration.value = 0
 
@@ -90,7 +97,7 @@ class RecordingViewModel
         private fun startRecordingTimer() {
             recordingJob?.cancel()
             recordingJob =
-                viewModelScope.launch {
+                viewModelScope.launch(Dispatchers.IO) {
                     val startTime = System.currentTimeMillis()
                     while (isActive) {
                         _recordingDuration.value = System.currentTimeMillis() - startTime
@@ -103,55 +110,56 @@ class RecordingViewModel
         fun stopRecording(onResult: (String) -> Unit) {
             if (!_isRecording.value) return
 
-            try {
-                voiceRecorder.stop()
-                recordingJob?.cancel()
-                _isRecording.value = false
-                _recordingDuration.value = 0
-                _recordingAmplitude.value = 0
-
-                val target = currentRecordingTarget
-                val filename = currentRecordingFilename
-
-                if (target != null && filename != null) {
-                    // Use just the filename - voice directory is resolved by AudioPlayerManager
-                    val markdown = "![voice]($filename)"
-                    onResult(markdown)
+            val filename = currentRecordingFilename
+            resetRecordingState()
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        voiceRecorder.stop()
+                    }
+                    if (!filename.isNullOrBlank()) {
+                        // Use just the filename - voice directory is resolved by AudioPlayerManager
+                        val markdown = "![voice]($filename)"
+                        onResult(markdown)
+                    }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.e(e, "Failed to stop recording")
+                    _errorMessage.value = "Failed to stop recording: ${e.message}"
+                } finally {
+                    currentRecordingTarget = null
+                    currentRecordingFilename = null
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to stop recording")
-                _errorMessage.value = "Failed to stop recording: ${e.message}"
+            }
+        }
+
+        fun cancelRecording() {
+            val filename = currentRecordingFilename
+            resetRecordingState()
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    voiceRecorder.stop()
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to stop recorder during cancel")
+                }
+                if (!filename.isNullOrBlank()) {
+                    try {
+                        mediaRepository.deleteVoiceFile(filename)
+                    } catch (e: Exception) {
+                        Timber.w(e, "Failed to delete canceled recording file: %s", filename)
+                    }
+                }
             }
             currentRecordingTarget = null
             currentRecordingFilename = null
         }
 
-        fun cancelRecording() {
-            try {
-                voiceRecorder.stop()
-                recordingJob?.cancel()
-                _isRecording.value = false
-                _recordingDuration.value = 0
-                _recordingAmplitude.value = 0
-
-                val filename = currentRecordingFilename
-                if (filename != null) {
-                    viewModelScope.launch {
-                        try {
-                            mediaRepository.deleteVoiceFile(filename)
-                        } catch (e: Exception) {
-                            Timber.w(e, "Failed to delete canceled recording file: %s", filename)
-                        }
-                    }
-                }
-                currentRecordingTarget = null
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to cancel recording")
-            }
-            currentRecordingTarget = null
-            currentRecordingFilename = null
+        private fun resetRecordingState() {
+            recordingJob?.cancel()
+            _isRecording.value = false
+            _recordingDuration.value = 0
+            _recordingAmplitude.value = 0
         }
 
         fun clearError() {
@@ -160,6 +168,13 @@ class RecordingViewModel
 
         override fun onCleared() {
             super.onCleared()
-            cancelRecording() // Safety cleanup
+            recordingJob?.cancel()
+            try {
+                voiceRecorder.stop()
+            } catch (_: Exception) {
+                // Best-effort shutdown.
+            }
+            currentRecordingTarget = null
+            currentRecordingFilename = null
         }
     }

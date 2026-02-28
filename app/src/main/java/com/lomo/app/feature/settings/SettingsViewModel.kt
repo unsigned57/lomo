@@ -274,8 +274,10 @@ class SettingsViewModel
                 try {
                     shareServiceManager.setLanSharePairingCode(pairingCode)
                     _pairingCodeError.value = null
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
                 } catch (e: Exception) {
-                    _pairingCodeError.value = e.message ?: "Pairing code must be 6-64 characters"
+                    _pairingCodeError.value = INVALID_PAIRING_CODE_ERROR_MESSAGE
                 }
             }
         }
@@ -462,9 +464,10 @@ class SettingsViewModel
                     when (val resetResult = gitSyncRepo.resetLocalBranchToRemote()) {
                         is GitSyncResult.Error -> {
                             _operationError.value =
-                                resetResult.message.ifBlank {
-                                    "Failed to resolve conflict with remote history"
-                                }
+                                sanitizeUserFacingMessage(
+                                    rawMessage = resetResult.message,
+                                    fallbackMessage = "Failed to resolve conflict with remote history",
+                                )
                         }
 
                         else -> {
@@ -486,7 +489,10 @@ class SettingsViewModel
                     when (val result = gitSyncRepo.forcePushLocalToRemote()) {
                         is GitSyncResult.Error -> {
                             _operationError.value =
-                                result.message.ifBlank { "Failed to keep local changes during conflict resolution" }
+                                sanitizeUserFacingMessage(
+                                    rawMessage = result.message,
+                                    fallbackMessage = "Failed to keep local changes during conflict resolution",
+                                )
                         }
 
                         else -> {
@@ -519,13 +525,23 @@ class SettingsViewModel
                     val result = gitSyncRepo.testConnection()
                     _connectionTestState.value = when (result) {
                         is GitSyncResult.Success -> ConnectionTestState.Success(result.message)
-                        is GitSyncResult.Error -> ConnectionTestState.Error(result.message)
+                        is GitSyncResult.Error ->
+                            ConnectionTestState.Error(
+                                sanitizeUserFacingMessage(
+                                    rawMessage = result.message,
+                                    fallbackMessage = "Failed to test Git connection",
+                                ),
+                            )
                         else -> ConnectionTestState.Error("Unexpected result")
                     }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (throwable: Throwable) {
-                    val message = throwable.message?.takeIf { it.isNotBlank() } ?: "Failed to test Git connection"
+                    val message =
+                        sanitizeUserFacingMessage(
+                            rawMessage = throwable.message,
+                            fallbackMessage = "Failed to test Git connection",
+                        )
                     _connectionTestState.value = ConnectionTestState.Error(message)
                     reportOperationError(throwable, "Failed to test Git connection")
                 }
@@ -546,7 +562,11 @@ class SettingsViewModel
                 try {
                     when (val result = gitSyncRepo.resetRepository()) {
                         is GitSyncResult.Error -> {
-                            _operationError.value = result.message.ifBlank { "Failed to reset Git repository" }
+                            _operationError.value =
+                                sanitizeUserFacingMessage(
+                                    rawMessage = result.message,
+                                    fallbackMessage = "Failed to reset Git repository",
+                                )
                         }
 
                         else -> Unit
@@ -581,6 +601,42 @@ class SettingsViewModel
             fallbackMessage: String,
         ) {
             if (throwable is CancellationException) throw throwable
-            _operationError.value = throwable.message?.takeIf { it.isNotBlank() } ?: fallbackMessage
+            _operationError.value =
+                sanitizeUserFacingMessage(
+                    rawMessage = throwable.message,
+                    fallbackMessage = fallbackMessage,
+                )
+        }
+
+        private fun sanitizeUserFacingMessage(
+            rawMessage: String?,
+            fallbackMessage: String,
+        ): String {
+            val message = rawMessage?.trim().orEmpty()
+            if (message.isBlank()) return fallbackMessage
+            if (isGitSyncConflictMessage(message)) return message
+            if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) return message
+            if (looksTechnicalErrorMessage(message)) return fallbackMessage
+            return message
+        }
+
+        private fun isGitSyncConflictMessage(message: String): Boolean =
+            message.contains("rebase STOPPED", ignoreCase = true) ||
+                message.contains("resolve conflicts manually", ignoreCase = true) ||
+                (message.contains("rebase", ignoreCase = true) &&
+                    message.contains("preserved", ignoreCase = true))
+
+        private fun looksTechnicalErrorMessage(message: String): Boolean =
+            message.length > 200 ||
+                message.contains('\n') ||
+                message.contains('\r') ||
+                message.contains("exception", ignoreCase = true) ||
+                message.contains("java.", ignoreCase = true) ||
+                message.contains("kotlin.", ignoreCase = true) ||
+                message.contains("stacktrace", ignoreCase = true) ||
+                message.contains("\tat")
+
+        private companion object {
+            const val INVALID_PAIRING_CODE_ERROR_MESSAGE = "Pairing code must be 6-64 characters"
         }
     }

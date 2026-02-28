@@ -34,13 +34,10 @@ class UpdateManager
                     // GitHub API requires a User-Agent header
                     connection.setRequestProperty("User-Agent", "Lomo-App")
 
-                    Timber.d("Checking for updates from $url")
                     val responseCode = connection.responseCode
-                    Timber.d("Update check response code: $responseCode")
 
                     if (responseCode == HttpURLConnection.HTTP_OK) {
                         val response = connection.inputStream.bufferedReader().use { it.readText() }
-                        Timber.d("Update check response: $response")
                         val json = JSONObject(response)
                         val tagName = json.getString("tag_name") // e.g., "v1.2.0"
                         val htmlUrl = json.getString("html_url")
@@ -51,36 +48,32 @@ class UpdateManager
                         val remoteVersion = tagName.removePrefix("v")
                         // Strip suffix like "-DEBUG" for comparison
                         val localVersion = BuildConfig.VERSION_NAME.substringBefore("-")
+                        val forceUpdate = body.contains("[FORCE_UPDATE]")
+                        val updateAvailable = forceUpdate || isUpdateAvailable(localVersion, remoteVersion)
 
-                        Timber.d("Versions - Local: $localVersion, Remote: $remoteVersion")
+                        Timber.d(
+                            "Update check summary: code=%d local=%s remote=%s force=%b available=%b",
+                            responseCode,
+                            localVersion,
+                            remoteVersion,
+                            forceUpdate,
+                            updateAvailable,
+                        )
 
-                        // Force update check
-                        if (body.contains("[FORCE_UPDATE]")) {
-                            Timber.d("Force update triggered by release note flag")
+                        if (updateAvailable) {
                             return@withContext UpdateInfo(
                                 htmlUrl = htmlUrl,
                                 version = remoteVersion,
                                 releaseNotes = sanitizedReleaseNotes,
                             )
-                        }
-
-                        if (isUpdateAvailable(localVersion, remoteVersion)) {
-                            Timber.d("Update available: $htmlUrl")
-                            return@withContext UpdateInfo(
-                                htmlUrl = htmlUrl,
-                                version = remoteVersion,
-                                releaseNotes = sanitizedReleaseNotes,
-                            )
-                        } else {
-                            Timber.d("No update available")
                         }
                     } else {
-                        Timber.e("Update check failed with code: $responseCode")
+                        Timber.w("Update check failed: code=%d", responseCode)
                     }
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (e: Exception) {
-                    Timber.e(e, "Error checking for updates")
+                    Timber.w(e, "Update check failed")
                 } finally {
                     connection?.disconnect()
                 }

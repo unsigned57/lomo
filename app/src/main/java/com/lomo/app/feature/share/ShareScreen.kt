@@ -116,7 +116,7 @@ fun ShareScreen(
     var showPairingDialog by remember { mutableStateOf(false) }
     var pairingCodeInput by remember { mutableStateOf("") }
     var pairingCodeVisible by remember { mutableStateOf(false) }
-    var deviceNameInput by remember(deviceName) { mutableStateOf(deviceName) }
+    var deviceNameInput by remember { mutableStateOf(deviceName) }
 
     var showSettingsSection by remember { mutableStateOf(false) }
     var showPreviewSection by remember { mutableStateOf(false) }
@@ -124,6 +124,12 @@ fun ShareScreen(
     var isDeviceNameFieldFocused by remember { mutableStateOf(false) }
 
     val canSaveDeviceName = deviceNameInput.trim() != deviceName.trim()
+
+    LaunchedEffect(deviceName) {
+        if (!(isDeviceNameFieldFocused && canSaveDeviceName)) {
+            deviceNameInput = deviceName
+        }
+    }
 
     LaunchedEffect(Unit) {
         showSettingsSection = true
@@ -261,174 +267,214 @@ fun ShareScreen(
                 )
             }
 
-            AnimatedVisibility(
-                visible = showDevicesSection,
-                enter = fadeIn(tween(420)) + slideInVertically(initialOffsetY = { it / 4 }, animationSpec = tween(420)),
-                exit = fadeOut(tween(220)),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            Icons.Outlined.WifiFind,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(modifier = Modifier.width(AppSpacing.Small))
-                        Text(
-                            text = stringResource(R.string.share_nearby_devices),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        Text(
-                            text = stringResource(R.string.share_devices_count, devices.size),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        if (devices.isEmpty()) {
-                            Spacer(modifier = Modifier.width(AppSpacing.Small))
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(14.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
+            DeviceDiscoverySection(
+                showDevicesSection = showDevicesSection,
+                devices = devices,
+                transferState = transferState,
+                onDeviceClick = { device ->
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                    viewModel.sendMemo(device)
+                },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
 
-                    Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
+    PairingCodeDialog(
+        visible = showPairingDialog,
+        pairingCodeInput = pairingCodeInput,
+        pairingCodeVisible = pairingCodeVisible,
+        pairingCodeError = pairingCodeError,
+        pairingConfigured = pairingConfigured,
+        onDismiss = {
+            viewModel.clearPairingCodeError()
+            showPairingDialog = false
+        },
+        onPairingCodeInputChange = {
+            pairingCodeInput = it
+            if (pairingCodeError != null) {
+                viewModel.clearPairingCodeError()
+            }
+        },
+        onToggleVisibility = { pairingCodeVisible = !pairingCodeVisible },
+        onClearPairingCode = {
+            viewModel.clearLanSharePairingCode()
+            showPairingDialog = false
+        },
+        onSave = {
+            viewModel.updateLanSharePairingCode(pairingCodeInput)
+            if (pairingCodeInput.trim().length in 6..64) {
+                showPairingDialog = false
+            }
+        },
+    )
+}
+
+@Composable
+private fun DeviceDiscoverySection(
+    showDevicesSection: Boolean,
+    devices: List<DiscoveredDevice>,
+    transferState: ShareTransferState,
+    onDeviceClick: (DiscoveredDevice) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    AnimatedVisibility(
+        visible = showDevicesSection,
+        enter = fadeIn(tween(420)) + slideInVertically(initialOffsetY = { it / 4 }, animationSpec = tween(420)),
+        exit = fadeOut(tween(220)),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    Icons.Outlined.WifiFind,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(AppSpacing.Small))
+                Text(
+                    text = stringResource(R.string.share_nearby_devices),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = stringResource(R.string.share_devices_count, devices.size),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (devices.isEmpty()) {
+                    Spacer(modifier = Modifier.width(AppSpacing.Small))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
 
-            val listState = rememberLazyListState()
-            AnimatedContent(
-                targetState = devices.isEmpty(),
-                transitionSpec = {
-                    fadeIn(tween(260)) togetherWith fadeOut(tween(220))
-                },
-                label = "device-list",
-                modifier = Modifier.weight(1f),
-            ) { isEmpty ->
-                if (isEmpty) {
-                    DeviceSearchingState(modifier = Modifier.fillMaxSize())
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
-                    ) {
-                        itemsIndexed(devices, key = { _, item -> "${item.host}:${item.port}" }) { _, device ->
-                            DeviceCard(
-                                device = device,
-                                isEnabled =
-                                    transferState is ShareTransferState.Idle ||
-                                        transferState is ShareTransferState.Success ||
-                                        transferState is ShareTransferState.Error,
-                                onClick = {
-                                    focusManager.clearFocus(force = true)
-                                    keyboardController?.hide()
-                                    viewModel.sendMemo(device)
-                                },
-                                modifier = Modifier.animateItem(),
-                            )
-                        }
-                    }
+            Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
+        }
+    }
+
+    val listState = rememberLazyListState()
+    AnimatedContent(
+        targetState = devices.isEmpty(),
+        transitionSpec = {
+            fadeIn(tween(260)) togetherWith fadeOut(tween(220))
+        },
+        label = "device-list",
+        modifier = modifier,
+    ) { isEmpty ->
+        if (isEmpty) {
+            DeviceSearchingState(modifier = Modifier.fillMaxSize())
+        } else {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
+            ) {
+                itemsIndexed(devices, key = { _, item -> "${item.host}:${item.port}" }) { _, device ->
+                    DeviceCard(
+                        device = device,
+                        isEnabled =
+                            transferState is ShareTransferState.Idle ||
+                                transferState is ShareTransferState.Success ||
+                                transferState is ShareTransferState.Error,
+                        onClick = { onDeviceClick(device) },
+                        modifier = Modifier.animateItem(),
+                    )
                 }
             }
         }
     }
+}
 
-    if (showPairingDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                viewModel.clearPairingCodeError()
-                showPairingDialog = false
-            },
-            title = {
-                Text(stringResource(R.string.share_e2e_password_dialog_title))
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
-                    Text(
-                        text = stringResource(R.string.share_e2e_password_dialog_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = pairingCodeInput,
-                        onValueChange = {
-                            pairingCodeInput = it
-                            if (pairingCodeError != null) {
-                                viewModel.clearPairingCodeError()
-                            }
+@Composable
+private fun PairingCodeDialog(
+    visible: Boolean,
+    pairingCodeInput: String,
+    pairingCodeVisible: Boolean,
+    pairingCodeError: String?,
+    pairingConfigured: Boolean,
+    onDismiss: () -> Unit,
+    onPairingCodeInputChange: (String) -> Unit,
+    onToggleVisibility: () -> Unit,
+    onClearPairingCode: () -> Unit,
+    onSave: () -> Unit,
+) {
+    if (!visible) return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(stringResource(R.string.share_e2e_password_dialog_title))
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Small)) {
+                Text(
+                    text = stringResource(R.string.share_e2e_password_dialog_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                OutlinedTextField(
+                    value = pairingCodeInput,
+                    onValueChange = onPairingCodeInputChange,
+                    label = { Text(stringResource(R.string.share_e2e_password_hint)) },
+                    singleLine = true,
+                    visualTransformation =
+                        if (pairingCodeVisible) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
                         },
-                        label = { Text(stringResource(R.string.share_e2e_password_hint)) },
-                        singleLine = true,
-                        visualTransformation =
-                            if (pairingCodeVisible) {
-                                VisualTransformation.None
-                            } else {
-                                PasswordVisualTransformation()
-                            },
-                        trailingIcon = {
-                            TextButton(
-                                onClick = { pairingCodeVisible = !pairingCodeVisible },
-                            ) {
-                                Text(
-                                    if (pairingCodeVisible) {
-                                        stringResource(R.string.share_password_hide)
-                                    } else {
-                                        stringResource(R.string.share_password_show)
-                                    },
-                                )
-                            }
-                        },
-                        isError = pairingCodeError != null,
-                        supportingText =
-                            pairingCodeError?.let {
-                                {
-                                    Text(localizeShareErrorMessage(it))
-                                }
-                            },
-                    )
-                    if (pairingConfigured) {
+                    trailingIcon = {
                         TextButton(
-                            onClick = {
-                                viewModel.clearLanSharePairingCode()
-                                showPairingDialog = false
-                            },
+                            onClick = onToggleVisibility,
                         ) {
-                            Text(stringResource(R.string.action_clear_pairing_code))
+                            Text(
+                                if (pairingCodeVisible) {
+                                    stringResource(R.string.share_password_hide)
+                                } else {
+                                    stringResource(R.string.share_password_show)
+                                },
+                            )
                         }
+                    },
+                    isError = pairingCodeError != null,
+                    supportingText =
+                        pairingCodeError?.let {
+                            {
+                                Text(localizeShareErrorMessage(it))
+                            }
+                        },
+                )
+                if (pairingConfigured) {
+                    TextButton(
+                        onClick = onClearPairingCode,
+                    ) {
+                        Text(stringResource(R.string.action_clear_pairing_code))
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateLanSharePairingCode(pairingCodeInput)
-                        if (pairingCodeInput.trim().length in 6..64) {
-                            showPairingDialog = false
-                        }
-                    },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearPairingCodeError()
-                        showPairingDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSave,
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+            ) {
+                Text(stringResource(R.string.action_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -714,9 +760,26 @@ private fun localizeShareErrorDetail(detailRaw: String): String {
         }
 
         else -> {
-            detail
+            if (looksTechnicalErrorMessage(detail)) {
+                stringResource(R.string.share_error_unknown)
+            } else {
+                detail
+            }
         }
     }
+}
+
+private fun looksTechnicalErrorMessage(message: String): Boolean {
+    val detail = message.trim()
+    if (detail.isBlank()) return true
+    return detail.length > 200 ||
+        detail.contains('\n') ||
+        detail.contains('\r') ||
+        detail.contains("exception", ignoreCase = true) ||
+        detail.contains("java.", ignoreCase = true) ||
+        detail.contains("kotlin.", ignoreCase = true) ||
+        detail.contains("stacktrace", ignoreCase = true) ||
+        detail.contains("\tat")
 }
 
 @Composable

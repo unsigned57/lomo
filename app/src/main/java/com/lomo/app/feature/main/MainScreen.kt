@@ -52,6 +52,7 @@ import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.delay
@@ -84,7 +85,6 @@ fun MainScreen(
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
-    onNavigateToMemo: (String, String) -> Unit,
     onNavigateToTag: (String) -> Unit,
     onNavigateToImage: (String) -> Unit,
     onNavigateToDailyReview: () -> Unit,
@@ -106,7 +106,6 @@ fun MainScreen(
     val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
-    val hapticEnabled = appPreferences.hapticFeedbackEnabled
     val showInputHints = appPreferences.showInputHints
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val shareCardStyle = appPreferences.shareCardStyle.value
@@ -115,6 +114,7 @@ fun MainScreen(
     val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
     val versionHistoryState by viewModel.versionHistoryState.collectAsStateWithLifecycle()
     val sharedContentEvents by viewModel.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by viewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
     val appActionEvents by viewModel.appActionEvents.collectAsStateWithLifecycle()
 
     // Recording State (from RecordingViewModel)
@@ -140,7 +140,7 @@ fun MainScreen(
             androidx.compose.foundation.lazy
                 .LazyListState()
         }
-    val editorController = editorViewModel.controller
+    val editorController = rememberMemoEditorController()
 
     // Local UI State
     var isRefreshing by remember { mutableStateOf(false) }
@@ -164,21 +164,13 @@ fun MainScreen(
     }
 
     // Shared Content Observation
-    var pendingSharedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
-
-    LaunchedEffect(sharedContentEvents, imageDir) {
+    LaunchedEffect(sharedContentEvents) {
         sharedContentEvents.forEach { event ->
             val content = event.payload
             when (content) {
                 is MainViewModel.SharedContent.Text -> {
-                    editorViewModel.appendSharedText(content.content)
-                }
-
-                is MainViewModel.SharedContent.Image -> {
-                    pendingSharedImageUri = content.uri
-                    if (imageDir == null) {
-                        directorySetupType = DirectorySetupType.Image
-                    }
+                    editorController.appendMarkdownBlock(content.content)
+                    editorController.ensureVisible()
                 }
             }
             viewModel.consumeSharedContentEvent(event.id)
@@ -190,7 +182,7 @@ fun MainScreen(
             val action = event.payload
             when (action) {
                 MainViewModel.AppAction.CreateMemo -> {
-                    editorViewModel.openForCreate()
+                    editorController.openForCreate()
                 }
 
                 is MainViewModel.AppAction.OpenMemo -> {
@@ -206,16 +198,19 @@ fun MainScreen(
         }
     }
 
-    LaunchedEffect(imageDir, pendingSharedImageUri) {
-        val targetUri = pendingSharedImageUri ?: return@LaunchedEffect
-        if (imageDir == null) return@LaunchedEffect
+    LaunchedEffect(imageDir, pendingSharedImageEvents) {
+        val pending = pendingSharedImageEvents.firstOrNull() ?: return@LaunchedEffect
+        if (imageDir == null) {
+            directorySetupType = DirectorySetupType.Image
+            return@LaunchedEffect
+        }
 
         editorViewModel.saveImage(
-            uri = targetUri,
+            uri = pending.payload,
             onResult = { path ->
                 editorController.appendImageMarkdown(path)
                 editorController.ensureVisible()
-                pendingSharedImageUri = null
+                viewModel.consumePendingSharedImageEvent(pending.id)
             },
         )
     }
@@ -314,288 +309,253 @@ fun MainScreen(
             previousQuery = searchQuery
         }
 
-        // Moved actions inside Provider to access LocalAppHapticFeedback
-        com.lomo.ui.util.ProvideAppHapticFeedback(enabled = hapticEnabled) {
-            val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-            val actions =
-                remember(
-                    viewModel,
-                    sidebarViewModel,
-                    editorViewModel,
-                    scope,
-                    drawerState,
-                    haptic,
-                    isExpanded,
-                    onNavigateToSettings,
-                    onNavigateToTrash,
-                    onNavigateToSearch,
-                    onNavigateToMemo,
-                    onNavigateToTag,
-                    onNavigateToImage,
-                    onNavigateToDailyReview,
-                    onNavigateToGallery,
-                ) {
-                    MainScreenActions(
-                        onSettings = {
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                            onNavigateToSettings()
-                        },
-                        onTrash = {
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                            onNavigateToTrash()
-                        },
-                        onSearch = onNavigateToSearch,
-                        onMemoClick = onNavigateToMemo,
-                        onSidebarMemoClick = {
-                            sidebarViewModel.clearFilters()
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                        },
-                        onSidebarTagClick = { tag ->
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                            onNavigateToTag(tag)
-                        },
-                        onNavigateToImage = onNavigateToImage,
-                        onClearFilter = { sidebarViewModel.onTagSelected(null) },
-                        onMenuOpen = { scope.launch { drawerState.open() } },
-                        onFabClick = {
-                            haptic.longPress()
-                            if (viewModel.uiState.value is MainViewModel.MainScreenState.Ready) {
-                                editorViewModel.openForCreate()
-                            } else {
-                                onNavigateToSettings()
-                            }
-                        },
-                        onRefresh = {
-                            scope.launch {
-                                isRefreshing = true
-                                try {
-                                    viewModel.refresh()
-                                    delay(REFRESH_DELAY)
-                                } finally {
-                                    isRefreshing = false
-                                }
-                            }
-                        },
-                        onDailyReviewClick = {
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                            onNavigateToDailyReview()
-                        },
-                        onGalleryClick = {
-                            if (!isExpanded) scope.launch { drawerState.close() }
-                            onNavigateToGallery()
-                        },
-                    )
-                }
-
-            val sidebarContent: @Composable () -> Unit = {
-                SidebarDrawer(
-                    username = "Lomo",
-                    stats = sidebarUiState.stats,
-                    memoCountByDate = sidebarUiState.memoCountByDate,
-                    tags = sidebarUiState.tags,
-                    onMemoClick = actions.onSidebarMemoClick,
-                    onTagClick = actions.onSidebarTagClick,
-                    onSettingsClick = actions.onSettings,
-                    onTrashClick = actions.onTrash,
-                    onDailyReviewClick = actions.onDailyReviewClick,
-                    onGalleryClick = actions.onGalleryClick,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            val screenContent: @Composable () -> Unit = {
-                Scaffold(
-                    modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-                    snackbarHost = { SnackbarHost(snackbarHostState) },
-                    contentWindowInsets =
-                        WindowInsets.displayCutout
-                            .union(WindowInsets.systemBars)
-                            .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-                    topBar = {
-                        MainTopBar(
-                            title = if (selectedTag != null) "#$selectedTag" else "Lomo",
-                            scrollBehavior = scrollBehavior,
-                            onMenu = actions.onMenuOpen,
-                            onSearch = actions.onSearch,
-                            onClearFilter = actions.onClearFilter,
-                            isFilterActive = selectedTag != null,
-                            showNavigationIcon = !isExpanded,
-                        )
-                    },
-                    floatingActionButton = {
-                        MainFab(
-                            isVisible = scrollBehavior.state.collapsedFraction < 0.9f,
-                            onClick = actions.onFabClick,
-                            modifier = Modifier.offset(y = (-16).dp),
-                            onLongClick = {
-                                scope.launch {
-                                    // If far away, jump closer first to avoid dropping
-                                    // frames
-                                    if (listState.firstVisibleItemIndex > 10) {
-                                        listState.scrollToItem(10)
-                                    }
-                                    listState.animateScrollToItem(0)
-                                }
-                            },
-                        )
-                    },
-                    floatingActionButtonPosition = FabPosition.Center,
-                ) { padding ->
-                    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-                        AnimatedContent(
-                            targetState = uiState,
-                            transitionSpec = {
-                                (
-                                    fadeIn(
-                                        animationSpec =
-                                            tween(
-                                                durationMillis = MotionTokens.DurationLong2,
-                                                easing = MotionTokens.EasingStandard,
-                                            ),
-                                    ) +
-                                        scaleIn(
-                                            initialScale = 0.92f,
-                                            animationSpec =
-                                                tween(
-                                                    durationMillis = MotionTokens.DurationLong2,
-                                                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                ),
-                                        )
-                                ) togetherWith
-                                    fadeOut(
-                                        animationSpec =
-                                            tween(
-                                                durationMillis = MotionTokens.DurationLong2,
-                                                easing = MotionTokens.EasingStandard,
-                                            ),
-                                    )
-                            },
-                            label = "MainScreenStateTransition",
-                        ) { state ->
-                            when (state) {
-                                is MainViewModel.MainScreenState.Loading -> {
-                                    com.lomo.ui.component.common.MemoListSkeleton(
-                                        modifier = Modifier.fillMaxSize(),
-                                    )
-                                }
-
-                                is MainViewModel.MainScreenState.NoDirectory -> {
-                                    MainEmptyState(
-                                        searchQuery = searchQuery,
-                                        selectedTag = selectedTag,
-                                        hasDirectory = false,
-                                        onSettings = actions.onSettings,
-                                    )
-                                }
-
-                                is MainViewModel.MainScreenState.Ready -> {
-                                    if (!hasItems) {
-                                        MainEmptyState(
-                                            searchQuery = searchQuery,
-                                            selectedTag = selectedTag,
-                                            hasDirectory = true,
-                                            onSettings = actions.onSettings,
-                                        )
-                                    } else {
-                                        MemoListContent(
-                                            memos = uiMemos,
-                                            listState = listState,
-                                            isRefreshing = isRefreshing,
-                                            onRefresh = actions.onRefresh,
-                                            onVisibleMemoIdsChanged = viewModel::updateVisibleMemoIds,
-                                            onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
-                                            dateFormat = dateFormat,
-                                            timeFormat = timeFormat,
-                                            onMemoClick = actions.onMemoClick,
-                                            onMemoDoubleClick = openEditor,
-                                            doubleTapEditEnabled = doubleTapEditEnabled,
-                                            onTagClick = actions.onSidebarTagClick,
-                                            onImageClick = actions.onNavigateToImage,
-                                            onShowMemoMenu = showMenu,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (isExpanded) {
-                PermanentNavigationDrawer(
-                    drawerContent = {
-                        PermanentDrawerSheet(
-                            modifier = Modifier.width(300.dp),
-                        ) {
-                            sidebarContent()
-                        }
-                    },
-                    content = screenContent,
-                )
-            } else {
-                ModalNavigationDrawer(
-                    drawerState = drawerState,
-                    drawerContent = {
-                        ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.8f)) {
-                            sidebarContent()
-                        }
-                    },
-                    content = screenContent,
-                )
-            }
-        }
-
-        if (directorySetupType != null) {
-            val type = directorySetupType!!
-            val typeLabel = stringResource(type.labelResId)
-            AlertDialog(
-                onDismissRequest = { directorySetupType = null },
-                title = { Text(stringResource(R.string.setup_directory_title, typeLabel)) },
-                text = { Text(stringResource(R.string.setup_directory_message, typeLabel, type.subfolder)) },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            viewModel.createDefaultDirectories(
-                                forImage = type == DirectorySetupType.Image,
-                                forVoice = type == DirectorySetupType.Voice,
-                            )
-                            directorySetupType = null
-                        },
-                    ) {
-                        Text(stringResource(R.string.action_auto_create))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = {
-                        directorySetupType = null
-                        editorController.close()
+        val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+        val actions =
+            remember(
+                viewModel,
+                sidebarViewModel,
+                editorController,
+                scope,
+                drawerState,
+                haptic,
+                isExpanded,
+                onNavigateToSettings,
+                onNavigateToTrash,
+                onNavigateToSearch,
+                onNavigateToTag,
+                onNavigateToImage,
+                onNavigateToDailyReview,
+                onNavigateToGallery,
+            ) {
+                MainScreenActions(
+                    onSettings = {
+                        if (!isExpanded) scope.launch { drawerState.close() }
                         onNavigateToSettings()
-                    }) {
-                        Text(stringResource(R.string.action_go_to_settings))
-                    }
-                },
+                    },
+                    onTrash = {
+                        if (!isExpanded) scope.launch { drawerState.close() }
+                        onNavigateToTrash()
+                    },
+                    onSearch = onNavigateToSearch,
+                    onSidebarMemoClick = {
+                        sidebarViewModel.clearFilters()
+                        if (!isExpanded) scope.launch { drawerState.close() }
+                    },
+                    onSidebarTagClick = { tag ->
+                        if (!isExpanded) scope.launch { drawerState.close() }
+                        onNavigateToTag(tag)
+                    },
+                    onNavigateToImage = onNavigateToImage,
+                    onClearFilter = { sidebarViewModel.onTagSelected(null) },
+                    onMenuOpen = { scope.launch { drawerState.open() } },
+                    onFabClick = {
+                        haptic.longPress()
+                        if (viewModel.uiState.value is MainViewModel.MainScreenState.Ready) {
+                            editorController.openForCreate()
+                        } else {
+                            onNavigateToSettings()
+                        }
+                    },
+                    onRefresh = {
+                        scope.launch {
+                            isRefreshing = true
+                            try {
+                                viewModel.refresh()
+                                delay(REFRESH_DELAY)
+                            } finally {
+                                isRefreshing = false
+                            }
+                        }
+                    },
+                    onDailyReviewClick = {
+                        if (!isExpanded) scope.launch { drawerState.close() }
+                        onNavigateToDailyReview()
+                    },
+                    onGalleryClick = {
+                        if (!isExpanded) scope.launch { drawerState.close() }
+                        onNavigateToGallery()
+                    },
+                )
+            }
+
+        val sidebarContent: @Composable () -> Unit = {
+            SidebarDrawer(
+                username = "Lomo",
+                stats = sidebarUiState.stats,
+                memoCountByDate = sidebarUiState.memoCountByDate,
+                tags = sidebarUiState.tags,
+                onMemoClick = actions.onSidebarMemoClick,
+                onTagClick = actions.onSidebarTagClick,
+                onSettingsClick = actions.onSettings,
+                onTrashClick = actions.onTrash,
+                onDailyReviewClick = actions.onDailyReviewClick,
+                onGalleryClick = actions.onGalleryClick,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
 
-        when (val state = versionHistoryState) {
-            is MainVersionHistoryState.Loading -> {
-                com.lomo.app.feature.memo.MemoVersionHistorySheet(
-                    versions = emptyList(),
-                    isLoading = true,
-                    onRestore = {},
-                    onDismiss = viewModel::dismissVersionHistory,
-                )
+        val screenContent: @Composable () -> Unit = {
+            Scaffold(
+                modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+                snackbarHost = { SnackbarHost(snackbarHostState) },
+                contentWindowInsets =
+                    WindowInsets.displayCutout
+                        .union(WindowInsets.systemBars)
+                        .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
+                topBar = {
+                    MainTopBar(
+                        title = if (selectedTag != null) "#$selectedTag" else "Lomo",
+                        scrollBehavior = scrollBehavior,
+                        onMenu = actions.onMenuOpen,
+                        onSearch = actions.onSearch,
+                        onClearFilter = actions.onClearFilter,
+                        isFilterActive = selectedTag != null,
+                        showNavigationIcon = !isExpanded,
+                    )
+                },
+                floatingActionButton = {
+                    MainFab(
+                        isVisible = scrollBehavior.state.collapsedFraction < 0.9f,
+                        onClick = actions.onFabClick,
+                        modifier = Modifier.offset(y = (-16).dp),
+                        onLongClick = {
+                            scope.launch {
+                                // If far away, jump closer first to avoid dropping
+                                // frames
+                                if (listState.firstVisibleItemIndex > 10) {
+                                    listState.scrollToItem(10)
+                                }
+                                listState.animateScrollToItem(0)
+                            }
+                        },
+                    )
+                },
+                floatingActionButtonPosition = FabPosition.Center,
+            ) { padding ->
+                Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+                    AnimatedContent(
+                        targetState = uiState,
+                        transitionSpec = {
+                            (
+                                fadeIn(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationLong2,
+                                            easing = MotionTokens.EasingStandard,
+                                        ),
+                                ) +
+                                    scaleIn(
+                                        initialScale = 0.92f,
+                                        animationSpec =
+                                            tween(
+                                                durationMillis = MotionTokens.DurationLong2,
+                                                easing = MotionTokens.EasingEmphasizedDecelerate,
+                                            ),
+                                    )
+                            ) togetherWith
+                                fadeOut(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationLong2,
+                                            easing = MotionTokens.EasingStandard,
+                                        ),
+                                )
+                        },
+                        label = "MainScreenStateTransition",
+                    ) { state ->
+                        when (state) {
+                            is MainViewModel.MainScreenState.Loading -> {
+                                com.lomo.ui.component.common.MemoListSkeleton(
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+
+                            is MainViewModel.MainScreenState.NoDirectory -> {
+                                MainEmptyState(
+                                    searchQuery = searchQuery,
+                                    selectedTag = selectedTag,
+                                    hasDirectory = false,
+                                    onSettings = actions.onSettings,
+                                )
+                            }
+
+                            is MainViewModel.MainScreenState.Ready -> {
+                                if (!hasItems) {
+                                    MainEmptyState(
+                                        searchQuery = searchQuery,
+                                        selectedTag = selectedTag,
+                                        hasDirectory = true,
+                                        onSettings = actions.onSettings,
+                                    )
+                                } else {
+                                    MemoListContent(
+                                        memos = uiMemos,
+                                        listState = listState,
+                                        isRefreshing = isRefreshing,
+                                        onRefresh = actions.onRefresh,
+                                        onVisibleMemoIdsChanged = viewModel::updateVisibleMemoIds,
+                                        onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
+                                        dateFormat = dateFormat,
+                                        timeFormat = timeFormat,
+                                        onMemoDoubleClick = openEditor,
+                                        doubleTapEditEnabled = doubleTapEditEnabled,
+                                        onTagClick = actions.onSidebarTagClick,
+                                        onImageClick = actions.onNavigateToImage,
+                                        onShowMemoMenu = showMenu,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            is MainVersionHistoryState.Loaded -> {
-                com.lomo.app.feature.memo.MemoVersionHistorySheet(
-                    versions = state.versions,
-                    isLoading = false,
-                    onRestore = { version -> viewModel.restoreVersion(state.memo, version) },
-                    onDismiss = viewModel::dismissVersionHistory,
-                )
-            }
-            is MainVersionHistoryState.Hidden -> { /* nothing */ }
         }
+
+        if (isExpanded) {
+            PermanentNavigationDrawer(
+                drawerContent = {
+                    PermanentDrawerSheet(
+                        modifier = Modifier.width(300.dp),
+                    ) {
+                        sidebarContent()
+                    }
+                },
+                content = screenContent,
+            )
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                drawerContent = {
+                    ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.8f)) {
+                        sidebarContent()
+                    }
+                },
+                content = screenContent,
+            )
+        }
+
+        DirectorySetupDialog(
+            type = directorySetupType,
+            onDismiss = { directorySetupType = null },
+            onConfirmCreate = { type ->
+                viewModel.createDefaultDirectories(
+                    forImage = type == DirectorySetupType.Image,
+                    forVoice = type == DirectorySetupType.Voice,
+                )
+                directorySetupType = null
+            },
+            onGoToSettings = {
+                directorySetupType = null
+                editorController.close()
+                onNavigateToSettings()
+            },
+        )
+
+        VersionHistoryOverlay(
+            state = versionHistoryState,
+            onDismiss = viewModel::dismissVersionHistory,
+            onRestore = { memo, version -> viewModel.restoreVersion(memo, version) },
+        )
     }
 }
 
@@ -618,7 +578,6 @@ data class MainScreenActions(
     val onSettings: () -> Unit,
     val onTrash: () -> Unit,
     val onSearch: () -> Unit,
-    val onMemoClick: (String, String) -> Unit,
     val onSidebarMemoClick: () -> Unit,
     val onSidebarTagClick: (String) -> Unit,
     val onClearFilter: () -> Unit,
@@ -632,5 +591,60 @@ data class MainScreenActions(
 
 // Removed duplicate formatTime - now using DateTimeUtils.format()
 // from com.lomo.ui.util.DateTimeUtils for centralized date formatting
+
+@Composable
+private fun DirectorySetupDialog(
+    type: DirectorySetupType?,
+    onDismiss: () -> Unit,
+    onConfirmCreate: (DirectorySetupType) -> Unit,
+    onGoToSettings: () -> Unit,
+) {
+    val currentType = type ?: return
+    val typeLabel = stringResource(currentType.labelResId)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.setup_directory_title, typeLabel)) },
+        text = { Text(stringResource(R.string.setup_directory_message, typeLabel, currentType.subfolder)) },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirmCreate(currentType) },
+            ) {
+                Text(stringResource(R.string.action_auto_create))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onGoToSettings) {
+                Text(stringResource(R.string.action_go_to_settings))
+            }
+        },
+    )
+}
+
+@Composable
+private fun VersionHistoryOverlay(
+    state: MainVersionHistoryState,
+    onDismiss: () -> Unit,
+    onRestore: (com.lomo.domain.model.Memo, com.lomo.domain.model.MemoVersion) -> Unit,
+) {
+    when (state) {
+        is MainVersionHistoryState.Loading -> {
+            com.lomo.app.feature.memo.MemoVersionHistorySheet(
+                versions = emptyList(),
+                isLoading = true,
+                onRestore = {},
+                onDismiss = onDismiss,
+            )
+        }
+        is MainVersionHistoryState.Loaded -> {
+            com.lomo.app.feature.memo.MemoVersionHistorySheet(
+                versions = state.versions,
+                isLoading = false,
+                onRestore = { version -> onRestore(state.memo, version) },
+                onDismiss = onDismiss,
+            )
+        }
+        MainVersionHistoryState.Hidden -> Unit
+    }
+}
 
 private const val REFRESH_DELAY = 500L
