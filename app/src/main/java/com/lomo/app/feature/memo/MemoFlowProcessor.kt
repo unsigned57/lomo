@@ -93,12 +93,14 @@ class MemoFlowProcessor
                             .map { it.id }
                             .toSet()
                     }
+                val cacheableIds = buildCacheableIds(context.memos, prioritizedIds)
                 val activeIds = HashSet<String>(context.memos.size)
                 val uiModels = ArrayList<MemoUiModel>(context.memos.size)
 
                 context.memos.forEach { memo ->
                     activeIds += memo.id
-                    val cached = memoCache[memo.id]
+                    val shouldCacheEntry = memo.id in cacheableIds
+                    val cached = if (shouldCacheEntry) memoCache[memo.id] else null
                     val shouldPrecompute = memo.id in prioritizedIds
                     if (cached != null &&
                         cached.memo == memo &&
@@ -117,12 +119,16 @@ class MemoFlowProcessor
                                 existingNode = cached?.uiModel?.markdownNode,
                                 existingProcessedContent = cached?.uiModel?.processedContent,
                             )
-                        memoCache[memo.id] =
-                            CachedMemoUiModel(
-                                memo = memo,
-                                environment = environment,
-                                uiModel = mapped,
-                            )
+                        if (shouldCacheEntry) {
+                            memoCache[memo.id] =
+                                CachedMemoUiModel(
+                                    memo = memo,
+                                    environment = environment,
+                                    uiModel = mapped,
+                                )
+                        } else {
+                            memoCache.remove(memo.id)
+                        }
                         uiModels += mapped
                     }
                 }
@@ -133,6 +139,26 @@ class MemoFlowProcessor
             }
 
         private fun createMemoCache(): LinkedHashMap<String, CachedMemoUiModel> = LinkedHashMap(INITIAL_CACHE_CAPACITY, 0.75f, true)
+
+        private fun buildCacheableIds(
+            memos: List<Memo>,
+            prioritizedIds: Set<String>,
+        ): Set<String> {
+            if (memos.isEmpty()) return emptySet()
+
+            val ids =
+                LinkedHashSet<String>(
+                    (prioritizedIds.size + FRONT_CACHE_WINDOW_SIZE).coerceAtMost(MAX_CACHE_SIZE),
+                )
+            ids.addAll(prioritizedIds)
+
+            memos
+                .asSequence()
+                .take(FRONT_CACHE_WINDOW_SIZE)
+                .mapTo(ids) { it.id }
+
+            return ids
+        }
 
         private fun pruneStaleCacheEntries(
             memoCache: LinkedHashMap<String, CachedMemoUiModel>,
@@ -179,7 +205,8 @@ class MemoFlowProcessor
 
         private companion object {
             private const val INITIAL_CACHE_CAPACITY = 256
-            private const val MAX_CACHE_SIZE = 2048
+            private const val MAX_CACHE_SIZE = 768
             private const val DEFAULT_PRIORITY_WINDOW_SIZE = 20
+            private const val FRONT_CACHE_WINDOW_SIZE = 180
         }
     }

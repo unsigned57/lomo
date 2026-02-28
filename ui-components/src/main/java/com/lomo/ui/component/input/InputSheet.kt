@@ -82,25 +82,48 @@ import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+data class InputSheetState(
+    val inputValue: TextFieldValue,
+    val availableTags: List<String> = emptyList(),
+    val isRecording: Boolean = false,
+    val recordingDuration: Long = 0L,
+    val recordingAmplitude: Int = 0,
+    val hints: List<String> = emptyList(),
+)
+
+data class InputSheetCallbacks(
+    val onInputValueChange: (TextFieldValue) -> Unit,
+    val onDismiss: () -> Unit,
+    val onSubmit: (String) -> Unit,
+    val onImageClick: () -> Unit,
+    val onCameraClick: () -> Unit = {},
+    val onStartRecording: () -> Unit = {},
+    val onStopRecording: () -> Unit = {},
+    val onCancelRecording: () -> Unit = {},
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InputSheet(
-    inputValue: TextFieldValue,
-    onInputValueChange: (TextFieldValue) -> Unit,
-    onDismiss: () -> Unit,
-    onSubmit: (String) -> Unit,
-    onImageClick: () -> Unit,
-    onCameraClick: () -> Unit = {},
-    availableTags: List<String> = emptyList(),
-    // Recording params
-    isRecording: Boolean = false,
-    recordingDuration: Long = 0L,
-    recordingAmplitude: Int = 0,
-    onStartRecording: () -> Unit = {},
-    onStopRecording: () -> Unit = {},
-    onCancelRecording: () -> Unit = {},
-    hints: List<String> = emptyList(),
+    state: InputSheetState,
+    callbacks: InputSheetCallbacks,
 ) {
+    val inputValue = state.inputValue
+    val availableTags = state.availableTags
+    val isRecording = state.isRecording
+    val recordingDuration = state.recordingDuration
+    val recordingAmplitude = state.recordingAmplitude
+    val hints = state.hints
+
+    val onInputValueChange = callbacks.onInputValueChange
+    val onDismiss = callbacks.onDismiss
+    val onSubmit = callbacks.onSubmit
+    val onImageClick = callbacks.onImageClick
+    val onCameraClick = callbacks.onCameraClick
+    val onStartRecording = callbacks.onStartRecording
+    val onStopRecording = callbacks.onStopRecording
+    val onCancelRecording = callbacks.onCancelRecording
+
     var showTagSelector by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
     var showDiscardDialog by remember { mutableStateOf(false) }

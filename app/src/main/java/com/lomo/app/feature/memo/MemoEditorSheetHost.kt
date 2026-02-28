@@ -141,67 +141,73 @@ fun MemoEditorSheetHost(
         }
 
     com.lomo.ui.component.input.InputSheet(
-        inputValue = controller.inputValue,
-        onInputValueChange = controller::updateInputValue,
-        onDismiss = {
-            controller.close()
-            onDismiss()
-        },
-        onSubmit = { content ->
-            onSubmit(controller.editingMemo, content)
-            controller.close()
-        },
-        onImageClick = {
-            if (imageDirectory == null) {
-                if (onImageDirectoryMissing != null) {
-                    onImageDirectoryMissing()
-                } else {
-                    Toast
-                        .makeText(
-                            context,
-                            context.getString(R.string.settings_not_set),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                }
-            } else {
-                imagePicker.launch(
-                    PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly,
-                    ),
-                )
-            }
-        },
-        onCameraClick = {
-            if (imageDirectory == null) {
-                if (onImageDirectoryMissing != null) {
-                    onImageDirectoryMissing()
-                } else {
-                    Toast
-                        .makeText(
-                            context,
-                            context.getString(R.string.settings_not_set),
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                }
-            } else {
-                runCatching {
-                    val (file, uri) = CameraCaptureUtils.createTempCaptureUri(context)
-                    pendingCameraFile = file
-                    pendingCameraUri = uri
-                    cameraLauncher.launch(uri)
-                }.onFailure {
-                    clearPendingCapture()
-                    onCameraCaptureError?.invoke(it)
-                }
-            }
-        },
-        availableTags = availableTags,
-        isRecording = isRecording,
-        recordingDuration = recordingDuration,
-        recordingAmplitude = recordingAmplitude,
-        onStartRecording = onStartRecording,
-        onStopRecording = onStopRecording,
-        onCancelRecording = onCancelRecording,
-        hints = hints,
+        state =
+            com.lomo.ui.component.input.InputSheetState(
+                inputValue = controller.inputValue,
+                availableTags = availableTags,
+                isRecording = isRecording,
+                recordingDuration = recordingDuration,
+                recordingAmplitude = recordingAmplitude,
+                hints = hints,
+            ),
+        callbacks =
+            com.lomo.ui.component.input.InputSheetCallbacks(
+                onInputValueChange = controller::updateInputValue,
+                onDismiss = {
+                    controller.close()
+                    onDismiss()
+                },
+                onSubmit = { content ->
+                    onSubmit(controller.editingMemo, content)
+                    controller.close()
+                },
+                onImageClick = {
+                    if (imageDirectory == null) {
+                        if (onImageDirectoryMissing != null) {
+                            onImageDirectoryMissing()
+                        } else {
+                            Toast
+                                .makeText(
+                                    context,
+                                    context.getString(R.string.settings_not_set),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                        }
+                    } else {
+                        imagePicker.launch(
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            ),
+                        )
+                    }
+                },
+                onCameraClick = {
+                    if (imageDirectory == null) {
+                        if (onImageDirectoryMissing != null) {
+                            onImageDirectoryMissing()
+                        } else {
+                            Toast
+                                .makeText(
+                                    context,
+                                    context.getString(R.string.settings_not_set),
+                                    Toast.LENGTH_SHORT,
+                                ).show()
+                        }
+                    } else {
+                        runCatching {
+                            val (file, uri) = CameraCaptureUtils.createTempCaptureUri(context)
+                            pendingCameraFile = file
+                            pendingCameraUri = uri
+                            cameraLauncher.launch(uri)
+                        }.onFailure {
+                            clearPendingCapture()
+                            onCameraCaptureError?.invoke(it)
+                        }
+                    }
+                },
+                onStartRecording = onStartRecording,
+                onStopRecording = onStopRecording,
+                onCancelRecording = onCancelRecording,
+            ),
     )
 }
