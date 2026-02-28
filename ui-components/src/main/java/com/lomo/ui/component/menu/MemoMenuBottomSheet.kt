@@ -26,6 +26,8 @@ fun MemoMenuBottomSheet(
     onLanShare: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onHistory: (() -> Unit)? = null,
+    showHistory: Boolean = false,
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
@@ -51,6 +53,8 @@ fun MemoMenuBottomSheet(
             onEdit = onEdit,
             onDelete = onDelete,
             onDismiss = onDismissRequest,
+            onHistory = onHistory,
+            showHistory = showHistory,
         )
     }
 }

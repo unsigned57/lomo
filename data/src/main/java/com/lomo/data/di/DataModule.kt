@@ -130,6 +130,8 @@ object DataModule {
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
         memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
         safGitMirrorBridge: com.lomo.data.git.SafGitMirrorBridge,
+        memoFileObserver: com.lomo.data.git.MemoFileObserver,
+        markdownParser: com.lomo.data.parser.MarkdownParser,
     ): GitSyncRepositoryImpl =
         GitSyncRepositoryImpl(
             gitSyncEngine,
@@ -137,6 +139,8 @@ object DataModule {
             dataStore,
             memoSynchronizer,
             safGitMirrorBridge,
+            memoFileObserver,
+            markdownParser,
         )
 
     @Provides

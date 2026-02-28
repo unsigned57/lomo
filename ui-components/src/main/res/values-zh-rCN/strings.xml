@@ -39,4 +39,5 @@
     <string name="cd_cancel_recording">取消录音</string>
     <string name="cd_stop_recording">停止录音</string>
     <string name="cd_add_voice_memo">录制语音</string>
+    <string name="action_history">历史版本</string>
 </resources>

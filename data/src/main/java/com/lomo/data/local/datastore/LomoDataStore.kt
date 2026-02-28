@@ -72,6 +72,8 @@ class LomoDataStore
             val GIT_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_ENABLED)
             val GIT_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_INTERVAL)
             val GIT_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.GIT_LAST_SYNC_TIME)
+            val GIT_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ON_REFRESH)
+            val GIT_SYNC_ON_FILE_CHANGE = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ON_FILE_CHANGE)
         }
 
         // Storage Settings
@@ -542,6 +544,26 @@ class LomoDataStore
                     emit(0L)
                 }
 
+        val gitSyncOnRefresh: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_SYNC_ON_REFRESH]
+                        ?: PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncOnRefresh flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH)
+                }
+
+        val gitSyncOnFileChange: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.GIT_SYNC_ON_FILE_CHANGE]
+                        ?: PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE
+                }.catch { e ->
+                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncOnFileChange flow", e)
+                    emit(PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE)
+                }
+
         suspend fun updateGitSyncEnabled(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ENABLED] = enabled }
         }
@@ -574,5 +596,13 @@ class LomoDataStore
 
         suspend fun updateGitLastSyncTime(timestamp: Long) {
             dataStore.edit { prefs -> prefs[Keys.GIT_LAST_SYNC_TIME] = timestamp }
+        }
+
+        suspend fun updateGitSyncOnRefresh(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ON_REFRESH] = enabled }
+        }
+
+        suspend fun updateGitSyncOnFileChange(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ON_FILE_CHANGE] = enabled }
         }
     }

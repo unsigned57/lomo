@@ -46,6 +46,8 @@ object PreferenceKeys {
     const val GIT_AUTO_SYNC_ENABLED = "git_auto_sync_enabled"
     const val GIT_AUTO_SYNC_INTERVAL = "git_auto_sync_interval"
     const val GIT_LAST_SYNC_TIME = "git_last_sync_time"
+    const val GIT_SYNC_ON_REFRESH = "git_sync_on_refresh"
+    const val GIT_SYNC_ON_FILE_CHANGE = "git_sync_on_file_change"
 
     // Default values
     object Defaults {
@@ -71,5 +73,7 @@ object PreferenceKeys {
         const val GIT_AUTO_SYNC_INTERVAL = "1h"
         const val GIT_AUTHOR_NAME = "Lomo"
         const val GIT_AUTHOR_EMAIL = ""
+        const val GIT_SYNC_ON_REFRESH = false
+        const val GIT_SYNC_ON_FILE_CHANGE = false
     }
 }

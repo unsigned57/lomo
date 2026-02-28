@@ -2,11 +2,14 @@ package com.lomo.data.repository
 
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.data.git.MemoFileObserver
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.parser.MarkdownParser
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncState
 import com.lomo.domain.model.GitSyncStatus
+import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.repository.GitSyncRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +21,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import kotlin.math.abs
 
 class GitSyncRepositoryImpl
     @Inject
@@ -28,13 +33,18 @@ class GitSyncRepositoryImpl
         private val dataStore: LomoDataStore,
         private val memoSynchronizer: MemoSynchronizer,
         private val safGitMirrorBridge: SafGitMirrorBridge,
+        private val memoFileObserver: MemoFileObserver,
+        private val markdownParser: MarkdownParser,
     ) : GitSyncRepository {
         companion object {
             private const val MSG_PAT_REQUIRED = "No Personal Access Token configured"
             private const val MEMO_CHANGE_DEBOUNCE_MS = 30_000L
+            private const val FILE_CHANGE_DEBOUNCE_MS = 5_000L
+            private const val TIMESTAMP_TOLERANCE_MS = 1000L
         }
 
         private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val isSyncInProgress = AtomicBoolean(false)
 
         init {
             @OptIn(FlowPreview::class)
@@ -45,10 +55,28 @@ class GitSyncRepositoryImpl
                         try {
                             val enabled = dataStore.gitSyncEnabled.first()
                             if (enabled) {
-                                sync()
+                                commitLocal()
                             }
                         } catch (e: Exception) {
-                            Timber.w(e, "Event-driven git sync failed")
+                            Timber.w(e, "Event-driven git commit failed")
+                        }
+                    }
+            }
+
+            @OptIn(FlowPreview::class)
+            syncScope.launch {
+                memoFileObserver.fileChanged
+                    .debounce(FILE_CHANGE_DEBOUNCE_MS)
+                    .collect {
+                        try {
+                            if (isSyncInProgress.get()) return@collect
+                            val enabled = dataStore.gitSyncEnabled.first()
+                            val fileChangeEnabled = dataStore.gitSyncOnFileChange.first()
+                            if (enabled && fileChangeEnabled) {
+                                commitLocal()
+                            }
+                        } catch (e: Exception) {
+                            Timber.w(e, "File-change-driven git commit failed")
                         }
                     }
             }
@@ -63,6 +91,10 @@ class GitSyncRepositoryImpl
         override fun getAutoSyncInterval(): Flow<String> = dataStore.gitAutoSyncInterval
 
         override fun getLastSyncTime(): Flow<Long> = dataStore.gitLastSyncTime
+
+        override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
+
+        override fun getSyncOnFileChangeEnabled(): Flow<Boolean> = dataStore.gitSyncOnFileChange
 
         override suspend fun setGitSyncEnabled(enabled: Boolean) {
             dataStore.updateGitSyncEnabled(enabled)
@@ -93,6 +125,14 @@ class GitSyncRepositoryImpl
 
         override suspend fun setAutoSyncInterval(interval: String) {
             dataStore.updateGitAutoSyncInterval(interval)
+        }
+
+        override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
+            dataStore.updateGitSyncOnRefresh(enabled)
+        }
+
+        override suspend fun setSyncOnFileChangeEnabled(enabled: Boolean) {
+            dataStore.updateGitSyncOnFileChange(enabled)
         }
 
         override suspend fun initOrClone(): GitSyncResult {
@@ -133,7 +173,38 @@ class GitSyncRepositoryImpl
             return GitSyncResult.DirectPathRequired
         }
 
+        private suspend fun commitLocal(): GitSyncResult {
+            if (!isSyncInProgress.compareAndSet(false, true)) {
+                return GitSyncResult.Success("Sync in progress")
+            }
+            try {
+                val enabled = dataStore.gitSyncEnabled.first()
+                if (!enabled) return GitSyncResult.NotConfigured
+
+                val directRootDir = resolveRootDir()
+                    ?: return GitSyncResult.Success("SAF mode, skipping local commit")
+
+                val gitDir = File(directRootDir, ".git")
+                if (!gitDir.exists()) return GitSyncResult.Success("Not initialized yet")
+
+                return gitSyncEngine.commitLocal(directRootDir)
+            } finally {
+                isSyncInProgress.set(false)
+            }
+        }
+
         override suspend fun sync(): GitSyncResult {
+            if (!isSyncInProgress.compareAndSet(false, true)) {
+                return GitSyncResult.Success("Sync already in progress")
+            }
+            try {
+                return doSync()
+            } finally {
+                isSyncInProgress.set(false)
+            }
+        }
+
+        private suspend fun doSync(): GitSyncResult {
             val enabled = dataStore.gitSyncEnabled.first()
             if (!enabled) {
                 gitSyncEngine.markNotConfigured()
@@ -265,6 +336,40 @@ class GitSyncRepositoryImpl
                 }
             }
             return GitSyncResult.Error("Memo directory is not configured")
+        }
+
+        override suspend fun getMemoVersionHistory(
+            dateKey: String,
+            memoTimestamp: Long,
+        ): List<MemoVersion> {
+            val rootDir = resolveRootDir() ?: return emptyList()
+            val filename = "$dateKey.md"
+
+            val history = gitSyncEngine.getFileHistory(rootDir, filename)
+            if (history.isEmpty()) return emptyList()
+
+            val versions = mutableListOf<MemoVersion>()
+            for ((index, pair) in history.withIndex()) {
+                val (commitHash, commitTime, commitMessage, fileContent) = pair
+
+                val memos = markdownParser.parseContent(fileContent, dateKey)
+                val matchingMemo = memos.firstOrNull { memo ->
+                    abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
+                } ?: continue
+
+                versions.add(
+                    MemoVersion(
+                        commitHash = commitHash,
+                        commitTime = commitTime,
+                        commitMessage = commitMessage,
+                        memoContent = matchingMemo.content,
+                        isCurrent = index == 0,
+                    ),
+                )
+            }
+
+            // Deduplicate unchanged versions
+            return versions.distinctBy { it.memoContent }
         }
 
         private suspend fun resolveRootDir(): File? {

@@ -12,8 +12,10 @@ import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
+import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.validation.MemoContentValidator
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
@@ -40,6 +43,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import timber.log.Timber
 import javax.inject.Inject
 
 @HiltViewModel
@@ -49,6 +53,7 @@ class MainViewModel
         private val repository: MemoRepository,
         private val settingsRepository: DirectorySettingsRepository,
         private val preferencesRepository: PreferencesRepository,
+        private val gitSyncRepo: GitSyncRepository,
         private val savedStateHandle: SavedStateHandle,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val imageMapProvider: ImageMapProvider,
@@ -237,6 +242,15 @@ class MainViewModel
         fun refresh() {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
+                    val syncOnRefresh = gitSyncRepo.getSyncOnRefreshEnabled().first()
+                    val gitEnabled = gitSyncRepo.isGitSyncEnabled().first()
+                    if (syncOnRefresh && gitEnabled) {
+                        try {
+                            gitSyncRepo.sync()
+                        } catch (e: Exception) {
+                            Timber.w(e, "Sync on refresh failed")
+                        }
+                    }
                     repository.refreshMemos()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -372,6 +386,53 @@ class MainViewModel
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
+
+        val gitSyncEnabled: StateFlow<Boolean> =
+            gitSyncRepo
+                .isGitSyncEnabled()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+        sealed interface VersionHistoryState {
+            data object Hidden : VersionHistoryState
+            data object Loading : VersionHistoryState
+            data class Loaded(val memo: Memo, val versions: List<MemoVersion>) : VersionHistoryState
+        }
+
+        private val _versionHistoryState = MutableStateFlow<VersionHistoryState>(VersionHistoryState.Hidden)
+        val versionHistoryState: StateFlow<VersionHistoryState> = _versionHistoryState
+
+        fun loadVersionHistory(memo: Memo) {
+            _versionHistoryState.value = VersionHistoryState.Loading
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val versions = gitSyncRepo.getMemoVersionHistory(memo.dateKey, memo.timestamp)
+                    _versionHistoryState.value = VersionHistoryState.Loaded(memo, versions)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Timber.w(e, "Failed to load version history")
+                    _versionHistoryState.value = VersionHistoryState.Hidden
+                    _errorMessage.value = e.userMessage("Failed to load version history")
+                }
+            }
+        }
+
+        fun restoreVersion(memo: Memo, version: MemoVersion) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    repository.updateMemo(memo, version.memoContent)
+                    _versionHistoryState.value = VersionHistoryState.Hidden
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to restore version")
+                }
+            }
+        }
+
+        fun dismissVersionHistory() {
+            _versionHistoryState.value = VersionHistoryState.Hidden
+        }
 
         fun clearError() {
             _errorMessage.value = null

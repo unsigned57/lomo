@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material3.AlertDialog
@@ -113,6 +114,8 @@ fun SettingsScreen(
     val gitAuthorEmail by viewModel.gitAuthorEmail.collectAsStateWithLifecycle()
     val gitAutoSyncEnabled by viewModel.gitAutoSyncEnabled.collectAsStateWithLifecycle()
     val gitAutoSyncInterval by viewModel.gitAutoSyncInterval.collectAsStateWithLifecycle()
+    val gitSyncOnRefreshEnabled by viewModel.gitSyncOnRefreshEnabled.collectAsStateWithLifecycle()
+    val gitSyncOnFileChangeEnabled by viewModel.gitSyncOnFileChangeEnabled.collectAsStateWithLifecycle()
     val gitLastSyncTime by viewModel.gitLastSyncTime.collectAsStateWithLifecycle()
     val gitSyncState by viewModel.gitSyncState.collectAsStateWithLifecycle()
     val connectionTestState by viewModel.connectionTestState.collectAsStateWithLifecycle()
@@ -609,6 +612,22 @@ fun SettingsScreen(
                                     )
                                 }
                             }
+                            SettingsDivider()
+                            SwitchPreferenceItem(
+                                title = stringResource(R.string.settings_git_sync_on_refresh),
+                                subtitle = stringResource(R.string.settings_git_sync_on_refresh_subtitle),
+                                icon = Icons.Outlined.Refresh,
+                                checked = gitSyncOnRefreshEnabled,
+                                onCheckedChange = { viewModel.updateGitSyncOnRefresh(it) },
+                            )
+                            SettingsDivider()
+                            SwitchPreferenceItem(
+                                title = stringResource(R.string.settings_git_sync_on_file_change),
+                                subtitle = stringResource(R.string.settings_git_sync_on_file_change_subtitle),
+                                icon = Icons.Outlined.Description,
+                                checked = gitSyncOnFileChangeEnabled,
+                                onCheckedChange = { viewModel.updateGitSyncOnFileChange(it) },
+                            )
                             SettingsDivider()
                             PreferenceItem(
                                 title = stringResource(R.string.settings_git_sync_now),

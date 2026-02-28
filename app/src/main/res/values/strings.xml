@@ -264,5 +264,14 @@
     <string name="settings_git_reset_repo_confirm_title">Reset Git Repository?</string>
     <string name="settings_git_reset_repo_confirm_message">This will delete the local .git directory. Your memo files will not be affected, but you will need to re-initialize sync.</string>
     <string name="action_reset">Reset</string>
+    <string name="settings_git_sync_on_refresh">Sync on Refresh</string>
+    <string name="settings_git_sync_on_refresh_subtitle">Trigger git sync when pulling to refresh</string>
+    <string name="settings_git_sync_on_file_change">Sync on File Change</string>
+    <string name="settings_git_sync_on_file_change_subtitle">Auto sync when memo files are modified externally</string>
+    <string name="memo_version_history">Version History</string>
+    <string name="memo_version_history_empty">No version history available</string>
+    <string name="memo_version_restore">Restore</string>
+    <string name="memo_version_current">Current</string>
+    <string name="memo_version_loading">Loading version history…</string>
 
 </resources>

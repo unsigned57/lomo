@@ -15,11 +15,14 @@ import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.RebaseCommand
 import org.eclipse.jgit.api.RebaseResult
 import org.eclipse.jgit.lib.BranchTrackingStatus
+import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.PersonIdent
 import org.eclipse.jgit.merge.MergeStrategy
+import org.eclipse.jgit.revwalk.RevCommit
 import org.eclipse.jgit.transport.RemoteRefUpdate
 import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import org.eclipse.jgit.treewalk.TreeWalk
 import timber.log.Timber
 import java.io.File
 import java.time.LocalDateTime
@@ -218,6 +221,72 @@ class GitSyncEngine
             }
         }
 
+        suspend fun commitLocal(rootDir: File): GitSyncResult =
+            mutex.withLock {
+                withContext(Dispatchers.IO) {
+                    try {
+                        doCommitLocal(rootDir)
+                    } catch (e: Exception) {
+                        Timber.e(e, "Local commit failed")
+                        GitSyncResult.Error("Local commit failed: ${e.message}", e)
+                    }
+                }
+            }
+
+        private suspend fun doCommitLocal(rootDir: File): GitSyncResult {
+            val gitDir = File(rootDir, ".git")
+            if (!gitDir.exists()) return GitSyncResult.Error("Not a git repository")
+
+            cleanStaleLockFiles(rootDir)
+
+            val git = Git.open(rootDir)
+            git.use { g ->
+                val author = authorIdent()
+                val branch = g.repository.branch ?: "main"
+
+                // Stage all changes (including deletions)
+                g.add().addFilepattern(".").call()
+                g.add().addFilepattern(".").setUpdate(true).call()
+
+                val status = g.status().call()
+                val hasChanges = status.hasUncommittedChanges() ||
+                    status.added.isNotEmpty() ||
+                    status.changed.isNotEmpty() ||
+                    status.removed.isNotEmpty()
+
+                if (!hasChanges) return GitSyncResult.Success("Nothing to commit")
+
+                val shouldAmend = shouldAmendLastCommit(g, branch)
+                val timestamp = LocalDateTime.now()
+                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+                g.commit()
+                    .setAuthor(author)
+                    .setCommitter(author)
+                    .setMessage("sync: $timestamp via Lomo")
+                    .setAmend(shouldAmend)
+                    .call()
+
+                return GitSyncResult.Success(if (shouldAmend) "Amended local commit" else "Committed locally")
+            }
+        }
+
+        /**
+         * Returns true if the last commit is an unpushed Lomo sync commit that can be amended.
+         * This avoids creating many small commits between pushes.
+         */
+        private fun shouldAmendLastCommit(g: Git, branch: String): Boolean {
+            val lastCommit = g.log().setMaxCount(1).call().firstOrNull() ?: return false
+            if (!lastCommit.fullMessage.contains("via Lomo")) return false
+
+            // Only amend if the commit hasn't been pushed yet
+            return try {
+                val tracking = BranchTrackingStatus.of(g.repository, branch)
+                tracking != null && tracking.aheadCount > 0
+            } catch (_: Exception) {
+                false
+            }
+        }
+
         suspend fun sync(rootDir: File, remoteUrl: String): GitSyncResult =
             mutex.withLock {
                 withContext(Dispatchers.IO) {
@@ -280,12 +349,14 @@ class GitSyncEngine
                     status.removed.isNotEmpty()
 
                 if (hasChanges) {
+                    val shouldAmend = shouldAmendLastCommit(g, branch)
                     val timestamp = LocalDateTime.now()
                         .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
                     g.commit()
                         .setAuthor(author)
                         .setCommitter(author)
                         .setMessage("sync: $timestamp via Lomo")
+                        .setAmend(shouldAmend)
                         .call()
                 }
 
@@ -455,6 +526,71 @@ class GitSyncEngine
             } catch (e: Exception) {
                 Timber.e(e, "Push failed")
                 GitSyncResult.Error("Push failed: ${e.message}", e)
+            }
+        }
+
+        data class FileHistoryEntry(
+            val commitHash: String,
+            val commitTime: Long,
+            val commitMessage: String,
+            val fileContent: String,
+        )
+
+        fun getFileHistory(
+            rootDir: File,
+            filename: String,
+            maxCount: Int = 50,
+        ): List<FileHistoryEntry> {
+            val gitDir = File(rootDir, ".git")
+            if (!gitDir.exists()) return emptyList()
+
+            return try {
+                val git = Git.open(rootDir)
+                git.use { g ->
+                    val logCommand = g.log()
+                        .addPath(filename)
+                        .setMaxCount(maxCount)
+
+                    val commits = logCommand.call().toList()
+                    val result = mutableListOf<FileHistoryEntry>()
+
+                    for (commit in commits) {
+                        val content = readFileAtCommit(g, commit, filename) ?: continue
+                        result.add(
+                            FileHistoryEntry(
+                                commitHash = commit.name,
+                                commitTime = commit.commitTime.toLong() * 1000L,
+                                commitMessage = commit.shortMessage,
+                                fileContent = content,
+                            ),
+                        )
+                    }
+                    result
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to get file history for %s", filename)
+                emptyList()
+            }
+        }
+
+        private fun readFileAtCommit(
+            git: Git,
+            commit: RevCommit,
+            filename: String,
+        ): String? {
+            return try {
+                val treeWalk = TreeWalk.forPath(
+                    git.repository,
+                    filename,
+                    commit.tree,
+                ) ?: return null
+
+                val objectId: ObjectId = treeWalk.getObjectId(0)
+                val loader = git.repository.open(objectId)
+                String(loader.bytes, Charsets.UTF_8)
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to read %s at commit %s", filename, commit.name)
+                null
             }
         }
 

@@ -113,6 +113,8 @@ fun MainScreen(
     val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
+    val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
+    val versionHistoryState by viewModel.versionHistoryState.collectAsStateWithLifecycle()
 
     // Recording State (from RecordingViewModel)
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
@@ -263,6 +265,13 @@ fun MainScreen(
             } else {
                 emptyList()
             },
+        onVersionHistory = { state ->
+            val memo = state.memo as? com.lomo.domain.model.Memo
+            if (memo != null) {
+                viewModel.loadVersionHistory(memo)
+            }
+        },
+        showVersionHistory = gitSyncEnabled,
     ) { showMenu, openEditor ->
 
         // Track previous filter values to detect actual changes (not recomposition)
@@ -524,6 +533,26 @@ fun MainScreen(
                     }
                 },
             )
+        }
+
+        when (val state = versionHistoryState) {
+            is MainViewModel.VersionHistoryState.Loading -> {
+                com.lomo.app.feature.memo.MemoVersionHistorySheet(
+                    versions = emptyList(),
+                    isLoading = true,
+                    onRestore = {},
+                    onDismiss = viewModel::dismissVersionHistory,
+                )
+            }
+            is MainViewModel.VersionHistoryState.Loaded -> {
+                com.lomo.app.feature.memo.MemoVersionHistorySheet(
+                    versions = state.versions,
+                    isLoading = false,
+                    onRestore = { version -> viewModel.restoreVersion(state.memo, version) },
+                    onDismiss = viewModel::dismissVersionHistory,
+                )
+            }
+            is MainViewModel.VersionHistoryState.Hidden -> { /* nothing */ }
         }
     }
 }

@@ -349,6 +349,24 @@ class SettingsViewModel
                     PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL,
                 )
 
+        val gitSyncOnRefreshEnabled: StateFlow<Boolean> =
+            gitSyncRepo
+                .getSyncOnRefreshEnabled()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH,
+                )
+
+        val gitSyncOnFileChangeEnabled: StateFlow<Boolean> =
+            gitSyncRepo
+                .getSyncOnFileChangeEnabled()
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE,
+                )
+
         val gitLastSyncTime: StateFlow<Long> =
             gitSyncRepo
                 .getLastSyncTime()
@@ -416,6 +434,14 @@ class SettingsViewModel
                 gitSyncRepo.setAutoSyncInterval(interval)
                 gitSyncScheduler.reschedule()
             }
+        }
+
+        fun updateGitSyncOnRefresh(enabled: Boolean) {
+            viewModelScope.launch { gitSyncRepo.setSyncOnRefreshEnabled(enabled) }
+        }
+
+        fun updateGitSyncOnFileChange(enabled: Boolean) {
+            viewModelScope.launch { gitSyncRepo.setSyncOnFileChangeEnabled(enabled) }
         }
 
         fun triggerGitSyncNow() {

@@ -38,6 +38,8 @@ fun MemoInteractionHost(
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
     hints: List<String> = emptyList(),
+    onVersionHistory: ((MemoMenuState) -> Unit)? = null,
+    showVersionHistory: Boolean = false,
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,
         openEditor: (Memo) -> Unit,
@@ -50,6 +52,8 @@ fun MemoInteractionHost(
         onEditMemo = controller::openForEdit,
         onDeleteMemo = onDeleteMemo,
         onLanShare = onLanShare,
+        onVersionHistory = onVersionHistory,
+        showVersionHistory = showVersionHistory,
     ) { showMenu ->
         content(showMenu, controller::openForEdit)
 

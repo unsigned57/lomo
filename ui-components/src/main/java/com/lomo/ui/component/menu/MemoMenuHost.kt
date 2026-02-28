@@ -37,6 +37,8 @@ fun MemoMenuHost(
     onDelete: (MemoMenuState) -> Unit,
     onShare: (MemoMenuState) -> Unit = {},
     onLanShare: (MemoMenuState) -> Unit = {},
+    onHistory: ((MemoMenuState) -> Unit)? = null,
+    showHistory: Boolean = false,
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
@@ -88,6 +90,16 @@ fun MemoMenuHost(
                     if (target != null) onDelete(target)
                 }
             },
+            onHistory = if (onHistory != null) {
+                {
+                    val target = activeState
+                    activeState = null
+                    if (target != null) onHistory(target)
+                }
+            } else {
+                null
+            },
+            showHistory = showHistory,
         )
     }
 }

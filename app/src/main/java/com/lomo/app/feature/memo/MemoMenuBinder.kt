@@ -19,6 +19,8 @@ fun MemoMenuBinder(
         content: String,
         timestamp: Long,
     ) -> Unit,
+    onVersionHistory: ((MemoMenuState) -> Unit)? = null,
+    showVersionHistory: Boolean = false,
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
@@ -56,6 +58,8 @@ fun MemoMenuBinder(
                 onLanShare(memo.content, memo.timestamp)
             }
         },
+        onHistory = onVersionHistory,
+        showHistory = showVersionHistory,
     ) { showMenu ->
         content(showMenu)
     }

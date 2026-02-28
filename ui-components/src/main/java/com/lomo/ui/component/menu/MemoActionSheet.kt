@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material3.HorizontalDivider
@@ -67,6 +68,8 @@ fun MemoActionSheet(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    onHistory: (() -> Unit)? = null,
+    showHistory: Boolean = false,
     actions: List<MemoActionSheetAction>? = null,
     useHorizontalScroll: Boolean = true,
     showSwipeAffordance: Boolean = true,
@@ -76,44 +79,65 @@ fun MemoActionSheet(
     val actionsScrollState = rememberScrollState()
     val sheetActions =
         actions
-            ?: listOf(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.ContentCopy,
-                    label = stringResource(R.string.action_copy),
-                    onClick = onCopy,
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Share,
-                    label = stringResource(R.string.action_share),
-                    onClick = onShare,
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Wifi,
-                    label = stringResource(R.string.action_lan_share),
-                    onClick = onLanShare,
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Edit,
-                    label = stringResource(R.string.action_edit),
-                    onClick = onEdit,
-                    dismissAfterClick = false,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Delete,
-                    label = stringResource(R.string.action_delete),
-                    onClick = onDelete,
-                    isDestructive = true,
-                    dismissAfterClick = false,
-                    haptic = MemoActionHaptic.HEAVY,
-                ),
-            )
+            ?: buildList {
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.ContentCopy,
+                        label = stringResource(R.string.action_copy),
+                        onClick = onCopy,
+                        dismissAfterClick = true,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.Share,
+                        label = stringResource(R.string.action_share),
+                        onClick = onShare,
+                        dismissAfterClick = true,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.Wifi,
+                        label = stringResource(R.string.action_lan_share),
+                        onClick = onLanShare,
+                        dismissAfterClick = true,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+                if (showHistory && onHistory != null) {
+                    add(
+                        MemoActionSheetAction(
+                            icon = Icons.Outlined.History,
+                            label = stringResource(R.string.action_history),
+                            onClick = onHistory,
+                            dismissAfterClick = true,
+                            haptic = MemoActionHaptic.MEDIUM,
+                        ),
+                    )
+                }
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.Edit,
+                        label = stringResource(R.string.action_edit),
+                        onClick = onEdit,
+                        dismissAfterClick = false,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.Delete,
+                        label = stringResource(R.string.action_delete),
+                        onClick = onDelete,
+                        isDestructive = true,
+                        dismissAfterClick = false,
+                        haptic = MemoActionHaptic.HEAVY,
+                    ),
+                )
+            }
 
     Column(
         modifier =
