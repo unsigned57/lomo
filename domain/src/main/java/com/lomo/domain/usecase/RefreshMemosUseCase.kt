@@ -5,9 +5,13 @@ import javax.inject.Inject
 class RefreshMemosUseCase
     @Inject
     constructor(
-        private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
+        private val memoMaintenanceUseCase: MemoMaintenanceUseCase,
     ) {
+        constructor(syncAndRebuildUseCase: SyncAndRebuildUseCase) : this(
+            MemoMaintenanceUseCase(syncAndRebuildUseCase),
+        )
+
         suspend operator fun invoke() {
-            syncAndRebuildUseCase(forceSync = false)
+            memoMaintenanceUseCase.refreshMemos()
         }
     }

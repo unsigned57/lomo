@@ -2,8 +2,10 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -25,7 +27,7 @@ class DailyReviewQueryUseCaseTest {
     @Test
     fun `returns empty when no memos`() =
         runTest {
-            every { repository.getAllMemosList() } returns flowOf(emptyList())
+            stubPagedMemos(emptyList())
 
             val result = useCase(limit = 10, seedDate = LocalDate.of(2026, 2, 24))
 
@@ -37,7 +39,7 @@ class DailyReviewQueryUseCaseTest {
         runTest {
             val memos = (0 until 20).map { index -> memo(index) }
             val seedDate = LocalDate.of(2026, 2, 24)
-            every { repository.getAllMemosList() } returns flowOf(memos)
+            stubPagedMemos(memos)
 
             val first = useCase(limit = 5, seedDate = seedDate)
             val second = useCase(limit = 5, seedDate = seedDate)
@@ -45,18 +47,29 @@ class DailyReviewQueryUseCaseTest {
             assertEquals(first, second)
             assertEquals(5, first.size)
             assertEquals(5, first.map { it.id }.distinct().size)
+            verify(exactly = 0) { repository.getAllMemosList() }
         }
 
     @Test
     fun `returns all memos when limit exceeds total`() =
         runTest {
             val memos = (0 until 3).map { index -> memo(index) }
-            every { repository.getAllMemosList() } returns flowOf(memos)
+            stubPagedMemos(memos)
 
             val result = useCase(limit = 10, seedDate = LocalDate.of(2026, 2, 24))
 
             assertEquals(memos, result)
         }
+
+    private fun stubPagedMemos(memos: List<Memo>) {
+        coEvery { repository.getMemoCount() } returns memos.size
+        coEvery { repository.getMemosPage(any(), any()) } answers {
+            val limit = firstArg<Int>()
+            val offset = secondArg<Int>()
+            memos.drop(offset).take(limit)
+        }
+        every { repository.getAllMemosList() } returns flowOf(memos)
+    }
 
     private fun memo(index: Int): Memo =
         Memo(

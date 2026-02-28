@@ -1,5 +1,6 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import io.mockk.coEvery
@@ -10,7 +11,9 @@ import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
@@ -56,6 +59,42 @@ class SyncAndRebuildUseCaseTest {
                 gitSyncRepository.sync()
                 memoRepository.refreshMemos()
             }
+        }
+
+    @Test
+    fun `force sync result error still refreshes and throws mapped failure`() =
+        runTest {
+            coEvery { gitSyncRepository.sync() } returns GitSyncResult.Error("sync failed")
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
+            assertTrue(thrown is Exception)
+            assertEquals("sync failed", thrown?.message)
+
+            coVerifyOrder {
+                gitSyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
+
+    @Test
+    fun `force sync result cancellation is rethrown`() =
+        runTest {
+            val cancellation = CancellationException("cancelled")
+            coEvery {
+                gitSyncRepository.sync()
+            } returns GitSyncResult.Error("cancelled", cancellation)
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            try {
+                useCase(forceSync = true)
+                fail("Expected CancellationException")
+            } catch (e: CancellationException) {
+                assertSame(cancellation, e)
+            }
+
+            coVerify(exactly = 1) { gitSyncRepository.sync() }
+            coVerify(exactly = 0) { memoRepository.refreshMemos() }
         }
 
     @Test

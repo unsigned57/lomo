@@ -12,4 +12,16 @@ data class Memo(
     val tags: List<String> = emptyList(),
     val imageUrls: List<String> = emptyList(),
     val isDeleted: Boolean = false,
-)
+) {
+    /**
+     * Domain-facing alias for raw source text persisted for this memo.
+     */
+    val sourceSnapshot: String
+        get() = rawContent
+
+    /**
+     * Domain-facing alias for the day partition key used to group memo entries.
+     */
+    val dayBucketKey: String
+        get() = dateKey
+}

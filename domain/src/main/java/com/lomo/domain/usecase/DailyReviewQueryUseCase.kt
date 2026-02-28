@@ -2,16 +2,18 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import kotlin.random.Random
 import javax.inject.Inject
 
 /**
- * Picks a deterministic "daily review" random sample from the full memo stream.
+ * Picks a deterministic "daily review" random sample from the memo stream.
  *
  * For a given [seedDate], the same random order is produced so results are stable within that day,
  * while still sampling from the entire memo set instead of a contiguous window.
+ *
+ * Uses repository paging/count contracts to avoid materializing the full list in memory when
+ * storage can provide indexed access efficiently.
  */
 class DailyReviewQueryUseCase
     @Inject
@@ -24,19 +26,45 @@ class DailyReviewQueryUseCase
         ): List<Memo> {
             if (limit <= 0) return emptyList()
 
-            val allMemos = repository.getAllMemosList().first()
-            if (allMemos.isEmpty()) return emptyList()
+            val totalMemoCount = repository.getMemoCount()
+            if (totalMemoCount <= 0) return emptyList()
 
-            val safeLimit = limit.coerceAtMost(allMemos.size)
-            if (safeLimit == allMemos.size) return allMemos
+            val safeLimit = limit.coerceAtMost(totalMemoCount)
+            if (safeLimit <= 0) return emptyList()
 
-            val dailyRandom = Random(seedDate.toEpochDay())
-            val sampledIndices = sampleIndicesWithoutReplacement(allMemos.size, safeLimit, dailyRandom)
-            return buildList(capacity = safeLimit) {
-                for (index in sampledIndices) {
-                    add(allMemos[index])
+            val sampledIndices =
+                if (safeLimit == totalMemoCount) {
+                    IntArray(totalMemoCount) { it }
+                } else {
+                    val dailyRandom = Random(seedDate.toEpochDay())
+                    sampleIndicesWithoutReplacement(totalMemoCount, safeLimit, dailyRandom)
+                }
+
+            if (sampledIndices.isEmpty()) return emptyList()
+            return fetchMemosByIndices(sampledIndices)
+        }
+
+        private suspend fun fetchMemosByIndices(indices: IntArray): List<Memo> {
+            val selectionsByPage =
+                indices.withIndex().groupBy(
+                    keySelector = { indexedValue -> indexedValue.value / DAILY_REVIEW_PAGE_SIZE },
+                )
+            val sampledMemos = arrayOfNulls<Memo>(indices.size)
+
+            for (pageIndex in selectionsByPage.keys.sorted()) {
+                val pageOffset = pageIndex * DAILY_REVIEW_PAGE_SIZE
+                val pageMemos = repository.getMemosPage(limit = DAILY_REVIEW_PAGE_SIZE, offset = pageOffset)
+                val pageSelections = selectionsByPage[pageIndex].orEmpty()
+
+                for (selection in pageSelections) {
+                    val indexWithinPage = selection.value - pageOffset
+                    if (indexWithinPage in pageMemos.indices) {
+                        sampledMemos[selection.index] = pageMemos[indexWithinPage]
+                    }
                 }
             }
+
+            return sampledMemos.filterNotNull()
         }
 
         /**
@@ -61,5 +89,9 @@ class DailyReviewQueryUseCase
                 swaps[j] = valueAtI
                 valueAtJ
             }
+        }
+
+        private companion object {
+            private const val DAILY_REVIEW_PAGE_SIZE = 64
         }
     }

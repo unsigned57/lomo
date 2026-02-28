@@ -61,6 +61,28 @@ class ToggleMemoCheckboxUseCaseTest {
             coVerify(exactly = 1) { repository.updateMemo(memo, "1. [x] numbered task") }
         }
 
+    @Test
+    fun `preserves trailing newline when toggling checkbox`() =
+        runTest {
+            val memo = memo(content = "- [ ] task\n")
+
+            val changed = useCase(memo = memo, lineIndex = 0, checked = true)
+
+            assertTrue(changed)
+            coVerify(exactly = 1) { repository.updateMemo(memo, "- [x] task\n") }
+        }
+
+    @Test
+    fun `preserves multiple trailing blank lines when toggling checkbox`() =
+        runTest {
+            val memo = memo(content = "- [ ] task\n\n")
+
+            val changed = useCase(memo = memo, lineIndex = 0, checked = true)
+
+            assertTrue(changed)
+            coVerify(exactly = 1) { repository.updateMemo(memo, "- [x] task\n\n") }
+        }
+
     private fun memo(content: String): Memo =
         Memo(
             id = "memo",

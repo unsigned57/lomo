@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.androidLibrary)
 }
 
+val jvmVersion = 25
+
 android {
     namespace = "com.lomo.domain"
     compileSdk = 36
@@ -11,8 +13,8 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.toVersion(25)
-        targetCompatibility = JavaVersion.toVersion(25)
+        sourceCompatibility = JavaVersion.toVersion(jvmVersion)
+        targetCompatibility = JavaVersion.toVersion(jvmVersion)
     }
 }
 
@@ -26,11 +28,11 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(jvmVersion)
     compilerOptions {
         jvmTarget.set(
             org.jetbrains.kotlin.gradle.dsl.JvmTarget
-                .fromTarget("25"),
+                .fromTarget(jvmVersion.toString()),
         )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
     }

@@ -19,7 +19,7 @@ class ToggleMemoCheckboxUseCase
             val newContent = toggleCheckboxLine(memo.content, lineIndex, checked)
             if (newContent == memo.content) return false
 
-            validator.validateForUpdate(newContent)
+            validator.requireValidForUpdate(newContent)
             repository.updateMemo(memo, newContent)
             return true
         }
@@ -31,7 +31,7 @@ class ToggleMemoCheckboxUseCase
         ): String {
             if (lineIndex < 0) return content
 
-            val lines = content.split('\n').toMutableList()
+            val lines = splitByNewlinePreservingTrailing(content)
             if (lineIndex >= lines.size) return content
 
             val originalLine = lines[lineIndex]
@@ -42,6 +42,25 @@ class ToggleMemoCheckboxUseCase
             val updatedLine = match.groupValues[1] + (if (checked) "x" else " ") + match.groupValues[3]
             lines[lineIndex] = updatedLine
             return lines.joinToString(separator = "\n")
+        }
+
+        private fun splitByNewlinePreservingTrailing(content: String): MutableList<String> {
+            val lines = mutableListOf<String>()
+            var startIndex = 0
+            while (startIndex <= content.length) {
+                val lineBreakIndex = content.indexOf('\n', startIndex)
+                if (lineBreakIndex < 0) {
+                    lines += content.substring(startIndex)
+                    break
+                }
+                lines += content.substring(startIndex, lineBreakIndex)
+                startIndex = lineBreakIndex + 1
+                if (startIndex == content.length) {
+                    lines += ""
+                    break
+                }
+            }
+            return lines
         }
 
         companion object {

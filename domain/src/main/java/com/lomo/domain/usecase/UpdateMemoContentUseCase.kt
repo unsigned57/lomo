@@ -15,7 +15,7 @@ class UpdateMemoContentUseCase
             memo: Memo,
             newContent: String,
         ) {
-            validator.validateForUpdate(newContent)
+            validator.requireValidForUpdate(newContent)
             repository.updateMemo(memo, newContent)
         }
     }
