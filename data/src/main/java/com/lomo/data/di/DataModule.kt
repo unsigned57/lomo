@@ -3,6 +3,7 @@ package com.lomo.data.di
 import android.content.Context
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.lomo.data.local.ALL_DATABASE_MIGRATIONS
 import com.lomo.data.local.DatabaseTransitionStrategy
 import com.lomo.data.local.MEMO_DATABASE_VERSION
@@ -155,10 +156,16 @@ object DataModule {
     fun provideMemoRefreshDbApplier(
         dao: MemoDao,
         localFileStateDao: LocalFileStateDao,
+        database: MemoDatabase,
     ): MemoRefreshDbApplier =
         MemoRefreshDbApplier(
             dao = dao,
             localFileStateDao = localFileStateDao,
+            runInTransaction = { block ->
+                database.withTransaction {
+                    block()
+                }
+            },
         )
 
     @Provides

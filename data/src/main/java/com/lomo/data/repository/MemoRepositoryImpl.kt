@@ -25,6 +25,18 @@ class MemoRepositoryImpl
         override suspend fun getRecentMemos(limit: Int): List<Memo> =
             dao.getRecentMemos(limit).map { it.toDomain() }
 
+        override suspend fun getMemosPage(
+            limit: Int,
+            offset: Int,
+        ): List<Memo> =
+            if (limit <= 0 || offset < 0) {
+                emptyList()
+            } else {
+                dao.getMemosPage(limit = limit, offset = offset).map { it.toDomain() }
+            }
+
+        override suspend fun getMemoCount(): Int = dao.getMemoCountSync()
+
         override suspend fun refreshMemos() {
             synchronizer.refresh()
         }

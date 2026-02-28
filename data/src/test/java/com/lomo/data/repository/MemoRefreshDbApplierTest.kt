@@ -7,6 +7,7 @@ import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
+import org.junit.Assert.assertEquals
 import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
@@ -23,7 +24,12 @@ class MemoRefreshDbApplierTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        applier = MemoRefreshDbApplier(dao, localFileStateDao)
+        applier =
+            MemoRefreshDbApplier(
+                dao = dao,
+                localFileStateDao = localFileStateDao,
+                runInTransaction = { block -> block() },
+            )
     }
 
     @Test
@@ -94,6 +100,36 @@ class MemoRefreshDbApplierTest {
                 )
             }
             coVerify(exactly = 1) { dao.insertMemoFts(match { it.memoId == duplicatedMemoId }) }
+        }
+
+    @Test
+    fun `apply executes through configured transaction runner`() =
+        runTest {
+            var transactionCalls = 0
+            val transactionApplier =
+                MemoRefreshDbApplier(
+                    dao = dao,
+                    localFileStateDao = localFileStateDao,
+                    runInTransaction = { block ->
+                        transactionCalls += 1
+                        block()
+                    },
+                )
+            coEvery { dao.getMemosByDate("2024_01_17") } returns emptyList()
+
+            transactionApplier.apply(
+                parseResult =
+                    MemoRefreshParseResult(
+                        mainMemos = emptyList(),
+                        trashMemos = emptyList(),
+                        metadataToUpdate = emptyList(),
+                        mainDatesToReplace = setOf("2024_01_17"),
+                        trashDatesToReplace = emptySet(),
+                    ),
+                filesToDeleteInDb = emptySet(),
+            )
+
+            assertEquals(1, transactionCalls)
         }
 
     private fun memoEntity(

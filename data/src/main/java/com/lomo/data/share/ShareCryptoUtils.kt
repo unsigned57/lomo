@@ -17,6 +17,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 internal object ShareCryptoUtils {
     private const val NONCE_BYTES = 12
     private const val TAG_BITS = 128
+    private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
     private val secureRandom = SecureRandom()
 
     data class EncryptedText(
@@ -68,17 +69,34 @@ internal object ShareCryptoUtils {
         aad: String? = null,
     ): ByteArray? = decryptBytesInternal(keyHex, ciphertext, nonceBase64, aad)
 
+    fun createEncryptCipher(
+        keyHex: String,
+        nonce: ByteArray,
+        aad: String? = null,
+    ): Cipher = createCipher(Cipher.ENCRYPT_MODE, keyHex, nonce, aad)
+
+    fun createDecryptCipher(
+        keyHex: String,
+        nonce: ByteArray,
+        aad: String? = null,
+    ): Cipher = createCipher(Cipher.DECRYPT_MODE, keyHex, nonce, aad)
+
+    fun generateNonce(): ByteArray = ByteArray(NONCE_BYTES).also { secureRandom.nextBytes(it) }
+
+    fun decodeNonceBase64(nonceBase64: String): ByteArray? =
+        try {
+            Base64.Default.decode(nonceBase64).takeIf { it.size == NONCE_BYTES }
+        } catch (_: Exception) {
+            null
+        }
+
     private fun encryptBytesInternal(
         keyHex: String,
         plaintext: ByteArray,
         aad: String?,
     ): EncryptedBytes {
-        val nonce = ByteArray(NONCE_BYTES).also { secureRandom.nextBytes(it) }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, SecretKeySpec(deriveEncryptionKey(keyHex), "AES"), GCMParameterSpec(TAG_BITS, nonce))
-        if (!aad.isNullOrEmpty()) {
-            cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-        }
+        val nonce = generateNonce()
+        val cipher = createEncryptCipher(keyHex, nonce, aad)
         val encrypted = cipher.doFinal(plaintext)
         return EncryptedBytes(
             ciphertext = encrypted,
@@ -93,22 +111,32 @@ internal object ShareCryptoUtils {
         aad: String?,
     ): ByteArray? {
         return try {
-            val nonce = Base64.Default.decode(nonceBase64)
-            if (nonce.size != NONCE_BYTES) return null
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(deriveEncryptionKey(keyHex), "AES"), GCMParameterSpec(TAG_BITS, nonce))
-            if (!aad.isNullOrEmpty()) {
-                cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-            }
+            val nonce = decodeNonceBase64(nonceBase64) ?: return null
+            val cipher = createDecryptCipher(keyHex, nonce, aad)
             cipher.doFinal(ciphertext)
         } catch (_: Exception) {
             null
         }
     }
 
+    private fun createCipher(
+        mode: Int,
+        keyHex: String,
+        nonce: ByteArray,
+        aad: String?,
+    ): Cipher {
+        require(nonce.size == NONCE_BYTES) { "Invalid nonce length" }
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(mode, SecretKeySpec(deriveEncryptionKey(keyHex), "AES"), GCMParameterSpec(TAG_BITS, nonce))
+        if (!aad.isNullOrEmpty()) {
+            cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
+        }
+        return cipher
+    }
+
     private fun deriveEncryptionKey(keyHex: String): ByteArray {
         val baseKey = keyHex.hexToBytes()
-        val input = "lomo-lan-share-enc-v1".toByteArray(Charsets.UTF_8) + baseKey
+        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
         return MessageDigest.getInstance("SHA-256").digest(input)
     }
 

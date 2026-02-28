@@ -11,12 +11,6 @@ import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.File
-import java.security.MessageDigest
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 
 internal class LomoShareTransferHandler(
     private val json: Json,
@@ -375,7 +369,6 @@ internal class LomoShareTransferHandler(
         }
     }
 
-    @OptIn(ExperimentalEncodingApi::class)
     private fun decryptPartToTempFile(
         part: io.ktor.http.content.PartData.FileItem,
         outputFile: File,
@@ -385,24 +378,10 @@ internal class LomoShareTransferHandler(
         maxCipherBytes: Long,
         maxPlainBytes: Long,
     ): StreamedAttachment? {
-        val nonce =
-            try {
-                Base64.Default.decode(nonceBase64)
-            } catch (_: Exception) {
-                return null
-            }
-        if (nonce.size != NONCE_BYTES) return null
+        val nonce = ShareCryptoUtils.decodeNonceBase64(nonceBase64) ?: return null
 
         return try {
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                SecretKeySpec(deriveEncryptionKey(keyHex), "AES"),
-                GCMParameterSpec(TAG_BITS, nonce),
-            )
-            if (aad.isNotEmpty()) {
-                cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-            }
+            val cipher = ShareCryptoUtils.createDecryptCipher(keyHex = keyHex, nonce = nonce, aad = aad)
 
             part.provider().toInputStream().use { input ->
                 outputFile.outputStream().buffered().use { output ->
@@ -448,17 +427,6 @@ internal class LomoShareTransferHandler(
         }
     }
 
-    private fun deriveEncryptionKey(keyHex: String): ByteArray {
-        val baseKey = keyHex.hexToBytes()
-        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
-        return MessageDigest.getInstance("SHA-256").digest(input)
-    }
-
-    private fun String.hexToBytes(): ByteArray {
-        require(length % 2 == 0) { "Invalid hex length" }
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    }
-
     private companion object {
         private const val TAG = "LomoShareServer"
         private const val MAX_TRANSFER_BODY_BYTES = 120L * 1024L * 1024L
@@ -471,8 +439,5 @@ internal class LomoShareTransferHandler(
         private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
         private const val MAX_TOTAL_ATTACHMENT_ENCRYPTED_BYTES =
             MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
-        private const val NONCE_BYTES = 12
-        private const val TAG_BITS = 128
-        private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
     }
 }

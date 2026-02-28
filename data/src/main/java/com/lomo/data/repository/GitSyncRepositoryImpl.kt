@@ -6,10 +6,11 @@ import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.MemoVersion
+import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.repository.GitSyncRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -69,6 +71,7 @@ class GitSyncRepositoryImpl
 
         override fun getAutoSyncInterval(): Flow<String> = dataStore.gitAutoSyncInterval
 
+        @Deprecated("Implements legacy sentinel-based API for compatibility.")
         override fun getLastSyncTime(): Flow<Long> = dataStore.gitLastSyncTime
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
@@ -121,24 +124,28 @@ class GitSyncRepositoryImpl
 
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
-                return gitSyncEngine.initOrClone(directRootDir, remoteUrl)
+                return runGitIo {
+                    gitSyncEngine.initOrClone(directRootDir, remoteUrl)
+                }
             }
 
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
-                return runCatching {
-                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                    safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                return runGitIo {
+                    runCatching {
+                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
 
-                    val result = gitSyncEngine.initOrClone(mirrorDir, remoteUrl)
-                    if (result is GitSyncResult.Success) {
-                        safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                        val result = gitSyncEngine.initOrClone(mirrorDir, remoteUrl)
+                        if (result is GitSyncResult.Success) {
+                            safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                        }
+                        result
+                    }.getOrElse { e ->
+                        val message = e.message ?: "Failed to initialize SAF mirror for git sync"
+                        gitSyncEngine.markError(message)
+                        GitSyncResult.Error(message, e)
                     }
-                    result
-                }.getOrElse { e ->
-                    val message = e.message ?: "Failed to initialize SAF mirror for git sync"
-                    gitSyncEngine.markError(message)
-                    GitSyncResult.Error(message, e)
                 }
             }
 
@@ -160,7 +167,9 @@ class GitSyncRepositoryImpl
                 val gitDir = File(directRootDir, ".git")
                 if (!gitDir.exists()) return GitSyncResult.Success("Not initialized yet")
 
-                return gitSyncEngine.commitLocal(directRootDir)
+                return runGitIo {
+                    gitSyncEngine.commitLocal(directRootDir)
+                }
             } finally {
                 isSyncInProgress.set(false)
             }
@@ -206,9 +215,13 @@ class GitSyncRepositoryImpl
                     directRootDir
                 } else {
                     try {
-                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri!!)
-                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                        mirrorDir
+                        runGitIo {
+                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri!!)
+                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                            mirrorDir
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         val message = e.message ?: "Failed to prepare SAF mirror for git sync"
                         gitSyncEngine.markError(message)
@@ -219,15 +232,25 @@ class GitSyncRepositoryImpl
             // Initialize if needed
             val gitDir = File(rootDir, ".git")
             if (!gitDir.exists()) {
-                val initResult = gitSyncEngine.initOrClone(rootDir, remoteUrl)
+                val initResult =
+                    runGitIo {
+                        gitSyncEngine.initOrClone(rootDir, remoteUrl)
+                    }
                 if (initResult is GitSyncResult.Error) return initResult
             }
 
-            val result = gitSyncEngine.sync(rootDir, remoteUrl)
+            val result =
+                runGitIo {
+                    gitSyncEngine.sync(rootDir, remoteUrl)
+                }
 
             if (result is GitSyncResult.Success && !safRootUri.isNullOrBlank()) {
                 try {
-                    safGitMirrorBridge.pushToSaf(safRootUri, rootDir)
+                    runGitIo {
+                        safGitMirrorBridge.pushToSaf(safRootUri, rootDir)
+                    }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     val message = e.message ?: "Failed to write synced files back to SAF storage"
                     gitSyncEngine.markError(message)
@@ -239,8 +262,17 @@ class GitSyncRepositoryImpl
             if (result is GitSyncResult.Success) {
                 try {
                     memoSynchronizer.refresh()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    Timber.w(e, "Memo refresh after git sync failed")
+                    val causeMessage =
+                        e.message
+                            ?.takeIf { it.isNotBlank() }
+                            ?: "unknown memo refresh error"
+                    val message = "Git sync completed but memo refresh failed: $causeMessage"
+                    gitSyncEngine.markError(message)
+                    Timber.w(e, message)
+                    return GitSyncResult.Error(message, e)
                 }
             }
 
@@ -260,11 +292,13 @@ class GitSyncRepositoryImpl
                                 lastSyncTime = null,
                             )
                         }
-                        runCatching {
-                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                            mirrorDir
-                        }.getOrElse {
+                        try {
+                            runGitIo {
+                                val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                                safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                                mirrorDir
+                            }
+                        } catch (_: Exception) {
                             return GitSyncStatus(
                                 hasLocalChanges = false,
                                 aheadCount = 0,
@@ -274,7 +308,10 @@ class GitSyncRepositoryImpl
                         }
                     }
 
-            val status = gitSyncEngine.getStatus(rootDir)
+            val status =
+                runGitIo {
+                    gitSyncEngine.getStatus(rootDir)
+                }
             val lastSync = dataStore.gitLastSyncTime.first()
             return status.copy(lastSyncTime = if (lastSync > 0) lastSync else null)
         }
@@ -289,7 +326,7 @@ class GitSyncRepositoryImpl
             if (credentialStore.getToken().isNullOrBlank()) {
                 return GitSyncResult.Error(MSG_PAT_REQUIRED)
             }
-            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            return runGitIo {
                 gitSyncEngine.testConnection(remoteUrl)
             }
         }
@@ -297,13 +334,17 @@ class GitSyncRepositoryImpl
         override suspend fun resetRepository(): GitSyncResult {
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
-                return gitSyncEngine.resetRepository(directRootDir)
+                return runGitIo {
+                    gitSyncEngine.resetRepository(directRootDir)
+                }
             }
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
                 return try {
-                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                    gitSyncEngine.resetRepository(mirrorDir)
+                    runGitIo {
+                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                        gitSyncEngine.resetRepository(mirrorDir)
+                    }
                 } catch (e: Exception) {
                     GitSyncResult.Error("Reset failed: ${e.message}", e)
                 }
@@ -322,19 +363,23 @@ class GitSyncRepositoryImpl
 
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
-                return gitSyncEngine.resetLocalBranchToRemote(directRootDir, remoteUrl)
+                return runGitIo {
+                    gitSyncEngine.resetLocalBranchToRemote(directRootDir, remoteUrl)
+                }
             }
 
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
                 return try {
-                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                    safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                    val result = gitSyncEngine.resetLocalBranchToRemote(mirrorDir, remoteUrl)
-                    if (result is GitSyncResult.Success) {
-                        safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                    runGitIo {
+                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                        val result = gitSyncEngine.resetLocalBranchToRemote(mirrorDir, remoteUrl)
+                        if (result is GitSyncResult.Success) {
+                            safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                        }
+                        result
                     }
-                    result
                 } catch (e: Exception) {
                     GitSyncResult.Error("Reset to remote failed: ${e.message}", e)
                 }
@@ -354,19 +399,23 @@ class GitSyncRepositoryImpl
 
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
-                return gitSyncEngine.forcePushLocalToRemote(directRootDir, remoteUrl)
+                return runGitIo {
+                    gitSyncEngine.forcePushLocalToRemote(directRootDir, remoteUrl)
+                }
             }
 
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
                 return try {
-                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                    safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                    val result = gitSyncEngine.forcePushLocalToRemote(mirrorDir, remoteUrl)
-                    if (result is GitSyncResult.Success) {
-                        safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                    runGitIo {
+                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                        val result = gitSyncEngine.forcePushLocalToRemote(mirrorDir, remoteUrl)
+                        if (result is GitSyncResult.Success) {
+                            safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                        }
+                        result
                     }
-                    result
                 } catch (e: Exception) {
                     GitSyncResult.Error("Force push failed: ${e.message}", e)
                 }
@@ -382,18 +431,23 @@ class GitSyncRepositoryImpl
             val rootDir =
                 resolveRootDir() ?: run {
                     val safRootUri = resolveSafRootUri() ?: return emptyList()
-                    runCatching {
-                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                        mirrorDir
-                    }.getOrElse { e ->
+                    try {
+                        runGitIo {
+                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                            mirrorDir
+                        }
+                    } catch (e: Exception) {
                         Timber.w(e, "Failed to resolve SAF mirror for version history")
                         return emptyList()
                     }
                 }
             val filename = "$dateKey.md"
 
-            val history = gitSyncEngine.getFileHistory(rootDir, filename)
+            val history =
+                runGitIo {
+                    gitSyncEngine.getFileHistory(rootDir, filename)
+                }
             if (history.isEmpty()) return emptyList()
 
             val versions = mutableListOf<MemoVersion>()
@@ -452,4 +506,9 @@ class GitSyncRepositoryImpl
             val rootUri = dataStore.rootUri.first()
             return rootUri?.takeIf { it.isNotBlank() }
         }
+
+        private suspend fun <T> runGitIo(block: suspend () -> T): T =
+            withContext(Dispatchers.IO) {
+                block()
+            }
     }

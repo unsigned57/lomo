@@ -46,7 +46,8 @@ interface MemoDao {
         offset: Int,
     ): List<MemoEntity>
 
-    // 保留原 LIKE 作为兜底或英文/符号搜索
+    // Contains-LIKE fallback for cases where FTS token matching is not suitable.
+    // Note: '%query%' patterns are not B-tree index friendly by design.
     @Query(
         """
         SELECT * FROM Lomo 
@@ -241,9 +242,17 @@ interface MemoDao {
     fun getMemoCountByDateFlow(): Flow<List<DateCountRow>>
 
     @Query(
-        "SELECT COUNT(*) FROM Lomo WHERE imageUrls LIKE '%' || :imagePath || '%' AND id != :excludeId",
+        """
+        SELECT
+            (SELECT COUNT(*) FROM Lomo
+             WHERE imageUrls LIKE '%' || :imagePath || '%'
+               AND id != :excludeId) +
+            (SELECT COUNT(*) FROM LomoTrash
+             WHERE imageUrls LIKE '%' || :imagePath || '%'
+               AND id != :excludeId)
+        """,
     )
-    suspend fun countMemosWithImage(
+    suspend fun countMemosAndTrashWithImage(
         imagePath: String,
         excludeId: String,
     ): Int

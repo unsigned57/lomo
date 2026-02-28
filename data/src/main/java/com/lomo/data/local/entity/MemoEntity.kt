@@ -12,7 +12,6 @@ import com.lomo.domain.model.Memo
         [
             Index(value = ["timestamp"]),
             Index(value = ["date"]),
-            Index(value = ["content"]),
         ],
 )
 data class MemoEntity(

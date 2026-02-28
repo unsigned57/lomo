@@ -67,17 +67,10 @@ class MemoMutationHandler
         }
 
         suspend fun flushSavedMemoToFile(savePlan: MemoSavePlan) {
-            val cachedUriString = getMainSafUri(savePlan.filename)
-            val cachedUri = cachedUriString.toPersistedUriOrNull()
-            val savedUriString =
-                fileDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = savePlan.filename,
-                    content = "\n${savePlan.rawContent}",
-                    append = true,
-                    uri = cachedUri,
-                )
-            upsertMainState(savePlan.filename, System.currentTimeMillis(), savedUriString)
+            appendMainMemoContentAndUpdateState(
+                filename = savePlan.filename,
+                rawContent = savePlan.rawContent,
+            )
         }
 
         suspend fun updateMemo(
@@ -331,18 +324,33 @@ class MemoMutationHandler
         private suspend fun flushCreateFromOutbox(item: MemoFileOutboxEntity): Boolean {
             val createRawContent = item.createRawContent ?: return false
             val filename = item.memoDate + ".md"
-            val cachedUriString = getMainSafUri(filename)
-            val cachedUri = cachedUriString.toPersistedUriOrNull()
-            val savedUriString =
-                fileDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = filename,
-                    content = "\n$createRawContent",
-                    append = true,
-                    uri = cachedUri,
-                )
-            upsertMainState(filename, System.currentTimeMillis(), savedUriString)
+            appendMainMemoContentAndUpdateState(
+                filename = filename,
+                rawContent = createRawContent,
+            )
             return true
+        }
+
+        private suspend fun appendMainMemoContentAndUpdateState(
+            filename: String,
+            rawContent: String,
+        ) {
+            val savedUriString = appendMainMemoContent(filename, rawContent)
+            upsertMainState(filename, resolveMainFileLastModified(filename), savedUriString)
+        }
+
+        private suspend fun appendMainMemoContent(
+            filename: String,
+            rawContent: String,
+        ): String? {
+            val cachedUri = getMainSafUri(filename).toPersistedUriOrNull()
+            return fileDataSource.saveFileIn(
+                directory = MemoDirectoryType.MAIN,
+                filename = filename,
+                content = "\n$rawContent",
+                append = true,
+                uri = cachedUri,
+            )
         }
 
         private suspend fun buildUpdatedMemo(
@@ -350,15 +358,12 @@ class MemoMutationHandler
             newContent: String,
         ): Memo {
             val timeString = formatMemoTime(memo.timestamp)
-            val updatedMemo =
-                memo.copy(
-                    content = newContent,
-                    rawContent = newContent,
-                    timestamp = memo.timestamp,
-                    tags = textProcessor.extractTags(newContent),
-                    imageUrls = textProcessor.extractImages(newContent),
-                )
-            return updatedMemo.copy(rawContent = "- $timeString $newContent")
+            return memo.copy(
+                content = newContent,
+                rawContent = "- $timeString $newContent",
+                tags = textProcessor.extractTags(newContent),
+                imageUrls = textProcessor.extractImages(newContent),
+            )
         }
 
         private suspend fun formatMemoTime(timestamp: Long): String {
@@ -370,6 +375,12 @@ class MemoMutationHandler
         }
 
         private suspend fun getMainSafUri(filename: String): String? = localFileStateDao.getByFilename(filename, false)?.safUri
+
+        private suspend fun resolveMainFileLastModified(filename: String): Long =
+            fileDataSource
+                .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+                ?.lastModified
+                ?: System.currentTimeMillis()
 
         private fun String?.toPersistedUriOrNull(): Uri? {
             val value = this ?: return null

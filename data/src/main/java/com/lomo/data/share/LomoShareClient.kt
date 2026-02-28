@@ -26,11 +26,6 @@ import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.File
-import java.security.MessageDigest
-import java.security.SecureRandom
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -48,10 +43,6 @@ class LomoShareClient(
         private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
         private const val GCM_TAG_BYTES = 16L
         private const val MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES = MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
-        private const val NONCE_BYTES = 12
-        private const val TAG_BITS = 128
-        private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
-        private val secureRandom = SecureRandom()
     }
 
     private val json =
@@ -516,16 +507,8 @@ class LomoShareClient(
                 context.contentResolver.openInputStream(uri)
                     ?: return null
             input.use { source ->
-                val nonce = ByteArray(NONCE_BYTES).also { secureRandom.nextBytes(it) }
-                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-                cipher.init(
-                    Cipher.ENCRYPT_MODE,
-                    SecretKeySpec(deriveEncryptionKey(keyHex), "AES"),
-                    GCMParameterSpec(TAG_BITS, nonce),
-                )
-                if (aad.isNotEmpty()) {
-                    cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-                }
+                val nonce = ShareCryptoUtils.generateNonce()
+                val cipher = ShareCryptoUtils.createEncryptCipher(keyHex = keyHex, nonce = nonce, aad = aad)
 
                 val encryptedFile = File.createTempFile("share_payload_", ".bin", context.cacheDir)
                 payloadFile = encryptedFile
@@ -560,17 +543,6 @@ class LomoShareClient(
             Timber.tag(TAG).e(e, "Failed to encrypt URI: $uri")
             null
         }
-    }
-
-    private fun deriveEncryptionKey(keyHex: String): ByteArray {
-        val baseKey = keyHex.hexToBytes()
-        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
-        return MessageDigest.getInstance("SHA-256").digest(input)
-    }
-
-    private fun String.hexToBytes(): ByteArray {
-        require(length % 2 == 0) { "Invalid hex length" }
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 
     private fun guessContentType(filename: String): String =

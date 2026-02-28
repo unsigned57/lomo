@@ -3,11 +3,13 @@ package com.lomo.data.repository
 import com.lomo.data.source.FileDataSource
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -47,5 +49,27 @@ class MediaRepositoryImplTest {
             repository.syncImageCache()
 
             assertEquals(emptyMap<String, String>(), repository.getImageUriMap().first())
+        }
+
+    @Test
+    fun `createDefaultImageDirectory returns null when directory creation fails`() =
+        runTest {
+            coEvery { dataSource.createDirectory("images") } throws IllegalStateException("boom")
+
+            val result = repository.createDefaultImageDirectory()
+
+            assertNull(result)
+            coVerify(exactly = 0) { dataSource.setImageRoot(any()) }
+        }
+
+    @Test
+    fun `createDefaultVoiceDirectory returns null when directory creation fails`() =
+        runTest {
+            coEvery { dataSource.createDirectory("voice") } throws IllegalArgumentException("boom")
+
+            val result = repository.createDefaultVoiceDirectory()
+
+            assertNull(result)
+            coVerify(exactly = 0) { dataSource.setVoiceRoot(any()) }
         }
 }

@@ -90,12 +90,20 @@ val MIGRATION_21_22: Migration =
         }
     }
 
+val MIGRATION_22_23: Migration =
+    object : Migration(22, 23) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
+        }
+    }
+
 val ALL_DATABASE_MIGRATIONS =
     arrayOf(
         MIGRATION_18_19,
         MIGRATION_19_20,
         MIGRATION_20_21,
         MIGRATION_21_22,
+        MIGRATION_22_23,
     )
 
 private fun normalizeMemoTable(

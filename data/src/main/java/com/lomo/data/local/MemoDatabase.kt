@@ -11,7 +11,7 @@ import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 
-const val MEMO_DATABASE_VERSION = 22
+const val MEMO_DATABASE_VERSION = 23
 
 @Database(
     entities =
@@ -24,7 +24,7 @@ const val MEMO_DATABASE_VERSION = 22
             MemoFileOutboxEntity::class,
         ],
     version = MEMO_DATABASE_VERSION,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class MemoDatabase : RoomDatabase() {
     abstract fun memoDao(): MemoDao

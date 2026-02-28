@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.kotlinSerialization)
 }
 
+val roomSchemaDir = layout.projectDirectory.dir("schemas")
+
 android {
     namespace = "com.lomo.data"
     compileSdk = 36
@@ -15,13 +17,17 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    sourceSets {
+        getByName("androidTest").assets.directories.add(roomSchemaDir.asFile.path)
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.toVersion(25)
         targetCompatibility = JavaVersion.toVersion(25)
     }
 
     ksp {
-        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.schemaLocation", roomSchemaDir.asFile.path)
     }
 }
 

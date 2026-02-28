@@ -400,8 +400,9 @@ class ShareServiceManager
                     }
 
                     "audio" -> {
+                        val availableName = resolveAvailableAttachmentFilename(type, safeName)
                         // For audio, create the file via voice storage
-                        val voiceUri = dataSource.createVoiceFile(safeName)
+                        val voiceUri = dataSource.createVoiceFile(availableName)
                         // Write the bytes to that URI
                         val output =
                             context.contentResolver.openOutputStream(voiceUri)
@@ -412,7 +413,7 @@ class ShareServiceManager
                             }
                         }
                         // Keep standard markdown reference format: ![voice](voice_xxx.ext)
-                        safeName
+                        availableName
                     }
 
                     else -> {
@@ -425,6 +426,65 @@ class ShareServiceManager
             }
         }
 
+        internal suspend fun resolveAvailableAttachmentFilename(
+            type: String,
+            preferredName: String,
+        ): String {
+            if (type != "audio") return preferredName
+
+            val (baseName, extension) = splitFilename(preferredName)
+            var candidate = preferredName
+            var suffix = 1
+            while (audioAttachmentExists(candidate)) {
+                candidate =
+                    if (extension.isBlank()) {
+                        "${baseName}_$suffix"
+                    } else {
+                        "${baseName}_$suffix.$extension"
+                    }
+                suffix += 1
+            }
+            return candidate
+        }
+
+        private fun splitFilename(filename: String): Pair<String, String> {
+            val dotIndex = filename.lastIndexOf('.')
+            if (dotIndex <= 0 || dotIndex == filename.lastIndex) {
+                return filename to ""
+            }
+            return filename.substring(0, dotIndex) to filename.substring(dotIndex + 1)
+        }
+
+        private suspend fun audioAttachmentExists(filename: String): Boolean =
+            withContext(Dispatchers.IO) {
+                fileExistsInDirectory(dataStore.voiceDirectory.first(), filename) ||
+                    fileExistsInDirectory(dataStore.rootDirectory.first(), filename) ||
+                    fileExistsInTree(dataStore.voiceUri.first(), filename) ||
+                    fileExistsInTree(dataStore.rootUri.first(), filename)
+            }
+
+        private fun fileExistsInDirectory(
+            directory: String?,
+            filename: String,
+        ): Boolean {
+            if (directory.isNullOrBlank()) return false
+            val file = File(directory, filename)
+            return file.exists() && file.isFile
+        }
+
+        private fun fileExistsInTree(
+            treeUriString: String?,
+            filename: String,
+        ): Boolean {
+            if (treeUriString.isNullOrBlank()) return false
+            return try {
+                val tree = DocumentFile.fromTreeUri(context, Uri.parse(treeUriString)) ?: return false
+                tree.findFile(filename)?.isFile == true
+            } catch (_: Exception) {
+                false
+            }
+        }
+
         /**
          * Save a received memo, adapting to local filename/timestamp formats.
          * If a file for the memo's date already exists, the content is appended.
@@ -434,11 +494,7 @@ class ShareServiceManager
             timestamp: Long,
             attachmentMappings: Map<String, String>,
         ) {
-            // Replace attachment references in content with local paths
-            var adaptedContent = content
-            for ((originalName, newName) in attachmentMappings) {
-                adaptedContent = adaptedContent.replace(originalName, newName)
-            }
+            val adaptedContent = remapAttachmentReferences(content, attachmentMappings)
 
             // Use MemoSynchronizer.saveMemo which handles:
             // 1. Reading local storageFilenameFormat + storageTimestampFormat
@@ -451,6 +507,14 @@ class ShareServiceManager
 
             Timber.tag(TAG).d("Received memo saved successfully")
         }
+
+        private fun remapAttachmentReferences(
+            content: String,
+            attachmentMappings: Map<String, String>,
+        ): String =
+            attachmentMappings.entries.fold(content) { acc, (originalName, newName) ->
+                acc.replace(originalName, newName)
+            }
 
         private suspend fun resolveAttachmentUris(attachmentUris: Map<String, Uri>): Map<String, Uri> {
             if (attachmentUris.isEmpty()) return emptyMap()

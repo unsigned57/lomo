@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 
 internal data class MemoRefreshParseResult(
     val mainMemos: List<MemoEntity>,
@@ -118,10 +119,12 @@ class MemoRefreshParserWorker
 
     private suspend fun parseMainFile(meta: FileMetadataWithId): Pair<List<MemoEntity>, FileMetadataWithId>? {
         val content =
-            fileDataSource.readFileByDocumentIdIn(
-                MemoDirectoryType.MAIN,
-                meta.documentId,
-            )
+            withContext(Dispatchers.IO) {
+                fileDataSource.readFileByDocumentIdIn(
+                    MemoDirectoryType.MAIN,
+                    meta.documentId,
+                )
+            }
         if (content == null) return null
 
         val filename = meta.filename.removeSuffix(".md")
@@ -136,10 +139,12 @@ class MemoRefreshParserWorker
 
     private suspend fun parseTrashFile(meta: FileMetadataWithId): Pair<List<TrashMemoEntity>, FileMetadataWithId>? {
         val content =
-            fileDataSource.readFileByDocumentIdIn(
-                MemoDirectoryType.TRASH,
-                meta.documentId,
-            )
+            withContext(Dispatchers.IO) {
+                fileDataSource.readFileByDocumentIdIn(
+                    MemoDirectoryType.TRASH,
+                    meta.documentId,
+                )
+            }
         if (content == null) return null
 
         val filename = meta.filename.removeSuffix(".md")

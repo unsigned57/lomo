@@ -5,6 +5,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 class ShareCryptoUtilsTest {
     @Test
@@ -89,5 +91,14 @@ class ShareCryptoUtilsTest {
 
         assertNull(tamperedResult)
         assertArrayEquals(byteArrayOf(1, 2, 3, 4, 5), intactResult)
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    @Test
+    fun `decodeNonceBase64 rejects malformed or wrong-length nonce`() {
+        val wrongLength = Base64.Default.encode(byteArrayOf(1, 2, 3))
+
+        assertNull(ShareCryptoUtils.decodeNonceBase64("%%%"))
+        assertNull(ShareCryptoUtils.decodeNonceBase64(wrongLength))
     }
 }

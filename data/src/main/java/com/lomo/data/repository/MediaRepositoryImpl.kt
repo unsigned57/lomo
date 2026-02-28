@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import timber.log.Timber
 import javax.inject.Inject
 
 class MediaRepositoryImpl
@@ -14,6 +15,12 @@ class MediaRepositoryImpl
     constructor(
         private val dataSource: FileDataSource,
     ) : MediaRepository {
+        companion object {
+            private const val TAG = "MediaRepositoryImpl"
+            private const val IMAGE_DIRECTORY_NAME = "images"
+            private const val VOICE_DIRECTORY_NAME = "voice"
+        }
+
         private val imageUriMap = MutableStateFlow<Map<String, String>>(emptyMap())
 
         override suspend fun saveImage(sourceUri: String): String = dataSource.saveImage(Uri.parse(sourceUri))
@@ -34,13 +41,10 @@ class MediaRepositoryImpl
         }
 
         override suspend fun createDefaultImageDirectory(): String? =
-            try {
-                val uri = dataSource.createDirectory("images")
-                dataSource.setImageRoot(uri)
-                uri
-            } catch (e: Exception) {
-                null
-            }
+            createDefaultDirectory(
+                directoryName = IMAGE_DIRECTORY_NAME,
+                setRoot = dataSource::setImageRoot,
+            )
 
         override suspend fun createVoiceFile(filename: String): String = dataSource.createVoiceFile(filename).toString()
 
@@ -49,11 +53,25 @@ class MediaRepositoryImpl
         }
 
         override suspend fun createDefaultVoiceDirectory(): String? =
+            createDefaultDirectory(
+                directoryName = VOICE_DIRECTORY_NAME,
+                setRoot = dataSource::setVoiceRoot,
+            )
+
+        private suspend fun createDefaultDirectory(
+            directoryName: String,
+            setRoot: suspend (String) -> Unit,
+        ): String? =
             try {
-                val uri = dataSource.createDirectory("voice")
-                dataSource.setVoiceRoot(uri)
+                val uri = dataSource.createDirectory(directoryName)
+                setRoot(uri)
                 uri
             } catch (e: Exception) {
+                Timber.tag(TAG).w(
+                    e,
+                    "Failed to create default media directory: directory=%s",
+                    directoryName,
+                )
                 null
             }
     }

@@ -109,7 +109,8 @@ class LomoDataStore
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.ROOT_URI] ?: prefs[Keys.ROOT_DIRECTORY]
-                }.first()
+                }.catchOnlyIOException("getRootDirectoryOnce", null)
+                .first()
 
         val imageUri: Flow<String?> =
             dataStore.data
@@ -383,6 +384,7 @@ class LomoDataStore
         suspend fun getLastAppVersionOnce(): String? =
             dataStore.data
                 .map { prefs -> prefs[Keys.LAST_APP_VERSION] }
+                .catchOnlyIOException("getLastAppVersionOnce", null)
                 .first()
 
         suspend fun updateLastAppVersion(version: String?) {

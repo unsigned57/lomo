@@ -74,7 +74,7 @@ class MemoSynchronizerTest {
                 parser,
                 MemoRefreshPlanner(),
                 MemoRefreshParserWorker(fileDataSource, memoDao, parser),
-                MemoRefreshDbApplier(memoDao, localFileStateDao),
+                MemoRefreshDbApplier(memoDao, localFileStateDao) { block -> block() },
             )
 
         synchronizer =

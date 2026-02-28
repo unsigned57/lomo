@@ -34,8 +34,8 @@ class SettingsRepositoryImpl
         override fun getVoiceDisplayName(): Flow<String?> = dataSource.getVoiceRootDisplayNameFlow()
 
         override suspend fun setRootDirectory(path: String) {
-            clearMemoCaches()
             dataSource.setRoot(path)
+            clearMemoCaches()
         }
 
         override suspend fun setImageDirectory(path: String) {
@@ -47,8 +47,8 @@ class SettingsRepositoryImpl
         }
 
         override suspend fun updateRootUri(uri: String?) {
-            clearMemoCaches()
             dataStore.updateRootUri(uri)
+            clearMemoCaches()
         }
 
         override suspend fun updateImageUri(uri: String?) {

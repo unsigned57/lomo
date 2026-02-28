@@ -186,7 +186,10 @@ class FileDataSourceImpl
             getRootFlow(type).map { uriOrPath ->
                 when {
                     uriOrPath == null -> null
-                    isContentUri(uriOrPath) -> getDisplayName(Uri.parse(uriOrPath))
+                    isContentUri(uriOrPath) ->
+                        withContext(Dispatchers.IO) {
+                            getDisplayName(Uri.parse(uriOrPath))
+                        }
                     else -> uriOrPath
                 }
             }

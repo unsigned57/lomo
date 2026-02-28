@@ -181,7 +181,7 @@ class MemoTrashMutationHandler
             if (memo.imageUrls.isNotEmpty()) {
                 memo.imageUrls.forEach { path ->
                     if (path.isNotBlank()) {
-                        val count = dao.countMemosWithImage(path, memo.id)
+                        val count = dao.countMemosAndTrashWithImage(path, memo.id)
                         if (count == 0) {
                             if (isVoiceFile(path)) {
                                 fileDataSource.deleteVoiceFile(path)
