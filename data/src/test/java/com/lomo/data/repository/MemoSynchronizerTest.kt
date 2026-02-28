@@ -72,6 +72,9 @@ class MemoSynchronizerTest {
                 memoDao,
                 localFileStateDao,
                 parser,
+                MemoRefreshPlanner(),
+                MemoRefreshParserWorker(fileDataSource, memoDao, parser),
+                MemoRefreshDbApplier(memoDao, localFileStateDao),
             )
 
         synchronizer =

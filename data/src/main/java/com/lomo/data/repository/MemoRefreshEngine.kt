@@ -22,11 +22,10 @@ class MemoRefreshEngine
         private val dao: MemoDao,
         private val localFileStateDao: LocalFileStateDao,
         private val parser: MarkdownParser,
+        private val refreshPlanner: MemoRefreshPlanner,
+        private val refreshParserWorker: MemoRefreshParserWorker,
+        private val refreshDbApplier: MemoRefreshDbApplier,
     ) {
-        private val refreshPlanner = MemoRefreshPlanner()
-        private val refreshParserWorker = MemoRefreshParserWorker(fileDataSource, dao, parser)
-        private val refreshDbApplier = MemoRefreshDbApplier(dao, localFileStateDao)
-
         suspend fun refresh(targetFilename: String? = null) =
             withContext(Dispatchers.IO) {
                 try {

@@ -2,7 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.source.FileDataSource
+import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DirectorySettingsRepository
@@ -17,7 +17,7 @@ class SettingsRepositoryImpl
     @Inject
     constructor(
         private val dao: MemoDao,
-        private val dataSource: FileDataSource,
+        private val dataSource: WorkspaceConfigSource,
         private val dataStore: LomoDataStore,
     ) : DirectorySettingsRepository,
         PreferencesRepository {

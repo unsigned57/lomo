@@ -81,6 +81,24 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideWorkspaceConfigSource(
+        dataSource: com.lomo.data.source.FileDataSource,
+    ): com.lomo.data.source.WorkspaceConfigSource = dataSource
+
+    @Provides
+    @Singleton
+    fun provideMarkdownStorageDataSource(
+        dataSource: com.lomo.data.source.FileDataSource,
+    ): com.lomo.data.source.MarkdownStorageDataSource = dataSource
+
+    @Provides
+    @Singleton
+    fun provideMediaStorageDataSource(
+        dataSource: com.lomo.data.source.FileDataSource,
+    ): com.lomo.data.source.MediaStorageDataSource = dataSource
+
+    @Provides
+    @Singleton
     fun provideMemoRepositoryImpl(
         dao: MemoDao,
         synchronizer: com.lomo.data.repository.MemoSynchronizer,
@@ -94,7 +112,7 @@ object DataModule {
     @Singleton
     fun provideSettingsRepositoryImpl(
         dao: MemoDao,
-        dataSource: com.lomo.data.source.FileDataSource,
+        dataSource: com.lomo.data.source.WorkspaceConfigSource,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
     ): SettingsRepositoryImpl =
         SettingsRepositoryImpl(

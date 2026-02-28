@@ -34,11 +34,16 @@ class SafStorageBackend(
         )
 
     private fun getRoot(): DocumentFile? {
-        val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
-        return if (subDir != null) {
-            root.findFile(subDir) ?: root.createDirectory(subDir)
-        } else {
-            root
+        return try {
+            val root = DocumentFile.fromTreeUri(context, rootUri) ?: return null
+            if (subDir != null) {
+                root.findFile(subDir) ?: root.createDirectory(subDir)
+            } else {
+                root
+            }
+        } catch (e: SecurityException) {
+            timber.log.Timber.w(e, "Lost SAF permission for root uri: %s", rootUri)
+            null
         }
     }
 
@@ -50,21 +55,42 @@ class SafStorageBackend(
     // Cache trash dir to avoid repeated findFile calls
     private var cachedTrashDir: DocumentFile? = null
 
-    private fun getTrashDir(): DocumentFile? {
-        if (cachedTrashDir != null && cachedTrashDir!!.exists()) {
-            return cachedTrashDir
+    private fun DocumentFile.isUsableSafDocument(): Boolean =
+        try {
+            exists() && canRead()
+        } catch (_: SecurityException) {
+            false
         }
-        cachedTrashDir = getRoot()?.findFile(".trash")
-        return cachedTrashDir
+
+    private fun getTrashDir(): DocumentFile? {
+        cachedTrashDir?.let { cached ->
+            if (cached.isUsableSafDocument()) {
+                return cached
+            }
+            cachedTrashDir = null
+        }
+
+        val resolved =
+            getRoot()
+                ?.findFile(".trash")
+                ?.takeIf { it.isUsableSafDocument() }
+        cachedTrashDir = resolved
+        return resolved
     }
 
     private fun getOrCreateTrashDir(): DocumentFile? {
-        if (cachedTrashDir != null && cachedTrashDir!!.exists()) {
-            return cachedTrashDir
+        cachedTrashDir?.let { cached ->
+            if (cached.isUsableSafDocument()) {
+                return cached
+            }
+            cachedTrashDir = null
         }
         val root = getRoot() ?: return null
-        cachedTrashDir = root.findFile(".trash") ?: root.createDirectory(".trash")
-        return cachedTrashDir
+        val resolved =
+            (root.findFile(".trash") ?: root.createDirectory(".trash"))
+                ?.takeIf { it.isUsableSafDocument() }
+        cachedTrashDir = resolved
+        return resolved
     }
 
     private fun readFileFromUri(uri: Uri): String? =

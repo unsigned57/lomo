@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import javax.inject.Inject
 
 internal data class MemoRefreshParseResult(
     val mainMemos: List<MemoEntity>,
@@ -21,12 +22,14 @@ internal data class MemoRefreshParseResult(
     val trashDatesToReplace: Set<String>,
 )
 
-internal class MemoRefreshParserWorker(
-    private val fileDataSource: FileDataSource,
-    private val dao: MemoDao,
-    private val parser: MarkdownParser,
-) {
-    suspend fun parse(
+class MemoRefreshParserWorker
+    @Inject
+    constructor(
+        private val fileDataSource: FileDataSource,
+        private val dao: MemoDao,
+        private val parser: MarkdownParser,
+    ) {
+    internal suspend fun parse(
         mainFilesToUpdate: List<FileMetadataWithId>,
         trashFilesToUpdate: List<FileMetadataWithId>,
     ): MemoRefreshParseResult {

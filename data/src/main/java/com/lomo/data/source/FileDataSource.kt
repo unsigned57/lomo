@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-interface FileDataSource {
+interface WorkspaceConfigSource {
     /**
      * Unified root configuration API.
      * Wrappers (`setRoot`, `setImageRoot`, `setVoiceRoot`) are kept for compatibility.
@@ -44,8 +44,10 @@ interface FileDataSource {
 
     fun getVoiceRootDisplayNameFlow(): Flow<String?> = getRootDisplayNameFlow(StorageRootType.VOICE)
 
-    // Context-aware API
+    suspend fun createDirectory(name: String): String
+}
 
+interface MarkdownStorageDataSource {
     suspend fun listFilesIn(
         directory: MemoDirectoryType,
         targetFilename: String? = null,
@@ -102,7 +104,9 @@ interface FileDataSource {
         directory: MemoDirectoryType,
         filename: String,
     ): Boolean
+}
 
+interface MediaStorageDataSource {
     suspend fun saveImage(uri: Uri): String
 
     suspend fun listImageFiles(): List<Pair<String, String>>
@@ -112,9 +116,12 @@ interface FileDataSource {
     suspend fun createVoiceFile(filename: String): Uri
 
     suspend fun deleteVoiceFile(filename: String)
-
-    suspend fun createDirectory(name: String): String
 }
+
+interface FileDataSource :
+    WorkspaceConfigSource,
+    MarkdownStorageDataSource,
+    MediaStorageDataSource
 
 data class FileContent(
     val filename: String,

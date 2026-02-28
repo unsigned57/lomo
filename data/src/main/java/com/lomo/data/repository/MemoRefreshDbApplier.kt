@@ -4,12 +4,15 @@ import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.util.SearchTokenizer
+import javax.inject.Inject
 
-internal class MemoRefreshDbApplier(
-    private val dao: MemoDao,
-    private val localFileStateDao: LocalFileStateDao,
-) {
-    suspend fun apply(
+class MemoRefreshDbApplier
+    @Inject
+    constructor(
+        private val dao: MemoDao,
+        private val localFileStateDao: LocalFileStateDao,
+    ) {
+    internal suspend fun apply(
         parseResult: MemoRefreshParseResult,
         filesToDeleteInDb: Set<Pair<String, Boolean>>,
     ) {
