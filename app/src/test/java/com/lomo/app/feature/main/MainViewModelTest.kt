@@ -5,7 +5,6 @@ import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
-import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
@@ -35,8 +34,9 @@ class MainViewModelTest {
     private lateinit var repository: com.lomo.domain.repository.MemoRepository
     private lateinit var directorySettings: com.lomo.domain.repository.DirectorySettingsRepository
     private lateinit var preferencesRepository: com.lomo.domain.repository.PreferencesRepository
+    private lateinit var gitSyncRepo: com.lomo.domain.repository.GitSyncRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
-    private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
+    private lateinit var appVersionRepository: com.lomo.domain.repository.AppVersionRepository
     private lateinit var appWidgetRepository: AppWidgetRepository
     private lateinit var memoFlowProcessor: MemoFlowProcessor
     private lateinit var imageMapProvider: ImageMapProvider
@@ -50,8 +50,9 @@ class MainViewModelTest {
         repository = mockk(relaxed = true)
         directorySettings = mockk(relaxed = true)
         preferencesRepository = mockk(relaxed = true)
+        gitSyncRepo = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
-        dataStore = mockk(relaxed = true)
+        appVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
         memoFlowProcessor = MemoFlowProcessor(MemoUiMapper())
         imageMapProvider = mockk(relaxed = true)
@@ -64,8 +65,11 @@ class MainViewModelTest {
         every { repository.getMemosByTagList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMemoCountFlow() } returns flowOf(0)
         every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
+        every { repository.getMemoCountByDateFlow() } returns flowOf(emptyMap())
         every { repository.getTagCountsFlow() } returns flowOf(emptyList<com.lomo.domain.model.MemoTagCount>())
         every { repository.getActiveDayCount() } returns flowOf(0)
+        every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
+        every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
         every { directorySettings.getRootDirectory() } returns flowOf<String?>(null)
         coEvery { directorySettings.getRootDirectoryOnce() } returns null
         every { directorySettings.getImageDirectory() } returns flowOf<String?>(null)
@@ -82,8 +86,8 @@ class MainViewModelTest {
         every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
         every { preferencesRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
 
-        coEvery { dataStore.getLastAppVersionOnce() } returns ""
-        coEvery { dataStore.updateLastAppVersion(any()) } returns Unit
+        coEvery { appVersionRepository.getLastAppVersionOnce() } returns ""
+        coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
     }
 
     @After
@@ -162,19 +166,19 @@ class MainViewModelTest {
             repository = repository,
             settingsRepository = directorySettings,
             preferencesRepository = preferencesRepository,
+            gitSyncRepo = gitSyncRepo,
             savedStateHandle = savedStateHandle,
             memoFlowProcessor = memoFlowProcessor,
             imageMapProvider = imageMapProvider,
             memoContentValidator = MemoContentValidator(),
             mainMediaCoordinator = MainMediaCoordinator(mediaRepository, MemoImageWorkflow(mediaRepository)),
             appWidgetRepository = appWidgetRepository,
-            textProcessor = MemoTextProcessor(),
             startupCoordinator =
                 MainStartupCoordinator(
                     repository = repository,
                     mediaRepository = mediaRepository,
                     settingsRepository = directorySettings,
-                    dataStore = dataStore,
+                    appVersionRepository = appVersionRepository,
                     audioPlayerManager = audioPlayerManager,
                 ),
         )

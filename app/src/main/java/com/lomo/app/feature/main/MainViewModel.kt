@@ -9,7 +9,6 @@ import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
-import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.MemoVersion
@@ -42,6 +41,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import timber.log.Timber
 import javax.inject.Inject
@@ -60,7 +60,6 @@ class MainViewModel
         private val memoContentValidator: MemoContentValidator,
         private val mainMediaCoordinator: MainMediaCoordinator,
         private val appWidgetRepository: AppWidgetRepository,
-        private val textProcessor: MemoTextProcessor,
         private val startupCoordinator: MainStartupCoordinator,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
@@ -107,6 +106,27 @@ class MainViewModel
 
         fun handleSharedImage(uri: android.net.Uri) {
             sharedContentEventsChannel.trySend(SharedContent.Image(uri))
+        }
+
+        sealed interface AppAction {
+            data object CreateMemo : AppAction
+
+            data class OpenMemo(
+                val memoId: String,
+            ) : AppAction
+        }
+
+        private val appActionEventsChannel = Channel<AppAction>(capacity = Channel.BUFFERED)
+        val appActionEvents = appActionEventsChannel.receiveAsFlow()
+
+        fun requestCreateMemo() {
+            appActionEventsChannel.trySend(AppAction.CreateMemo)
+        }
+
+        fun requestOpenMemo(memoId: String) {
+            if (memoId.isNotBlank()) {
+                appActionEventsChannel.trySend(AppAction.OpenMemo(memoId))
+            }
         }
 
         private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
@@ -239,8 +259,8 @@ class MainViewModel
             savedStateHandle[KEY_SELECTED_TAG] = null
         }
 
-        fun refresh() {
-            viewModelScope.launch(Dispatchers.IO) {
+        suspend fun refresh() {
+            withContext(Dispatchers.IO) {
                 try {
                     val syncOnRefresh = gitSyncRepo.getSyncOnRefreshEnabled().first()
                     val gitEnabled = gitSyncRepo.isGitSyncEnabled().first()
@@ -258,6 +278,20 @@ class MainViewModel
                     _errorMessage.value = e.message
                 }
             }
+        }
+
+        suspend fun resolveMemoById(memoId: String): Memo? {
+            allMemos.value.firstOrNull { it.id == memoId }?.let { memo ->
+                return memo
+            }
+
+            withContext(Dispatchers.IO) {
+                runCatching { repository.refreshMemos() }
+                    .onFailure { error ->
+                        Timber.w(error, "Failed to refresh memos for id=%s", memoId)
+                    }
+            }
+            return allMemos.value.firstOrNull { it.id == memoId }
         }
 
         fun deleteMemo(memo: Memo) {
@@ -288,7 +322,7 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val newContent = textProcessor.toggleCheckbox(memo.content, lineIndex, checked)
+                    val newContent = toggleCheckboxLine(memo.content, lineIndex, checked)
                     if (newContent != memo.content) {
                         memoContentValidator.validateForUpdate(newContent)
                         repository.updateMemo(memo, newContent)
@@ -453,6 +487,27 @@ class MainViewModel
                 query.isNotBlank() -> repository.searchMemosList(query)
                 else -> allMemos
             }
+
+        private fun toggleCheckboxLine(
+            content: String,
+            lineIndex: Int,
+            checked: Boolean,
+        ): String {
+            if (lineIndex < 0) return content
+
+            val currentMark = if (checked) "- [ ]" else "- [x]"
+            val targetMark = if (checked) "- [x]" else "- [ ]"
+
+            val lines = content.split('\n').toMutableList()
+            if (lineIndex >= lines.size) return content
+
+            val originalLine = lines[lineIndex]
+            val updatedLine = originalLine.replaceFirst(currentMark, targetMark)
+            if (updatedLine == originalLine) return content
+
+            lines[lineIndex] = updatedLine
+            return lines.joinToString(separator = "\n")
+        }
 
         private fun Throwable.userMessage(prefix: String? = null): String =
             when {

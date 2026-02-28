@@ -54,7 +54,6 @@ import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -176,6 +175,25 @@ fun MainScreen(
                     pendingSharedImageUri = content.uri
                     if (imageDir == null) {
                         directorySetupType = DirectorySetupType.Image
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.appActionEvents.collect { action ->
+            when (action) {
+                MainViewModel.AppAction.CreateMemo -> {
+                    editorViewModel.openForCreate()
+                }
+
+                is MainViewModel.AppAction.OpenMemo -> {
+                    val memo = viewModel.resolveMemoById(action.memoId)
+                    if (memo != null) {
+                        editorController.openForEdit(memo)
+                    } else {
+                        snackbarHostState.showSnackbar(context.getString(R.string.error_unknown))
                     }
                 }
             }
@@ -328,10 +346,12 @@ fun MainScreen(
                         onRefresh = {
                             scope.launch {
                                 isRefreshing = true
-                                val job = async { viewModel.refresh() }
-                                delay(REFRESH_DELAY)
-                                job.await()
-                                isRefreshing = false
+                                try {
+                                    viewModel.refresh()
+                                    delay(REFRESH_DELAY)
+                                } finally {
+                                    isRefreshing = false
+                                }
                             }
                         },
                         onDailyReviewClick = {

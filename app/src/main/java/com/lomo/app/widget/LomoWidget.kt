@@ -56,7 +56,6 @@ class LomoWidget : GlanceAppWidget() {
                 WidgetEntryPoint::class.java,
             )
         val memoRepository = entryPoint.memoRepository()
-        val textProcessor = entryPoint.textProcessor()
 
         // Fetch recent memos
         val recentMemos =
@@ -70,7 +69,7 @@ class LomoWidget : GlanceAppWidget() {
 
         provideContent {
             GlanceTheme {
-                WidgetContent(context, recentMemos, textProcessor)
+                WidgetContent(context, recentMemos)
             }
         }
     }
@@ -79,7 +78,6 @@ class LomoWidget : GlanceAppWidget() {
     private fun WidgetContent(
         context: Context,
         memos: List<Memo>,
-        textProcessor: com.lomo.data.util.MemoTextProcessor,
     ) {
         // Main container with rounded corners and white background
         Box(
@@ -165,7 +163,7 @@ class LomoWidget : GlanceAppWidget() {
                     // Memo List
                     Column(modifier = GlanceModifier.fillMaxWidth()) {
                         memos.forEachIndexed { index, memo ->
-                            MemoItem(context, memo, textProcessor, isLast = index == memos.size - 1)
+                            MemoItem(context, memo, isLast = index == memos.size - 1)
                         }
                     }
                 }
@@ -177,10 +175,9 @@ class LomoWidget : GlanceAppWidget() {
     private fun MemoItem(
         context: Context,
         memo: Memo,
-        textProcessor: com.lomo.data.util.MemoTextProcessor,
         isLast: Boolean = false,
     ) {
-        val processedContent = textProcessor.stripMarkdown(memo.content)
+        val processedContent = stripMarkdown(memo.content)
 
         // Card-like container
         Column(
@@ -234,5 +231,18 @@ class LomoWidget : GlanceAppWidget() {
         if (!isLast) {
             Spacer(modifier = GlanceModifier.height(8.dp))
         }
+    }
+
+    private fun stripMarkdown(content: String): String {
+        var str = content
+        str = str.replace(Regex("(?m)^#{1,6}\\s+"), "")
+        str = str.replace(Regex("(\\*\\*|__)"), "")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[ \\]"), "☐")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[x\\]"), "☑")
+        str = str.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "[Image]")
+        str = str.replace(Regex("!\\[\\[(.*?)\\]\\]"), "[Image: $1]")
+        str = str.replace(Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)"), "$1")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s+"), "• ")
+        return str.trim()
     }
 }

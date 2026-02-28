@@ -9,15 +9,19 @@ import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
+import com.lomo.data.repository.SyncSchedulerRepositoryImpl
+import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.SyncSchedulerRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -154,4 +158,12 @@ object DataModule {
     @Provides
     @Singleton
     fun provideLanShareService(impl: com.lomo.data.share.ShareServiceManager): com.lomo.domain.repository.LanShareService = impl
+
+    @Provides
+    @Singleton
+    fun provideAppVersionRepository(impl: AppVersionRepositoryImpl): AppVersionRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSyncSchedulerRepository(impl: SyncSchedulerRepositoryImpl): SyncSchedulerRepository = impl
 }

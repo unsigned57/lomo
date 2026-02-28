@@ -1,7 +1,6 @@
 package com.lomo.data.util
 
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
+import com.lomo.domain.util.PreferenceDefaults
 
 /**
  * Centralized preference key constants to avoid magic strings and ensure consistency across the
@@ -51,29 +50,29 @@ object PreferenceKeys {
 
     // Default values
     object Defaults {
-        const val DATE_FORMAT = "yyyy-MM-dd"
-        const val TIME_FORMAT = "HH:mm:ss"
-        const val HAPTIC_FEEDBACK_ENABLED = true
-        const val CHECK_UPDATES_ON_STARTUP = true
-        const val SHOW_INPUT_HINTS = true
-        const val DOUBLE_TAP_EDIT_ENABLED = true
-        const val LAN_SHARE_E2E_ENABLED = true
-        const val THEME_MODE = "system"
-        const val SHARE_CARD_STYLE = "clean"
-        const val SHARE_CARD_SHOW_TIME = true
-        const val SHARE_CARD_SHOW_BRAND = true
+        const val DATE_FORMAT = PreferenceDefaults.DATE_FORMAT
+        const val TIME_FORMAT = PreferenceDefaults.TIME_FORMAT
+        const val HAPTIC_FEEDBACK_ENABLED = PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED
+        const val CHECK_UPDATES_ON_STARTUP = PreferenceDefaults.CHECK_UPDATES_ON_STARTUP
+        const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
+        const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
+        const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
+        const val THEME_MODE = PreferenceDefaults.THEME_MODE
+        const val SHARE_CARD_STYLE = PreferenceDefaults.SHARE_CARD_STYLE
+        const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
+        const val SHARE_CARD_SHOW_BRAND = PreferenceDefaults.SHARE_CARD_SHOW_BRAND
 
         // Storage Defaults
-        const val STORAGE_FILENAME_FORMAT = StorageFilenameFormats.DEFAULT_PATTERN
-        const val STORAGE_TIMESTAMP_FORMAT = StorageTimestampFormats.DEFAULT_PATTERN
+        const val STORAGE_FILENAME_FORMAT = PreferenceDefaults.STORAGE_FILENAME_FORMAT
+        const val STORAGE_TIMESTAMP_FORMAT = PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT
 
         // Git Sync Defaults
-        const val GIT_SYNC_ENABLED = false
-        const val GIT_AUTO_SYNC_ENABLED = false
-        const val GIT_AUTO_SYNC_INTERVAL = "1h"
-        const val GIT_AUTHOR_NAME = "Lomo"
-        const val GIT_AUTHOR_EMAIL = ""
-        const val GIT_SYNC_ON_REFRESH = false
-        const val GIT_SYNC_ON_FILE_CHANGE = false
+        const val GIT_SYNC_ENABLED = PreferenceDefaults.GIT_SYNC_ENABLED
+        const val GIT_AUTO_SYNC_ENABLED = PreferenceDefaults.GIT_AUTO_SYNC_ENABLED
+        const val GIT_AUTO_SYNC_INTERVAL = PreferenceDefaults.GIT_AUTO_SYNC_INTERVAL
+        const val GIT_AUTHOR_NAME = PreferenceDefaults.GIT_AUTHOR_NAME
+        const val GIT_AUTHOR_EMAIL = PreferenceDefaults.GIT_AUTHOR_EMAIL
+        const val GIT_SYNC_ON_REFRESH = PreferenceDefaults.GIT_SYNC_ON_REFRESH
+        const val GIT_SYNC_ON_FILE_CHANGE = PreferenceDefaults.GIT_SYNC_ON_FILE_CHANGE
     }
 }

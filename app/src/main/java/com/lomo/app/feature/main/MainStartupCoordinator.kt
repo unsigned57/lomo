@@ -1,10 +1,10 @@
 package com.lomo.app.feature.main
 
 import com.lomo.app.BuildConfig
-import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.ui.media.AudioPlayerManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
@@ -17,7 +17,7 @@ class MainStartupCoordinator
         private val repository: MemoRepository,
         private val mediaRepository: MediaRepository,
         private val settingsRepository: DirectorySettingsRepository,
-        private val dataStore: LomoDataStore,
+        private val appVersionRepository: AppVersionRepository,
         private val audioPlayerManager: AudioPlayerManager,
     ) {
         suspend fun initializeRootDirectory(): String? {
@@ -56,7 +56,7 @@ class MainStartupCoordinator
 
         private suspend fun resyncCachesIfAppVersionChanged(rootDir: String?) {
             val currentVersion = "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
-            val lastVersion = dataStore.getLastAppVersionOnce()
+            val lastVersion = appVersionRepository.getLastAppVersionOnce()
             if (lastVersion == currentVersion) return
 
             if (rootDir != null) {
@@ -72,6 +72,6 @@ class MainStartupCoordinator
                 }
             }
 
-            dataStore.updateLastAppVersion(currentVersion)
+            appVersionRepository.updateLastAppVersion(currentVersion)
         }
     }

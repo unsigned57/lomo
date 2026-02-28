@@ -1,10 +1,10 @@
 package com.lomo.app.feature.preferences
 
-import com.lomo.data.util.PreferenceKeys
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.util.PreferenceDefaults
 import com.lomo.ui.util.stateInViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -28,15 +28,15 @@ data class AppPreferencesState(
     companion object {
         fun defaults(): AppPreferencesState =
             AppPreferencesState(
-                dateFormat = PreferenceKeys.Defaults.DATE_FORMAT,
-                timeFormat = PreferenceKeys.Defaults.TIME_FORMAT,
+                dateFormat = PreferenceDefaults.DATE_FORMAT,
+                timeFormat = PreferenceDefaults.TIME_FORMAT,
                 themeMode = ThemeMode.SYSTEM,
-                hapticFeedbackEnabled = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
-                showInputHints = PreferenceKeys.Defaults.SHOW_INPUT_HINTS,
-                doubleTapEditEnabled = PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED,
+                hapticFeedbackEnabled = PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED,
+                showInputHints = PreferenceDefaults.SHOW_INPUT_HINTS,
+                doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 shareCardStyle = ShareCardStyle.CLEAN,
-                shareCardShowTime = PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME,
-                shareCardShowBrand = PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
+                shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
+                shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
             )
     }
 }

@@ -59,9 +59,6 @@ object ShareUtils {
     private const val MAX_SHARE_CONTENT_CHARS = 4000
     private const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
     private const val MAX_SHARE_BODY_LINES = 60
-    private val markdownTextProcessor =
-        com.lomo.data.util
-            .MemoTextProcessor()
 
     private data class ShareCardConfig(
         val style: String,
@@ -724,7 +721,7 @@ object ShareUtils {
                 context.getString(R.string.share_card_placeholder_audio),
             )
 
-        str = markdownTextProcessor.stripMarkdown(str)
+        str = stripMarkdownForShare(str)
         str = str.replace("[Image]", context.getString(R.string.share_card_placeholder_image))
         str =
             str.replace(Regex("\\[Image:\\s*(.*?)]")) { match ->
@@ -749,6 +746,19 @@ object ShareUtils {
                     }
                 }
         str = str.replace(Regex("\\n{3,}"), "\n\n")
+        return str.trim()
+    }
+
+    private fun stripMarkdownForShare(content: String): String {
+        var str = content
+        str = str.replace(Regex("(?m)^#{1,6}\\s+"), "")
+        str = str.replace(Regex("(\\*\\*|__)"), "")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[ \\]"), "☐")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[x\\]"), "☑")
+        str = str.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "[Image]")
+        str = str.replace(Regex("!\\[\\[(.*?)\\]\\]"), "[Image: $1]")
+        str = str.replace(Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)"), "$1")
+        str = str.replace(Regex("(?m)^\\s*[-*+]\\s+"), "• ")
         return str.trim()
     }
 

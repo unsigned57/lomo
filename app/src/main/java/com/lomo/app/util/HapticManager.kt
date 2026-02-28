@@ -5,17 +5,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.util.PreferenceKeys
 
 /**
- * A proxy for [HapticFeedback] that respects the user's settings from [LomoDataStore].
+ * A proxy for [HapticFeedback] that respects the user's haptic setting.
  */
 class HapticManager(
     private val hapticFeedback: HapticFeedback,
@@ -38,12 +34,9 @@ val LocalMemosHapticFeedback: ProvidableCompositionLocal<HapticFeedback> =
 
 @Composable
 fun ProvideHapticFeedback(
-    dataStore: LomoDataStore,
+    hapticEnabled: Boolean,
     content: @Composable (hapticEnabled: Boolean) -> Unit,
 ) {
-    val hapticEnabled by dataStore.hapticFeedbackEnabled.collectAsStateWithLifecycle(
-        initialValue = PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
-    )
     val currentHaptic = LocalHapticFeedback.current
     val hapticManager =
         remember(hapticEnabled, currentHaptic) {

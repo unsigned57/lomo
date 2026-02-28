@@ -17,6 +17,8 @@ import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -34,6 +36,8 @@ class TagFilterViewModel
         private val memoActionDelegate: MemoActionDelegate,
     ) : ViewModel() {
         val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
         private val rootDirectory: StateFlow<String?> =
             directorySettings
@@ -75,7 +79,7 @@ class TagFilterViewModel
                 memoActionDelegate
                     .deleteMemo(memo)
                     .onFailure { error ->
-                        android.util.Log.e("TagFilterViewModel", "Failed to delete memo", error)
+                        _errorMessage.value = error.userMessage("Failed to delete memo")
                     }
             }
         }
@@ -88,7 +92,7 @@ class TagFilterViewModel
                 memoActionDelegate
                     .updateMemo(memo, newContent)
                     .onFailure { error ->
-                        android.util.Log.e("TagFilterViewModel", "Failed to update memo", error)
+                        _errorMessage.value = error.userMessage("Failed to update memo")
                     }
             }
         }
@@ -103,9 +107,20 @@ class TagFilterViewModel
                     .saveImage(uri)
                     .onSuccess(onResult)
                     .onFailure { error ->
-                        android.util.Log.e("TagFilterViewModel", "Failed to save image", error)
+                        _errorMessage.value = error.userMessage("Failed to save image")
                         onError?.invoke()
                     }
             }
         }
+
+        fun clearError() {
+            _errorMessage.value = null
+        }
+
+        private fun Throwable.userMessage(prefix: String): String =
+            if (message.isNullOrBlank()) {
+                prefix
+            } else {
+                "$prefix: ${message.orEmpty()}"
+            }
     }

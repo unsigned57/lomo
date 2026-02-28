@@ -147,6 +147,7 @@
     <string name="cd_menu">菜单</string>
     <string name="cd_settings">设置</string>
     <string name="cd_close">关闭</string>
+    <string name="cd_image_viewer_fullscreen">全屏图片</string>
     <string name="cd_search">搜索</string>
     <string name="cd_clear_filter">清除筛选</string>
     <string name="cd_expand">展开</string>
@@ -224,6 +225,7 @@
     <string name="settings_git_sync_enable_subtitle">将备忘录同步到 GitHub 仓库</string>
     <string name="settings_git_remote_url">仓库地址</string>
     <string name="settings_git_remote_url_hint">https://github.com/user/repo.git</string>
+    <string name="settings_git_remote_url_error_https_required">URL 必须以 https:// 开头</string>
     <string name="settings_git_pat">个人访问令牌</string>
     <string name="settings_git_pat_configured">已配置（点击更新）</string>
     <string name="settings_git_pat_not_set">未配置</string>

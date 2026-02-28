@@ -19,6 +19,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
@@ -40,6 +41,8 @@ class SearchViewModel
     ) : ViewModel() {
         private val _searchQuery = MutableStateFlow("")
         val searchQuery: StateFlow<String> = _searchQuery
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
         val rootDirectory: StateFlow<String?> =
             directorySettings
@@ -91,8 +94,8 @@ class SearchViewModel
             viewModelScope.launch {
                 memoActionDelegate
                     .deleteMemo(memo)
-                    .onFailure {
-                        // Keep Search UI resilient.
+                    .onFailure { error ->
+                        _errorMessage.value = error.userMessage("Failed to delete memo")
                     }
             }
         }
@@ -104,8 +107,8 @@ class SearchViewModel
             viewModelScope.launch {
                 memoActionDelegate
                     .updateMemo(memo, newContent)
-                    .onFailure {
-                        // Keep Search UI resilient.
+                    .onFailure { error ->
+                        _errorMessage.value = error.userMessage("Failed to update memo")
                     }
             }
         }
@@ -119,9 +122,21 @@ class SearchViewModel
                 memoActionDelegate
                     .saveImage(uri)
                     .onSuccess(onResult)
-                    .onFailure {
+                    .onFailure { error ->
+                        _errorMessage.value = error.userMessage("Failed to save image")
                         onError?.invoke()
                     }
             }
         }
+
+        fun clearError() {
+            _errorMessage.value = null
+        }
+
+        private fun Throwable.userMessage(prefix: String): String =
+            if (message.isNullOrBlank()) {
+                prefix
+            } else {
+                "$prefix: ${message.orEmpty()}"
+            }
     }

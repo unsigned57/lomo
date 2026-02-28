@@ -965,7 +965,7 @@ fun SettingsScreen(
                     label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
                     isError = gitRemoteUrlInput.isNotBlank() && !isUrlValid,
                     supportingText = if (gitRemoteUrlInput.isNotBlank() && !isUrlValid) {
-                        { Text("URL must start with https://") }
+                        { Text(stringResource(R.string.settings_git_remote_url_error_https_required)) }
                     } else {
                         null
                     },

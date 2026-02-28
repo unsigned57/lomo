@@ -21,7 +21,6 @@ class ShareViewModel
     @Inject
     constructor(
         private val shareServiceManager: LanShareService,
-        private val textProcessor: com.lomo.data.util.MemoTextProcessor,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         val memoContent: String = savedStateHandle.get<String>("memoContent") ?: ""
@@ -125,11 +124,34 @@ class ShareViewModel
         }
 
         private fun extractAttachmentUris(content: String): Map<String, String> {
-            val attachments = mutableMapOf<String, String>()
-            textProcessor.extractLocalAttachmentPaths(content).forEach { path ->
-                attachments[path] = path
-            }
+            return extractLocalAttachmentPaths(content).associateWith { it }
+        }
 
-            return attachments
+        private fun extractLocalAttachmentPaths(content: String): List<String> {
+            val markdownImages = MARKDOWN_IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
+            val wikiImages =
+                WIKI_IMAGE_PATTERN.findAll(content).mapNotNull { match ->
+                    match.groupValues.getOrNull(1)?.substringBefore('|')
+                }
+            val audioLinks = AUDIO_LINK_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
+
+            return (markdownImages + wikiImages + audioLinks)
+                .map { it.trim() }
+                .filter { path ->
+                    path.isNotEmpty() &&
+                        !path.startsWith("http://", ignoreCase = true) &&
+                        !path.startsWith("https://", ignoreCase = true)
+                }.distinct()
+                .toList()
+        }
+
+        private companion object {
+            private val MARKDOWN_IMAGE_PATTERN = Regex("!\\[.*?\\]\\((.*?)\\)")
+            private val WIKI_IMAGE_PATTERN = Regex("!\\[\\[(.*?)\\]\\]")
+            private val AUDIO_LINK_PATTERN =
+                Regex(
+                    "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
+                    RegexOption.IGNORE_CASE,
+                )
         }
     }

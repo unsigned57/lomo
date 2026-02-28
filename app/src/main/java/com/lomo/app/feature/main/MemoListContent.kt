@@ -27,7 +27,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.lomo.app.R
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import com.lomo.app.feature.memo.MemoCardEntry
@@ -105,8 +107,8 @@ internal fun MemoListContent(
         if (memos.isEmpty()) {
             com.lomo.ui.component.common.EmptyState(
                 icon = Icons.AutoMirrored.Rounded.Notes,
-                title = "No memos yet",
-                description = "Capture your thoughts \nwith the + button below.",
+                title = stringResource(R.string.empty_no_memos_title),
+                description = stringResource(R.string.empty_no_memos_subtitle),
                 modifier = Modifier.fillMaxSize(),
             )
         }

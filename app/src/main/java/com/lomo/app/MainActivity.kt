@@ -21,8 +21,6 @@ import javax.inject.Inject
 class MainActivity : AppCompatActivity() {
     @Inject lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
 
-    @Inject lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
-
     @Inject lateinit var shareServiceManager: LanShareService
 
     private val viewModel: MainViewModel by viewModels()
@@ -42,12 +40,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         enableEdgeToEdge()
-        handleIntent(intent)
+        if (savedInstanceState == null) {
+            handleIntent(intent)
+        }
 
         setContent {
             val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
             LomoTheme(themeMode = appPreferences.themeMode.value) {
-                ProvideHapticFeedback(dataStore) { hapticEnabled ->
+                ProvideHapticFeedback(appPreferences.hapticFeedbackEnabled) { hapticEnabled ->
                     com.lomo.ui.util.ProvideAppHapticFeedback(enabled = hapticEnabled) {
                         androidx.compose.runtime.CompositionLocalProvider(
                             com.lomo.ui.media.LocalAudioPlayerManager provides audioPlayerManager,
@@ -55,7 +55,6 @@ class MainActivity : AppCompatActivity() {
                             LomoAppRoot(
                                 viewModel = viewModel,
                                 shareServiceManager = shareServiceManager,
-                                initialAction = intent?.action,
                             )
                         }
                     }
@@ -71,22 +70,36 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         handleIntent(intent)
     }
 
     private fun handleIntent(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND) {
-            if (intent.type?.startsWith("text/") == true) {
-                intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-                    viewModel.handleSharedText(text)
-                }
-            } else if (intent.type?.startsWith("image/") == true) {
-                androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
-                    viewModel.handleSharedImage(uri)
-                } ?: run {
-                    intent.clipData?.getItemAt(0)?.uri?.let { uri ->
-                        viewModel.handleSharedImage(uri)
+        when (intent?.action) {
+            Intent.ACTION_SEND -> {
+                if (intent.type?.startsWith("text/") == true) {
+                    intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
+                        viewModel.handleSharedText(text)
                     }
+                } else if (intent.type?.startsWith("image/") == true) {
+                    androidx.core.content.IntentCompat.getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)?.let { uri ->
+                        viewModel.handleSharedImage(uri)
+                    } ?: run {
+                        intent.clipData?.getItemAt(0)?.uri?.let { uri ->
+                            viewModel.handleSharedImage(uri)
+                        }
+                    }
+                }
+            }
+
+            ACTION_NEW_MEMO -> {
+                viewModel.requestCreateMemo()
+            }
+
+            ACTION_OPEN_MEMO -> {
+                val memoId = intent.getStringExtra(EXTRA_MEMO_ID)
+                if (!memoId.isNullOrBlank()) {
+                    viewModel.requestOpenMemo(memoId)
                 }
             }
         }

@@ -146,6 +146,7 @@
     <string name="cd_menu">Menu</string>
     <string name="cd_settings">Settings</string>
     <string name="cd_close">Close</string>
+    <string name="cd_image_viewer_fullscreen">Fullscreen image</string>
     <string name="cd_search">Search</string>
     <string name="cd_clear_filter">Clear Filter</string>
     <string name="cd_expand">Expand</string>
@@ -223,6 +224,7 @@
     <string name="settings_git_sync_enable_subtitle">Sync memos to a GitHub repository</string>
     <string name="settings_git_remote_url">Repository URL</string>
     <string name="settings_git_remote_url_hint">https://github.com/user/repo.git</string>
+    <string name="settings_git_remote_url_error_https_required">URL must start with https://</string>
     <string name="settings_git_pat">Personal Access Token</string>
     <string name="settings_git_pat_configured">Configured (tap to update)</string>
     <string name="settings_git_pat_not_set">Not configured</string>

@@ -2,18 +2,18 @@ package com.lomo.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.repository.LanShareService
-import com.lomo.data.util.PreferenceKeys
-import com.lomo.data.worker.GitSyncScheduler
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncState
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
+import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.PreferencesRepository
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.lomo.domain.repository.SyncSchedulerRepository
+import com.lomo.domain.util.PreferenceDefaults
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,7 +30,7 @@ class SettingsViewModel
         private val preferences: PreferencesRepository,
         private val shareServiceManager: LanShareService,
         private val gitSyncRepo: GitSyncRepository,
-        private val gitSyncScheduler: GitSyncScheduler,
+        private val syncSchedulerRepository: SyncSchedulerRepository,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
             directorySettings
@@ -56,7 +56,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.DATE_FORMAT,
+                    PreferenceDefaults.DATE_FORMAT,
                 )
 
         val timeFormat: StateFlow<String> =
@@ -65,7 +65,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.TIME_FORMAT,
+                    PreferenceDefaults.TIME_FORMAT,
                 )
 
         val themeMode: StateFlow<ThemeMode> =
@@ -83,7 +83,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED,
+                    PreferenceDefaults.HAPTIC_FEEDBACK_ENABLED,
                 )
 
         val showInputHints: StateFlow<Boolean> =
@@ -92,7 +92,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.SHOW_INPUT_HINTS,
+                    PreferenceDefaults.SHOW_INPUT_HINTS,
                 )
 
         val doubleTapEditEnabled: StateFlow<Boolean> =
@@ -101,7 +101,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED,
+                    PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 )
 
         val storageFilenameFormat: StateFlow<String> =
@@ -110,7 +110,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT,
+                    PreferenceDefaults.STORAGE_FILENAME_FORMAT,
                 )
 
         val storageTimestampFormat: StateFlow<String> =
@@ -119,7 +119,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT,
+                    PreferenceDefaults.STORAGE_TIMESTAMP_FORMAT,
                 )
 
         val checkUpdatesOnStartup: StateFlow<Boolean> =
@@ -128,7 +128,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP,
+                    PreferenceDefaults.CHECK_UPDATES_ON_STARTUP,
                 )
 
         val shareCardStyle: StateFlow<ShareCardStyle> =
@@ -146,7 +146,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME,
+                    PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 )
 
         val shareCardShowBrand: StateFlow<Boolean> =
@@ -155,7 +155,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
+                    PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
                 )
 
         val lanShareE2eEnabled: StateFlow<Boolean> =
@@ -164,7 +164,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED,
+                    PreferenceDefaults.LAN_SHARE_E2E_ENABLED,
                 )
 
         val lanSharePairingConfigured: StateFlow<Boolean> =
@@ -301,7 +301,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_SYNC_ENABLED,
+                    PreferenceDefaults.GIT_SYNC_ENABLED,
                 )
 
         val gitRemoteUrl: StateFlow<String> =
@@ -319,7 +319,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_AUTHOR_NAME,
+                    PreferenceDefaults.GIT_AUTHOR_NAME,
                 )
 
         val gitAuthorEmail: StateFlow<String> =
@@ -328,7 +328,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL,
+                    PreferenceDefaults.GIT_AUTHOR_EMAIL,
                 )
 
         val gitAutoSyncEnabled: StateFlow<Boolean> =
@@ -337,7 +337,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED,
+                    PreferenceDefaults.GIT_AUTO_SYNC_ENABLED,
                 )
 
         val gitAutoSyncInterval: StateFlow<String> =
@@ -346,7 +346,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL,
+                    PreferenceDefaults.GIT_AUTO_SYNC_INTERVAL,
                 )
 
         val gitSyncOnRefreshEnabled: StateFlow<Boolean> =
@@ -355,7 +355,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH,
+                    PreferenceDefaults.GIT_SYNC_ON_REFRESH,
                 )
 
         val gitSyncOnFileChangeEnabled: StateFlow<Boolean> =
@@ -364,7 +364,7 @@ class SettingsViewModel
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
-                    PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE,
+                    PreferenceDefaults.GIT_SYNC_ON_FILE_CHANGE,
                 )
 
         val gitLastSyncTime: StateFlow<Long> =
@@ -390,7 +390,7 @@ class SettingsViewModel
         fun updateGitSyncEnabled(enabled: Boolean) {
             viewModelScope.launch {
                 gitSyncRepo.setGitSyncEnabled(enabled)
-                gitSyncScheduler.reschedule()
+                syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
@@ -425,14 +425,14 @@ class SettingsViewModel
         fun updateGitAutoSyncEnabled(enabled: Boolean) {
             viewModelScope.launch {
                 gitSyncRepo.setAutoSyncEnabled(enabled)
-                gitSyncScheduler.reschedule()
+                syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
         fun updateGitAutoSyncInterval(interval: String) {
             viewModelScope.launch {
                 gitSyncRepo.setAutoSyncInterval(interval)
-                gitSyncScheduler.reschedule()
+                syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
@@ -482,8 +482,11 @@ class SettingsViewModel
         fun resetGitRepository() {
             viewModelScope.launch {
                 _resetInProgress.value = true
-                gitSyncRepo.resetRepository()
-                _resetInProgress.value = false
+                try {
+                    gitSyncRepo.resetRepository()
+                } finally {
+                    _resetInProgress.value = false
+                }
             }
         }
     }

@@ -17,12 +17,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,8 +54,17 @@ fun TagFilterScreen(
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDir.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearError()
+        }
+    }
 
     MemoInteractionHost(
         shareCardStyle = shareCardStyle,
@@ -64,6 +78,7 @@ fun TagFilterScreen(
     ) { showMenu, openEditor ->
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 LargeTopAppBar(
                     title = {
@@ -85,7 +100,7 @@ fun TagFilterScreen(
                                 onBackClick()
                             },
                         ) {
-                            Icon(Icons.Default.Close, contentDescription = "Close")
+                            Icon(Icons.Default.Close, contentDescription = stringResource(com.lomo.app.R.string.cd_close))
                         }
                     },
                     scrollBehavior = scrollBehavior,
@@ -106,8 +121,8 @@ fun TagFilterScreen(
                 ) {
                     EmptyState(
                         icon = Icons.Outlined.Tag,
-                        title = "No memos with #$tagName",
-                        description = "Try adding this tag to some memos",
+                        title = stringResource(com.lomo.app.R.string.empty_no_tag_matches_title, tagName),
+                        description = stringResource(com.lomo.app.R.string.empty_no_tag_matches_subtitle),
                     )
                 }
             } else {

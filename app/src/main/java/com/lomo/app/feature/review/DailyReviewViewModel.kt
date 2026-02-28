@@ -14,7 +14,6 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.ui.util.UiState
-import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +37,8 @@ class DailyReviewViewModel
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
+        private val _errorMessage = MutableStateFlow<String?>(null)
+        val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
         private var loadJob: Job? = null
 
         val appPreferences: StateFlow<AppPreferencesState> =
@@ -45,6 +46,17 @@ class DailyReviewViewModel
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
+
+        val rootDirectory: StateFlow<String?> =
+            directorySettings
+                .getRootDirectory()
+                .stateIn(
+                    scope = viewModelScope,
+                    started =
+                        kotlinx.coroutines.flow.SharingStarted
+                            .WhileSubscribed(5000),
+                    initialValue = null,
+                )
 
         val imageDirectory: StateFlow<String?> =
             directorySettings
@@ -80,7 +92,7 @@ class DailyReviewViewModel
                         memoFlowProcessor
                             .mapMemoSnapshot(
                                 memos = rawMemos,
-                                rootDirectory = kotlinx.coroutines.flow.flowOf(null),
+                                rootDirectory = rootDirectory,
                                 imageDirectory = imageDirectory,
                                 imageMap = imageMapProvider.imageMap,
                             ).collect { uiModels ->
@@ -99,10 +111,11 @@ class DailyReviewViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                val success =
-                    memoActionDelegate
-                        .updateMemo(memo, newContent)
-                        .isSuccess
+                val result = memoActionDelegate.updateMemo(memo, newContent)
+                val success = result.isSuccess
+                result.exceptionOrNull()?.let { error ->
+                    _errorMessage.value = error.userMessage("Failed to update memo")
+                }
                 if (success) {
                     loadDailyReview()
                 }
@@ -111,7 +124,11 @@ class DailyReviewViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                val success = memoActionDelegate.deleteMemo(memo).isSuccess
+                val result = memoActionDelegate.deleteMemo(memo)
+                val success = result.isSuccess
+                result.exceptionOrNull()?.let { error ->
+                    _errorMessage.value = error.userMessage("Failed to delete memo")
+                }
                 if (success) {
                     loadDailyReview()
                 }
@@ -127,10 +144,21 @@ class DailyReviewViewModel
                 memoActionDelegate
                     .saveImage(uri)
                     .onSuccess(onResult)
-                    .onFailure {
-                        // Keep Daily Review UI resilient; skip insertion on failure.
+                    .onFailure { error ->
+                        _errorMessage.value = error.userMessage("Failed to save image")
                         onError?.invoke()
                     }
             }
         }
+
+        fun clearError() {
+            _errorMessage.value = null
+        }
+
+        private fun Throwable.userMessage(prefix: String): String =
+            if (message.isNullOrBlank()) {
+                prefix
+            } else {
+                "$prefix: ${message.orEmpty()}"
+            }
     }

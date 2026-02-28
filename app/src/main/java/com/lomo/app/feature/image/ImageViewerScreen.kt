@@ -14,7 +14,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.lomo.app.R
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 
 @Composable
@@ -46,7 +48,7 @@ fun ImageViewerScreen(
 
         ZoomableAsyncImage(
             model = url,
-            contentDescription = "Full screen image",
+            contentDescription = stringResource(R.string.cd_image_viewer_fullscreen),
             modifier = Modifier.fillMaxSize().then(sharedModifier),
             onClick = { onBackClick() }, // Tap to dismiss
         )
@@ -61,7 +63,7 @@ fun ImageViewerScreen(
         ) {
             Icon(
                 imageVector = Icons.Rounded.Close,
-                contentDescription = "Close",
+                contentDescription = stringResource(R.string.cd_close),
                 tint = Color.White,
             )
         }

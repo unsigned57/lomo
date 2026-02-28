@@ -15,7 +15,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,21 +34,8 @@ import com.lomo.ui.component.markdown.MarkdownRenderer
 fun LomoAppRoot(
     viewModel: MainViewModel,
     shareServiceManager: LanShareService,
-    initialAction: String? = null,
     appUpdateViewModel: AppUpdateViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(initialAction) {
-        when (initialAction) {
-            MainActivity.ACTION_NEW_MEMO -> {
-                // TODO: Trigger new memo creation via navigation or event
-            }
-
-            MainActivity.ACTION_OPEN_MEMO -> {
-                // TODO: Navigate to memo detail/edit
-            }
-        }
-    }
-
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
     updateDialogState?.let { dialogState ->
         val context = LocalContext.current
