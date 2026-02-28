@@ -35,6 +35,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -78,66 +80,15 @@ fun MemoActionSheet(
     val haptic = LocalAppHapticFeedback.current
     val actionsScrollState = rememberScrollState()
     val sheetActions =
-        actions
-            ?: buildList {
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.ContentCopy,
-                        label = stringResource(R.string.action_copy),
-                        onClick = onCopy,
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.Share,
-                        label = stringResource(R.string.action_share),
-                        onClick = onShare,
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.Wifi,
-                        label = stringResource(R.string.action_lan_share),
-                        onClick = onLanShare,
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-                if (showHistory && onHistory != null) {
-                    add(
-                        MemoActionSheetAction(
-                            icon = Icons.Outlined.History,
-                            label = stringResource(R.string.action_history),
-                            onClick = onHistory,
-                            dismissAfterClick = true,
-                            haptic = MemoActionHaptic.MEDIUM,
-                        ),
-                    )
-                }
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.Edit,
-                        label = stringResource(R.string.action_edit),
-                        onClick = onEdit,
-                        dismissAfterClick = false,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.Delete,
-                        label = stringResource(R.string.action_delete),
-                        onClick = onDelete,
-                        isDestructive = true,
-                        dismissAfterClick = false,
-                        haptic = MemoActionHaptic.HEAVY,
-                    ),
-                )
-            }
+        actions ?: rememberDefaultMemoActionSheetActions(
+            onCopy = onCopy,
+            onShare = onShare,
+            onLanShare = onLanShare,
+            onHistory = onHistory,
+            showHistory = showHistory,
+            onEdit = onEdit,
+            onDelete = onDelete,
+        )
 
     Column(
         modifier =
@@ -221,6 +172,102 @@ fun MemoActionSheet(
                 InfoItem(label = stringResource(R.string.info_created), value = state.createdTime)
                 InfoItem(label = stringResource(R.string.info_characters), value = "${state.wordCount}", alignment = Alignment.End)
             }
+        }
+    }
+}
+
+@Composable
+private fun rememberDefaultMemoActionSheetActions(
+    onCopy: () -> Unit,
+    onShare: () -> Unit,
+    onLanShare: () -> Unit,
+    onHistory: (() -> Unit)?,
+    showHistory: Boolean,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+): List<MemoActionSheetAction> {
+    val onCopyState = rememberUpdatedState(onCopy)
+    val onShareState = rememberUpdatedState(onShare)
+    val onLanShareState = rememberUpdatedState(onLanShare)
+    val onHistoryState = rememberUpdatedState(onHistory)
+    val onEditState = rememberUpdatedState(onEdit)
+    val onDeleteState = rememberUpdatedState(onDelete)
+
+    val copyLabel = stringResource(R.string.action_copy)
+    val shareLabel = stringResource(R.string.action_share)
+    val lanShareLabel = stringResource(R.string.action_lan_share)
+    val historyLabel = stringResource(R.string.action_history)
+    val editLabel = stringResource(R.string.action_edit)
+    val deleteLabel = stringResource(R.string.action_delete)
+    val hasHistoryAction = showHistory && onHistory != null
+
+    return remember(
+        hasHistoryAction,
+        copyLabel,
+        shareLabel,
+        lanShareLabel,
+        historyLabel,
+        editLabel,
+        deleteLabel,
+    ) {
+        buildList {
+            add(
+                MemoActionSheetAction(
+                    icon = Icons.Outlined.ContentCopy,
+                    label = copyLabel,
+                    onClick = { onCopyState.value() },
+                    dismissAfterClick = true,
+                    haptic = MemoActionHaptic.MEDIUM,
+                ),
+            )
+            add(
+                MemoActionSheetAction(
+                    icon = Icons.Outlined.Share,
+                    label = shareLabel,
+                    onClick = { onShareState.value() },
+                    dismissAfterClick = true,
+                    haptic = MemoActionHaptic.MEDIUM,
+                ),
+            )
+            add(
+                MemoActionSheetAction(
+                    icon = Icons.Outlined.Wifi,
+                    label = lanShareLabel,
+                    onClick = { onLanShareState.value() },
+                    dismissAfterClick = true,
+                    haptic = MemoActionHaptic.MEDIUM,
+                ),
+            )
+            if (hasHistoryAction) {
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.Outlined.History,
+                        label = historyLabel,
+                        onClick = { onHistoryState.value?.invoke() },
+                        dismissAfterClick = true,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+            }
+            add(
+                MemoActionSheetAction(
+                    icon = Icons.Outlined.Edit,
+                    label = editLabel,
+                    onClick = { onEditState.value() },
+                    dismissAfterClick = false,
+                    haptic = MemoActionHaptic.MEDIUM,
+                ),
+            )
+            add(
+                MemoActionSheetAction(
+                    icon = Icons.Outlined.Delete,
+                    label = deleteLabel,
+                    onClick = { onDeleteState.value() },
+                    isDestructive = true,
+                    dismissAfterClick = false,
+                    haptic = MemoActionHaptic.HEAVY,
+                ),
+            )
         }
     }
 }

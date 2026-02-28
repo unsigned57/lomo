@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,9 +39,14 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.lomo.ui.R
+import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -53,6 +59,11 @@ fun CalendarHeatmap(
     modifier: Modifier = Modifier,
 ) {
     val today = LocalDate.now()
+    val datePattern = stringResource(R.string.calendar_heatmap_date_format)
+    val dateFormatter =
+        remember(datePattern) {
+            DateTimeFormatter.ofPattern(datePattern, Locale.getDefault())
+        }
 
     // Config: Compact layout similar to original
     val density = LocalDensity.current
@@ -87,7 +98,6 @@ fun CalendarHeatmap(
 
     // Interaction State
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
-    var selectedCount by remember { mutableStateOf(0) }
     var popupOffset by remember { mutableStateOf(Offset.Zero) }
 
     BoxWithConstraints(
@@ -110,6 +120,10 @@ fun CalendarHeatmap(
         // endDay is today. We want formatting to align such that today is in the last column, correct row.
         val daysToSubtract = (weeksToShow - 1) * 7 + today.dayOfWeek.value % 7
         val startDay = today.minusDays(daysToSubtract.toLong())
+        val latestMemoCountByDate by rememberUpdatedState(memoCountByDate)
+        val latestStartDay by rememberUpdatedState(startDay)
+        val latestToday by rememberUpdatedState(today)
+        val latestSelectedDate by rememberUpdatedState(selectedDate)
 
         Box(
             modifier =
@@ -121,8 +135,12 @@ fun CalendarHeatmap(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .pointerInput(weeksToShow) {
+                        .pointerInput(weeksToShow, cellSizePx, spacingPx, monthLabelHeightPx) {
                             detectTapGestures { offset ->
+                                val currentStartDay = latestStartDay
+                                val currentToday = latestToday
+                                val currentMemoCountByDate = latestMemoCountByDate
+                                val currentSelectedDate = latestSelectedDate
                                 val y = offset.y - monthLabelHeightPx
 
                                 // If clicked on label area or outside bottom, clear selection
@@ -135,21 +153,14 @@ fun CalendarHeatmap(
                                 val row = (y / (cellSizePx + spacingPx)).toInt()
 
                                 if (col in 0 until weeksToShow && row in 0..6) {
-                                    // Fix date calculation:
-                                    // startDay is Sunday.
-                                    // row 0 is Sunday.
-                                    // simple: startDay.plusWeeks(col).plusDays(row)
-                                    // My previous complex logic was trying to compensate for something nonexistent.
-                                    // Let's stick to the simpler logic which matched the drawing loop.
-                                    val date = startDay.plusWeeks(col.toLong()).plusDays(row.toLong())
+                                    val date = currentStartDay.plusWeeks(col.toLong()).plusDays(row.toLong())
 
-                                    if (!date.isAfter(today)) {
-                                        if (selectedDate == date) {
+                                    if (!date.isAfter(currentToday)) {
+                                        if (currentSelectedDate == date) {
                                             // Toggle off if clicking same date
                                             selectedDate = null
                                         } else {
                                             selectedDate = date
-                                            selectedCount = memoCountByDate[date] ?: 0
                                             popupOffset =
                                                 Offset(
                                                     col * (cellSizePx + spacingPx) + cellSizePx / 2,
@@ -234,7 +245,7 @@ fun CalendarHeatmap(
             var isPopupVisible by remember { mutableStateOf(false) }
 
             // Sync state with selection changes
-            LaunchedEffect(selectedDate) {
+            LaunchedEffect(selectedDate, memoCountByDate, popupOffset) {
                 if (selectedDate != null) {
                     val count = memoCountByDate[selectedDate] ?: 0
                     activePopupData = Triple(selectedDate!!, count, popupOffset)
@@ -260,6 +271,12 @@ fun CalendarHeatmap(
                 // If we are still animating or visible, show the popup
                 if (transition.currentState || transition.targetState) {
                     val (date, count, offset) = currentData
+                    val countLabel =
+                        pluralStringResource(
+                            R.plurals.calendar_heatmap_memo_count,
+                            count,
+                            count,
+                        )
                     val popupPositionProvider =
                         remember(offset, density) {
                             HeatmapPopupPositionProvider(offset, density)
@@ -300,13 +317,13 @@ fun CalendarHeatmap(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                 ) {
                                     Text(
-                                        text = date.format(DateTimeFormatter.ofPattern("MMM d")),
+                                        text = date.format(dateFormatter),
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurface,
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "$count memos",
+                                        text = countLabel,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -342,5 +359,37 @@ private class HeatmapPopupPositionProvider(
 
         return androidx.compose.ui.unit
             .IntOffset(popupX, popupY)
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360)
+@Composable
+private fun CalendarHeatmapPreview() {
+    val today = LocalDate.now()
+    val sampleMemoCountByDate =
+        remember(today) {
+            buildMap {
+                for (dayOffset in 0..120) {
+                    val date = today.minusDays(dayOffset.toLong())
+                    val count =
+                        when {
+                            dayOffset % 17 == 0 -> 8
+                            dayOffset % 9 == 0 -> 5
+                            dayOffset % 4 == 0 -> 2
+                            dayOffset % 2 == 0 -> 1
+                            else -> 0
+                        }
+                    if (count > 0) put(date, count)
+                }
+            }
+        }
+
+    LomoTheme {
+        Surface(modifier = Modifier.padding(16.dp)) {
+            CalendarHeatmap(
+                memoCountByDate = sampleMemoCountByDate,
+                modifier = Modifier.width(320.dp),
+            )
+        }
     }
 }

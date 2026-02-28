@@ -9,6 +9,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,11 +32,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.SubcomposeAsyncImage
 import coil3.decode.DataSource
 import coil3.request.ImageRequest
+import com.lomo.ui.R
+import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
 import org.commonmark.node.Image
@@ -70,6 +75,7 @@ internal fun MarkdownImageBlock(
 ) {
     val destination = image.destination
     val context = LocalContext.current
+    val defaultContentDescription = stringResource(R.string.markdown_image_content_description)
 
     val model =
         remember(destination, context) {
@@ -106,7 +112,7 @@ internal fun MarkdownImageBlock(
 
     SubcomposeAsyncImage(
         model = model,
-        contentDescription = image.title ?: "Image",
+        contentDescription = image.title ?: defaultContentDescription,
         modifier = modifier,
         contentScale = ContentScale.FillWidth,
     ) {
@@ -135,7 +141,7 @@ internal fun MarkdownImageBlock(
                 } else {
                     Image(
                         painter = painter,
-                        contentDescription = image.title ?: "Image",
+                        contentDescription = image.title ?: defaultContentDescription,
                         contentScale = ContentScale.FillWidth,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -188,7 +194,7 @@ private fun ImageErrorPlaceholder() {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = "⚠ Image failed to load",
+            text = stringResource(R.string.markdown_image_load_failed),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onErrorContainer,
         )
@@ -214,6 +220,7 @@ private fun ImageWithFadeIn(
     painter: coil3.compose.AsyncImagePainter,
     title: String?,
 ) {
+    val defaultContentDescription = stringResource(R.string.markdown_image_content_description)
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
 
@@ -224,9 +231,26 @@ private fun ImageWithFadeIn(
     ) {
         Image(
             painter = painter,
-            contentDescription = title ?: "Image",
+            contentDescription = title ?: defaultContentDescription,
             contentScale = ContentScale.FillWidth,
             modifier = Modifier.fillMaxWidth(),
         )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun MarkdownImagePlaceholdersPreview() {
+    LomoTheme {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+        ) {
+            ImageLoadingPlaceholder()
+            ImageErrorPlaceholder()
+            ImageEmptyPlaceholder()
+        }
     }
 }

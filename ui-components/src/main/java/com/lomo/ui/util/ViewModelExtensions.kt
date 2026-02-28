@@ -1,7 +1,5 @@
 package com.lomo.ui.util
 
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -9,9 +7,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
 /*
- * ViewModel Extensions for StateFlow creation.
+ * Legacy compatibility shim.
  *
- * These extensions simplify the common pattern of:
+ * ViewModel and screen-state flow policies belong to app/feature layers.
+ * This file remains in ui-components to avoid breaking downstream imports.
+ *
+ * These extensions keep the common pattern of:
  * ```kotlin
  * .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), initialValue)
  * ```
@@ -37,6 +38,15 @@ private const val WHILE_SUBSCRIBED_TIMEOUT_MS = 5000L
  * @param initialValue The initial value before the flow emits
  * @return A StateFlow that respects lifecycle
  */
+@Deprecated(
+    message = "Legacy compatibility shim in ui-components. Prefer app-layer Flow.stateIn(...) usage.",
+    replaceWith =
+        ReplaceWith(
+            expression = "this.stateIn(scope, SharingStarted.WhileSubscribed(5000L), initialValue)",
+            imports = ["kotlinx.coroutines.flow.SharingStarted", "kotlinx.coroutines.flow.stateIn"],
+        ),
+    level = DeprecationLevel.WARNING,
+)
 fun <T> Flow<T>.stateInViewModel(
     scope: CoroutineScope,
     initialValue: T,
@@ -55,6 +65,15 @@ fun <T> Flow<T>.stateInViewModel(
  * @param initialValue Lazy provider for the initial value
  * @return A StateFlow that respects lifecycle
  */
+@Deprecated(
+    message = "Legacy compatibility shim in ui-components. Prefer app-layer Flow.stateIn(...) usage.",
+    replaceWith =
+        ReplaceWith(
+            expression = "this.stateIn(scope, SharingStarted.WhileSubscribed(5000L), initialValue())",
+            imports = ["kotlinx.coroutines.flow.SharingStarted", "kotlinx.coroutines.flow.stateIn"],
+        ),
+    level = DeprecationLevel.WARNING,
+)
 fun <T> Flow<T>.stateInViewModelLazy(
     scope: CoroutineScope,
     initialValue: () -> T,
@@ -73,6 +92,15 @@ fun <T> Flow<T>.stateInViewModelLazy(
  * @param initialValue The initial value
  * @return A StateFlow that starts eagerly
  */
+@Deprecated(
+    message = "Legacy compatibility shim in ui-components. Prefer app-layer Flow.stateIn(...) usage.",
+    replaceWith =
+        ReplaceWith(
+            expression = "this.stateIn(scope, SharingStarted.Eagerly, initialValue)",
+            imports = ["kotlinx.coroutines.flow.SharingStarted", "kotlinx.coroutines.flow.stateIn"],
+        ),
+    level = DeprecationLevel.WARNING,
+)
 fun <T> Flow<T>.stateInEagerly(
     scope: CoroutineScope,
     initialValue: T,

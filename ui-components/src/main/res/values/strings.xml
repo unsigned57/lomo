@@ -20,6 +20,13 @@
     <string name="cd_more_options">More options</string>
     <string name="cd_play_audio">Play audio</string>
     <string name="cd_pause_audio">Pause audio</string>
+    <string name="markdown_image_content_description">Image</string>
+    <string name="markdown_image_load_failed">Image failed to load</string>
+    <string name="calendar_heatmap_date_format">MMM d</string>
+    <plurals name="calendar_heatmap_memo_count">
+        <item quantity="one">%1$d memo</item>
+        <item quantity="other">%1$d memos</item>
+    </plurals>
 
     <!-- Memo Sheet -->
     <string name="action_copy">Copy</string>

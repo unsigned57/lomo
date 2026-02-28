@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,10 +33,16 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.R
 import com.lomo.ui.media.LocalAudioPlayerManager
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.isActive
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Composable
 fun AudioPlayerCard(
     relativeFilePath: String,
@@ -45,12 +52,31 @@ fun AudioPlayerCard(
     val playDescription = stringResource(R.string.cd_play_audio)
     val pauseDescription = stringResource(R.string.cd_pause_audio)
 
-    val isPlaying by playerManager.isPlaying.collectAsStateWithLifecycle()
-    val currentUri by playerManager.currentPlayingUri.collectAsStateWithLifecycle()
-    val playbackPosition by playerManager.playbackPosition.collectAsStateWithLifecycle()
-    val totalDuration by playerManager.duration.collectAsStateWithLifecycle()
+    val playbackState by
+        remember(playerManager, relativeFilePath) {
+            playerManager.currentPlayingUri
+                .flatMapLatest { currentUri ->
+                    if (currentUri == relativeFilePath) {
+                        combine(
+                            playerManager.isPlaying,
+                            playerManager.playbackPosition,
+                            playerManager.duration,
+                        ) { isPlaying, position, duration ->
+                            AudioPlaybackState(
+                                isCurrentItem = true,
+                                isPlaying = isPlaying,
+                                positionMs = position,
+                                durationMs = duration,
+                            )
+                        }
+                    } else {
+                        flowOf(AudioPlaybackState())
+                    }
+                }.distinctUntilChanged()
+        }.collectAsStateWithLifecycle(initialValue = AudioPlaybackState())
 
-    val isCurrentItem = currentUri == relativeFilePath
+    val isCurrentItem = playbackState.isCurrentItem
+    val isPlaying = playbackState.isPlaying
 
     LaunchedEffect(isCurrentItem, isPlaying) {
         if (isCurrentItem && isPlaying) {
@@ -62,8 +88,8 @@ fun AudioPlayerCard(
     }
 
     val progress =
-        if (isCurrentItem && totalDuration > 0) {
-            playbackPosition.toFloat() / totalDuration.toFloat()
+        if (isCurrentItem && playbackState.durationMs > 0) {
+            playbackState.positionMs.toFloat() / playbackState.durationMs.toFloat()
         } else {
             0f
         }
@@ -118,7 +144,7 @@ fun AudioPlayerCard(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            val position = if (isCurrentItem) playbackPosition else 0L
+            val position = if (isCurrentItem) playbackState.positionMs else 0L
             val minutes = (position / 1000) / 60
             val seconds = (position / 1000) % 60
 
@@ -130,3 +156,10 @@ fun AudioPlayerCard(
         }
     }
 }
+
+private data class AudioPlaybackState(
+    val isCurrentItem: Boolean = false,
+    val isPlaying: Boolean = false,
+    val positionMs: Long = 0L,
+    val durationMs: Long = 0L,
+)

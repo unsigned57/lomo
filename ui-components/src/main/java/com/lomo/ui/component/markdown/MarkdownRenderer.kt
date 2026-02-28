@@ -24,6 +24,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.AnnotatedString
@@ -74,18 +75,25 @@ fun MarkdownRenderer(
 ) {
     val root = precomputedNode ?: remember(content) { MarkdownParser.parse(content) }
 
+    val latestOnTotalBlocks by rememberUpdatedState(onTotalBlocks)
     val totalBlocks =
-        remember(root) {
-            var count = 0
-            var blockNode = root.node.firstChild
-            while (blockNode != null) {
-                count++
-                blockNode = blockNode.next
+        remember(root, onTotalBlocks != null) {
+            if (onTotalBlocks == null) {
+                null
+            } else {
+                var count = 0
+                var blockNode = root.node.firstChild
+                while (blockNode != null) {
+                    count++
+                    blockNode = blockNode.next
+                }
+                count
             }
-            count
         }
 
-    LaunchedEffect(totalBlocks) { onTotalBlocks?.invoke(totalBlocks) }
+    LaunchedEffect(totalBlocks) {
+        totalBlocks?.let { latestOnTotalBlocks?.invoke(it) }
+    }
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         var node = root.node.firstChild

@@ -42,10 +42,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.LomoTheme
 import java.time.LocalDate
 
 data class SidebarStats(
@@ -59,12 +60,27 @@ data class SidebarTag(
     val count: Int = 0,
 )
 
+sealed interface SidebarDestination {
+    data object Memo : SidebarDestination
+
+    data object Trash : SidebarDestination
+
+    data object DailyReview : SidebarDestination
+
+    data object Gallery : SidebarDestination
+
+    data class Tag(
+        val fullPath: String,
+    ) : SidebarDestination
+}
+
 @Composable
 fun SidebarDrawer(
     username: String,
     stats: SidebarStats,
     memoCountByDate: Map<LocalDate, Int>,
     tags: List<SidebarTag>,
+    currentDestination: SidebarDestination = SidebarDestination.Memo,
     onMemoClick: () -> Unit = {},
     onTrashClick: () -> Unit = {},
     onDailyReviewClick: () -> Unit = {},
@@ -76,6 +92,11 @@ fun SidebarDrawer(
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val tagTree = remember(tags) { buildTagTree(tags) }
     val expandedNodes = remember { mutableStateMapOf<String, Boolean>() }
+    val selectedTagPath = (currentDestination as? SidebarDestination.Tag)?.fullPath
+    val isMemoSelected = currentDestination == SidebarDestination.Memo
+    val isTrashSelected = currentDestination == SidebarDestination.Trash
+    val isDailyReviewSelected = currentDestination == SidebarDestination.DailyReview
+    val isGallerySelected = currentDestination == SidebarDestination.Gallery
 
     LazyColumn(
         modifier = modifier.fillMaxHeight(),
@@ -150,11 +171,11 @@ fun SidebarDrawer(
         // MEMO (selected)
         item {
             NavigationItem(
-                icon = Icons.Filled.Dashboard, // Filled for selected state
+                icon = if (isMemoSelected) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
                 label =
                     androidx.compose.ui.res
                         .stringResource(com.lomo.ui.R.string.sidebar_memo),
-                isSelected = true,
+                isSelected = isMemoSelected,
                 onClick = onMemoClick,
             )
         }
@@ -162,10 +183,11 @@ fun SidebarDrawer(
         // Trash (unselected)
         item {
             NavigationItem(
-                icon = Icons.Outlined.Delete, // Outlined for unselected state
+                icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
                 label =
                     androidx.compose.ui.res
                         .stringResource(com.lomo.ui.R.string.sidebar_trash),
+                isSelected = isTrashSelected,
                 onClick = onTrashClick,
             )
         }
@@ -173,10 +195,11 @@ fun SidebarDrawer(
         // Daily Review
         item {
             NavigationItem(
-                icon = Icons.Outlined.DateRange,
+                icon = if (isDailyReviewSelected) Icons.Filled.DateRange else Icons.Outlined.DateRange,
                 label =
                     androidx.compose.ui.res
                         .stringResource(com.lomo.ui.R.string.sidebar_daily_review),
+                isSelected = isDailyReviewSelected,
                 onClick = onDailyReviewClick,
             )
         }
@@ -188,6 +211,7 @@ fun SidebarDrawer(
                 label =
                     androidx.compose.ui.res
                         .stringResource(com.lomo.ui.R.string.sidebar_gallery),
+                isSelected = isGallerySelected,
                 onClick = onGalleryClick,
             )
         }
@@ -213,6 +237,7 @@ fun SidebarDrawer(
                     onTagClick = onTagClick,
                     level = 0,
                     expandedNodes = expandedNodes,
+                    selectedTagPath = selectedTagPath,
                     onToggleExpand = { path ->
                         expandedNodes[path] = !(expandedNodes[path] ?: false)
                     },
@@ -272,6 +297,7 @@ private fun TagTreeItem(
     onTagClick: (String) -> Unit,
     level: Int,
     expandedNodes: Map<String, Boolean>,
+    selectedTagPath: String?,
     onToggleExpand: (String) -> Unit,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
@@ -328,7 +354,7 @@ private fun TagTreeItem(
                 }
             }
         },
-        selected = false,
+        selected = selectedTagPath == node.fullPath,
         onClick = {
             haptic.light()
             onTagClick(node.fullPath)
@@ -381,6 +407,7 @@ private fun TagTreeItem(
                     onTagClick = onTagClick,
                     level = level + 1,
                     expandedNodes = expandedNodes,
+                    selectedTagPath = selectedTagPath,
                     onToggleExpand = onToggleExpand,
                 )
             }
@@ -437,4 +464,81 @@ private class MutableTagNode(
     val children: MutableList<MutableTagNode> = mutableListOf(),
 ) {
     fun toImmutable(): TagNode = TagNode(name, fullPath, count, children.map { it.toImmutable() })
+}
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 780)
+@Composable
+private fun SidebarDrawerPreviewMemo() {
+    val today = LocalDate.now()
+    val sampleStats =
+        SidebarStats(
+            memoCount = 196,
+            tagCount = 14,
+            dayCount = 88,
+        )
+    val sampleTags =
+        listOf(
+            SidebarTag("work", 42),
+            SidebarTag("work/roadmap", 8),
+            SidebarTag("work/retro", 5),
+            SidebarTag("personal", 39),
+            SidebarTag("personal/books", 12),
+            SidebarTag("travel", 11),
+        )
+    val memoCountByDate =
+        buildMap {
+            for (index in 0..90) {
+                val date = today.minusDays(index.toLong())
+                val count =
+                    when {
+                        index % 13 == 0 -> 7
+                        index % 6 == 0 -> 4
+                        index % 3 == 0 -> 2
+                        else -> 0
+                    }
+                if (count > 0) put(date, count)
+            }
+        }
+
+    LomoTheme {
+        SidebarDrawer(
+            username = "Lomo",
+            stats = sampleStats,
+            memoCountByDate = memoCountByDate,
+            tags = sampleTags,
+            currentDestination = SidebarDestination.Memo,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Preview(showBackground = true, widthDp = 360, heightDp = 780)
+@Composable
+private fun SidebarDrawerPreviewTagSelected() {
+    val today = LocalDate.now()
+    val sampleTags =
+        listOf(
+            SidebarTag("project", 22),
+            SidebarTag("project/android", 9),
+            SidebarTag("project/android/wave4", 4),
+            SidebarTag("journal", 17),
+        )
+    val memoCountByDate =
+        buildMap {
+            for (index in 0..45) {
+                val date = today.minusDays(index.toLong())
+                if (index % 2 == 0) put(date, (index % 5) + 1)
+            }
+        }
+
+    LomoTheme {
+        SidebarDrawer(
+            username = "Lomo",
+            stats = SidebarStats(memoCount = 94, tagCount = 7, dayCount = 36),
+            memoCountByDate = memoCountByDate,
+            tags = sampleTags,
+            currentDestination = SidebarDestination.Tag("project/android"),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
 }

@@ -1,10 +1,12 @@
-
 package com.lomo.ui.component.markdown
 
-import androidx.compose.runtime.Immutable
 import org.commonmark.node.Node
 
-@Immutable
+/**
+ * Wrapper for parsed CommonMark nodes.
+ *
+ * `Node` is mutable, so this type intentionally avoids Compose `@Immutable`.
+ */
 data class ImmutableNode(
     val node: Node,
 )

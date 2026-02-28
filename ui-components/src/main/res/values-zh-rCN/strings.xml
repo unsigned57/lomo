@@ -17,6 +17,12 @@
     <string name="cd_more_options">更多选项</string>
     <string name="cd_play_audio">播放音频</string>
     <string name="cd_pause_audio">暂停音频</string>
+    <string name="markdown_image_content_description">图片</string>
+    <string name="markdown_image_load_failed">图片加载失败</string>
+    <string name="calendar_heatmap_date_format">M月d日</string>
+    <plurals name="calendar_heatmap_memo_count">
+        <item quantity="other">%1$d 条备忘录</item>
+    </plurals>
 
     <!-- Memo Sheet -->
     <string name="action_copy">复制</string>

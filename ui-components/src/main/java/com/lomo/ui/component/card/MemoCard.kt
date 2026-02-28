@@ -36,12 +36,16 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
+import com.lomo.ui.text.scriptAwareFor
+import com.lomo.ui.text.scriptAwareTextAlign
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
@@ -75,6 +79,12 @@ fun MemoCard(
             content.length > EXPAND_CHAR_THRESHOLD ||
                 content.lines().size > EXPAND_LINE_THRESHOLD
         }
+    val isCollapsedPreview = shouldShowExpand && !isExpanded
+    val collapsedSummary =
+        remember(content) {
+            buildCollapsedSummary(content)
+        }
+    val useCollapsedSummary = isCollapsedPreview && precomputedNode == null && collapsedSummary.isNotBlank()
 
     // Note: toggleTodo logic is now handled by MarkdownRenderer via onTodoClick callback
 
@@ -174,18 +184,40 @@ fun MemoCard(
                         }.clip(AppShapes.Small),
             ) {
                 ProvideTextStyle(value = MaterialTheme.typography.bodyLarge.copy(lineHeight = 24.sp)) {
-                    // Improve readability
-                    MarkdownRenderer(
-                        content = processedContent,
-                        precomputedNode = precomputedNode,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        onTodoClick = onTodoClick,
-                        todoOverrides = todoOverrides,
-                        onImageClick = onImageClick,
-                    )
+                    if (useCollapsedSummary) {
+                        val displaySummary = collapsedSummary.normalizeCjkMixedSpacingForDisplay()
+                        val summaryStyle =
+                            MaterialTheme.typography
+                                .bodyLarge
+                                .copy(lineHeight = 24.sp)
+                                .scriptAwareFor(displaySummary)
+                        Text(
+                            text = displaySummary,
+                            style = summaryStyle,
+                            textAlign = displaySummary.scriptAwareTextAlign(),
+                            maxLines = COLLAPSED_SUMMARY_MAX_LINES,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        )
+                    } else {
+                        MarkdownRenderer(
+                            content = processedContent,
+                            precomputedNode = precomputedNode,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            maxVisibleBlocks =
+                                if (isCollapsedPreview) {
+                                    COLLAPSED_MAX_VISIBLE_BLOCKS
+                                } else {
+                                    Int.MAX_VALUE
+                                },
+                            onTodoClick = onTodoClick,
+                            todoOverrides = todoOverrides,
+                            onImageClick = onImageClick,
+                        )
+                    }
                 }
 
-                if (shouldShowExpand && !isExpanded) {
+                if (isCollapsedPreview) {
                     Box(
                         modifier =
                             Modifier
@@ -290,3 +322,46 @@ fun MemoCard(
 
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
+private const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
+private const val COLLAPSED_SUMMARY_MAX_LINES = 8
+private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
+
+private fun buildCollapsedSummary(content: String): String {
+    if (content.isBlank()) return ""
+
+    val lines = mutableListOf<String>()
+    var charCount = 0
+
+    for (rawLine in content.lineSequence()) {
+        if (lines.size >= COLLAPSED_SUMMARY_MAX_LINES || charCount >= COLLAPSED_SUMMARY_MAX_CHARS) {
+            break
+        }
+
+        val line =
+            rawLine
+                .replace(MARKDOWN_IMAGE_PATTERN, "")
+                .replace(MARKDOWN_LINK_PATTERN, "$1")
+                .replace(MARKDOWN_INLINE_CODE_PATTERN, "$1")
+                .replace(MARKDOWN_BLOCK_PREFIX_PATTERN, "")
+                .replace(MARKDOWN_TASK_PREFIX_PATTERN, "")
+                .trim()
+        if (line.isBlank()) continue
+
+        val remaining = COLLAPSED_SUMMARY_MAX_CHARS - charCount
+        if (remaining <= 0) break
+
+        val clipped = if (line.length > remaining) line.take(remaining).trimEnd() else line
+        if (clipped.isBlank()) break
+
+        lines.add(clipped)
+        charCount += clipped.length
+    }
+
+    return lines.joinToString(separator = "\n")
+}
+
+private val MARKDOWN_IMAGE_PATTERN = Regex("""!\[[^\]]*]\([^)]+\)""")
+private val MARKDOWN_LINK_PATTERN = Regex("""\[([^\]]+)]\([^)]+\)""")
+private val MARKDOWN_INLINE_CODE_PATTERN = Regex("""`([^`]+)`""")
+private val MARKDOWN_BLOCK_PREFIX_PATTERN = Regex("""^\s{0,3}(?:#{1,6}\s+|>\s+|[-*+]\s+|\d+\.\s+)""")
+private val MARKDOWN_TASK_PREFIX_PATTERN = Regex("""^\s*\[[ xX]\]\s+""")

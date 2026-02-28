@@ -1,56 +1,49 @@
 package com.lomo.ui.component.input
 
+import android.Manifest
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -59,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -70,15 +64,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.lomo.ui.R
+import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.MotionTokens
+import com.lomo.ui.util.AppHapticFeedback
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -147,7 +144,6 @@ data class InputSheetSlots(
         },
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InputSheet(
     state: InputSheetState,
@@ -177,27 +173,15 @@ fun InputSheet(
     var submissionLockSourceText by remember { mutableStateOf<String?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
 
-    // Hint rotation logic
-    val hintText =
-        remember(hints) {
-            if (hints.isNotEmpty()) {
-                hints.random()
-            } else {
-                ""
-            }
-        }
+    val hintText = remember(hints) { hints.randomOrNull().orEmpty() }
+    val currentInputValue by rememberUpdatedState(inputValue)
 
-    // Track content state for dismiss protection without causing recomposition
-    val currentInputValue by androidx.compose.runtime.rememberUpdatedState(inputValue)
-
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
     var isSheetVisible by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
-
-    val scrimAlpha = if (isSheetVisible || isDismissing) 0.32f else 0f
 
     val dismissSheet: () -> Unit = dismiss@{
         if (isDismissing) return@dismiss
@@ -224,7 +208,6 @@ fun InputSheet(
             return@LaunchedEffect
         }
 
-        // Wait until the input field is actually in the composition tree.
         withFrameNanos { }
         withFrameNanos { }
         focusRequester.requestFocus()
@@ -239,7 +222,7 @@ fun InputSheet(
         }
     }
 
-    androidx.activity.compose.BackHandler(enabled = true) {
+    BackHandler(enabled = true) {
         requestDismiss()
     }
 
@@ -266,49 +249,16 @@ fun InputSheet(
         }
     }
 
-    // Discard confirmation dialog
     if (showDiscardDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showDiscardDialog = false },
-            title = {
-                Text(
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.ui.R.string.input_discard_title),
-                )
-            },
-            text = {
-                Text(
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.ui.R.string.input_discard_message),
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = {
-                        showDiscardDialog = false
-                        dismissSheet()
-                    },
-                ) {
-                    Text(
-                        androidx.compose.ui.res
-                            .stringResource(com.lomo.ui.R.string.input_discard_confirm),
-                    )
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(
-                    onClick = { showDiscardDialog = false },
-                ) {
-                    Text(
-                        androidx.compose.ui.res
-                            .stringResource(com.lomo.ui.R.string.input_discard_cancel),
-                    )
-                }
+        InputDiscardDialog(
+            onDismiss = { showDiscardDialog = false },
+            onConfirmDiscard = {
+                showDiscardDialog = false
+                dismissSheet()
             },
         )
     }
 
-    // Input text interception is pluggable; default behavior is triple-enter submit.
     val handleTextChange: (TextFieldValue) -> Unit = handleTextChange@{ newValue ->
         if (isSubmitting) {
             if (newValue.text == pendingSubmissionTriggerText) {
@@ -316,6 +266,7 @@ fun InputSheet(
             }
             clearSubmissionLock()
         }
+
         when (val interception = inputInterceptor.intercept(inputValue, newValue)) {
             is InputInterceptionResult.SubmitContent -> {
                 haptic.heavy()
@@ -328,17 +279,106 @@ fun InputSheet(
         }
     }
 
+    InputSheetScaffold(
+        isSheetVisible = isSheetVisible,
+        scrimAlpha = if (isSheetVisible || isDismissing) 0.32f else 0f,
+        onRequestDismiss = requestDismiss,
+    ) {
+        AnimatedContent(
+            targetState = isRecording,
+            transitionSpec = { fadeScaleContentTransition() },
+            label = "RecordingStateTransition",
+        ) { recording ->
+            if (recording) {
+                slots.voiceRecordingPanel(
+                    VoiceRecordingPanelState(
+                        recordingDuration = recordingDuration,
+                        recordingAmplitude = recordingAmplitude,
+                    ),
+                    VoiceRecordingPanelCallbacks(
+                        onCancel = {
+                            haptic.medium()
+                            onCancelRecording()
+                        },
+                        onStop = {
+                            haptic.heavy()
+                            onStopRecording()
+                        },
+                    ),
+                )
+            } else {
+                InputEditorPanel(
+                    inputValue = inputValue,
+                    hintText = hintText,
+                    availableTags = availableTags,
+                    showTagSelector = showTagSelector,
+                    focusRequester = focusRequester,
+                    onTextChange = handleTextChange,
+                    onTagSelected = { tag ->
+                        haptic.medium()
+                        val newText = "${inputValue.text} #$tag "
+                        onInputValueChange(TextFieldValue(newText, TextRange(newText.length)))
+                        showTagSelector = false
+                    },
+                    onToggleTagSelector = { showTagSelector = !showTagSelector },
+                    onCameraClick = onCameraClick,
+                    onImageClick = onImageClick,
+                    onStartRecording = onStartRecording,
+                    onInsertTodo = {
+                        val start = inputValue.text
+                        val newText = if (start.isEmpty()) "- [ ] " else "$start\n- [ ] "
+                        onInputValueChange(TextFieldValue(newText, TextRange(newText.length)))
+                    },
+                    onSubmit = {
+                        if (inputValue.text.isNotBlank()) {
+                            submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
+                        }
+                    },
+                    slots = slots,
+                    haptic = haptic,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun InputDiscardDialog(
+    onDismiss: () -> Unit,
+    onConfirmDiscard: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.input_discard_title)) },
+        text = { Text(stringResource(R.string.input_discard_message)) },
+        confirmButton = {
+            TextButton(onClick = onConfirmDiscard) {
+                Text(stringResource(R.string.input_discard_confirm))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.input_discard_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun InputSheetScaffold(
+    isSheetVisible: Boolean,
+    scrimAlpha: Float,
+    onRequestDismiss: () -> Unit,
+    content: @Composable () -> Unit,
+) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Scrim + outside-tap dismiss
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
                     .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { requestDismiss() },
-                        )
+                        detectTapGestures(onTap = { onRequestDismiss() })
                     },
         ) {
             // consume
@@ -355,7 +395,7 @@ fun InputSheet(
                 slideInVertically(
                     initialOffsetY = { height -> height },
                     animationSpec =
-                        tween(
+                        androidx.compose.animation.core.tween(
                             durationMillis = MotionTokens.DurationLong2,
                             easing = MotionTokens.EasingStandard,
                         ),
@@ -364,7 +404,7 @@ fun InputSheet(
                 slideOutVertically(
                     targetOffsetY = { height -> height },
                     animationSpec =
-                        tween(
+                        androidx.compose.animation.core.tween(
                             durationMillis = MotionTokens.DurationLong2,
                             easing = MotionTokens.EasingStandard,
                         ),
@@ -381,347 +421,274 @@ fun InputSheet(
                         },
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Drag handle
-                    Box(
-                        modifier =
-                            Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .padding(vertical = 22.dp)
-                                .width(32.dp)
-                                .height(4.dp)
-                                .clip(AppShapes.ExtraSmall)
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                                .clearAndSetSemantics { }
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onLongPress = { /* consume, do nothing */ },
-                                    )
-                                },
-                    )
-
-                    AnimatedContent(
-                        targetState = isRecording,
-                        transitionSpec = {
-                            if (targetState) {
-                                (
-                                    fadeIn(animationSpec = tween(MotionTokens.DurationMedium2)) +
-                                        scaleIn(
-                                            initialScale = 0.95f,
-                                            animationSpec =
-                                                tween(
-                                                    MotionTokens.DurationMedium2,
-                                                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                ),
-                                        )
-                                ).togetherWith(fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)))
-                            } else {
-                                (
-                                    fadeIn(animationSpec = tween(MotionTokens.DurationMedium2)) +
-                                        scaleIn(
-                                            initialScale = 0.95f,
-                                            animationSpec =
-                                                tween(
-                                                    MotionTokens.DurationMedium2,
-                                                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                ),
-                                        )
-                                ).togetherWith(fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)))
-                            }
-                        },
-                        label = "RecordingStateTransition",
-                    ) { recording ->
-                        if (recording) {
-                            slots.voiceRecordingPanel(
-                                VoiceRecordingPanelState(
-                                    recordingDuration = recordingDuration,
-                                    recordingAmplitude = recordingAmplitude,
-                                ),
-                                VoiceRecordingPanelCallbacks(
-                                    onCancel = {
-                                        haptic.medium()
-                                        onCancelRecording()
-                                    },
-                                    onStop = {
-                                        haptic.heavy()
-                                        onStopRecording()
-                                    },
-                                ),
-                            )
-                        } else {
-                            Column(
-                                modifier =
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .padding(AppSpacing.Medium),
-                            ) {
-                                val bodyLargeStyle = MaterialTheme.typography.bodyLarge
-                                val inputTextStyle =
-                                    remember(inputValue.text, bodyLargeStyle) {
-                                        bodyLargeStyle.scriptAwareFor(inputValue.text)
-                                    }
-
-                                // Text input - taller default height
-                                TextField(
-                                    value = inputValue,
-                                    onValueChange = handleTextChange,
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(focusRequester),
-                                    minLines = 3,
-                                    maxLines = 10,
-                                    colors =
-                                        TextFieldDefaults.colors(
-                                            focusedContainerColor =
-                                                MaterialTheme.colorScheme
-                                                    .surfaceContainerHigh,
-                                            unfocusedContainerColor =
-                                                MaterialTheme.colorScheme
-                                                    .surfaceContainerHigh,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent,
-                                            disabledIndicatorColor = Color.Transparent,
-                                        ),
-                                    shape = AppShapes.Large,
-                                    textStyle = inputTextStyle,
-                                    keyboardOptions =
-                                        KeyboardOptions(
-                                            imeAction = ImeAction.Default,
-                                        ),
-                                    keyboardActions = KeyboardActions(),
-                                    placeholder = {
-                                        if (hintText.isNotEmpty()) {
-                                            AnimatedContent(
-                                                targetState = hintText,
-                                                transitionSpec = {
-                                                    (
-                                                        fadeIn(animationSpec = tween(MotionTokens.DurationMedium2)) +
-                                                            scaleIn(
-                                                                initialScale = 0.95f,
-                                                                animationSpec =
-                                                                    tween(
-                                                                        MotionTokens.DurationMedium2,
-                                                                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                                    ),
-                                                            )
-                                                    ).togetherWith(
-                                                        fadeOut(
-                                                            animationSpec =
-                                                                tween(durationMillis = MotionTokens.DurationShort4),
-                                                        ),
-                                                    )
-                                                },
-                                                label = "HintAnimation",
-                                            ) { targetHint ->
-                                                Text(
-                                                    text = targetHint,
-                                                    style = MaterialTheme.typography.bodyLarge.scriptAwareFor(targetHint),
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                                )
-                                            }
-                                        }
-                                    },
-                                )
-
-                                Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
-
-                                // Tag Selector
-                                AnimatedVisibility(
-                                    visible = showTagSelector && availableTags.isNotEmpty(),
-                                    enter =
-                                        androidx.compose.animation.expandVertically(
-                                            animationSpec =
-                                                tween(
-                                                    durationMillis = MotionTokens.DurationMedium2,
-                                                    easing = MotionTokens.EasingEmphasized,
-                                                ),
-                                        ) +
-                                            androidx.compose.animation.fadeIn(
-                                                animationSpec =
-                                                    tween(
-                                                        durationMillis = MotionTokens.DurationMedium2,
-                                                    ),
-                                            ),
-                                    exit =
-                                        androidx.compose.animation.shrinkVertically(
-                                            animationSpec =
-                                                tween(
-                                                    durationMillis = MotionTokens.DurationMedium2,
-                                                    easing = MotionTokens.EasingEmphasized,
-                                                ),
-                                        ) +
-                                            androidx.compose.animation.fadeOut(
-                                                animationSpec =
-                                                    tween(
-                                                        durationMillis = MotionTokens.DurationShort4,
-                                                    ),
-                                            ),
-                                ) {
-                                    slots.tagSelectorBar(
-                                        TagSelectorBarState(availableTags = availableTags),
-                                        TagSelectorBarCallbacks(
-                                            onTagSelected = { tag ->
-                                                haptic.medium()
-                                                val start = inputValue.text
-                                                val newText = "$start #$tag "
-                                                onInputValueChange(
-                                                    TextFieldValue(
-                                                        newText,
-                                                        TextRange(newText.length),
-                                                    ),
-                                                )
-                                                showTagSelector = false
-                                            },
-                                        ),
-                                    )
-                                }
-
-                                // Toolbar
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // Camera
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            onCameraClick()
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.PhotoCamera,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_take_photo,
-                                                ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    // Image
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            onImageClick()
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Image,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_add_image,
-                                                ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    // Voice Memo (Mic)
-                                    val permissionLauncher =
-                                        androidx.activity.compose.rememberLauncherForActivityResult(
-                                            androidx.activity.result.contract.ActivityResultContracts
-                                                .RequestPermission(),
-                                        ) { isGranted ->
-                                            if (isGranted) {
-                                                onStartRecording()
-                                            }
-                                        }
-
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Mic,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_add_voice_memo,
-                                                ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    // Tag Toggle
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            showTagSelector = !showTagSelector
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Rounded.Label,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_add_tag,
-                                                ),
-                                            tint =
-                                                if (showTagSelector) {
-                                                    MaterialTheme.colorScheme
-                                                        .primary
-                                                } else {
-                                                    MaterialTheme.colorScheme
-                                                        .onSurfaceVariant
-                                                },
-                                        )
-                                    }
-
-                                    // Todo
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            val start = inputValue.text
-                                            val newText =
-                                                if (start.isEmpty()) {
-                                                    "- [ ] "
-                                                } else {
-                                                    "$start\n- [ ] "
-                                                }
-                                            onInputValueChange(
-                                                TextFieldValue(
-                                                    newText,
-                                                    TextRange(newText.length),
-                                                ),
-                                            )
-                                        },
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.CheckBox,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_add_checkbox,
-                                                ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.weight(1f))
-
-                                    // Send - MD3 FilledTonalButton
-                                    androidx.compose.material3.FilledTonalButton(
-                                        onClick = {
-                                            haptic.heavy()
-                                            if (inputValue.text.isNotBlank()) {
-                                                submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
-                                            }
-                                        },
-                                        enabled = inputValue.text.isNotBlank(),
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Rounded.Send,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_send,
-                                                ),
-                                            modifier = Modifier.size(18.dp),
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    InputSheetDragHandle(modifier = Modifier.align(Alignment.CenterHorizontally))
+                    content()
                 }
             }
         }
     }
 }
+
+@Composable
+private fun InputSheetDragHandle(modifier: Modifier = Modifier) {
+    Box(
+        modifier =
+            modifier
+                .padding(vertical = 22.dp)
+                .width(32.dp)
+                .height(4.dp)
+                .clip(AppShapes.ExtraSmall)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                .clearAndSetSemantics { },
+    )
+}
+
+@Composable
+private fun InputEditorPanel(
+    inputValue: TextFieldValue,
+    hintText: String,
+    availableTags: List<String>,
+    showTagSelector: Boolean,
+    focusRequester: FocusRequester,
+    onTextChange: (TextFieldValue) -> Unit,
+    onTagSelected: (String) -> Unit,
+    onToggleTagSelector: () -> Unit,
+    onCameraClick: () -> Unit,
+    onImageClick: () -> Unit,
+    onStartRecording: () -> Unit,
+    onInsertTodo: () -> Unit,
+    onSubmit: () -> Unit,
+    slots: InputSheetSlots,
+    haptic: AppHapticFeedback,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(AppSpacing.Medium),
+    ) {
+        val bodyLargeStyle = MaterialTheme.typography.bodyLarge
+        val inputTextStyle = remember(inputValue.text, bodyLargeStyle) { bodyLargeStyle.scriptAwareFor(inputValue.text) }
+
+        TextField(
+            value = inputValue,
+            onValueChange = onTextChange,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+            minLines = 3,
+            maxLines = 10,
+            colors =
+                TextFieldDefaults.colors(
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                ),
+            shape = AppShapes.Large,
+            textStyle = inputTextStyle,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+            keyboardActions = KeyboardActions(),
+            placeholder = { InputHintPlaceholder(hintText = hintText) },
+        )
+
+        Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
+
+        AnimatedVisibility(
+            visible = showTagSelector && availableTags.isNotEmpty(),
+            enter =
+                expandVertically(
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = MotionTokens.DurationMedium2,
+                            easing = MotionTokens.EasingEmphasized,
+                        ),
+                ) +
+                    fadeIn(
+                        animationSpec =
+                            androidx.compose.animation.core.tween(
+                                durationMillis = MotionTokens.DurationMedium2,
+                            ),
+                    ),
+            exit =
+                shrinkVertically(
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = MotionTokens.DurationMedium2,
+                            easing = MotionTokens.EasingEmphasized,
+                        ),
+                ) +
+                    fadeOut(
+                        animationSpec =
+                            androidx.compose.animation.core.tween(
+                                durationMillis = MotionTokens.DurationShort4,
+                            ),
+                    ),
+        ) {
+            slots.tagSelectorBar(
+                TagSelectorBarState(availableTags = availableTags),
+                TagSelectorBarCallbacks(onTagSelected = onTagSelected),
+            )
+        }
+
+        InputEditorToolbar(
+            showTagSelector = showTagSelector,
+            isSubmitEnabled = inputValue.text.isNotBlank(),
+            onCameraClick = onCameraClick,
+            onImageClick = onImageClick,
+            onStartRecording = onStartRecording,
+            onToggleTagSelector = onToggleTagSelector,
+            onInsertTodo = onInsertTodo,
+            onSubmit = onSubmit,
+            haptic = haptic,
+        )
+    }
+}
+
+@Composable
+private fun InputEditorToolbar(
+    showTagSelector: Boolean,
+    isSubmitEnabled: Boolean,
+    onCameraClick: () -> Unit,
+    onImageClick: () -> Unit,
+    onStartRecording: () -> Unit,
+    onToggleTagSelector: () -> Unit,
+    onInsertTodo: () -> Unit,
+    onSubmit: () -> Unit,
+    haptic: AppHapticFeedback,
+    modifier: Modifier = Modifier,
+) {
+    val permissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+            if (isGranted) {
+                onStartRecording()
+            }
+        }
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = {
+                haptic.medium()
+                onCameraClick()
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.PhotoCamera,
+                contentDescription = stringResource(R.string.cd_take_photo),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        IconButton(
+            onClick = {
+                haptic.medium()
+                onImageClick()
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Image,
+                contentDescription = stringResource(R.string.cd_add_image),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        IconButton(
+            onClick = {
+                haptic.medium()
+                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Mic,
+                contentDescription = stringResource(R.string.cd_add_voice_memo),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        IconButton(
+            onClick = {
+                haptic.medium()
+                onToggleTagSelector()
+            },
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Label,
+                contentDescription = stringResource(R.string.cd_add_tag),
+                tint =
+                    if (showTagSelector) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+            )
+        }
+
+        IconButton(
+            onClick = {
+                haptic.medium()
+                onInsertTodo()
+            },
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.CheckBox,
+                contentDescription = stringResource(R.string.cd_add_checkbox),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        FilledTonalButton(
+            onClick = {
+                haptic.heavy()
+                onSubmit()
+            },
+            enabled = isSubmitEnabled,
+        ) {
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.Send,
+                contentDescription = stringResource(R.string.cd_send),
+                modifier = Modifier.size(18.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun InputHintPlaceholder(hintText: String) {
+    if (hintText.isEmpty()) return
+
+    AnimatedContent(
+        targetState = hintText,
+        transitionSpec = { fadeScaleContentTransition() },
+        label = "HintAnimation",
+    ) { targetHint ->
+        Text(
+            text = targetHint,
+            style = MaterialTheme.typography.bodyLarge.scriptAwareFor(targetHint),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        )
+    }
+}
+
+private fun fadeScaleContentTransition(): ContentTransform =
+    (
+        fadeIn(animationSpec = androidx.compose.animation.core.tween(MotionTokens.DurationMedium2)) +
+            scaleIn(
+                initialScale = 0.95f,
+                animationSpec =
+                    androidx.compose.animation.core.tween(
+                        MotionTokens.DurationMedium2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+            )
+    ).togetherWith(
+        fadeOut(
+            animationSpec = androidx.compose.animation.core.tween(durationMillis = MotionTokens.DurationShort4),
+        ),
+    )
