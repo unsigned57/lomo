@@ -2,7 +2,6 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoActionDelegate
 import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
@@ -13,6 +12,9 @@ import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.ui.util.UiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -32,7 +34,9 @@ class DailyReviewViewModel
         private val preferencesRepository: PreferencesRepository,
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
-        private val memoActionDelegate: MemoActionDelegate,
+        private val deleteMemoUseCase: DeleteMemoUseCase,
+        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+        private val saveImageUseCase: SaveImageUseCase,
         private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
@@ -111,10 +115,14 @@ class DailyReviewViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                val result = memoActionDelegate.updateMemo(memo, newContent)
-                val success = result.isSuccess
-                result.exceptionOrNull()?.let { error ->
-                    _errorMessage.value = error.userMessage("Failed to update memo")
+                var success = false
+                try {
+                    updateMemoContentUseCase(memo, newContent)
+                    success = true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to update memo")
                 }
                 if (success) {
                     loadDailyReview()
@@ -124,10 +132,14 @@ class DailyReviewViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                val result = memoActionDelegate.deleteMemo(memo)
-                val success = result.isSuccess
-                result.exceptionOrNull()?.let { error ->
-                    _errorMessage.value = error.userMessage("Failed to delete memo")
+                var success = false
+                try {
+                    deleteMemoUseCase(memo)
+                    success = true
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to delete memo")
                 }
                 if (success) {
                     loadDailyReview()
@@ -141,13 +153,14 @@ class DailyReviewViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .saveImage(uri)
-                    .onSuccess(onResult)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to save image")
-                        onError?.invoke()
-                    }
+                try {
+                    onResult(saveImageUseCase(uri.toString()))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to save image")
+                    onError?.invoke()
+                }
             }
         }
 

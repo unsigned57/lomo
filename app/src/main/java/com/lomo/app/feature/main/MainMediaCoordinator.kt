@@ -1,7 +1,6 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
-import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.domain.repository.MediaRepository
 import javax.inject.Inject
 
@@ -9,7 +8,6 @@ class MainMediaCoordinator
     @Inject
     constructor(
         private val mediaRepository: MediaRepository,
-        private val imageWorkflow: MemoImageWorkflow,
     ) {
         private val ephemeralImageFilenames = mutableSetOf<String>()
 
@@ -26,7 +24,8 @@ class MainMediaCoordinator
         }
 
         suspend fun saveImageAndTrack(uri: Uri): String {
-            val path = imageWorkflow.saveImageAndSync(uri)
+            val path = mediaRepository.saveImage(uri.toString())
+            mediaRepository.syncImageCache()
             ephemeralImageFilenames.add(path)
             return path
         }
@@ -46,8 +45,14 @@ class MainMediaCoordinator
                     // Best-effort cleanup.
                 }
             }
-            imageWorkflow.syncImageCacheBestEffort()
+            syncImageCacheBestEffort()
         }
 
-        suspend fun syncImageCacheBestEffort() = imageWorkflow.syncImageCacheBestEffort()
+        suspend fun syncImageCacheBestEffort() {
+            try {
+                mediaRepository.syncImageCache()
+            } catch (_: Exception) {
+                // Best effort refresh.
+            }
+        }
     }

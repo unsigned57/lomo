@@ -8,7 +8,6 @@ import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
-import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.MemoVersion
@@ -17,18 +16,20 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.validation.MemoContentValidator
+import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -38,7 +39,6 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -57,9 +57,9 @@ class MainViewModel
         private val savedStateHandle: SavedStateHandle,
         private val memoFlowProcessor: MemoFlowProcessor,
         private val imageMapProvider: ImageMapProvider,
-        private val memoContentValidator: MemoContentValidator,
+        private val mainMemoMutationUseCase: MainMemoMutationUseCase,
+        private val refreshMemosUseCase: RefreshMemosUseCase,
         private val mainMediaCoordinator: MainMediaCoordinator,
-        private val appWidgetRepository: AppWidgetRepository,
         private val startupCoordinator: MainStartupCoordinator,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
@@ -97,15 +97,19 @@ class MainViewModel
             ) : SharedContent
         }
 
-        private val sharedContentEventsChannel = Channel<SharedContent>(capacity = Channel.BUFFERED)
-        val sharedContentEvents = sharedContentEventsChannel.receiveAsFlow()
+        private val sharedContentEventsFlow =
+            MutableSharedFlow<SharedContent>(
+                extraBufferCapacity = 64,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            )
+        val sharedContentEvents = sharedContentEventsFlow.asSharedFlow()
 
         fun handleSharedText(text: String) {
-            sharedContentEventsChannel.trySend(SharedContent.Text(text))
+            sharedContentEventsFlow.tryEmit(SharedContent.Text(text))
         }
 
         fun handleSharedImage(uri: android.net.Uri) {
-            sharedContentEventsChannel.trySend(SharedContent.Image(uri))
+            sharedContentEventsFlow.tryEmit(SharedContent.Image(uri))
         }
 
         sealed interface AppAction {
@@ -116,16 +120,20 @@ class MainViewModel
             ) : AppAction
         }
 
-        private val appActionEventsChannel = Channel<AppAction>(capacity = Channel.BUFFERED)
-        val appActionEvents = appActionEventsChannel.receiveAsFlow()
+        private val appActionEventsFlow =
+            MutableSharedFlow<AppAction>(
+                extraBufferCapacity = 64,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            )
+        val appActionEvents = appActionEventsFlow.asSharedFlow()
 
         fun requestCreateMemo() {
-            appActionEventsChannel.trySend(AppAction.CreateMemo)
+            appActionEventsFlow.tryEmit(AppAction.CreateMemo)
         }
 
         fun requestOpenMemo(memoId: String) {
             if (memoId.isNotBlank()) {
-                appActionEventsChannel.trySend(AppAction.OpenMemo(memoId))
+                appActionEventsFlow.tryEmit(AppAction.OpenMemo(memoId))
             }
         }
 
@@ -262,16 +270,7 @@ class MainViewModel
         suspend fun refresh() {
             withContext(Dispatchers.IO) {
                 try {
-                    val syncOnRefresh = gitSyncRepo.getSyncOnRefreshEnabled().first()
-                    val gitEnabled = gitSyncRepo.isGitSyncEnabled().first()
-                    if (syncOnRefresh && gitEnabled) {
-                        try {
-                            gitSyncRepo.sync()
-                        } catch (e: Exception) {
-                            Timber.w(e, "Sync on refresh failed")
-                        }
-                    }
-                    repository.refreshMemos()
+                    refreshMemosUseCase()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -300,8 +299,7 @@ class MainViewModel
                 kotlinx.coroutines.delay(300L) // Wait for fade out animation
                 var deleted = false
                 try {
-                    repository.deleteMemo(memo)
-                    appWidgetRepository.updateAllWidgets()
+                    mainMemoMutationUseCase.deleteMemo(memo)
                     deleted = true
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
@@ -322,11 +320,7 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val newContent = toggleCheckboxLine(memo.content, lineIndex, checked)
-                    if (newContent != memo.content) {
-                        memoContentValidator.validateForUpdate(newContent)
-                        repository.updateMemo(memo, newContent)
-                    }
+                    mainMemoMutationUseCase.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -487,27 +481,6 @@ class MainViewModel
                 query.isNotBlank() -> repository.searchMemosList(query)
                 else -> allMemos
             }
-
-        private fun toggleCheckboxLine(
-            content: String,
-            lineIndex: Int,
-            checked: Boolean,
-        ): String {
-            if (lineIndex < 0) return content
-
-            val currentMark = if (checked) "- [ ]" else "- [x]"
-            val targetMark = if (checked) "- [x]" else "- [ ]"
-
-            val lines = content.split('\n').toMutableList()
-            if (lineIndex >= lines.size) return content
-
-            val originalLine = lines[lineIndex]
-            val updatedLine = originalLine.replaceFirst(currentMark, targetMark)
-            if (updatedLine == originalLine) return content
-
-            lines[lineIndex] = updatedLine
-            return lines.joinToString(separator = "\n")
-        }
 
         private fun Throwable.userMessage(prefix: String? = null): String =
             when {

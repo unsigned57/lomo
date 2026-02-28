@@ -3,7 +3,6 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoActionDelegate
 import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
@@ -13,6 +12,9 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
@@ -33,7 +35,9 @@ class TagFilterViewModel
         private val preferencesRepository: PreferencesRepository,
         private val imageMapProvider: ImageMapProvider,
         private val memoFlowProcessor: MemoFlowProcessor,
-        private val memoActionDelegate: MemoActionDelegate,
+        private val deleteMemoUseCase: DeleteMemoUseCase,
+        private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+        private val saveImageUseCase: SaveImageUseCase,
     ) : ViewModel() {
         val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
         private val _errorMessage = MutableStateFlow<String?>(null)
@@ -76,11 +80,13 @@ class TagFilterViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .deleteMemo(memo)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to delete memo")
-                    }
+                try {
+                    deleteMemoUseCase(memo)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to delete memo")
+                }
             }
         }
 
@@ -89,11 +95,13 @@ class TagFilterViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .updateMemo(memo, newContent)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to update memo")
-                    }
+                try {
+                    updateMemoContentUseCase(memo, newContent)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to update memo")
+                }
             }
         }
 
@@ -103,13 +111,14 @@ class TagFilterViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                memoActionDelegate
-                    .saveImage(uri)
-                    .onSuccess(onResult)
-                    .onFailure { error ->
-                        _errorMessage.value = error.userMessage("Failed to save image")
-                        onError?.invoke()
-                    }
+                try {
+                    onResult(saveImageUseCase(uri.toString()))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    _errorMessage.value = e.userMessage("Failed to save image")
+                    onError?.invoke()
+                }
             }
         }
 

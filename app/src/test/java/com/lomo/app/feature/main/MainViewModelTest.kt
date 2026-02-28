@@ -1,13 +1,15 @@
 package com.lomo.app.feature.main
 
 import androidx.lifecycle.SavedStateHandle
-import com.lomo.app.feature.media.MemoImageWorkflow
 import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.RefreshMemosUseCase
+import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.validation.MemoContentValidator
 import io.mockk.coEvery
 import io.mockk.every
@@ -170,9 +172,14 @@ class MainViewModelTest {
             savedStateHandle = savedStateHandle,
             memoFlowProcessor = memoFlowProcessor,
             imageMapProvider = imageMapProvider,
-            memoContentValidator = MemoContentValidator(),
-            mainMediaCoordinator = MainMediaCoordinator(mediaRepository, MemoImageWorkflow(mediaRepository)),
-            appWidgetRepository = appWidgetRepository,
+            mainMemoMutationUseCase =
+                MainMemoMutationUseCase(
+                    deleteMemoUseCase = DeleteMemoUseCase(repository),
+                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, MemoContentValidator()),
+                    appWidgetRepository = appWidgetRepository,
+                ),
+            refreshMemosUseCase = RefreshMemosUseCase(repository, gitSyncRepo),
+            mainMediaCoordinator = MainMediaCoordinator(mediaRepository),
             startupCoordinator =
                 MainStartupCoordinator(
                     repository = repository,
