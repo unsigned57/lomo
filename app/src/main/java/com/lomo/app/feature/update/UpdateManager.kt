@@ -1,6 +1,7 @@
 package com.lomo.app.feature.update
 
 import com.lomo.app.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -22,9 +23,10 @@ class UpdateManager
 
         suspend fun checkForUpdatesInfo(): UpdateInfo? =
             withContext(Dispatchers.IO) {
+                var connection: HttpURLConnection? = null
                 try {
                     val url = URL("https://api.github.com/repos/unsigned57/lomo/releases/latest")
-                    val connection = url.openConnection() as HttpURLConnection
+                    connection = url.openConnection() as HttpURLConnection
                     connection.requestMethod = "GET"
                     connection.connectTimeout = 5000
                     connection.readTimeout = 5000
@@ -75,9 +77,12 @@ class UpdateManager
                     } else {
                         Timber.e("Update check failed with code: $responseCode")
                     }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
                 } catch (e: Exception) {
                     Timber.e(e, "Error checking for updates")
-                    e.printStackTrace()
+                } finally {
+                    connection?.disconnect()
                 }
                 return@withContext null
             }

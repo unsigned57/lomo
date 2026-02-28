@@ -24,6 +24,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import timber.log.Timber
+import java.io.File
 import java.security.MessageDigest
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -64,7 +65,7 @@ class LomoShareServer {
     var onIncomingPrepare: ((SharePayload) -> Unit)? = null
 
     // Callback to save attachments; returns the saved file path
-    var onSaveAttachment: (suspend (name: String, type: String, bytes: ByteArray) -> String?)? = null
+    var onSaveAttachment: (suspend (name: String, type: String, payloadFile: File) -> String?)? = null
 
     // Callback to save the received memo
     var onSaveMemo: (suspend (content: String, timestamp: Long, attachmentMappings: Map<String, String>) -> Unit)? = null

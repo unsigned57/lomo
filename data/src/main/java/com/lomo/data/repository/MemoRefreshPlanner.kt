@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.source.FileMetadataWithId
-import javax.inject.Inject
 
 internal data class MemoRefreshPlan(
     val discoveredMainStates: List<LocalFileStateEntity>,
@@ -12,7 +11,6 @@ internal data class MemoRefreshPlan(
 )
 
 class MemoRefreshPlanner
-    @Inject
     constructor() {
     internal fun build(
         syncMetadataMap: Map<Pair<String, Boolean>, LocalFileStateEntity>,

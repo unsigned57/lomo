@@ -3,8 +3,6 @@ package com.lomo.ui.component.navigation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -311,20 +309,22 @@ private fun TagTreeItem(
 
                 if (hasChildren) {
                     Spacer(modifier = Modifier.width(AppSpacing.Small))
-                    Icon(
-                        if (isExpanded) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        contentDescription =
-                            androidx.compose.ui.res.stringResource(
-                                if (isExpanded) com.lomo.ui.R.string.cd_collapse else com.lomo.ui.R.string.cd_expand,
-                            ),
-                        modifier =
-                            Modifier
-                                .size(20.dp)
-                                .clickable {
-                                    haptic.light()
-                                    onToggleExpand(node.fullPath)
-                                },
-                    )
+                    IconButton(
+                        onClick = {
+                            haptic.light()
+                            onToggleExpand(node.fullPath)
+                        },
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            if (isExpanded) Icons.Rounded.KeyboardArrowDown else Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription =
+                                androidx.compose.ui.res.stringResource(
+                                    if (isExpanded) com.lomo.ui.R.string.cd_collapse else com.lomo.ui.R.string.cd_expand,
+                                ),
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
             }
         },

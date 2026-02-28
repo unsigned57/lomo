@@ -2,15 +2,14 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoFlowProcessor
+import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
@@ -23,9 +22,12 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -35,10 +37,9 @@ class SearchViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val directorySettings: DirectorySettingsRepository,
-        private val preferencesRepository: PreferencesRepository,
+        private val appConfigRepository: AppConfigRepository,
         private val imageMapProvider: ImageMapProvider,
-        private val memoFlowProcessor: MemoFlowProcessor,
+        private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
@@ -49,19 +50,19 @@ class SearchViewModel
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
         val rootDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getRootDirectory()
                 .stateInViewModel(viewModelScope, null)
 
         val imageDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getImageDirectory()
                 .stateInViewModel(viewModelScope, null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            preferencesRepository.appPreferencesState(viewModelScope)
+            appConfigRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
@@ -82,13 +83,27 @@ class SearchViewModel
 
         @OptIn(ExperimentalCoroutinesApi::class)
         val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            memoFlowProcessor
-                .mapMemoFlow(
-                    memos = searchResults,
-                    rootDirectory = rootDirectory,
-                    imageDirectory = imageDirectory,
-                    imageMap = imageMap,
-                ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            combine(searchResults, rootDirectory, imageDirectory, imageMap) {
+                    memos,
+                    rootDir,
+                    imageDir,
+                    currentImageMap,
+                ->
+                UiMemoMappingInput(
+                    memos = memos,
+                    rootDirectory = rootDir,
+                    imageDirectory = imageDir,
+                    imageMap = currentImageMap,
+                )
+            }.distinctUntilChanged()
+                .mapLatest { input ->
+                    memoUiMapper.mapToUiModels(
+                        memos = input.memos,
+                        rootPath = input.rootDirectory,
+                        imagePath = input.imageDirectory,
+                        imageMap = input.imageMap,
+                    )
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
@@ -148,4 +163,11 @@ class SearchViewModel
             } else {
                 "$prefix: ${message.orEmpty()}"
             }
+
+        private data class UiMemoMappingInput(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+        )
     }

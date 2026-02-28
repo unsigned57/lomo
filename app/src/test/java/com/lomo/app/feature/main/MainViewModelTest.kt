@@ -1,14 +1,14 @@
 package com.lomo.app.feature.main
 
-import androidx.lifecycle.SavedStateHandle
-import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
+import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.validation.MemoContentValidator
 import io.mockk.coEvery
@@ -32,15 +32,14 @@ import org.junit.Test
 class MainViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
-    private lateinit var savedStateHandle: SavedStateHandle
     private lateinit var repository: com.lomo.domain.repository.MemoRepository
-    private lateinit var directorySettings: com.lomo.domain.repository.DirectorySettingsRepository
-    private lateinit var preferencesRepository: com.lomo.domain.repository.PreferencesRepository
+    private lateinit var sidebarStateHolder: MainSidebarStateHolder
+    private lateinit var appConfigRepository: com.lomo.domain.repository.AppConfigRepository
     private lateinit var gitSyncRepo: com.lomo.domain.repository.GitSyncRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var appVersionRepository: com.lomo.domain.repository.AppVersionRepository
     private lateinit var appWidgetRepository: AppWidgetRepository
-    private lateinit var memoFlowProcessor: MemoFlowProcessor
+    private lateinit var memoUiMapper: MemoUiMapper
     private lateinit var imageMapProvider: ImageMapProvider
     private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
 
@@ -48,15 +47,14 @@ class MainViewModelTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
 
-        savedStateHandle = SavedStateHandle()
         repository = mockk(relaxed = true)
-        directorySettings = mockk(relaxed = true)
-        preferencesRepository = mockk(relaxed = true)
+        sidebarStateHolder = MainSidebarStateHolder()
+        appConfigRepository = mockk(relaxed = true)
         gitSyncRepo = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
         appVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
-        memoFlowProcessor = MemoFlowProcessor(MemoUiMapper())
+        memoUiMapper = MemoUiMapper()
         imageMapProvider = mockk(relaxed = true)
         audioPlayerManager = mockk(relaxed = true)
 
@@ -72,21 +70,21 @@ class MainViewModelTest {
         every { repository.getActiveDayCount() } returns flowOf(0)
         every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
         every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { directorySettings.getRootDirectory() } returns flowOf<String?>(null)
-        coEvery { directorySettings.getRootDirectoryOnce() } returns null
-        every { directorySettings.getImageDirectory() } returns flowOf<String?>(null)
-        every { directorySettings.getVoiceDirectory() } returns flowOf<String?>(null)
+        every { appConfigRepository.getRootDirectory() } returns flowOf<String?>(null)
+        coEvery { appConfigRepository.getRootDirectoryOnce() } returns null
+        every { appConfigRepository.getImageDirectory() } returns flowOf<String?>(null)
+        every { appConfigRepository.getVoiceDirectory() } returns flowOf<String?>(null)
 
-        every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-        every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
-        every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-        every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
-        every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-        every { preferencesRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
-        every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-        every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-        every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
-        every { preferencesRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
+        every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+        every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
+        every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
+        every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
+        every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+        every { appConfigRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
+        every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+        every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
+        every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
+        every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
 
         coEvery { appVersionRepository.getLastAppVersionOnce() } returns ""
         coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
@@ -166,11 +164,10 @@ class MainViewModelTest {
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             repository = repository,
-            settingsRepository = directorySettings,
-            preferencesRepository = preferencesRepository,
-            gitSyncRepo = gitSyncRepo,
-            savedStateHandle = savedStateHandle,
-            memoFlowProcessor = memoFlowProcessor,
+            appConfigRepository = appConfigRepository,
+            sidebarStateHolder = sidebarStateHolder,
+            versionHistoryCoordinator = MainVersionHistoryCoordinator(repository, gitSyncRepo),
+            memoUiMapper = memoUiMapper,
             imageMapProvider = imageMapProvider,
             mainMemoMutationUseCase =
                 MainMemoMutationUseCase(
@@ -178,13 +175,15 @@ class MainViewModelTest {
                     toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, MemoContentValidator()),
                     appWidgetRepository = appWidgetRepository,
                 ),
-            refreshMemosUseCase = RefreshMemosUseCase(repository, gitSyncRepo),
-            mainMediaCoordinator = MainMediaCoordinator(mediaRepository),
+            refreshMemosUseCase = RefreshMemosUseCase(SyncAndRebuildUseCase(repository, gitSyncRepo)),
+            initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+            mediaRepository = mediaRepository,
             startupCoordinator =
                 MainStartupCoordinator(
-                    repository = repository,
+                    appConfigRepository = appConfigRepository,
                     mediaRepository = mediaRepository,
-                    settingsRepository = directorySettings,
+                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                    syncAndRebuildUseCase = SyncAndRebuildUseCase(repository, gitSyncRepo),
                     appVersionRepository = appVersionRepository,
                     audioPlayerManager = audioPlayerManager,
                 ),

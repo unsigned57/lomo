@@ -2,44 +2,25 @@ package com.lomo.data.source
 
 import android.net.Uri
 
-/**
- * Strategy interface for storage operations.
- * Abstracts the difference between SAF (Storage Access Framework) and direct file system access.
- */
-interface StorageBackend {
-    // --- Context-aware API ---
+interface WorkspaceConfigBackend {
+    suspend fun createDirectory(name: String): String
+}
 
-    /**
-     * List markdown files in [directory].
-     * @param targetFilename If specified, only return files matching this name.
-     */
+interface MarkdownStorageBackend {
     suspend fun listFilesIn(
         directory: MemoDirectoryType,
         targetFilename: String? = null,
     ): List<FileContent>
 
-    /**
-     * List file metadata (name + lastModified) without reading content.
-     */
     suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata>
 
-    /**
-     * List metadata with document IDs for direct URI construction (SAF optimization).
-     * For direct file backend, documentId equals filename.
-     */
     suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>
 
-    /**
-     * Get metadata for a single file.
-     */
     suspend fun getFileMetadataIn(
         directory: MemoDirectoryType,
         filename: String,
     ): FileMetadata?
 
-    /**
-     * Read file content by filename.
-     */
     suspend fun readFileIn(
         directory: MemoDirectoryType,
         filename: String,
@@ -47,36 +28,23 @@ interface StorageBackend {
 
     suspend fun readFile(uri: Uri): String?
 
-    /**
-     * Read file by document ID (SAF optimization).
-     * For direct file backend, documentId equals filename.
-     */
     suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
     ): String?
 
-    /**
-     * Read only the first up-to-[maxChars] characters of a file by filename.
-     */
     suspend fun readHeadIn(
         directory: MemoDirectoryType,
         filename: String,
         maxChars: Int = 256,
     ): String?
 
-    /**
-     * Read only the first up-to-[maxChars] characters of a file by document ID.
-     */
     suspend fun readHeadByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
         maxChars: Int = 256,
     ): String?
 
-    /**
-     * Save content to a file.
-     */
     suspend fun saveFileIn(
         directory: MemoDirectoryType,
         filename: String,
@@ -85,70 +53,33 @@ interface StorageBackend {
         uri: Uri? = null,
     ): String?
 
-    /**
-     * Delete a file.
-     */
     suspend fun deleteFileIn(
         directory: MemoDirectoryType,
         filename: String,
         uri: Uri? = null,
     )
 
-    /**
-     * Check if a file exists.
-     */
     suspend fun existsIn(
         directory: MemoDirectoryType,
         filename: String,
     ): Boolean
-
-    suspend fun createDirectory(name: String): String
 }
 
-/**
- * Strategy interface for image storage operations.
- * Separated from main storage as image directory may differ from memo directory.
- */
+interface MediaStorageBackend : ImageStorageBackend, VoiceStorageBackend
+
 interface ImageStorageBackend {
-    /**
-     * Save an image from a source URI to the image directory.
-     * @param sourceUri The source image URI (e.g., from picker).
-     * @param filename Target filename to save as.
-     * @return The saved filename.
-     */
     suspend fun saveImage(
         sourceUri: Uri,
         filename: String,
     )
 
-    /**
-     * List all image files.
-     * @return List of pairs (filename, uriString).
-     */
     suspend fun listImageFiles(): List<Pair<String, String>>
 
-    /**
-     * Delete an image file.
-     */
     suspend fun deleteImage(filename: String)
 }
 
-/**
- * Strategy interface for voice memo storage operations.
- */
 interface VoiceStorageBackend {
-    /**
-     * Create a new voice memo file.
-     * @param filename Desired filename (without extension? or with? let's say without, or just filename).
-     * actually, let's say "filename" is the base name, and "extension" is sep.
-     * Or just "filename" including extension.
-     * Let's use filename (with extension) to be explicit.
-     */
     suspend fun createVoiceFile(filename: String): Uri
 
-    /**
-     * Delete a voice memo file.
-     * @param filename Filename.
-     */
     suspend fun deleteVoiceFile(filename: String)
 }

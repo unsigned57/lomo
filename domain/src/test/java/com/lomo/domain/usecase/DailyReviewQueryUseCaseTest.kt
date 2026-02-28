@@ -44,6 +44,7 @@ class DailyReviewQueryUseCaseTest {
 
             assertEquals(first, second)
             assertEquals(5, first.size)
+            assertEquals(5, first.map { it.id }.distinct().size)
         }
 
     @Test

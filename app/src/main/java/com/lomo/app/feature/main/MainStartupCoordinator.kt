@@ -2,9 +2,10 @@ package com.lomo.app.feature.main
 
 import com.lomo.app.BuildConfig
 import com.lomo.domain.repository.AppVersionRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.ui.media.AudioPlayerManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
@@ -14,14 +15,15 @@ import javax.inject.Inject
 class MainStartupCoordinator
     @Inject
     constructor(
-        private val repository: MemoRepository,
+        private val appConfigRepository: AppConfigRepository,
         private val mediaRepository: MediaRepository,
-        private val settingsRepository: DirectorySettingsRepository,
+        private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
+        private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
         private val appVersionRepository: AppVersionRepository,
         private val audioPlayerManager: AudioPlayerManager,
     ) {
         suspend fun initializeRootDirectory(): String? {
-            val rootDirectory = settingsRepository.getRootDirectoryOnce()
+            val rootDirectory = initializeWorkspaceUseCase.currentRootDirectory()
             audioPlayerManager.setRootDirectory(rootDirectory)
             return rootDirectory
         }
@@ -32,7 +34,7 @@ class MainStartupCoordinator
         }
 
         fun observeRootDirectoryChanges(): Flow<String?> =
-            settingsRepository
+            appConfigRepository
                 .getRootDirectory()
                 .drop(1)
                 .onEach { directory ->
@@ -40,7 +42,7 @@ class MainStartupCoordinator
                 }
 
         fun observeVoiceDirectoryChanges(): Flow<String?> =
-            settingsRepository
+            appConfigRepository
                 .getVoiceDirectory()
                 .onEach { voiceDirectory ->
                     audioPlayerManager.setVoiceDirectory(voiceDirectory)
@@ -61,7 +63,7 @@ class MainStartupCoordinator
 
             if (rootDir != null) {
                 try {
-                    repository.refreshMemos()
+                    syncAndRebuildUseCase(forceSync = false)
                 } catch (_: Exception) {
                     // best-effort refresh
                 }

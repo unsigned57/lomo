@@ -10,7 +10,13 @@ import io.ktor.server.response.respondText
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import kotlinx.serialization.json.Json
 import timber.log.Timber
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.security.MessageDigest
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 internal class LomoShareTransferHandler(
     private val json: Json,
@@ -29,10 +35,11 @@ internal class LomoShareTransferHandler(
         attachmentNames: List<String>,
         e2eEnabled: Boolean,
     ) -> String,
-    private val onSaveAttachment: () -> (suspend (name: String, type: String, bytes: ByteArray) -> String?)?,
+    private val onSaveAttachment: () -> (suspend (name: String, type: String, payloadFile: File) -> String?)?,
     private val onSaveMemo: () -> (suspend (content: String, timestamp: Long, attachmentMappings: Map<String, String>) -> Unit)?,
 ) {
     suspend fun handle(call: ApplicationCall) {
+        val tempAttachmentFiles = mutableListOf<File>()
         try {
             val contentLength = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
             if (contentLength != null && contentLength > MAX_TRANSFER_BODY_BYTES) {
@@ -195,15 +202,10 @@ internal class LomoShareTransferHandler(
                             } else {
                                 MAX_TOTAL_ATTACHMENT_BYTES
                             }
-                        val bytes = readBytesLimited(part, perAttachmentMax)
-                        totalAttachmentBytes += bytes.size.toLong()
-                        if (totalAttachmentBytes > totalAttachmentMax) {
-                            part.dispose()
-                            call.respond(HttpStatusCode.PayloadTooLarge, "Attachments too large")
-                            return
-                        }
 
-                        val decryptedBytes =
+                        val tempAttachment = File.createTempFile("share_incoming_", ".bin")
+                        tempAttachmentFiles += tempAttachment
+                        val streamed =
                             if (currentMetadata.e2eEnabled) {
                                 val attachmentNonce = expectedAttachmentNonces[expectedReferenceName]
                                 if (attachmentNonce.isNullOrBlank()) {
@@ -217,35 +219,46 @@ internal class LomoShareTransferHandler(
                                     call.respond(HttpStatusCode.PreconditionFailed, "Missing transfer key")
                                     return
                                 }
-                                ShareCryptoUtils.decryptBytes(
+                                decryptPartToTempFile(
+                                    part = part,
+                                    outputFile = tempAttachment,
                                     keyHex = keyHex,
-                                    ciphertext = bytes,
                                     nonceBase64 = attachmentNonce,
                                     aad = "attachment:$expectedReferenceName",
+                                    maxCipherBytes = perAttachmentMax,
+                                    maxPlainBytes = MAX_ATTACHMENT_SIZE_BYTES,
                                 )
                             } else {
-                                bytes
+                                copyPartToTempFile(
+                                    part = part,
+                                    outputFile = tempAttachment,
+                                    maxBytes = perAttachmentMax,
+                                )
                             }
-                        if (decryptedBytes == null) {
+                        if (streamed == null) {
                             part.dispose()
                             call.respond(HttpStatusCode.Unauthorized, "Cannot decrypt attachment")
                             return
                         }
-                        if (decryptedBytes.size.toLong() > MAX_ATTACHMENT_SIZE_BYTES) {
+
+                        totalAttachmentBytes += streamed.totalInputBytes
+                        if (totalAttachmentBytes > totalAttachmentMax) {
                             part.dispose()
-                            call.respond(HttpStatusCode.PayloadTooLarge, "Attachment too large")
+                            call.respond(HttpStatusCode.PayloadTooLarge, "Attachments too large")
                             return
                         }
 
                         val safeStorageName = sanitizeStorageFilename(expectedReferenceName)
-                        Timber.tag(TAG).d("Received attachment: $expectedReferenceName ($type, ${decryptedBytes.size} bytes)")
+                        Timber
+                            .tag(TAG)
+                            .d("Received attachment: $expectedReferenceName ($type, ${streamed.plaintextBytes} bytes)")
 
                         val attachmentSaver = onSaveAttachment()
                         val savedPath =
                             attachmentSaver?.invoke(
                                 safeStorageName,
                                 type,
-                                decryptedBytes,
+                                tempAttachment,
                             )
                         if (!savedPath.isNullOrBlank()) {
                             attachmentMappings[expectedReferenceName] = savedPath
@@ -296,6 +309,10 @@ internal class LomoShareTransferHandler(
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error handling transfer request")
             call.respond(HttpStatusCode.InternalServerError, "Transfer error")
+        } finally {
+            tempAttachmentFiles.forEach { file ->
+                runCatching { file.delete() }
+            }
         }
     }
 
@@ -330,25 +347,116 @@ internal class LomoShareTransferHandler(
             }.toMap()
     }
 
-    private fun readBytesLimited(
+    private data class StreamedAttachment(
+        val totalInputBytes: Long,
+        val plaintextBytes: Long,
+    )
+
+    private fun copyPartToTempFile(
         part: io.ktor.http.content.PartData.FileItem,
+        outputFile: File,
         maxBytes: Long,
-    ): ByteArray {
+    ): StreamedAttachment {
         part.provider().toInputStream().use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            var total = 0L
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                total += read.toLong()
-                if (total > maxBytes) {
-                    throw IllegalArgumentException("Attachment too large")
+            outputFile.outputStream().buffered().use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    total += read.toLong()
+                    if (total > maxBytes) {
+                        throw IllegalArgumentException("Attachment too large")
+                    }
+                    output.write(buffer, 0, read)
                 }
-                output.write(buffer, 0, read)
+                return StreamedAttachment(totalInputBytes = total, plaintextBytes = total)
             }
-            return output.toByteArray()
         }
+    }
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun decryptPartToTempFile(
+        part: io.ktor.http.content.PartData.FileItem,
+        outputFile: File,
+        keyHex: String,
+        nonceBase64: String,
+        aad: String,
+        maxCipherBytes: Long,
+        maxPlainBytes: Long,
+    ): StreamedAttachment? {
+        val nonce =
+            try {
+                Base64.Default.decode(nonceBase64)
+            } catch (_: Exception) {
+                return null
+            }
+        if (nonce.size != NONCE_BYTES) return null
+
+        return try {
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                SecretKeySpec(deriveEncryptionKey(keyHex), "AES"),
+                GCMParameterSpec(TAG_BITS, nonce),
+            )
+            if (aad.isNotEmpty()) {
+                cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
+            }
+
+            part.provider().toInputStream().use { input ->
+                outputFile.outputStream().buffered().use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var totalCipherBytes = 0L
+                    var totalPlainBytes = 0L
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        totalCipherBytes += read.toLong()
+                        if (totalCipherBytes > maxCipherBytes) {
+                            throw IllegalArgumentException("Attachment too large")
+                        }
+                        val plainChunk = cipher.update(buffer, 0, read)
+                        if (plainChunk != null && plainChunk.isNotEmpty()) {
+                            totalPlainBytes += plainChunk.size.toLong()
+                            if (totalPlainBytes > maxPlainBytes) {
+                                throw IllegalArgumentException("Attachment too large")
+                            }
+                            output.write(plainChunk)
+                        }
+                    }
+
+                    val finalChunk = cipher.doFinal()
+                    if (finalChunk.isNotEmpty()) {
+                        totalPlainBytes += finalChunk.size.toLong()
+                        if (totalPlainBytes > maxPlainBytes) {
+                            throw IllegalArgumentException("Attachment too large")
+                        }
+                        output.write(finalChunk)
+                    }
+
+                    StreamedAttachment(
+                        totalInputBytes = totalCipherBytes,
+                        plaintextBytes = totalPlainBytes,
+                    )
+                }
+            }
+        } catch (e: IllegalArgumentException) {
+            throw e
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun deriveEncryptionKey(keyHex: String): ByteArray {
+        val baseKey = keyHex.hexToBytes()
+        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
+        return MessageDigest.getInstance("SHA-256").digest(input)
+    }
+
+    private fun String.hexToBytes(): ByteArray {
+        require(length % 2 == 0) { "Invalid hex length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
     }
 
     private companion object {
@@ -363,5 +471,8 @@ internal class LomoShareTransferHandler(
         private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
         private const val MAX_TOTAL_ATTACHMENT_ENCRYPTED_BYTES =
             MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
+        private const val NONCE_BYTES = 12
+        private const val TAG_BITS = 128
+        private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
     }
 }

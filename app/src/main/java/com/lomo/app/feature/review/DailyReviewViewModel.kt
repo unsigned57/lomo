@@ -2,15 +2,14 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoFlowProcessor
+import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -21,6 +20,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -30,10 +32,9 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val directorySettings: DirectorySettingsRepository,
-        private val preferencesRepository: PreferencesRepository,
+        private val appConfigRepository: AppConfigRepository,
         private val imageMapProvider: ImageMapProvider,
-        private val memoFlowProcessor: MemoFlowProcessor,
+        private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
@@ -46,13 +47,13 @@ class DailyReviewViewModel
         private var loadJob: Job? = null
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            preferencesRepository.appPreferencesState(viewModelScope)
+            appConfigRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
 
         val rootDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getRootDirectory()
                 .stateIn(
                     scope = viewModelScope,
@@ -63,7 +64,7 @@ class DailyReviewViewModel
                 )
 
         val imageDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getImageDirectory()
                 .stateIn(
                     scope = viewModelScope,
@@ -93,13 +94,26 @@ class DailyReviewViewModel
                             return@launch
                         }
 
-                        memoFlowProcessor
-                            .mapMemoSnapshot(
+                        combine(rootDirectory, imageDirectory, imageMapProvider.imageMap) {
+                                rootDir,
+                                imageDir,
+                                currentImageMap,
+                            ->
+                            UiMemoMappingInput(
                                 memos = rawMemos,
-                                rootDirectory = rootDirectory,
-                                imageDirectory = imageDirectory,
-                                imageMap = imageMapProvider.imageMap,
-                            ).collect { uiModels ->
+                                rootDirectory = rootDir,
+                                imageDirectory = imageDir,
+                                imageMap = currentImageMap,
+                            )
+                        }.distinctUntilChanged()
+                            .mapLatest { input ->
+                                memoUiMapper.mapToUiModels(
+                                    memos = input.memos,
+                                    rootPath = input.rootDirectory,
+                                    imagePath = input.imageDirectory,
+                                    imageMap = input.imageMap,
+                                )
+                            }.collect { uiModels ->
                                 _uiState.value = UiState.Success(uiModels)
                             }
                     } catch (e: kotlinx.coroutines.CancellationException) {
@@ -174,4 +188,11 @@ class DailyReviewViewModel
             } else {
                 "$prefix: ${message.orEmpty()}"
             }
+
+        private data class UiMemoMappingInput(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+        )
     }

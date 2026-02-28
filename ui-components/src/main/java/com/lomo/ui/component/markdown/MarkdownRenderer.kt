@@ -1,49 +1,31 @@
 package com.lomo.ui.component.markdown
 
-// ... existing imports ...
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
@@ -58,13 +40,6 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
-import coil3.compose.AsyncImagePainter
-import coil3.compose.SubcomposeAsyncImage
-import coil3.decode.DataSource
-import coil3.request.ImageRequest
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.BlockQuote
@@ -527,169 +502,10 @@ private fun MDImage(
     image: Image,
     onImageClick: ((String) -> Unit)? = null,
 ) {
-    val destination = image.destination
-    val context = LocalContext.current
-    // Fix: Remember the ImageRequest to prevent reloading on every recomposition.
-    // The key is the destination URL.
-    val model =
-        remember(destination, context) {
-            ImageRequest.Builder(context).data(destination).build()
-        }
-
-    val aspectRatio = ImageRatioCache.get(destination)
-    val modifier =
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .padding(vertical = 4.dp)
-            .let {
-                if (aspectRatio != null) it.aspectRatio(aspectRatio) else it
-            }.let {
-                if (onImageClick != null) {
-                    it.clickable { onImageClick(destination) }
-                } else {
-                    it
-                }
-            }
-
-    val sharedTransitionScope = com.lomo.ui.util.LocalSharedTransitionScope.current
-    val animatedVisibilityScope = com.lomo.ui.util.LocalAnimatedVisibilityScope.current
-
-    @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
-    val sharedModifier =
-        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            with(sharedTransitionScope) {
-                Modifier.sharedElement(
-                    rememberSharedContentState(key = destination),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                )
-            }
-        } else {
-            Modifier
-        }
-
-    SubcomposeAsyncImage(
-        model = model,
-        contentDescription = image.title ?: "Image",
-        modifier = modifier.then(sharedModifier),
-        contentScale = ContentScale.FillWidth,
-    ) {
-        val state by painter.state.collectAsState()
-
-        when (state) {
-            is AsyncImagePainter.State.Loading -> {
-                // Loading placeholder with indicator
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 100.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                RoundedCornerShape(8.dp),
-                            ),
-                    contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                    )
-                }
-            }
-
-            is AsyncImagePainter.State.Success -> {
-                val successState = state as AsyncImagePainter.State.Success
-                val size = successState.painter.intrinsicSize
-                if (size.width > 0 && size.height > 0) {
-                    ImageRatioCache.put(destination, size.width / size.height)
-                }
-
-                if (successState.result.dataSource != DataSource.MEMORY_CACHE) {
-                    var visible by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) { visible = true }
-
-                    AnimatedVisibility(
-                        visible = visible,
-                        enter = fadeIn(animationSpec = tween(300)),
-                        exit = fadeOut(),
-                    ) {
-                        Image(
-                            painter = painter,
-                            contentDescription = image.title ?: "Image",
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                } else {
-                    Image(
-                        painter = painter,
-                        contentDescription = image.title ?: "Image",
-                        contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-
-            is AsyncImagePainter.State.Error -> {
-                // Error state with visual indicator
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(60.dp)
-                            .background(
-                                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
-                                RoundedCornerShape(8.dp),
-                            ),
-                    contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) {
-                    Text(
-                        text = "⚠ Image failed to load",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                    )
-                }
-            }
-
-            else -> {
-                // Empty/Initial state - show placeholder
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 60.dp)
-                            .background(
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
-                                RoundedCornerShape(8.dp),
-                            ),
-                )
-            }
-        }
-    }
-}
-
-private object ImageRatioCache {
-    private const val MAX_CACHE_SIZE = 200
-    private val lock = Any()
-    private val cache =
-        object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, 0.75f, true) {
-            override fun removeEldestEntry(eldest: Map.Entry<String, Float>): Boolean = size > MAX_CACHE_SIZE
-        }
-
-    fun get(url: String): Float? =
-        synchronized(lock) {
-            cache[url]
-        }
-
-    fun put(
-        url: String,
-        ratio: Float,
-    ) {
-        synchronized(lock) {
-            cache[url] = ratio
-        }
-    }
+    MarkdownImageBlock(
+        image = image,
+        onImageClick = onImageClick,
+    )
 }
 
 // Helper to build AnnotatedString from inline nodes

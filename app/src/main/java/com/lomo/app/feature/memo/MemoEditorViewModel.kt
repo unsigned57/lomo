@@ -4,14 +4,16 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.main.MainMediaCoordinator
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.validation.MemoContentValidator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -22,12 +24,14 @@ class MemoEditorViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: DirectorySettingsRepository,
+        private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val validator: MemoContentValidator,
-        private val mediaCoordinator: MainMediaCoordinator,
+        private val saveImageUseCase: SaveImageUseCase,
+        private val mediaRepository: MediaRepository,
         private val appWidgetRepository: AppWidgetRepository,
     ) : ViewModel() {
         val controller = MemoEditorController()
+        private val trackedImageFilenames = mutableSetOf<String>()
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
@@ -49,14 +53,14 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    if (settingsRepository.getRootDirectoryOnce() == null) {
+                    if (initializeWorkspaceUseCase.currentRootDirectory() == null) {
                         _errorMessage.value = "Please select a folder first"
                         return@launch
                     }
                     validator.validateForCreate(content)
                     repository.saveMemo(content, System.currentTimeMillis())
                     onSuccess?.invoke()
-                    mediaCoordinator.clearTrackedImages()
+                    clearTrackedImages()
                     viewModelScope.launch(Dispatchers.IO) {
                         runCatching { appWidgetRepository.updateAllWidgets() }
                     }
@@ -77,7 +81,7 @@ class MemoEditorViewModel
                     validator.validateForUpdate(newContent)
                     repository.updateMemo(memo, newContent)
                     appWidgetRepository.updateAllWidgets()
-                    mediaCoordinator.clearTrackedImages()
+                    clearTrackedImages()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -93,7 +97,9 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    onResult(mediaCoordinator.saveImageAndTrack(uri))
+                    val path = saveImageUseCase(uri.toString())
+                    trackedImageFilenames += path
+                    onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -106,7 +112,7 @@ class MemoEditorViewModel
         fun discardInputs() {
             viewModelScope.launch {
                 try {
-                    mediaCoordinator.discardTrackedImages()
+                    discardTrackedImages()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -126,4 +132,31 @@ class MemoEditorViewModel
                 message.isNullOrBlank() -> prefix
                 else -> "$prefix: $message"
             }
+
+        private fun clearTrackedImages() {
+            trackedImageFilenames.clear()
+        }
+
+        private suspend fun discardTrackedImages() {
+            val toDelete = trackedImageFilenames.toList()
+            trackedImageFilenames.clear()
+
+            toDelete.forEach { filename ->
+                try {
+                    mediaRepository.deleteImage(filename)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Best-effort cleanup.
+                }
+            }
+
+            try {
+                mediaRepository.syncImageCache()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort refresh.
+            }
+        }
     }

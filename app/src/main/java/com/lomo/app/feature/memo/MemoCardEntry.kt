@@ -15,11 +15,11 @@ fun MemoCardEntry(
     doubleTapEditEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
+    modifier: Modifier = Modifier,
     onMemoClick: ((Memo) -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     onImageClick: (String) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val memo = uiModel.memo
 
@@ -40,12 +40,7 @@ fun MemoCardEntry(
                 null
             },
         onTagClick = onTagClick,
-        onTodoClick =
-            if (onTodoClick != null) {
-                { index, checked -> onTodoClick(index, checked) }
-            } else {
-                null
-            },
+        onTodoClick = onTodoClick,
         onImageClick = onImageClick,
         onMenuClick = {
             onShowMenu(

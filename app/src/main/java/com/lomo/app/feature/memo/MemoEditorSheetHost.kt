@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.app.R
@@ -100,6 +101,7 @@ fun MemoEditorSheetHost(
     if (!controller.isVisible) return
 
     val context = LocalContext.current
+    val settingsNotSetMessage = stringResource(R.string.settings_not_set)
     var pendingCameraFile by remember { mutableStateOf<File?>(null) }
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -169,7 +171,7 @@ fun MemoEditorSheetHost(
                             Toast
                                 .makeText(
                                     context,
-                                    context.getString(R.string.settings_not_set),
+                                    settingsNotSetMessage,
                                     Toast.LENGTH_SHORT,
                                 ).show()
                         }
@@ -189,7 +191,7 @@ fun MemoEditorSheetHost(
                             Toast
                                 .makeText(
                                     context,
-                                    context.getString(R.string.settings_not_set),
+                                    settingsNotSetMessage,
                                     Toast.LENGTH_SHORT,
                                 ).show()
                         }

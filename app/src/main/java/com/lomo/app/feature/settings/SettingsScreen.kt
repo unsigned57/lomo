@@ -50,13 +50,17 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -80,6 +84,7 @@ import com.lomo.ui.component.settings.SwitchPreferenceItem
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,15 +120,20 @@ fun SettingsScreen(
     val gitAutoSyncEnabled by viewModel.gitAutoSyncEnabled.collectAsStateWithLifecycle()
     val gitAutoSyncInterval by viewModel.gitAutoSyncInterval.collectAsStateWithLifecycle()
     val gitSyncOnRefreshEnabled by viewModel.gitSyncOnRefreshEnabled.collectAsStateWithLifecycle()
-    val gitSyncOnFileChangeEnabled by viewModel.gitSyncOnFileChangeEnabled.collectAsStateWithLifecycle()
     val gitLastSyncTime by viewModel.gitLastSyncTime.collectAsStateWithLifecycle()
     val gitSyncState by viewModel.gitSyncState.collectAsStateWithLifecycle()
     val connectionTestState by viewModel.connectionTestState.collectAsStateWithLifecycle()
     val resetInProgress by viewModel.resetInProgress.collectAsStateWithLifecycle()
+    val operationError by viewModel.operationError.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val haptic = LocalAppHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val unknownErrorMessage = stringResource(R.string.error_unknown)
+    val gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary)
+    val gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required)
 
     var showDateDialog by remember { mutableStateOf(false) }
     var showTimeDialog by remember { mutableStateOf(false) }
@@ -150,6 +160,8 @@ fun SettingsScreen(
     var gitAuthorEmailInput by remember { mutableStateOf("") }
     var showGitSyncIntervalDialog by remember { mutableStateOf(false) }
     var showGitResetConfirmDialog by remember { mutableStateOf(false) }
+    var showGitConflictResolutionDialog by remember { mutableStateOf(false) }
+    var gitConflictMessage by remember { mutableStateOf("") }
 
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
@@ -199,8 +211,16 @@ fun SettingsScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let {
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, flags)
-                viewModel.updateRootUri(it.toString())
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(it, flags)
+                    viewModel.updateRootUri(it.toString())
+                }.onFailure { throwable ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
+                        )
+                    }
+                }
             }
         }
 
@@ -208,8 +228,16 @@ fun SettingsScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let {
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, flags)
-                viewModel.updateImageUri(it.toString())
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(it, flags)
+                    viewModel.updateImageUri(it.toString())
+                }.onFailure { throwable ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
+                        )
+                    }
+                }
             }
         }
 
@@ -217,12 +245,45 @@ fun SettingsScreen(
         rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             uri?.let {
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(it, flags)
-                viewModel.updateVoiceUri(it.toString())
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(it, flags)
+                    viewModel.updateVoiceUri(it.toString())
+                }.onFailure { throwable ->
+                    scope.launch {
+                        snackbarHostState.showSnackbar(
+                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
+                        )
+                    }
+                }
             }
         }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    LaunchedEffect(operationError) {
+        val error = operationError ?: return@LaunchedEffect
+        if (isGitSyncConflictError(error)) {
+            gitConflictMessage = error
+            showGitConflictResolutionDialog = true
+        } else {
+            snackbarHostState.showSnackbar(
+                localizeGitSyncErrorMessage(
+                    message = error,
+                    conflictSummary = gitConflictSummary,
+                    directPathRequired = gitDirectPathRequired,
+                ),
+            )
+        }
+        viewModel.clearOperationError()
+    }
+
+    LaunchedEffect(gitSyncState) {
+        val errorState = gitSyncState as? SyncEngineState.Error ?: return@LaunchedEffect
+        if (isGitSyncConflictError(errorState.message) && !showGitConflictResolutionDialog) {
+            gitConflictMessage = errorState.message
+            showGitConflictResolutionDialog = true
+        }
+    }
 
     AnimatedContent(
         targetState = currentLanguageTag,
@@ -257,6 +318,7 @@ fun SettingsScreen(
     ) { languageTag ->
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 LargeTopAppBar(
                     title = { Text(stringResource(R.string.settings_title)) },
@@ -619,14 +681,6 @@ fun SettingsScreen(
                                 icon = Icons.Outlined.Refresh,
                                 checked = gitSyncOnRefreshEnabled,
                                 onCheckedChange = { viewModel.updateGitSyncOnRefresh(it) },
-                            )
-                            SettingsDivider()
-                            SwitchPreferenceItem(
-                                title = stringResource(R.string.settings_git_sync_on_file_change),
-                                subtitle = stringResource(R.string.settings_git_sync_on_file_change_subtitle),
-                                icon = Icons.Outlined.Description,
-                                checked = gitSyncOnFileChangeEnabled,
-                                onCheckedChange = { viewModel.updateGitSyncOnFileChange(it) },
                             )
                             SettingsDivider()
                             PreferenceItem(
@@ -1141,6 +1195,41 @@ fun SettingsScreen(
             },
         )
     }
+
+    if (showGitConflictResolutionDialog) {
+        AlertDialog(
+            onDismissRequest = { showGitConflictResolutionDialog = false },
+            title = { Text(stringResource(R.string.settings_git_conflict_dialog_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.settings_git_conflict_dialog_message,
+                        localizeGitSyncErrorMessage(gitConflictMessage),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resolveGitConflictUsingLocal()
+                        showGitConflictResolutionDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_git_conflict_keep_local))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resolveGitConflictUsingRemote()
+                        showGitConflictResolutionDialog = false
+                    },
+                ) {
+                    Text(stringResource(R.string.settings_git_conflict_use_remote))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -1172,10 +1261,31 @@ private fun gitSyncNowSubtitle(state: SyncEngineState, lastSyncTime: Long): Stri
 
 @Composable
 private fun localizeGitSyncErrorMessage(message: String): String =
-    if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) {
+    if (isGitSyncConflictError(message)) {
+        stringResource(R.string.settings_git_sync_conflict_summary)
+    } else if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) {
         stringResource(R.string.settings_git_sync_direct_path_required)
     } else {
         message
+    }
+
+private fun isGitSyncConflictError(message: String): Boolean {
+    val normalized = message.trim()
+    return normalized.contains("rebase STOPPED", ignoreCase = true) ||
+        normalized.contains("resolve conflicts manually", ignoreCase = true) ||
+        (normalized.contains("rebase", ignoreCase = true) &&
+            normalized.contains("preserved", ignoreCase = true))
+}
+
+private fun localizeGitSyncErrorMessage(
+    message: String,
+    conflictSummary: String,
+    directPathRequired: String,
+): String =
+    when {
+        isGitSyncConflictError(message) -> conflictSummary
+        message.startsWith("Git sync requires direct path mode", ignoreCase = true) -> directPathRequired
+        else -> message
     }
 
 @Composable

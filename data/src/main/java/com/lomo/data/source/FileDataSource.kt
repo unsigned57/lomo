@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
@@ -144,7 +146,7 @@ data class FileMetadataWithId(
 /**
  * FileDataSource implementation using Strategy Pattern.
  *
- * Delegates file operations to appropriate StorageBackend:
+ * Delegates file operations to split storage backends:
  * - SafStorageBackend for content:// URIs (SAF)
  * - DirectStorageBackend for file:// paths
  *
@@ -243,38 +245,66 @@ class FileDataSourceImpl
 
         // --- Backend resolution ---
 
-        private var currentBackend: StorageBackend? = null
+        private val backendCacheMutex = Mutex()
+        private var currentMarkdownBackend: MarkdownStorageBackend? = null
+        private var currentWorkspaceBackend: WorkspaceConfigBackend? = null
         private var currentRootConfig: String? = null
 
-        private suspend fun getBackend(): StorageBackend? {
+        private suspend fun getMarkdownBackend(): MarkdownStorageBackend? =
+            backendCacheMutex.withLock {
+                resolveMarkdownBackendLocked()
+            }
+
+        private suspend fun resolveMarkdownBackendLocked(): MarkdownStorageBackend? {
             val rootUri = dataStore.rootUri.first()
             val rootDir = dataStore.rootDirectory.first()
 
             val configKey = rootUri ?: rootDir
 
             // Return cached backend if configuration hasn't changed
-            if (currentBackend != null && currentRootConfig == configKey) {
-                return currentBackend
+            if (currentMarkdownBackend != null && currentRootConfig == configKey) {
+                return currentMarkdownBackend
             }
 
-            val backend =
-                when {
-                    rootUri != null -> SafStorageBackend(context, Uri.parse(rootUri))
-                    rootDir != null -> DirectStorageBackend(java.io.File(rootDir))
-                    else -> null
+            val markdownBackend: MarkdownStorageBackend?
+            val workspaceBackend: WorkspaceConfigBackend?
+            when {
+                rootUri != null -> {
+                    val backend = SafStorageBackend(context, Uri.parse(rootUri))
+                    markdownBackend = backend
+                    workspaceBackend = backend
                 }
 
-            currentBackend = backend
+                rootDir != null -> {
+                    val backend = DirectStorageBackend(java.io.File(rootDir))
+                    markdownBackend = backend
+                    workspaceBackend = backend
+                }
+
+                else -> {
+                    markdownBackend = null
+                    workspaceBackend = null
+                }
+            }
+
+            currentMarkdownBackend = markdownBackend
+            currentWorkspaceBackend = workspaceBackend
             currentRootConfig = configKey
-            return backend
+            return currentMarkdownBackend
         }
 
-        private suspend fun getImageBackend(): Pair<StorageBackend?, Uri?> {
+        private suspend fun getWorkspaceBackend(): WorkspaceConfigBackend? =
+            backendCacheMutex.withLock {
+                resolveMarkdownBackendLocked()
+                currentWorkspaceBackend
+            }
+
+        private suspend fun getImageBackend(): Pair<MediaStorageBackend?, Uri?> {
             val (backend, uriString) = getConfiguredBackend(StorageRootType.IMAGE)
             return backend to uriString?.let(Uri::parse)
         }
 
-        private suspend fun getConfiguredBackend(type: StorageRootType): Pair<StorageBackend?, String?> {
+        private suspend fun getConfiguredBackend(type: StorageRootType): Pair<MediaStorageBackend?, String?> {
             val configuredUri = readRootUriFlow(type).first()
             val configuredPath = readRootPathFlow(type).first()
             return when {
@@ -289,37 +319,37 @@ class FileDataSourceImpl
         override suspend fun listFilesIn(
             directory: MemoDirectoryType,
             targetFilename: String?,
-        ): List<FileContent> = getBackend()?.listFilesIn(directory, targetFilename) ?: emptyList()
+        ): List<FileContent> = getMarkdownBackend()?.listFilesIn(directory, targetFilename) ?: emptyList()
 
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
-            getBackend()?.listMetadataIn(directory) ?: emptyList()
+            getMarkdownBackend()?.listMetadataIn(directory) ?: emptyList()
 
         override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
-            getBackend()?.listMetadataWithIdsIn(directory) ?: emptyList()
+            getMarkdownBackend()?.listMetadataWithIdsIn(directory) ?: emptyList()
 
-        override suspend fun readFile(uri: Uri): String? = getBackend()?.readFile(uri)
+        override suspend fun readFile(uri: Uri): String? = getMarkdownBackend()?.readFile(uri)
 
         override suspend fun readFileByDocumentIdIn(
             directory: MemoDirectoryType,
             documentId: String,
-        ): String? = getBackend()?.readFileByDocumentIdIn(directory, documentId)
+        ): String? = getMarkdownBackend()?.readFileByDocumentIdIn(directory, documentId)
 
         override suspend fun readHeadIn(
             directory: MemoDirectoryType,
             filename: String,
             maxChars: Int,
-        ): String? = getBackend()?.readHeadIn(directory, filename, maxChars)
+        ): String? = getMarkdownBackend()?.readHeadIn(directory, filename, maxChars)
 
         override suspend fun readHeadByDocumentIdIn(
             directory: MemoDirectoryType,
             documentId: String,
             maxChars: Int,
-        ): String? = getBackend()?.readHeadByDocumentIdIn(directory, documentId, maxChars)
+        ): String? = getMarkdownBackend()?.readHeadByDocumentIdIn(directory, documentId, maxChars)
 
         override suspend fun readFileIn(
             directory: MemoDirectoryType,
             filename: String,
-        ): String? = getBackend()?.readFileIn(directory, filename)
+        ): String? = getMarkdownBackend()?.readFileIn(directory, filename)
 
         override suspend fun saveFileIn(
             directory: MemoDirectoryType,
@@ -327,25 +357,25 @@ class FileDataSourceImpl
             content: String,
             append: Boolean,
             uri: Uri?,
-        ): String? = getBackend()?.saveFileIn(directory, filename, content, append, uri)
+        ): String? = getMarkdownBackend()?.saveFileIn(directory, filename, content, append, uri)
 
         override suspend fun deleteFileIn(
             directory: MemoDirectoryType,
             filename: String,
             uri: Uri?,
         ) {
-            getBackend()?.deleteFileIn(directory, filename, uri)
+            getMarkdownBackend()?.deleteFileIn(directory, filename, uri)
         }
 
         override suspend fun getFileMetadataIn(
             directory: MemoDirectoryType,
             filename: String,
-        ): FileMetadata? = getBackend()?.getFileMetadataIn(directory, filename)
+        ): FileMetadata? = getMarkdownBackend()?.getFileMetadataIn(directory, filename)
 
         override suspend fun existsIn(
             directory: MemoDirectoryType,
             filename: String,
-        ): Boolean = getBackend()?.existsIn(directory, filename) ?: false
+        ): Boolean = getMarkdownBackend()?.existsIn(directory, filename) ?: false
 
         // --- Image operations (require special handling for source URI resolution) ---
 
@@ -424,11 +454,11 @@ class FileDataSourceImpl
 
         // --- Voice operations ---
 
-        private suspend fun getVoiceBackend(): VoiceStorageBackend? {
+        private suspend fun getVoiceBackend(): MediaStorageBackend? {
             val (voiceBackend, _) = getConfiguredBackend(StorageRootType.VOICE)
 
             // Use custom voice directory if set
-            if (voiceBackend != null) return voiceBackend as? VoiceStorageBackend
+            if (voiceBackend != null) return voiceBackend
 
             // Fallback to root directory (no subfolder)
             val rootUri = dataStore.rootUri.first()
@@ -451,6 +481,6 @@ class FileDataSourceImpl
         }
 
         override suspend fun createDirectory(name: String): String =
-            getBackend()?.createDirectory(name)
+            getWorkspaceBackend()?.createDirectory(name)
                 ?: throw java.io.IOException("No storage configured")
     }

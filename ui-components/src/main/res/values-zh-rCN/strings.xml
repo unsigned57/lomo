@@ -10,19 +10,27 @@
     <string name="stat_memo">记录</string>
     <string name="stat_tag">标签</string>
     <string name="stat_day">天数</string>
-    
+
     <string name="cd_consume_touches">消费触摸事件</string>
     <string name="cd_expand">展开</string>
     <string name="cd_collapse">折叠</string>
+    <string name="cd_more_options">更多选项</string>
+    <string name="cd_play_audio">播放音频</string>
+    <string name="cd_pause_audio">暂停音频</string>
 
     <!-- Memo Sheet -->
     <string name="action_copy">复制</string>
     <string name="action_share">分享</string>
     <string name="action_edit">编辑</string>
     <string name="action_delete">删除</string>
+    <string name="action_cancel">取消</string>
     <string name="action_lan_share">发送</string>
     <string name="info_created">创建时间</string>
     <string name="info_characters">字符数</string>
+    <string name="memo_info_characters_value">字符数：%1$d</string>
+    <string name="memo_info_created_value">创建时间：%1$s</string>
+    <string name="clipboard_label_memo">备忘录</string>
+    <string name="loading_message">加载中...</string>
 
     <!-- Input Sheet -->
     <string name="input_discard_title">放弃草稿？</string>
@@ -40,4 +48,16 @@
     <string name="cd_stop_recording">停止录音</string>
     <string name="cd_add_voice_memo">录制语音</string>
     <string name="action_history">历史版本</string>
+
+    <!-- Relative Time -->
+    <string name="relative_time_just_now">刚刚</string>
+    <plurals name="relative_time_minutes_ago">
+        <item quantity="other">%1$d 分钟前</item>
+    </plurals>
+    <plurals name="relative_time_hours_ago">
+        <item quantity="other">%1$d 小时前</item>
+    </plurals>
+    <plurals name="relative_time_days_ago">
+        <item quantity="other">%1$d 天前</item>
+    </plurals>
 </resources>

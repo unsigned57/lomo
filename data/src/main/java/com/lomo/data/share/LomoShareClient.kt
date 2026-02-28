@@ -25,8 +25,14 @@ import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.Json
 import timber.log.Timber
-import java.io.ByteArrayOutputStream
 import java.io.File
+import java.security.MessageDigest
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * HTTP client for sending memos to peer devices on the LAN.
@@ -42,6 +48,10 @@ class LomoShareClient(
         private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
         private const val GCM_TAG_BYTES = 16L
         private const val MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES = MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
+        private const val NONCE_BYTES = 12
+        private const val TAG_BITS = 128
+        private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
+        private val secureRandom = SecureRandom()
     }
 
     private val json =
@@ -233,16 +243,14 @@ class LomoShareClient(
 
                 var totalEncryptedAttachmentBytes = 0L
                 for ((filename, uri) in attachmentUris) {
-                    val bytes =
-                        readUriBytes(uri, MAX_ATTACHMENT_SIZE_BYTES)
-                            ?: throw IllegalStateException("Failed to read attachment: $filename")
                     val encrypted =
-                        ShareCryptoUtils.encryptBytes(
+                        encryptUriToTempFile(
+                            uri = uri,
                             keyHex = keyHex,
-                            plaintext = bytes,
                             aad = "attachment:$filename",
-                        )
-                    val tempPayload = writePayloadToTempFile(encrypted.ciphertext)
+                            maxBytes = MAX_ATTACHMENT_SIZE_BYTES,
+                        ) ?: throw IllegalStateException("Failed to read attachment: $filename")
+                    val tempPayload = encrypted.payloadFile
                     tempPayloadFiles += tempPayload
                     totalEncryptedAttachmentBytes += tempPayload.length()
                     if (totalEncryptedAttachmentBytes > MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES) {
@@ -465,14 +473,6 @@ class LomoShareClient(
         )
     }
 
-    private fun writePayloadToTempFile(payload: ByteArray): File {
-        val file = File.createTempFile("share_payload_", ".bin", context.cacheDir)
-        file.outputStream().use { out ->
-            out.write(payload)
-        }
-        return file
-    }
-
     private fun resolveUriSize(uri: Uri): Long? {
         val queriedSize =
             try {
@@ -498,30 +498,80 @@ class LomoShareClient(
         return null
     }
 
-    private fun readUriBytes(
+    private data class EncryptedTempPayload(
+        val payloadFile: File,
+        val nonceBase64: String,
+    )
+
+    @OptIn(ExperimentalEncodingApi::class)
+    private fun encryptUriToTempFile(
         uri: Uri,
+        keyHex: String,
+        aad: String,
         maxBytes: Long,
-    ): ByteArray? =
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                var total = 0L
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    total += read.toLong()
-                    if (total > maxBytes) {
-                        throw IllegalArgumentException("Attachment too large")
-                    }
-                    output.write(buffer, 0, read)
+    ): EncryptedTempPayload? {
+        var payloadFile: File? = null
+        return try {
+            val input =
+                context.contentResolver.openInputStream(uri)
+                    ?: return null
+            input.use { source ->
+                val nonce = ByteArray(NONCE_BYTES).also { secureRandom.nextBytes(it) }
+                val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+                cipher.init(
+                    Cipher.ENCRYPT_MODE,
+                    SecretKeySpec(deriveEncryptionKey(keyHex), "AES"),
+                    GCMParameterSpec(TAG_BITS, nonce),
+                )
+                if (aad.isNotEmpty()) {
+                    cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
                 }
-                output.toByteArray()
+
+                val encryptedFile = File.createTempFile("share_payload_", ".bin", context.cacheDir)
+                payloadFile = encryptedFile
+                encryptedFile.outputStream().buffered().use { encryptedOut ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var totalPlainBytes = 0L
+                    while (true) {
+                        val read = source.read(buffer)
+                        if (read <= 0) break
+                        totalPlainBytes += read.toLong()
+                        if (totalPlainBytes > maxBytes) {
+                            throw IllegalArgumentException("Attachment too large")
+                        }
+                        val encryptedChunk = cipher.update(buffer, 0, read)
+                        if (encryptedChunk != null && encryptedChunk.isNotEmpty()) {
+                            encryptedOut.write(encryptedChunk)
+                        }
+                    }
+                    val finalChunk = cipher.doFinal()
+                    if (finalChunk.isNotEmpty()) {
+                        encryptedOut.write(finalChunk)
+                    }
+                }
+
+                EncryptedTempPayload(
+                    payloadFile = encryptedFile,
+                    nonceBase64 = Base64.Default.encode(nonce),
+                )
             }
         } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to read URI: $uri")
+            payloadFile?.let { runCatching { it.delete() } }
+            Timber.tag(TAG).e(e, "Failed to encrypt URI: $uri")
             null
         }
+    }
+
+    private fun deriveEncryptionKey(keyHex: String): ByteArray {
+        val baseKey = keyHex.hexToBytes()
+        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
+        return MessageDigest.getInstance("SHA-256").digest(input)
+    }
+
+    private fun String.hexToBytes(): ByteArray {
+        require(length % 2 == 0) { "Invalid hex length" }
+        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+    }
 
     private fun guessContentType(filename: String): String =
         when {

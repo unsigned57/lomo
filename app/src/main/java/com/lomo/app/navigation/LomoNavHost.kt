@@ -27,6 +27,16 @@ fun LomoNavHost(
     navController: NavHostController,
     viewModel: MainViewModel,
 ) {
+    val navigateToShare: (String, Long) -> Unit = { content, timestamp ->
+        val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
+        navController.navigate(
+            NavRoute.Share(
+                payloadKey = payloadKey,
+                memoTimestamp = timestamp,
+            ),
+        )
+    }
+
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     androidx.compose.animation.SharedTransitionLayout {
         androidx.compose.runtime.CompositionLocalProvider(
@@ -57,9 +67,7 @@ fun LomoNavHost(
                             },
                             onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
                             onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
-                            onNavigateToShare = { content, timestamp ->
-                                navController.navigate(NavRoute.Share(content, timestamp))
-                            },
+                            onNavigateToShare = navigateToShare,
                         )
                     }
                 }
@@ -79,9 +87,7 @@ fun LomoNavHost(
                 composable<NavRoute.Search> {
                     SearchScreen(
                         onBackClick = { navController.popBackStack() },
-                        onNavigateToShare = { content, timestamp ->
-                            navController.navigate(NavRoute.Share(content, timestamp))
-                        },
+                        onNavigateToShare = navigateToShare,
                     )
                 }
 
@@ -97,9 +103,7 @@ fun LomoNavHost(
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
-                            onNavigateToShare = { content, timestamp ->
-                                navController.navigate(NavRoute.Share(content, timestamp))
-                            },
+                            onNavigateToShare = navigateToShare,
                         )
                     }
                 }
@@ -114,9 +118,7 @@ fun LomoNavHost(
                                 val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
-                            onNavigateToShare = { content, timestamp ->
-                                navController.navigate(NavRoute.Share(content, timestamp))
-                            },
+                            onNavigateToShare = navigateToShare,
                         )
                     }
                 }

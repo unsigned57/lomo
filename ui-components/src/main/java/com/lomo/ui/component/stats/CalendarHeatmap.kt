@@ -73,8 +73,10 @@ fun CalendarHeatmap(
     val level4Color = MaterialTheme.colorScheme.primary
 
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val densityScale = density.density
+    val fontScale = density.fontScale
     val textPaint =
-        remember(textColor) {
+        remember(textColor, densityScale, fontScale) {
             Paint().apply {
                 color = textColor
                 textSize = with(density) { 9.sp.toPx() }

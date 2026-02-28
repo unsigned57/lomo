@@ -12,7 +12,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import javax.inject.Inject
 
 internal data class MemoRefreshParseResult(
     val mainMemos: List<MemoEntity>,
@@ -23,7 +22,6 @@ internal data class MemoRefreshParseResult(
 )
 
 class MemoRefreshParserWorker
-    @Inject
     constructor(
         private val fileDataSource: FileDataSource,
         private val dao: MemoDao,

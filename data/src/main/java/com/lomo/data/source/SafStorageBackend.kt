@@ -17,9 +17,11 @@ class SafStorageBackend(
     private val context: Context,
     private val rootUri: Uri,
     private val subDir: String? = null,
-) : StorageBackend,
-    ImageStorageBackend,
-    VoiceStorageBackend {
+) : MarkdownStorageBackend,
+    WorkspaceConfigBackend,
+    MediaStorageBackend {
+    private val safIoDispatcher = Dispatchers.IO.limitedParallelism(4)
+
     private val imageExtensions =
         setOf(
             "jpg",
@@ -55,9 +57,34 @@ class SafStorageBackend(
     // Cache trash dir to avoid repeated findFile calls
     private var cachedTrashDir: DocumentFile? = null
 
+    private fun invalidateDocumentCaches() {
+        cachedTrashDir = null
+    }
+
+    private inline fun <T> withSecurityRetry(
+        operation: String,
+        fallbackValue: T,
+        block: () -> T,
+    ): T {
+        repeat(SECURITY_RETRY_ATTEMPTS) { attempt ->
+            try {
+                return block()
+            } catch (e: SecurityException) {
+                invalidateDocumentCaches()
+                val hasRetry = attempt + 1 < SECURITY_RETRY_ATTEMPTS
+                if (hasRetry) {
+                    timber.log.Timber.w(e, "%s hit SecurityException; retrying once", operation)
+                } else {
+                    timber.log.Timber.e(e, "%s hit SecurityException; giving up", operation)
+                }
+            }
+        }
+        return fallbackValue
+    }
+
     private fun DocumentFile.isUsableSafDocument(): Boolean =
         try {
-            exists() && canRead()
+            exists() && canRead() && (isFile || isDirectory)
         } catch (_: SecurityException) {
             false
         }
@@ -213,7 +240,7 @@ class SafStorageBackend(
     // --- File listing ---
 
     private suspend fun listFiles(targetFilename: String?): List<FileContent> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: return@withContext emptyList()
             root.listFiles().mapNotNull { file ->
                 val name = file.name
@@ -234,7 +261,7 @@ class SafStorageBackend(
         }
 
     private suspend fun listTrashFiles(): List<FileContent> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trashDir = getTrashDir() ?: return@withContext emptyList()
             trashDir.listFiles().mapNotNull { file ->
                 val name = file.name
@@ -252,7 +279,7 @@ class SafStorageBackend(
         }
 
     private suspend fun listMetadata(): List<FileMetadata> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 // Try optimized query first
                 val optimizedResults = queryChildDocuments()
@@ -309,7 +336,7 @@ class SafStorageBackend(
     }
 
     private suspend fun listTrashMetadata(): List<FileMetadata> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trashDir = getTrashDir() ?: return@withContext emptyList()
             trashDir.listFiles().mapNotNull { file ->
                 val name = file.name
@@ -322,7 +349,7 @@ class SafStorageBackend(
         }
 
     private suspend fun listMetadataWithIds(): List<FileMetadataWithId> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val rootDocId = DocumentsContract.getTreeDocumentId(rootUri)
                 val results = queryChildDocumentsWithIds(rootDocId)
@@ -374,7 +401,7 @@ class SafStorageBackend(
     }
 
     private suspend fun listTrashMetadataWithIds(): List<FileMetadataWithId> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val trashDir = getTrashDir() ?: return@withContext emptyList()
                 val trashDocId = DocumentsContract.getDocumentId(trashDir.uri)
@@ -397,7 +424,7 @@ class SafStorageBackend(
         }
 
     private suspend fun getFileMetadata(filename: String): FileMetadata? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: return@withContext null
             val file = root.findFile(filename)
             if (file != null) {
@@ -408,7 +435,7 @@ class SafStorageBackend(
         }
 
     private suspend fun getTrashFileMetadata(filename: String): FileMetadata? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trash = getTrashDir() ?: return@withContext null
             val file = trash.findFile(filename)
             if (file != null) {
@@ -421,26 +448,26 @@ class SafStorageBackend(
     // --- File reading ---
 
     private suspend fun readFile(filename: String): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: return@withContext null
             val file = root.findFile(filename) ?: return@withContext null
             readFileFromUri(file.uri)
         }
 
     override suspend fun readFile(uri: Uri): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             readFileFromUri(uri)
         }
 
     private suspend fun readTrashFile(filename: String): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trash = getTrashDir() ?: return@withContext null
             val file = trash.findFile(filename) ?: return@withContext null
             readFileFromUri(file.uri)
         }
 
     private suspend fun readFileByDocumentId(documentId: String): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
                 readFileFromUri(fileUri)
@@ -450,7 +477,7 @@ class SafStorageBackend(
         }
 
     private suspend fun readTrashFileByDocumentId(documentId: String): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
                 readFileFromUri(fileUri)
@@ -463,7 +490,7 @@ class SafStorageBackend(
         filename: String,
         maxChars: Int,
     ): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: return@withContext null
             val file = root.findFile(filename) ?: return@withContext null
             try {
@@ -481,7 +508,7 @@ class SafStorageBackend(
         documentId: String,
         maxChars: Int,
     ): String? =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val fileUri = DocumentsContract.buildDocumentUriUsingTree(rootUri, documentId)
                 context.contentResolver.openInputStream(fileUri)?.buffered()?.use { bis ->
@@ -503,32 +530,34 @@ class SafStorageBackend(
         append: Boolean,
         uri: Uri?,
     ): String? =
-        withContext(Dispatchers.IO) {
-            if (uri != null) {
-                // O(1) optimized write
-                val mode = if (append) "wa" else "wt"
-                try {
-                    context.contentResolver.openOutputStream(uri, mode)?.use {
+        withContext(safIoDispatcher) {
+            withSecurityRetry(operation = "saveFile($filename)", fallbackValue = null) {
+                if (uri != null) {
+                    // O(1) optimized write
+                    val mode = if (append) "wa" else "wt"
+                    try {
+                        context.contentResolver.openOutputStream(uri, mode)?.use {
+                            it.write(content.toByteArray())
+                        }
+                        return@withSecurityRetry uri.toString()
+                    } catch (e: Exception) {
+                        // Fallback to findFile if URI is stale
+                        timber.log.Timber.w(e, "Failed to write using cached URI, falling back to findFile")
+                    }
+                }
+
+                val root = getRoot() ?: throw SecurityException("Cannot access SAF root for saveFile")
+                var file = root.findFile(filename)
+                if (file == null) {
+                    file = root.createFile("text/markdown", filename)
+                }
+                file?.uri?.let { newUri ->
+                    val mode = if (append) "wa" else "wt"
+                    context.contentResolver.openOutputStream(newUri, mode)?.use {
                         it.write(content.toByteArray())
                     }
-                    return@withContext uri.toString()
-                } catch (e: Exception) {
-                    // Fallback to findFile if URI is stale
-                    timber.log.Timber.w(e, "Failed to write using cached URI, falling back to findFile")
+                    newUri.toString()
                 }
-            }
-
-            val root = getRoot() ?: return@withContext null
-            var file = root.findFile(filename)
-            if (file == null) {
-                file = root.createFile("text/markdown", filename)
-            }
-            file?.uri?.let { newUri ->
-                val mode = if (append) "wa" else "wt"
-                context.contentResolver.openOutputStream(newUri, mode)?.use {
-                    it.write(content.toByteArray())
-                }
-                newUri.toString()
             }
         }
 
@@ -536,19 +565,21 @@ class SafStorageBackend(
         filename: String,
         content: String,
         append: Boolean,
-    ) = withContext(Dispatchers.IO) {
-        val trash = getOrCreateTrashDir() ?: return@withContext
-        var file = trash.findFile(filename)
-        if (file == null) {
-            file = trash.createFile("text/markdown", filename)
-        }
-        file?.uri?.let { uri ->
-            val mode = if (append) "wa" else "wt"
-            context.contentResolver.openOutputStream(uri, mode)?.use {
-                it.write(content.toByteArray())
+    ) = withContext(safIoDispatcher) {
+        withSecurityRetry(operation = "saveTrashFile($filename)", fallbackValue = Unit) {
+            val trash = getOrCreateTrashDir() ?: throw SecurityException("Cannot access SAF trash for saveTrashFile")
+            var file = trash.findFile(filename)
+            if (file == null) {
+                file = trash.createFile("text/markdown", filename)
             }
+            file?.uri?.let { uri ->
+                val mode = if (append) "wa" else "wt"
+                context.contentResolver.openOutputStream(uri, mode)?.use {
+                    it.write(content.toByteArray())
+                }
+            }
+            Unit
         }
-        Unit
     }
 
     // --- File deletion ---
@@ -556,24 +587,26 @@ class SafStorageBackend(
     private suspend fun deleteFile(
         filename: String,
         uri: Uri?,
-    ) = withContext(Dispatchers.IO) {
-        if (uri != null) {
-            try {
-                // O(1) optimized delete
-                DocumentsContract.deleteDocument(context.contentResolver, uri)
-                return@withContext
-            } catch (e: Exception) {
-                // Fallback
-                timber.log.Timber.w(e, "Failed to delete using cached URI, falling back to findFile")
+    ) = withContext(safIoDispatcher) {
+        withSecurityRetry(operation = "deleteFile($filename)", fallbackValue = Unit) {
+            if (uri != null) {
+                try {
+                    // O(1) optimized delete
+                    DocumentsContract.deleteDocument(context.contentResolver, uri)
+                    return@withSecurityRetry Unit
+                } catch (e: Exception) {
+                    // Fallback
+                    timber.log.Timber.w(e, "Failed to delete using cached URI, falling back to findFile")
+                }
             }
+            val root = getRoot() ?: throw SecurityException("Cannot access SAF root for deleteFile")
+            root.findFile(filename)?.delete()
+            Unit
         }
-        val root = getRoot()
-        root?.findFile(filename)?.delete()
-        Unit
     }
 
     private suspend fun deleteTrashFile(filename: String) =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trash = getTrashDir()
             trash?.findFile(filename)?.delete()
             Unit
@@ -582,13 +615,13 @@ class SafStorageBackend(
     // --- File existence ---
 
     private suspend fun exists(filename: String): Boolean =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot()
             root?.findFile(filename)?.exists() == true
         }
 
     private suspend fun trashExists(filename: String): Boolean =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val trash = getTrashDir()
             trash?.findFile(filename)?.exists() == true
         }
@@ -599,7 +632,7 @@ class SafStorageBackend(
         sourceUri: Uri,
         filename: String,
     ) {
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access image directory")
 
             val inputStream =
@@ -618,7 +651,7 @@ class SafStorageBackend(
     }
 
     override suspend fun listImageFiles(): List<Pair<String, String>> =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: return@withContext emptyList()
             root.listFiles().mapNotNull { file ->
                 val name = file.name
@@ -633,7 +666,7 @@ class SafStorageBackend(
         }
 
     override suspend fun deleteImage(filename: String) =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val root = getRoot()
                 root?.findFile(filename)?.delete()
@@ -646,7 +679,7 @@ class SafStorageBackend(
     // --- Voice operations (VoiceStorageBackend) ---
 
     override suspend fun createVoiceFile(filename: String): Uri =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access voice directory")
 
             // Guess mime type from filename
@@ -666,7 +699,7 @@ class SafStorageBackend(
         }
 
     override suspend fun deleteVoiceFile(filename: String) =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             try {
                 val root = getRoot()
                 root?.findFile(filename)?.delete()
@@ -677,11 +710,15 @@ class SafStorageBackend(
         }
 
     override suspend fun createDirectory(name: String): String =
-        withContext(Dispatchers.IO) {
+        withContext(safIoDispatcher) {
             val root = getRoot() ?: throw java.io.IOException("Cannot access root directory")
             val dir =
                 root.findFile(name) ?: root.createDirectory(name)
                     ?: throw java.io.IOException("Cannot create directory $name")
             dir.uri.toString()
         }
+
+    private companion object {
+        private const val SECURITY_RETRY_ATTEMPTS = 2
+    }
 }

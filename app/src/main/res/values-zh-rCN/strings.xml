@@ -267,10 +267,13 @@
     <string name="settings_git_reset_repo_confirm_title">重置 Git 仓库？</string>
     <string name="settings_git_reset_repo_confirm_message">此操作将删除本地 .git 目录。你的备忘录文件不会受到影响，但需要重新初始化同步。</string>
     <string name="action_reset">重置</string>
+    <string name="settings_git_sync_conflict_summary">检测到同步冲突，已保留远端变更。</string>
+    <string name="settings_git_conflict_dialog_title">处理 Git 同步冲突</string>
+    <string name="settings_git_conflict_dialog_message">%1$s\n\n请选择：\n• 保留本地版本：将本地提交强制推送到远端。\n• 使用远端版本：将本地分支重置为远端历史。\n根据你的选择，未推送的本地提交可能会被丢弃。</string>
+    <string name="settings_git_conflict_use_remote">使用远端版本</string>
+    <string name="settings_git_conflict_keep_local">保留本地版本</string>
     <string name="settings_git_sync_on_refresh">刷新同步</string>
     <string name="settings_git_sync_on_refresh_subtitle">下拉刷新时触发 Git 同步</string>
-    <string name="settings_git_sync_on_file_change">文件被修改时同步</string>
-    <string name="settings_git_sync_on_file_change_subtitle">备忘录文件被外部修改时自动同步</string>
     <string name="memo_version_history">版本历史</string>
     <string name="memo_version_history_empty">暂无版本历史</string>
     <string name="memo_version_restore">恢复</string>

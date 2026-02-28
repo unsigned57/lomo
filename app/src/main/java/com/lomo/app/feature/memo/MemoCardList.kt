@@ -37,10 +37,10 @@ fun MemoCardList(
     doubleTapEditEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
+    modifier: Modifier = Modifier,
     onImageClick: (String) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
-    modifier: Modifier = Modifier,
 ) {
     LazyColumn(
         contentPadding = contentPadding,

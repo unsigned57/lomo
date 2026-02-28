@@ -3,10 +3,12 @@ package com.lomo.app.feature.share
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.repository.LanShareService
+import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.domain.repository.LanShareService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +25,16 @@ class ShareViewModel
         private val shareServiceManager: LanShareService,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
-        val memoContent: String = savedStateHandle.get<String>("memoContent") ?: ""
+        private val memoPayloadKey: String = savedStateHandle.get<String>("payloadKey").orEmpty()
+        private val legacyMemoContent: String = savedStateHandle.get<String>("memoContent").orEmpty()
+        private var memoContentBacking: String =
+            ShareRoutePayloadStore.consumeMemoContent(memoPayloadKey).orEmpty().ifBlank {
+                legacyMemoContent
+            }
+
+        val memoContent: String
+            get() = memoContentBacking
+
         val memoTimestamp: Long = savedStateHandle.get<Long>("memoTimestamp") ?: 0L
 
         val discoveredDevices =
@@ -54,34 +65,65 @@ class ShareViewModel
         val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
         private val _pairingRequiredEvent = MutableStateFlow(0)
         val pairingRequiredEvent: StateFlow<Int> = _pairingRequiredEvent.asStateFlow()
+        private val _operationError = MutableStateFlow<String?>(null)
+        val operationError: StateFlow<String?> = _operationError.asStateFlow()
 
         init {
             // Discovery starts when entering the share screen; server lifecycle is managed by MainActivity.
-            shareServiceManager.startDiscovery()
-            Timber.d("ShareViewModel init: discovery started")
+            runCatching {
+                shareServiceManager.startDiscovery()
+                Timber.d("ShareViewModel init: discovery started")
+            }.onFailure { throwable ->
+                reportOperationError(throwable, "Failed to start device discovery")
+            }
+
+            if (memoContentBacking.isBlank()) {
+                _operationError.value = "Share content is unavailable. Please reopen the share page."
+            }
         }
 
         fun sendMemo(device: DiscoveredDevice) {
             viewModelScope.launch {
-                if (shareServiceManager.requiresPairingBeforeSend()) {
-                    _pairingRequiredEvent.value += 1
-                    return@launch
-                }
-                // Extract attachment URIs from memo content
-                val attachmentUris = extractAttachmentUris(memoContent)
+                try {
+                    val currentContent = memoContentBacking
+                    if (currentContent.isBlank()) {
+                        _operationError.value = "Share content is unavailable. Please reopen the share page."
+                        return@launch
+                    }
 
-                shareServiceManager.sendMemo(
-                    device = device,
-                    content = memoContent,
-                    timestamp = memoTimestamp,
-                    attachmentUris = attachmentUris,
-                )
+                    if (shareServiceManager.requiresPairingBeforeSend()) {
+                        _pairingRequiredEvent.value += 1
+                        return@launch
+                    }
+                    // Extract attachment URIs from memo content
+                    val attachmentUris = extractAttachmentUris(currentContent)
+                    val result =
+                        shareServiceManager.sendMemo(
+                            device = device,
+                            content = currentContent,
+                            timestamp = memoTimestamp,
+                            attachmentUris = attachmentUris,
+                        )
+                    result.exceptionOrNull()?.let { throwable ->
+                        reportOperationError(throwable, "Failed to send memo")
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to send memo")
+                }
             }
         }
 
         fun updateLanShareE2eEnabled(enabled: Boolean) {
             viewModelScope.launch {
-                shareServiceManager.setLanShareE2eEnabled(enabled)
+                try {
+                    shareServiceManager.setLanShareE2eEnabled(enabled)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to update secure share setting")
+                }
             }
         }
 
@@ -98,8 +140,14 @@ class ShareViewModel
 
         fun clearLanSharePairingCode() {
             viewModelScope.launch {
-                shareServiceManager.clearLanSharePairingCode()
-                _pairingCodeError.value = null
+                try {
+                    shareServiceManager.clearLanSharePairingCode()
+                    _pairingCodeError.value = null
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to clear pairing code")
+                }
             }
         }
 
@@ -107,20 +155,38 @@ class ShareViewModel
             _pairingCodeError.value = null
         }
 
+        fun clearOperationError() {
+            _operationError.value = null
+        }
+
         fun updateLanShareDeviceName(deviceName: String) {
             viewModelScope.launch {
-                shareServiceManager.setLanShareDeviceName(deviceName)
+                try {
+                    shareServiceManager.setLanShareDeviceName(deviceName)
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to update device name")
+                }
             }
         }
 
         fun resetTransferState() {
-            shareServiceManager.resetTransferState()
+            runCatching {
+                shareServiceManager.resetTransferState()
+            }.onFailure { throwable ->
+                reportOperationError(throwable, "Failed to reset transfer state")
+            }
         }
 
         override fun onCleared() {
             super.onCleared()
-            shareServiceManager.stopDiscovery()
-            Timber.d("ShareViewModel cleared: discovery stopped")
+            runCatching {
+                shareServiceManager.stopDiscovery()
+                Timber.d("ShareViewModel cleared: discovery stopped")
+            }.onFailure { throwable ->
+                reportOperationError(throwable, "Failed to stop device discovery")
+            }
         }
 
         private fun extractAttachmentUris(content: String): Map<String, String> {
@@ -153,5 +219,15 @@ class ShareViewModel
                     "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
                     RegexOption.IGNORE_CASE,
                 )
+        }
+
+        private fun reportOperationError(
+            throwable: Throwable,
+            fallbackMessage: String,
+        ) {
+            if (throwable is CancellationException) throw throwable
+            val message = throwable.message?.takeIf { it.isNotBlank() } ?: fallbackMessage
+            _operationError.value = message
+            Timber.e(throwable, "ShareViewModel operation failed: %s", message)
         }
     }

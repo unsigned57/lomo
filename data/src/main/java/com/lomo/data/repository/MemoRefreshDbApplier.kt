@@ -1,13 +1,13 @@
 package com.lomo.data.repository
 
+import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.util.SearchTokenizer
-import javax.inject.Inject
 
 class MemoRefreshDbApplier
-    @Inject
     constructor(
         private val dao: MemoDao,
         private val localFileStateDao: LocalFileStateDao,
@@ -22,10 +22,20 @@ class MemoRefreshDbApplier
             return
         }
 
+        runBatchUpdateInTransaction {
+            applyInternal(parseResult, filesToDeleteInDb)
+        }
+    }
+
+    private suspend fun applyInternal(
+        parseResult: MemoRefreshParseResult,
+        filesToDeleteInDb: Set<Pair<String, Boolean>>,
+    ) {
         parseResult.mainDatesToReplace.forEach { date ->
             val memoIds = dao.getMemosByDate(date).map { it.id }
             if (memoIds.isNotEmpty()) {
                 dao.deleteTagRefsByMemoIds(memoIds)
+                dao.deleteMemoFtsByIds(memoIds)
             }
             dao.deleteMemosByDate(date)
         }
@@ -89,5 +99,36 @@ class MemoRefreshDbApplier
             }
             localFileStateDao.deleteByFilename(filename, isTrash)
         }
+    }
+
+    private suspend fun runBatchUpdateInTransaction(block: suspend () -> Unit) {
+        resolveRoomDatabase()?.withTransaction {
+            block()
+        } ?: block()
+    }
+
+    private fun resolveRoomDatabase(): RoomDatabase? =
+        resolveRoomDatabaseFromDao(dao) ?: resolveRoomDatabaseFromDao(localFileStateDao)
+
+    private fun resolveRoomDatabaseFromDao(daoObject: Any): RoomDatabase? {
+        var clazz: Class<*>? = daoObject.javaClass
+        while (clazz != null) {
+            val roomDbField =
+                clazz.declaredFields.firstOrNull { field ->
+                    RoomDatabase::class.java.isAssignableFrom(field.type)
+                }
+            if (roomDbField != null) {
+                val roomDb =
+                    runCatching {
+                        roomDbField.isAccessible = true
+                        roomDbField.get(daoObject) as? RoomDatabase
+                    }.getOrNull()
+                if (roomDb != null) {
+                    return roomDb
+                }
+            }
+            clazz = clazz.superclass
+        }
+        return null
     }
 }

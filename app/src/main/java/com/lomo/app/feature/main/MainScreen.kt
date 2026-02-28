@@ -55,7 +55,6 @@ import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 /**
@@ -92,6 +91,7 @@ fun MainScreen(
     onNavigateToGallery: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = hiltViewModel(),
+    sidebarViewModel: SidebarViewModel = hiltViewModel(),
     editorViewModel: MemoEditorViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
 ) {
@@ -99,9 +99,9 @@ fun MainScreen(
     // to ensure flows are paused when the app is in the background.
     val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val selectedTag by viewModel.selectedTag.collectAsStateWithLifecycle()
-    val sidebarUiState by viewModel.sidebarUiState.collectAsStateWithLifecycle()
+    val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
+    val selectedTag by sidebarViewModel.selectedTag.collectAsStateWithLifecycle()
+    val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
@@ -114,6 +114,8 @@ fun MainScreen(
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
     val versionHistoryState by viewModel.versionHistoryState.collectAsStateWithLifecycle()
+    val sharedContentEvents by viewModel.sharedContentEvents.collectAsStateWithLifecycle()
+    val appActionEvents by viewModel.appActionEvents.collectAsStateWithLifecycle()
 
     // Recording State (from RecordingViewModel)
     val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
@@ -132,7 +134,7 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val unknownErrorMessage = stringResource(R.string.error_unknown)
     val listState =
         rememberSaveable(saver = androidx.compose.foundation.lazy.LazyListState.Saver) {
             androidx.compose.foundation.lazy
@@ -164,8 +166,9 @@ fun MainScreen(
     // Shared Content Observation
     var pendingSharedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
-    LaunchedEffect(Unit) {
-        viewModel.sharedContentEvents.collect { content ->
+    LaunchedEffect(sharedContentEvents, imageDir) {
+        sharedContentEvents.forEach { event ->
+            val content = event.payload
             when (content) {
                 is MainViewModel.SharedContent.Text -> {
                     editorViewModel.appendSharedText(content.content)
@@ -178,11 +181,13 @@ fun MainScreen(
                     }
                 }
             }
+            viewModel.consumeSharedContentEvent(event.id)
         }
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.appActionEvents.collect { action ->
+    LaunchedEffect(appActionEvents) {
+        appActionEvents.forEach { event ->
+            val action = event.payload
             when (action) {
                 MainViewModel.AppAction.CreateMemo -> {
                     editorViewModel.openForCreate()
@@ -193,10 +198,11 @@ fun MainScreen(
                     if (memo != null) {
                         editorController.openForEdit(memo)
                     } else {
-                        snackbarHostState.showSnackbar(context.getString(R.string.error_unknown))
+                        snackbarHostState.showSnackbar(unknownErrorMessage)
                     }
                 }
             }
+            viewModel.consumeAppActionEvent(event.id)
         }
     }
 
@@ -251,7 +257,7 @@ fun MainScreen(
         onCameraCaptureError = { error ->
             scope.launch {
                 snackbarHostState.showSnackbar(
-                    error.message ?: context.getString(R.string.error_unknown),
+                    error.message ?: unknownErrorMessage,
                 )
             }
         },
@@ -312,7 +318,23 @@ fun MainScreen(
         com.lomo.ui.util.ProvideAppHapticFeedback(enabled = hapticEnabled) {
             val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
             val actions =
-                remember(viewModel, scope, drawerState, haptic) {
+                remember(
+                    viewModel,
+                    sidebarViewModel,
+                    editorViewModel,
+                    scope,
+                    drawerState,
+                    haptic,
+                    isExpanded,
+                    onNavigateToSettings,
+                    onNavigateToTrash,
+                    onNavigateToSearch,
+                    onNavigateToMemo,
+                    onNavigateToTag,
+                    onNavigateToImage,
+                    onNavigateToDailyReview,
+                    onNavigateToGallery,
+                ) {
                     MainScreenActions(
                         onSettings = {
                             if (!isExpanded) scope.launch { drawerState.close() }
@@ -325,7 +347,7 @@ fun MainScreen(
                         onSearch = onNavigateToSearch,
                         onMemoClick = onNavigateToMemo,
                         onSidebarMemoClick = {
-                            viewModel.clearFilters()
+                            sidebarViewModel.clearFilters()
                             if (!isExpanded) scope.launch { drawerState.close() }
                         },
                         onSidebarTagClick = { tag ->
@@ -333,7 +355,7 @@ fun MainScreen(
                             onNavigateToTag(tag)
                         },
                         onNavigateToImage = onNavigateToImage,
-                        onClearFilter = { viewModel.onTagSelected(null) },
+                        onClearFilter = { sidebarViewModel.onTagSelected(null) },
                         onMenuOpen = { scope.launch { drawerState.open() } },
                         onFabClick = {
                             haptic.longPress()
@@ -556,7 +578,7 @@ fun MainScreen(
         }
 
         when (val state = versionHistoryState) {
-            is MainViewModel.VersionHistoryState.Loading -> {
+            is MainVersionHistoryState.Loading -> {
                 com.lomo.app.feature.memo.MemoVersionHistorySheet(
                     versions = emptyList(),
                     isLoading = true,
@@ -564,7 +586,7 @@ fun MainScreen(
                     onDismiss = viewModel::dismissVersionHistory,
                 )
             }
-            is MainViewModel.VersionHistoryState.Loaded -> {
+            is MainVersionHistoryState.Loaded -> {
                 com.lomo.app.feature.memo.MemoVersionHistorySheet(
                     versions = state.versions,
                     isLoading = false,
@@ -572,7 +594,7 @@ fun MainScreen(
                     onDismiss = viewModel::dismissVersionHistory,
                 )
             }
-            is MainViewModel.VersionHistoryState.Hidden -> { /* nothing */ }
+            is MainVersionHistoryState.Hidden -> { /* nothing */ }
         }
     }
 }

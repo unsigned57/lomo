@@ -34,9 +34,24 @@ class MemoUiMapper
             imagePath: String?,
             imageMap: Map<String, Uri>,
             deletingIds: Set<String> = emptySet(),
-            precomputeMarkdown: Boolean = true,
+            prioritizedMemoIds: Set<String> = emptySet(),
         ): List<MemoUiModel> =
             withContext(Dispatchers.Default) {
+                if (memos.isEmpty()) {
+                    return@withContext emptyList()
+                }
+
+                val prioritizedIds =
+                    if (prioritizedMemoIds.isNotEmpty()) {
+                        prioritizedMemoIds
+                    } else {
+                        memos
+                            .asSequence()
+                            .take(DEFAULT_PRIORITY_WINDOW_SIZE)
+                            .map { it.id }
+                            .toSet()
+                    }
+
                 memos.map { memo ->
                     mapToUiModel(
                         memo = memo,
@@ -44,7 +59,7 @@ class MemoUiMapper
                         imagePath = imagePath,
                         imageMap = imageMap,
                         isDeleting = memo.id in deletingIds,
-                        precomputeMarkdown = precomputeMarkdown,
+                        precomputeMarkdown = memo.id in prioritizedIds,
                     )
                 }
             }
@@ -434,6 +449,7 @@ class MemoUiMapper
         }
 
         private companion object {
+            private const val DEFAULT_PRIORITY_WINDOW_SIZE = 20
             private val WIKI_IMAGE_REGEX = Regex("!\\[\\[(.*?)\\]\\]")
             private val MARKDOWN_IMAGE_REGEX = Regex("!\\[(.*?)\\]\\((.*?)\\)")
             private val EXTRACT_IMAGE_URL_REGEX = Regex("!\\[.*?\\]\\((.*?)\\)")

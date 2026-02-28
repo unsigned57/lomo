@@ -8,7 +8,15 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.util.Log
+import android.graphics.LinearGradient
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
+import android.graphics.Typeface
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.TextUtils
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
@@ -50,15 +58,22 @@ import java.io.FileOutputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import kotlin.math.max
+import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 /**
  * Utility object for sharing and copying memo content.
  */
 object ShareUtils {
-    private const val TAG = "ShareUtils"
     private const val MAX_SHARE_CONTENT_CHARS = 4000
     private const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096
     private const val MAX_SHARE_BODY_LINES = 60
+    private val SHARE_CARD_TIME_FORMATTER: DateTimeFormatter =
+        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
     private data class ShareCardConfig(
         val style: String,
@@ -86,7 +101,7 @@ object ShareUtils {
     /**
      * Share memo content as an image card via Android share sheet.
      */
-    fun shareMemoAsImage(
+    suspend fun shareMemoAsImage(
         context: Context,
         content: String,
         title: String? = null,
@@ -97,7 +112,7 @@ object ShareUtils {
         tags: List<String> = emptyList(),
         activeDayCount: Int? = null,
     ) {
-        runCatching {
+        try {
             val imageUri =
                 createShareImageUri(
                     context = context,
@@ -113,20 +128,26 @@ object ShareUtils {
                             activeDayCount = activeDayCount,
                         ),
                 )
-            val sendIntent =
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "image/png"
-                    putExtra(Intent.EXTRA_STREAM, imageUri)
-                    title?.let { putExtra(Intent.EXTRA_TITLE, it) }
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    clipData = ClipData.newUri(context.contentResolver, "memo_image", imageUri)
-                    if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-            context.startActivity(Intent.createChooser(sendIntent, null))
-        }.onFailure { throwable ->
-            Log.e(TAG, "shareMemoAsImage failed, fallback to text share", throwable)
+            withContext(Dispatchers.Main.immediate) {
+                val sendIntent =
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "image/png"
+                        putExtra(Intent.EXTRA_STREAM, imageUri)
+                        title?.let { putExtra(Intent.EXTRA_TITLE, it) }
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        clipData = ClipData.newUri(context.contentResolver, "memo_image", imageUri)
+                        if (context !is Activity) addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                context.startActivity(Intent.createChooser(sendIntent, null))
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (throwable: Throwable) {
+            Timber.e(throwable, "shareMemoAsImage failed, fallback to text share")
             // Fallback to text share so user still can complete the action.
-            shareMemoText(context, content, title)
+            withContext(Dispatchers.Main.immediate) {
+                shareMemoText(context, content, title)
+            }
         }
     }
 
@@ -183,25 +204,38 @@ object ShareUtils {
         shareMemoText(context, content, fileName)
     }
 
-    private fun createShareImageUri(
+    private suspend fun createShareImageUri(
         context: Context,
         content: String,
         title: String?,
         hostView: View?,
         config: ShareCardConfig,
     ): android.net.Uri {
-        val bitmap = createMemoCardBitmap(context, content, title, hostView, config)
-        val dir = File(context.cacheDir, "shared_memos").apply { mkdirs() }
-        val file = File(dir, "memo_share_${System.currentTimeMillis()}.png")
-        FileOutputStream(file).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
-        }
+        val bitmap =
+            withContext(Dispatchers.Default) {
+                createMemoCardBitmap(context, content, title, hostView, config)
+            }
+        val file =
+            try {
+                withContext(Dispatchers.IO) {
+                    val dir = File(context.cacheDir, "shared_memos").apply { mkdirs() }
+                    val output = File(dir, "memo_share_${System.currentTimeMillis()}.png")
+                    FileOutputStream(output).use { out ->
+                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    output
+                }
+            } finally {
+                bitmap.recycle()
+            }
 
-        return FileProvider.getUriForFile(
-            context,
-            "${context.packageName}.fileprovider",
-            file,
-        )
+        return withContext(Dispatchers.Default) {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+        }
     }
 
     private fun createMemoCardBitmap(
@@ -211,13 +245,359 @@ object ShareUtils {
         hostView: View?,
         config: ShareCardConfig,
     ): Bitmap =
-        createMemoCardBitmapWithCompose(
+        createMemoCardBitmapWithCanvas(
             context = context,
             content = content,
             title = title,
             hostView = hostView,
             config = config,
         )
+
+    @Suppress("UNUSED_PARAMETER")
+    private fun createMemoCardBitmapWithCanvas(
+        context: Context,
+        content: String,
+        title: String?,
+        hostView: View?,
+        config: ShareCardConfig,
+    ): Bitmap {
+        data class RenderLine(
+            val type: ShareBodyLineType,
+            val layout: StaticLayout,
+            val height: Float,
+        )
+
+        val resources = context.resources
+        val tags = buildShareTags(config.tags, content)
+        val safeText = prepareShareBodyText(context, content, tags)
+        val palette = resolvePalette(config.style)
+        val createdAtMillis = config.timestampMillis ?: System.currentTimeMillis()
+        val createdAtText = formatShareCardTime(createdAtMillis)
+        val activeDayCountText =
+            config.activeDayCount
+                ?.takeIf { it > 0 }
+                ?.let { dayCount ->
+                    context.resources.getQuantityString(R.plurals.share_card_recorded_days, dayCount, dayCount)
+                }.orEmpty()
+        val showFooter = config.showTime || activeDayCountText.isNotBlank()
+        val bodyTextSizeSp =
+            when {
+                safeText.length <= 32 -> 27f
+                safeText.length <= 88 -> 22f
+                safeText.length <= 180 -> 18f
+                else -> 16f
+            }
+
+        val canvasWidth = (resources.displayMetrics.widthPixels.coerceAtLeast(720) * 0.9f).roundToInt()
+        val outerPadding = dp(resources, 24f)
+        val cardPadding = dp(resources, 26f)
+        val cardCorner = dp(resources, 28f)
+        val lineSpacing = dp(resources, 6f)
+        val codeHorizontalPadding = dp(resources, 10f)
+        val codeVerticalPadding = dp(resources, 8f)
+        val minCardHeight = dp(resources, 330f)
+        val contentWidth =
+            (canvasWidth - outerPadding * 2 - cardPadding * 2)
+                .roundToInt()
+                .coerceAtLeast(1)
+
+        val tagPaint =
+            createTextPaint(
+                color = palette.tagText,
+                textSizePx = sp(resources, 12f),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+            )
+        val titlePaint =
+            createTextPaint(
+                color = palette.secondaryText,
+                textSizePx = sp(resources, 14f),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+            )
+        val paragraphPaint =
+            createTextPaint(
+                color = palette.bodyText,
+                textSizePx = sp(resources, bodyTextSizeSp),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+            )
+        val bulletPaint =
+            createTextPaint(
+                color = palette.bodyText,
+                textSizePx = sp(resources, bodyTextSizeSp * 0.94f),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+            )
+        val quotePaint =
+            createTextPaint(
+                color = palette.secondaryText,
+                textSizePx = sp(resources, bodyTextSizeSp * 0.9f),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+            )
+        val codePaint =
+            createTextPaint(
+                color = palette.bodyText,
+                textSizePx = sp(resources, bodyTextSizeSp * 0.84f),
+                typeface = Typeface.MONOSPACE,
+            )
+        val footerPaint =
+            createTextPaint(
+                color = palette.secondaryText,
+                textSizePx = sp(resources, 13f),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
+            )
+
+        val tagLayout =
+            tags
+                .takeIf { it.isNotEmpty() }
+                ?.take(6)
+                ?.joinToString(separator = "   ") { "#$it" }
+                ?.let { buildStaticLayout(it, tagPaint, contentWidth, maxLines = 2) }
+        val titleLayout =
+            title
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { buildStaticLayout(it, titlePaint, contentWidth, maxLines = 1) }
+        val bodyRenderLines =
+            buildShareBodyLines(safeText).map { line ->
+                when (line.type) {
+                    ShareBodyLineType.Blank -> {
+                        RenderLine(
+                            type = line.type,
+                            layout = buildStaticLayout(" ", paragraphPaint, contentWidth),
+                            height = lineSpacing,
+                        )
+                    }
+
+                    ShareBodyLineType.Code -> {
+                        val codeWidth = max(1, contentWidth - (codeHorizontalPadding * 2).roundToInt())
+                        val layout = buildStaticLayout(line.text, codePaint, codeWidth)
+                        RenderLine(
+                            type = line.type,
+                            layout = layout,
+                            height = layout.height + codeVerticalPadding * 2,
+                        )
+                    }
+
+                    ShareBodyLineType.Quote -> {
+                        val layout = buildStaticLayout(line.text, quotePaint, contentWidth)
+                        RenderLine(type = line.type, layout = layout, height = layout.height.toFloat())
+                    }
+
+                    ShareBodyLineType.Bullet -> {
+                        val layout = buildStaticLayout(line.text, bulletPaint, contentWidth)
+                        RenderLine(type = line.type, layout = layout, height = layout.height.toFloat())
+                    }
+
+                    ShareBodyLineType.Paragraph -> {
+                        val layout = buildStaticLayout(line.text, paragraphPaint, contentWidth)
+                        RenderLine(type = line.type, layout = layout, height = layout.height.toFloat())
+                    }
+                }
+            }
+
+        var contentHeight = 0f
+        if (tagLayout != null) {
+            contentHeight += tagLayout.height + dp(resources, 14f)
+        }
+        if (titleLayout != null) {
+            contentHeight += titleLayout.height + dp(resources, 10f)
+        }
+        bodyRenderLines.forEachIndexed { index, line ->
+            contentHeight += line.height
+            if (index != bodyRenderLines.lastIndex) {
+                contentHeight += lineSpacing
+            }
+        }
+
+        val footerTextHeight = footerPaint.fontMetrics.let { it.descent - it.ascent }
+        val footerBlockHeight =
+            if (showFooter) {
+                dp(resources, 18f) + dp(resources, 1f) + dp(resources, 12f) + footerTextHeight
+            } else {
+                0f
+            }
+
+        val maxCardHeight = MAX_SHARE_BITMAP_HEIGHT_PX - outerPadding * 2
+        val cardHeight =
+            max(minCardHeight, contentHeight + footerBlockHeight + cardPadding * 2)
+                .coerceAtMost(maxCardHeight)
+        val bitmapHeight =
+            (outerPadding * 2 + cardHeight)
+                .roundToInt()
+                .coerceIn(1, MAX_SHARE_BITMAP_HEIGHT_PX)
+        val bitmap = Bitmap.createBitmap(canvasWidth, bitmapHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val backgroundPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader =
+                    LinearGradient(
+                        0f,
+                        0f,
+                        canvasWidth.toFloat(),
+                        bitmapHeight.toFloat(),
+                        palette.bgStart,
+                        palette.bgEnd,
+                        Shader.TileMode.CLAMP,
+                    )
+            }
+        canvas.drawRect(0f, 0f, canvasWidth.toFloat(), bitmapHeight.toFloat(), backgroundPaint)
+
+        val cardRect =
+            RectF(
+                outerPadding,
+                outerPadding,
+                canvasWidth - outerPadding,
+                bitmapHeight - outerPadding,
+            )
+        val cardPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.card }
+        canvas.drawRoundRect(cardRect, cardCorner, cardCorner, cardPaint)
+        val borderPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.cardBorder
+                strokeWidth = dp(resources, 1f)
+                style = Paint.Style.STROKE
+            }
+        canvas.drawRoundRect(cardRect, cardCorner, cardCorner, borderPaint)
+
+        val contentLeft = cardRect.left + cardPadding
+        var cursorY = cardRect.top + cardPadding
+        val footerTop =
+            if (showFooter) {
+                cardRect.bottom - cardPadding - footerBlockHeight
+            } else {
+                cardRect.bottom - cardPadding
+            }
+
+        if (tagLayout != null) {
+            drawLayout(canvas, tagLayout, contentLeft, cursorY)
+            cursorY += tagLayout.height + dp(resources, 14f)
+        }
+        if (titleLayout != null) {
+            drawLayout(canvas, titleLayout, contentLeft, cursorY)
+            cursorY += titleLayout.height + dp(resources, 10f)
+        }
+
+        val codeBackgroundPaint =
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = palette.tagBg
+                alpha = 66
+            }
+        val codeCorner = dp(resources, 10f)
+        bodyRenderLines.forEachIndexed { index, line ->
+            val maxBodyBottom = footerTop
+            if (cursorY + line.height > maxBodyBottom) return@forEachIndexed
+
+            when (line.type) {
+                ShareBodyLineType.Blank -> {
+                    cursorY += line.height
+                }
+
+                ShareBodyLineType.Code -> {
+                    val top = cursorY
+                    val bottom = cursorY + line.height
+                    val codeRect = RectF(contentLeft, top, contentLeft + contentWidth, bottom)
+                    canvas.drawRoundRect(codeRect, codeCorner, codeCorner, codeBackgroundPaint)
+                    drawLayout(
+                        canvas = canvas,
+                        layout = line.layout,
+                        x = contentLeft + codeHorizontalPadding,
+                        y = cursorY + codeVerticalPadding,
+                    )
+                    cursorY += line.height
+                }
+
+                else -> {
+                    drawLayout(canvas, line.layout, contentLeft, cursorY)
+                    cursorY += line.height
+                }
+            }
+            if (index != bodyRenderLines.lastIndex) {
+                cursorY += lineSpacing
+            }
+        }
+
+        if (showFooter) {
+            val dividerY = footerTop + dp(resources, 18f)
+            val dividerPaint =
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = palette.divider
+                    strokeWidth = dp(resources, 1f)
+                }
+            canvas.drawLine(contentLeft, dividerY, contentLeft + contentWidth, dividerY, dividerPaint)
+
+            val rowTop = dividerY + dp(resources, 12f)
+            val baseline = rowTop - footerPaint.fontMetrics.ascent
+            if (config.showTime) {
+                canvas.drawText(createdAtText, contentLeft, baseline, footerPaint)
+            }
+            if (activeDayCountText.isNotBlank()) {
+                val textWidth = footerPaint.measureText(activeDayCountText)
+                canvas.drawText(
+                    activeDayCountText,
+                    contentLeft + contentWidth - textWidth,
+                    baseline,
+                    footerPaint,
+                )
+            }
+        }
+
+        return bitmap
+    }
+
+    private fun createTextPaint(
+        color: Int,
+        textSizePx: Float,
+        typeface: Typeface,
+    ): TextPaint =
+        TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            this.textSize = textSizePx
+            this.typeface = typeface
+        }
+
+    private fun buildStaticLayout(
+        text: String,
+        paint: TextPaint,
+        width: Int,
+        maxLines: Int = Int.MAX_VALUE,
+    ): StaticLayout =
+        StaticLayout
+            .Builder
+            .obtain(text.ifEmpty { " " }, 0, text.ifEmpty { " " }.length, paint, width.coerceAtLeast(1))
+            .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+            .setIncludePad(false)
+            .setLineSpacing(0f, 1.1f)
+            .setMaxLines(maxLines)
+            .setEllipsize(TextUtils.TruncateAt.END)
+            .build()
+
+    private fun drawLayout(
+        canvas: Canvas,
+        layout: StaticLayout,
+        x: Float,
+        y: Float,
+    ) {
+        canvas.save()
+        canvas.translate(x, y)
+        layout.draw(canvas)
+        canvas.restore()
+    }
+
+    private fun dp(
+        resources: android.content.res.Resources,
+        value: Float,
+    ): Float = value * resources.displayMetrics.density
+
+    private fun formatShareCardTime(createdAtMillis: Long): String =
+        SHARE_CARD_TIME_FORMATTER.format(
+            Instant
+                .ofEpochMilli(createdAtMillis)
+                .atZone(ZoneId.systemDefault()),
+        )
+
+    private fun sp(
+        resources: android.content.res.Resources,
+        value: Float,
+    ): Float = value * resources.displayMetrics.scaledDensity
 
     private fun createMemoCardBitmapWithCompose(
         context: Context,
@@ -231,11 +611,7 @@ object ShareUtils {
         val safeText = prepareShareBodyText(context, content, tags)
         val palette = resolvePalette(config.style)
         val createdAtMillis = config.timestampMillis ?: System.currentTimeMillis()
-        val createdAtText =
-            DateTimeFormatter
-                .ofPattern("yyyy-MM-dd HH:mm")
-                .withZone(ZoneId.systemDefault())
-                .format(Instant.ofEpochMilli(createdAtMillis))
+        val createdAtText = formatShareCardTime(createdAtMillis)
         val activeDayCountText =
             config.activeDayCount
                 ?.takeIf { it > 0 }

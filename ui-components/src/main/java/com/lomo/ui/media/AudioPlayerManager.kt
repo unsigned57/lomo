@@ -1,14 +1,23 @@
 package com.lomo.ui.media
 
 import android.content.Context
+import android.util.Log
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,6 +27,10 @@ class AudioPlayerManager
     constructor(
         @ApplicationContext private val context: Context,
     ) {
+        private companion object {
+            const val TAG = "AudioPlayerManager"
+        }
+
         private var player: ExoPlayer? = null
 
         private val _currentPlayingUri = MutableStateFlow<String?>(null)
@@ -32,8 +45,22 @@ class AudioPlayerManager
         private val _duration = MutableStateFlow(0L)
         val duration: StateFlow<Long> = _duration.asStateFlow()
 
-        init {
-            // Initialize player lazily or on demand? For now on init to keep it simple but maybe better on demand
+        private val coroutineExceptionHandler =
+            CoroutineExceptionHandler { _, throwable ->
+                logError("Audio player coroutine failed", throwable)
+            }
+
+        private var scopeJob = SupervisorJob()
+        private var scope = createScope(scopeJob)
+
+        private fun createScope(job: Job): CoroutineScope =
+            CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
+
+        private fun ensureActiveScope() {
+            if (!scopeJob.isActive) {
+                scopeJob = SupervisorJob()
+                scope = createScope(scopeJob)
+            }
         }
 
         private fun ensurePlayer() {
@@ -77,36 +104,37 @@ class AudioPlayerManager
             this.voiceDirectory = path
         }
 
-        private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.SupervisorJob())
+        fun cancelScope() {
+            scopeJob.cancel()
+        }
 
         fun play(uri: String) {
+            ensureActiveScope()
             scope.launch {
                 ensurePlayer()
                 val currentPlayer = player ?: return@launch
 
-                // Resolve absolute path if relative
                 val resolvedUri = resolveUri(uri)
                 if (resolvedUri == null) {
                     return@launch
                 }
 
-                if (_currentPlayingUri.value == uri) { // Track original URI for UI comparison
-                    // Toggle play/pause
+                if (_currentPlayingUri.value == uri) {
                     if (currentPlayer.isPlaying) {
                         currentPlayer.pause()
                     } else {
                         currentPlayer.play()
                     }
                 } else {
-                    // New audio
                     try {
                         currentPlayer.stop()
                         currentPlayer.setMediaItem(MediaItem.fromUri(resolvedUri))
                         currentPlayer.prepare()
                         currentPlayer.play()
-                        _currentPlayingUri.value = uri // Store original URI to match UI
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                        _currentPlayingUri.value = uri
+                    } catch (throwable: Throwable) {
+                        if (throwable is CancellationException) throw throwable
+                        logError("Failed to start playback for uri=$uri", throwable)
                     }
                 }
             }
@@ -117,19 +145,16 @@ class AudioPlayerManager
                 return uri
             }
 
-            // Determine which directory to use for resolution
-            // If uri contains '/' (e.g., "attachments/file.m4a"), use rootDirectory
-            // If uri is just a filename (e.g., "file.m4a"), use voiceDirectory (custom voice dir)
             val isJustFilename = !uri.contains("/")
             val baseDir = if (isJustFilename && voiceDirectory != null) voiceDirectory else rootDirectory
 
             if (baseDir == null) {
+                logError("Cannot resolve relative uri because base directory is missing: $uri")
                 return null
             }
 
-            return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            return withContext(Dispatchers.IO) {
                 if (baseDir.startsWith("content://")) {
-                    // Handle SAF
                     try {
                         val rootUri = android.net.Uri.parse(baseDir)
                         var docFile =
@@ -149,12 +174,12 @@ class AudioPlayerManager
                             docFile = nextDoc
                         }
                         docFile.uri.toString()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    } catch (throwable: Throwable) {
+                        if (throwable is CancellationException) throw throwable
+                        logError("Failed to resolve SAF uri=$uri from baseDir=$baseDir", throwable)
                         null
                     }
                 } else {
-                    // Handle File
                     val file = java.io.File(baseDir, uri)
                     if (file.exists()) file.absolutePath else null
                 }
@@ -176,11 +201,15 @@ class AudioPlayerManager
         }
 
         fun release() {
+            cancelScope()
             player?.release()
             player = null
+            _currentPlayingUri.value = null
+            _isPlaying.value = false
+            _playbackPosition.value = 0
+            _duration.value = 0
         }
 
-        // Call this periodically from UI e.g. LaunchedEffect to update progress
         fun updateProgress() {
             player?.let {
                 if (it.isPlaying) {
@@ -189,9 +218,20 @@ class AudioPlayerManager
                 }
             }
         }
+
+        private fun logError(
+            message: String,
+            throwable: Throwable? = null,
+        ) {
+            if (throwable == null) {
+                Log.e(TAG, message)
+            } else {
+                Log.e(TAG, message, throwable)
+            }
+        }
     }
 
 val LocalAudioPlayerManager =
-    androidx.compose.runtime.staticCompositionLocalOf<AudioPlayerManager> {
+    staticCompositionLocalOf<AudioPlayerManager> {
         error("AudioPlayerManager not provided")
     }

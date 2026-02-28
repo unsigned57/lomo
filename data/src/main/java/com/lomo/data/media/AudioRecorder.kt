@@ -3,10 +3,10 @@ package com.lomo.data.media
 import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
+import android.os.ParcelFileDescriptor
 import android.util.Log
 import com.lomo.domain.device.VoiceRecorder
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
 import javax.inject.Inject
 import kotlin.math.log10
 
@@ -16,6 +16,7 @@ class AudioRecorder
         @ApplicationContext private val context: Context,
     ) : VoiceRecorder {
         private var recorder: MediaRecorder? = null
+        private var outputFileDescriptor: ParcelFileDescriptor? = null
         private var isRecording = false
 
         override fun start(outputUri: String) {
@@ -24,25 +25,30 @@ class AudioRecorder
             }
             val targetUri = android.net.Uri.parse(outputUri)
 
-            createRecorder().apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+            val mediaRecorder = createRecorder()
+            try {
+                mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
+                mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
 
+                val openedDescriptor =
+                    context.contentResolver.openFileDescriptor(targetUri, "w")
+                        ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
+                outputFileDescriptor = openedDescriptor
+                mediaRecorder.setOutputFile(openedDescriptor.fileDescriptor)
+
+                mediaRecorder.prepare()
+                mediaRecorder.start()
+                recorder = mediaRecorder
+                isRecording = true
+            } catch (e: Exception) {
+                Log.e("AudioRecorder", "Failed to start recording", e)
                 try {
-                    val pfd =
-                        context.contentResolver.openFileDescriptor(targetUri, "w")
-                            ?: throw java.io.IOException("Cannot open file descriptor for $targetUri")
-                    setOutputFile(pfd.fileDescriptor)
-
-                    prepare()
-                    start()
-                    recorder = this
-                    isRecording = true
-                } catch (e: Exception) {
-                    Log.e("AudioRecorder", "Failed to start recording", e)
-                    release()
+                    mediaRecorder.release()
+                } catch (releaseError: Exception) {
+                    Log.e("AudioRecorder", "Failed to release recorder after start failure", releaseError)
                 }
+                closeOutputFileDescriptor()
             }
         }
 
@@ -80,8 +86,22 @@ class AudioRecorder
             }
 
         private fun release() {
-            recorder?.release()
+            try {
+                recorder?.release()
+            } catch (e: Exception) {
+                Log.e("AudioRecorder", "Failed to release recorder", e)
+            }
             recorder = null
+            closeOutputFileDescriptor()
             isRecording = false
+        }
+
+        private fun closeOutputFileDescriptor() {
+            try {
+                outputFileDescriptor?.close()
+            } catch (e: Exception) {
+                Log.e("AudioRecorder", "Failed to close output file descriptor", e)
+            }
+            outputFileDescriptor = null
         }
     }

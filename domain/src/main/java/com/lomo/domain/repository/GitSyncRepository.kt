@@ -14,7 +14,6 @@ interface GitSyncRepository {
     fun getAutoSyncInterval(): Flow<String>
     fun getLastSyncTime(): Flow<Long>
     fun getSyncOnRefreshEnabled(): Flow<Boolean>
-    fun getSyncOnFileChangeEnabled(): Flow<Boolean>
 
     suspend fun setGitSyncEnabled(enabled: Boolean)
     suspend fun setRemoteUrl(url: String)
@@ -26,7 +25,6 @@ interface GitSyncRepository {
     suspend fun setAutoSyncEnabled(enabled: Boolean)
     suspend fun setAutoSyncInterval(interval: String)
     suspend fun setSyncOnRefreshEnabled(enabled: Boolean)
-    suspend fun setSyncOnFileChangeEnabled(enabled: Boolean)
 
     // Operations
     suspend fun initOrClone(): GitSyncResult
@@ -34,6 +32,8 @@ interface GitSyncRepository {
     suspend fun getStatus(): GitSyncStatus
     suspend fun testConnection(): GitSyncResult
     suspend fun resetRepository(): GitSyncResult
+    suspend fun resetLocalBranchToRemote(): GitSyncResult
+    suspend fun forcePushLocalToRemote(): GitSyncResult
 
     // Version History
     suspend fun getMemoVersionHistory(dateKey: String, memoTimestamp: Long): List<MemoVersion>

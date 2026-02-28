@@ -20,5 +20,4 @@ object PreferenceDefaults {
     const val GIT_AUTHOR_NAME = "Lomo"
     const val GIT_AUTHOR_EMAIL = ""
     const val GIT_SYNC_ON_REFRESH = false
-    const val GIT_SYNC_ON_FILE_CHANGE = false
 }

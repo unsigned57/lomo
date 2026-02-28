@@ -31,17 +31,22 @@ class ToggleMemoCheckboxUseCase
         ): String {
             if (lineIndex < 0) return content
 
-            val currentMark = if (checked) "- [ ]" else "- [x]"
-            val targetMark = if (checked) "- [x]" else "- [ ]"
-
             val lines = content.split('\n').toMutableList()
             if (lineIndex >= lines.size) return content
 
             val originalLine = lines[lineIndex]
-            val updatedLine = originalLine.replaceFirst(currentMark, targetMark)
-            if (updatedLine == originalLine) return content
+            val match = CHECKBOX_LINE_PREFIX.find(originalLine) ?: return content
+            val currentChecked = match.groupValues[2] != " "
+            if (currentChecked == checked) return content
 
+            val updatedLine = match.groupValues[1] + (if (checked) "x" else " ") + match.groupValues[3]
             lines[lineIndex] = updatedLine
             return lines.joinToString(separator = "\n")
+        }
+
+        companion object {
+            // Match Markdown task list marker strictly at line start (optional indentation).
+            private val CHECKBOX_LINE_PREFIX =
+                Regex("""^(\s*(?:[-+*]|\d+[.)])\s+\[)([ xX])(\].*)$""")
         }
     }

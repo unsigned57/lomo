@@ -6,13 +6,14 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.LanShareService
-import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SyncSchedulerRepository
+import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.util.PreferenceDefaults
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,32 +27,32 @@ import javax.inject.Inject
 class SettingsViewModel
     @Inject
     constructor(
-        private val directorySettings: DirectorySettingsRepository,
-        private val preferences: PreferencesRepository,
+        private val appConfigRepository: AppConfigRepository,
         private val shareServiceManager: LanShareService,
         private val gitSyncRepo: GitSyncRepository,
         private val syncSchedulerRepository: SyncSchedulerRepository,
+        private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
     ) : ViewModel() {
         val rootDirectory: StateFlow<String> =
-            directorySettings
+            appConfigRepository
                 .getRootDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val imageDirectory: StateFlow<String> =
-            directorySettings
+            appConfigRepository
                 .getImageDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val voiceDirectory: StateFlow<String> =
-            directorySettings
+            appConfigRepository
                 .getVoiceDisplayName()
                 .map { it ?: "" }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val dateFormat: StateFlow<String> =
-            preferences
+            appConfigRepository
                 .getDateFormat()
                 .stateIn(
                     viewModelScope,
@@ -60,7 +61,7 @@ class SettingsViewModel
                 )
 
         val timeFormat: StateFlow<String> =
-            preferences
+            appConfigRepository
                 .getTimeFormat()
                 .stateIn(
                     viewModelScope,
@@ -69,7 +70,7 @@ class SettingsViewModel
                 )
 
         val themeMode: StateFlow<ThemeMode> =
-            preferences
+            appConfigRepository
                 .getThemeMode()
                 .stateIn(
                     viewModelScope,
@@ -78,7 +79,7 @@ class SettingsViewModel
                 )
 
         val hapticFeedbackEnabled: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isHapticFeedbackEnabled()
                 .stateIn(
                     viewModelScope,
@@ -87,7 +88,7 @@ class SettingsViewModel
                 )
 
         val showInputHints: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isShowInputHintsEnabled()
                 .stateIn(
                     viewModelScope,
@@ -96,7 +97,7 @@ class SettingsViewModel
                 )
 
         val doubleTapEditEnabled: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isDoubleTapEditEnabled()
                 .stateIn(
                     viewModelScope,
@@ -105,7 +106,7 @@ class SettingsViewModel
                 )
 
         val storageFilenameFormat: StateFlow<String> =
-            preferences
+            appConfigRepository
                 .getStorageFilenameFormat()
                 .stateIn(
                     viewModelScope,
@@ -114,7 +115,7 @@ class SettingsViewModel
                 )
 
         val storageTimestampFormat: StateFlow<String> =
-            preferences
+            appConfigRepository
                 .getStorageTimestampFormat()
                 .stateIn(
                     viewModelScope,
@@ -123,7 +124,7 @@ class SettingsViewModel
                 )
 
         val checkUpdatesOnStartup: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isCheckUpdatesOnStartupEnabled()
                 .stateIn(
                     viewModelScope,
@@ -132,7 +133,7 @@ class SettingsViewModel
                 )
 
         val shareCardStyle: StateFlow<ShareCardStyle> =
-            preferences
+            appConfigRepository
                 .getShareCardStyle()
                 .stateIn(
                     viewModelScope,
@@ -141,7 +142,7 @@ class SettingsViewModel
                 )
 
         val shareCardShowTime: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isShareCardShowTimeEnabled()
                 .stateIn(
                     viewModelScope,
@@ -150,7 +151,7 @@ class SettingsViewModel
                 )
 
         val shareCardShowBrand: StateFlow<Boolean> =
-            preferences
+            appConfigRepository
                 .isShareCardShowBrandEnabled()
                 .stateIn(
                     viewModelScope,
@@ -187,81 +188,83 @@ class SettingsViewModel
 
         private val _pairingCodeError = MutableStateFlow<String?>(null)
         val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
+        private val _operationError = MutableStateFlow<String?>(null)
+        val operationError: StateFlow<String?> = _operationError.asStateFlow()
 
         fun updateRootDirectory(path: String) {
-            viewModelScope.launch { directorySettings.setRootDirectory(path) }
+            viewModelScope.launch { appConfigRepository.setRootDirectory(path) }
         }
 
         fun updateRootUri(uriString: String) {
-            viewModelScope.launch { directorySettings.updateRootUri(uriString) }
+            viewModelScope.launch { appConfigRepository.updateRootUri(uriString) }
         }
 
         fun updateImageDirectory(path: String) {
-            viewModelScope.launch { directorySettings.setImageDirectory(path) }
+            viewModelScope.launch { appConfigRepository.setImageDirectory(path) }
         }
 
         fun updateImageUri(uriString: String) {
-            viewModelScope.launch { directorySettings.updateImageUri(uriString) }
+            viewModelScope.launch { appConfigRepository.updateImageUri(uriString) }
         }
 
         fun updateVoiceDirectory(path: String) {
-            viewModelScope.launch { directorySettings.setVoiceDirectory(path) }
+            viewModelScope.launch { appConfigRepository.setVoiceDirectory(path) }
         }
 
         fun updateVoiceUri(uriString: String) {
-            viewModelScope.launch { directorySettings.updateVoiceUri(uriString) }
+            viewModelScope.launch { appConfigRepository.updateVoiceUri(uriString) }
         }
 
         fun updateDateFormat(format: String) {
-            viewModelScope.launch { preferences.setDateFormat(format) }
+            viewModelScope.launch { appConfigRepository.setDateFormat(format) }
         }
 
         fun updateTimeFormat(format: String) {
-            viewModelScope.launch { preferences.setTimeFormat(format) }
+            viewModelScope.launch { appConfigRepository.setTimeFormat(format) }
         }
 
         fun updateThemeMode(mode: ThemeMode) {
-            viewModelScope.launch { preferences.setThemeMode(mode) }
+            viewModelScope.launch { appConfigRepository.setThemeMode(mode) }
         }
 
         fun updateStorageFilenameFormat(format: String) {
-            viewModelScope.launch { preferences.setStorageFilenameFormat(format) }
+            viewModelScope.launch { appConfigRepository.setStorageFilenameFormat(format) }
         }
 
         fun updateStorageTimestampFormat(format: String) {
-            viewModelScope.launch { preferences.setStorageTimestampFormat(format) }
+            viewModelScope.launch { appConfigRepository.setStorageTimestampFormat(format) }
         }
 
         fun updateHapticFeedback(enabled: Boolean) {
-            viewModelScope.launch { preferences.setHapticFeedbackEnabled(enabled) }
+            viewModelScope.launch { appConfigRepository.setHapticFeedbackEnabled(enabled) }
         }
 
         fun updateShowInputHints(enabled: Boolean) {
-            viewModelScope.launch { preferences.setShowInputHints(enabled) }
+            viewModelScope.launch { appConfigRepository.setShowInputHints(enabled) }
         }
 
         fun updateDoubleTapEditEnabled(enabled: Boolean) {
-            viewModelScope.launch { preferences.setDoubleTapEditEnabled(enabled) }
+            viewModelScope.launch { appConfigRepository.setDoubleTapEditEnabled(enabled) }
         }
 
         fun updateCheckUpdatesOnStartup(enabled: Boolean) {
-            viewModelScope.launch { preferences.setCheckUpdatesOnStartup(enabled) }
+            viewModelScope.launch { appConfigRepository.setCheckUpdatesOnStartup(enabled) }
         }
 
         fun updateShareCardStyle(style: ShareCardStyle) {
-            viewModelScope.launch { preferences.setShareCardStyle(style) }
+            viewModelScope.launch { appConfigRepository.setShareCardStyle(style) }
         }
 
         fun updateShareCardShowTime(enabled: Boolean) {
-            viewModelScope.launch { preferences.setShareCardShowTime(enabled) }
+            viewModelScope.launch { appConfigRepository.setShareCardShowTime(enabled) }
         }
 
         fun updateShareCardShowBrand(enabled: Boolean) {
-            viewModelScope.launch { preferences.setShareCardShowBrand(enabled) }
+            viewModelScope.launch { appConfigRepository.setShareCardShowBrand(enabled) }
         }
 
         fun updateLanShareE2eEnabled(enabled: Boolean) {
-            viewModelScope.launch {
+            launchWithError("Failed to update secure share setting") {
                 shareServiceManager.setLanShareE2eEnabled(enabled)
             }
         }
@@ -279,8 +282,14 @@ class SettingsViewModel
 
         fun clearLanSharePairingCode() {
             viewModelScope.launch {
-                shareServiceManager.clearLanSharePairingCode()
-                _pairingCodeError.value = null
+                try {
+                    shareServiceManager.clearLanSharePairingCode()
+                    _pairingCodeError.value = null
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to clear pairing code")
+                }
             }
         }
 
@@ -288,8 +297,12 @@ class SettingsViewModel
             _pairingCodeError.value = null
         }
 
+        fun clearOperationError() {
+            _operationError.value = null
+        }
+
         fun updateLanShareDeviceName(deviceName: String) {
-            viewModelScope.launch {
+            launchWithError("Failed to update LAN share device name") {
                 shareServiceManager.setLanShareDeviceName(deviceName)
             }
         }
@@ -358,15 +371,6 @@ class SettingsViewModel
                     PreferenceDefaults.GIT_SYNC_ON_REFRESH,
                 )
 
-        val gitSyncOnFileChangeEnabled: StateFlow<Boolean> =
-            gitSyncRepo
-                .getSyncOnFileChangeEnabled()
-                .stateIn(
-                    viewModelScope,
-                    SharingStarted.WhileSubscribed(5000),
-                    PreferenceDefaults.GIT_SYNC_ON_FILE_CHANGE,
-                )
-
         val gitLastSyncTime: StateFlow<Long> =
             gitSyncRepo
                 .getLastSyncTime()
@@ -382,20 +386,20 @@ class SettingsViewModel
                 )
 
         init {
-            viewModelScope.launch {
+            launchWithError("Failed to read Git token state") {
                 _gitPatConfigured.value = gitSyncRepo.getToken() != null
             }
         }
 
         fun updateGitSyncEnabled(enabled: Boolean) {
-            viewModelScope.launch {
+            launchWithError("Failed to update Git sync setting") {
                 gitSyncRepo.setGitSyncEnabled(enabled)
                 syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
         fun updateGitRemoteUrl(url: String) {
-            viewModelScope.launch {
+            launchWithError("Failed to update Git remote URL") {
                 val normalized = url.removeSuffix("/")
                 gitSyncRepo.setRemoteUrl(normalized)
             }
@@ -408,44 +412,93 @@ class SettingsViewModel
         }
 
         fun updateGitPat(token: String) {
-            viewModelScope.launch {
+            launchWithError("Failed to update Git token") {
                 gitSyncRepo.setToken(token)
                 _gitPatConfigured.value = token.isNotBlank()
             }
         }
 
         fun updateGitAuthorName(name: String) {
-            viewModelScope.launch { gitSyncRepo.setAuthorInfo(name, gitAuthorEmail.value) }
+            launchWithError("Failed to update Git author name") {
+                gitSyncRepo.setAuthorInfo(name, gitAuthorEmail.value)
+            }
         }
 
         fun updateGitAuthorEmail(email: String) {
-            viewModelScope.launch { gitSyncRepo.setAuthorInfo(gitAuthorName.value, email) }
+            launchWithError("Failed to update Git author email") {
+                gitSyncRepo.setAuthorInfo(gitAuthorName.value, email)
+            }
         }
 
         fun updateGitAutoSyncEnabled(enabled: Boolean) {
-            viewModelScope.launch {
+            launchWithError("Failed to update Git auto-sync setting") {
                 gitSyncRepo.setAutoSyncEnabled(enabled)
                 syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
         fun updateGitAutoSyncInterval(interval: String) {
-            viewModelScope.launch {
+            launchWithError("Failed to update Git auto-sync interval") {
                 gitSyncRepo.setAutoSyncInterval(interval)
                 syncSchedulerRepository.rescheduleGitAutoSync()
             }
         }
 
         fun updateGitSyncOnRefresh(enabled: Boolean) {
-            viewModelScope.launch { gitSyncRepo.setSyncOnRefreshEnabled(enabled) }
-        }
-
-        fun updateGitSyncOnFileChange(enabled: Boolean) {
-            viewModelScope.launch { gitSyncRepo.setSyncOnFileChangeEnabled(enabled) }
+            launchWithError("Failed to update Git sync-on-refresh setting") {
+                gitSyncRepo.setSyncOnRefreshEnabled(enabled)
+            }
         }
 
         fun triggerGitSyncNow() {
-            viewModelScope.launch { gitSyncRepo.sync() }
+            launchWithError("Failed to run Git sync") {
+                syncAndRebuildUseCase(forceSync = true)
+            }
+        }
+
+        fun resolveGitConflictUsingRemote() {
+            viewModelScope.launch {
+                try {
+                    when (val resetResult = gitSyncRepo.resetLocalBranchToRemote()) {
+                        is GitSyncResult.Error -> {
+                            _operationError.value =
+                                resetResult.message.ifBlank {
+                                    "Failed to resolve conflict with remote history"
+                                }
+                        }
+
+                        else -> {
+                            // Refresh memo index after the local branch is reset to remote.
+                            syncAndRebuildUseCase(forceSync = false)
+                        }
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to resolve conflict with remote history")
+                }
+            }
+        }
+
+        fun resolveGitConflictUsingLocal() {
+            viewModelScope.launch {
+                try {
+                    when (val result = gitSyncRepo.forcePushLocalToRemote()) {
+                        is GitSyncResult.Error -> {
+                            _operationError.value =
+                                result.message.ifBlank { "Failed to keep local changes during conflict resolution" }
+                        }
+
+                        else -> {
+                            syncAndRebuildUseCase(forceSync = false)
+                        }
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to keep local changes during conflict resolution")
+                }
+            }
         }
 
         // Connection test
@@ -461,12 +514,20 @@ class SettingsViewModel
 
         fun testGitConnection() {
             viewModelScope.launch {
-                _connectionTestState.value = ConnectionTestState.Testing
-                val result = gitSyncRepo.testConnection()
-                _connectionTestState.value = when (result) {
-                    is GitSyncResult.Success -> ConnectionTestState.Success(result.message)
-                    is GitSyncResult.Error -> ConnectionTestState.Error(result.message)
-                    else -> ConnectionTestState.Error("Unexpected result")
+                try {
+                    _connectionTestState.value = ConnectionTestState.Testing
+                    val result = gitSyncRepo.testConnection()
+                    _connectionTestState.value = when (result) {
+                        is GitSyncResult.Success -> ConnectionTestState.Success(result.message)
+                        is GitSyncResult.Error -> ConnectionTestState.Error(result.message)
+                        else -> ConnectionTestState.Error("Unexpected result")
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    val message = throwable.message?.takeIf { it.isNotBlank() } ?: "Failed to test Git connection"
+                    _connectionTestState.value = ConnectionTestState.Error(message)
+                    reportOperationError(throwable, "Failed to test Git connection")
                 }
             }
         }
@@ -483,10 +544,43 @@ class SettingsViewModel
             viewModelScope.launch {
                 _resetInProgress.value = true
                 try {
-                    gitSyncRepo.resetRepository()
+                    when (val result = gitSyncRepo.resetRepository()) {
+                        is GitSyncResult.Error -> {
+                            _operationError.value = result.message.ifBlank { "Failed to reset Git repository" }
+                        }
+
+                        else -> Unit
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, "Failed to reset Git repository")
                 } finally {
                     _resetInProgress.value = false
                 }
             }
+        }
+
+        private fun launchWithError(
+            fallbackMessage: String,
+            action: suspend () -> Unit,
+        ) {
+            viewModelScope.launch {
+                try {
+                    action()
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (throwable: Throwable) {
+                    reportOperationError(throwable, fallbackMessage)
+                }
+            }
+        }
+
+        private fun reportOperationError(
+            throwable: Throwable,
+            fallbackMessage: String,
+        ) {
+            if (throwable is CancellationException) throw throwable
+            _operationError.value = throwable.message?.takeIf { it.isNotBlank() } ?: fallbackMessage
         }
     }

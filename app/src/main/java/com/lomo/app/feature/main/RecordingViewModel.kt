@@ -2,9 +2,9 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.device.VoiceRecorder
+import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.repository.MediaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+import timber.log.Timber
 
 /**
  * Manages voice recording state and lifecycle, extracted from MainViewModel
@@ -79,6 +80,7 @@ class RecordingViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
+                    Timber.e(e, "Failed to start recording")
                     _errorMessage.value = "Failed to start recording: ${e.message}"
                     cancelRecording()
                 }
@@ -119,6 +121,7 @@ class RecordingViewModel
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Timber.e(e, "Failed to stop recording")
                 _errorMessage.value = "Failed to stop recording: ${e.message}"
             }
             currentRecordingTarget = null
@@ -139,13 +142,13 @@ class RecordingViewModel
                         try {
                             mediaRepository.deleteVoiceFile(filename)
                         } catch (e: Exception) {
-                            e.printStackTrace()
+                            Timber.w(e, "Failed to delete canceled recording file: %s", filename)
                         }
                     }
                 }
                 currentRecordingTarget = null
             } catch (e: Exception) {
-                e.printStackTrace()
+                Timber.e(e, "Failed to cancel recording")
             }
             currentRecordingTarget = null
             currentRecordingFilename = null

@@ -3,20 +3,22 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoFlowProcessor
+import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,10 +33,9 @@ class TagFilterViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val memoRepository: MemoRepository,
-        private val directorySettings: DirectorySettingsRepository,
-        private val preferencesRepository: PreferencesRepository,
+        private val appConfigRepository: AppConfigRepository,
         private val imageMapProvider: ImageMapProvider,
-        private val memoFlowProcessor: MemoFlowProcessor,
+        private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
@@ -44,17 +45,17 @@ class TagFilterViewModel
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
         private val rootDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getRootDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private val imageDirectory: StateFlow<String?> =
-            directorySettings
+            appConfigRepository
                 .getImageDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            preferencesRepository.appPreferencesState(viewModelScope)
+            appConfigRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             memoRepository.activeDayCountState(viewModelScope)
@@ -70,13 +71,22 @@ class TagFilterViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            memoFlowProcessor
-                .mapMemoFlow(
-                    memos = memos,
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = imageMap,
-                ).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            combine(memos, rootDir, imageDir, imageMap) { currentMemos, rootDirectory, imageDirectory, currentImageMap ->
+                UiMemoMappingInput(
+                    memos = currentMemos,
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    imageMap = currentImageMap,
+                )
+            }.distinctUntilChanged()
+                .mapLatest { input ->
+                    memoUiMapper.mapToUiModels(
+                        memos = input.memos,
+                        rootPath = input.rootDirectory,
+                        imagePath = input.imageDirectory,
+                        imageMap = input.imageMap,
+                    )
+                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
@@ -132,4 +142,11 @@ class TagFilterViewModel
             } else {
                 "$prefix: ${message.orEmpty()}"
             }
+
+        private data class UiMemoMappingInput(
+            val memos: List<Memo>,
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+        )
     }

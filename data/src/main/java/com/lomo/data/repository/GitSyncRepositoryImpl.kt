@@ -2,7 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitSyncEngine
-import com.lomo.data.git.MemoFileObserver
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
@@ -33,13 +32,11 @@ class GitSyncRepositoryImpl
         private val dataStore: LomoDataStore,
         private val memoSynchronizer: MemoSynchronizer,
         private val safGitMirrorBridge: SafGitMirrorBridge,
-        private val memoFileObserver: MemoFileObserver,
         private val markdownParser: MarkdownParser,
     ) : GitSyncRepository {
         companion object {
             private const val MSG_PAT_REQUIRED = "No Personal Access Token configured"
-            private const val MEMO_CHANGE_DEBOUNCE_MS = 30_000L
-            private const val FILE_CHANGE_DEBOUNCE_MS = 5_000L
+            private const val MEMO_CHANGE_DEBOUNCE_MS = 5_000L
             private const val TIMESTAMP_TOLERANCE_MS = 1000L
         }
 
@@ -62,24 +59,6 @@ class GitSyncRepositoryImpl
                         }
                     }
             }
-
-            @OptIn(FlowPreview::class)
-            syncScope.launch {
-                memoFileObserver.fileChanged
-                    .debounce(FILE_CHANGE_DEBOUNCE_MS)
-                    .collect {
-                        try {
-                            if (isSyncInProgress.get()) return@collect
-                            val enabled = dataStore.gitSyncEnabled.first()
-                            val fileChangeEnabled = dataStore.gitSyncOnFileChange.first()
-                            if (enabled && fileChangeEnabled) {
-                                commitLocal()
-                            }
-                        } catch (e: Exception) {
-                            Timber.w(e, "File-change-driven git commit failed")
-                        }
-                    }
-            }
         }
 
         override fun isGitSyncEnabled(): Flow<Boolean> = dataStore.gitSyncEnabled
@@ -93,8 +72,6 @@ class GitSyncRepositoryImpl
         override fun getLastSyncTime(): Flow<Long> = dataStore.gitLastSyncTime
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
-
-        override fun getSyncOnFileChangeEnabled(): Flow<Boolean> = dataStore.gitSyncOnFileChange
 
         override suspend fun setGitSyncEnabled(enabled: Boolean) {
             dataStore.updateGitSyncEnabled(enabled)
@@ -129,10 +106,6 @@ class GitSyncRepositoryImpl
 
         override suspend fun setSyncOnRefreshEnabled(enabled: Boolean) {
             dataStore.updateGitSyncOnRefresh(enabled)
-        }
-
-        override suspend fun setSyncOnFileChangeEnabled(enabled: Boolean) {
-            dataStore.updateGitSyncOnFileChange(enabled)
         }
 
         override suspend fun initOrClone(): GitSyncResult {
@@ -338,18 +311,93 @@ class GitSyncRepositoryImpl
             return GitSyncResult.Error("Memo directory is not configured")
         }
 
+        override suspend fun resetLocalBranchToRemote(): GitSyncResult {
+            val remoteUrl = dataStore.gitRemoteUrl.first()
+            if (remoteUrl.isNullOrBlank()) {
+                return GitSyncResult.Error("Repository URL is not configured")
+            }
+            if (credentialStore.getToken().isNullOrBlank()) {
+                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+            }
+
+            val directRootDir = resolveRootDir()
+            if (directRootDir != null) {
+                return gitSyncEngine.resetLocalBranchToRemote(directRootDir, remoteUrl)
+            }
+
+            val safRootUri = resolveSafRootUri()
+            if (!safRootUri.isNullOrBlank()) {
+                return try {
+                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                    safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                    val result = gitSyncEngine.resetLocalBranchToRemote(mirrorDir, remoteUrl)
+                    if (result is GitSyncResult.Success) {
+                        safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                    }
+                    result
+                } catch (e: Exception) {
+                    GitSyncResult.Error("Reset to remote failed: ${e.message}", e)
+                }
+            }
+
+            return GitSyncResult.Error("Memo directory is not configured")
+        }
+
+        override suspend fun forcePushLocalToRemote(): GitSyncResult {
+            val remoteUrl = dataStore.gitRemoteUrl.first()
+            if (remoteUrl.isNullOrBlank()) {
+                return GitSyncResult.Error("Repository URL is not configured")
+            }
+            if (credentialStore.getToken().isNullOrBlank()) {
+                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+            }
+
+            val directRootDir = resolveRootDir()
+            if (directRootDir != null) {
+                return gitSyncEngine.forcePushLocalToRemote(directRootDir, remoteUrl)
+            }
+
+            val safRootUri = resolveSafRootUri()
+            if (!safRootUri.isNullOrBlank()) {
+                return try {
+                    val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                    safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                    val result = gitSyncEngine.forcePushLocalToRemote(mirrorDir, remoteUrl)
+                    if (result is GitSyncResult.Success) {
+                        safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                    }
+                    result
+                } catch (e: Exception) {
+                    GitSyncResult.Error("Force push failed: ${e.message}", e)
+                }
+            }
+
+            return GitSyncResult.Error("Memo directory is not configured")
+        }
+
         override suspend fun getMemoVersionHistory(
             dateKey: String,
             memoTimestamp: Long,
         ): List<MemoVersion> {
-            val rootDir = resolveRootDir() ?: return emptyList()
+            val rootDir =
+                resolveRootDir() ?: run {
+                    val safRootUri = resolveSafRootUri() ?: return emptyList()
+                    runCatching {
+                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                        mirrorDir
+                    }.getOrElse { e ->
+                        Timber.w(e, "Failed to resolve SAF mirror for version history")
+                        return emptyList()
+                    }
+                }
             val filename = "$dateKey.md"
 
             val history = gitSyncEngine.getFileHistory(rootDir, filename)
             if (history.isEmpty()) return emptyList()
 
             val versions = mutableListOf<MemoVersion>()
-            for ((index, pair) in history.withIndex()) {
+            for (pair in history) {
                 val (commitHash, commitTime, commitMessage, fileContent) = pair
 
                 val memos = markdownParser.parseContent(fileContent, dateKey)
@@ -363,13 +411,31 @@ class GitSyncRepositoryImpl
                         commitTime = commitTime,
                         commitMessage = commitMessage,
                         memoContent = matchingMemo.content,
-                        isCurrent = index == 0,
+                        isCurrent = false,
                     ),
                 )
             }
 
-            // Deduplicate unchanged versions
-            return versions.distinctBy { it.memoContent }
+            // Deduplicate unchanged versions while preserving commit order.
+            val distinctVersions = versions.distinctBy { it.memoContent }
+            if (distinctVersions.isEmpty()) return emptyList()
+
+            val currentMemoContent = runCatching {
+                val currentFile = File(rootDir, filename)
+                if (!currentFile.exists()) return@runCatching null
+                val currentMemos = markdownParser.parseFile(currentFile)
+                currentMemos.firstOrNull { memo ->
+                    abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
+                }?.content
+            }.getOrNull()
+
+            return if (currentMemoContent.isNullOrBlank()) {
+                distinctVersions.mapIndexed { index, version -> version.copy(isCurrent = index == 0) }
+            } else {
+                distinctVersions.map { version ->
+                    version.copy(isCurrent = version.memoContent == currentMemoContent)
+                }
+            }
         }
 
         private suspend fun resolveRootDir(): File? {

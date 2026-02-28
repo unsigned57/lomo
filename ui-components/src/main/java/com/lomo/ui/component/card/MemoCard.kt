@@ -14,13 +14,12 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
@@ -36,8 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.AppShapes
@@ -78,6 +79,10 @@ fun MemoCard(
     // Note: toggleTodo logic is now handled by MarkdownRenderer via onTodoClick callback
 
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val dateTimeFormatter =
+        remember(dateFormat, timeFormat) {
+            DateTimeFormatter.ofPattern("$dateFormat $timeFormat")
+        }
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -117,17 +122,13 @@ fun MemoCard(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 val timeStr =
                     Instant
                         .ofEpochMilli(timestamp)
                         .atZone(ZoneId.systemDefault())
-                        .format(
-                            DateTimeFormatter.ofPattern(
-                                "$dateFormat $timeFormat",
-                            ),
-                        )
+                        .format(dateTimeFormatter)
                 Text(
                     text = timeStr,
                     style = MaterialTheme.typography.labelMedium, // Slightly larger/clearer
@@ -136,18 +137,20 @@ fun MemoCard(
 
                 Box {
                     if (onMenuClick != null) {
-                        IconButton(
+                        Surface(
+                            shape = CircleShape,
+                            color = Color.Transparent,
                             onClick = {
                                 haptic.medium()
                                 onMenuClick()
                             },
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(20.dp),
                         ) {
                             Icon(
-                                androidx.compose.material.icons.Icons.Rounded.MoreVert,
-                                contentDescription = "More options",
+                                Icons.Rounded.MoreVert,
+                                contentDescription = stringResource(R.string.cd_more_options),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp),
+                                modifier = Modifier.size(12.dp),
                             )
                         }
                     }
@@ -253,10 +256,10 @@ fun MemoCard(
                                 isExpanded = true
                             },
                             contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(24.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(
-                                "Expand", // Or "Show More"
+                                stringResource(R.string.cd_expand),
                                 style =
                                     MaterialTheme.typography
                                         .labelSmall,
@@ -269,10 +272,10 @@ fun MemoCard(
                                 isExpanded = false
                             },
                             contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.height(24.dp),
+                            modifier = Modifier.heightIn(min = 48.dp),
                         ) {
                             Text(
-                                "Collapse", // Or "Show Less"
+                                stringResource(R.string.cd_collapse),
                                 style =
                                     MaterialTheme.typography
                                         .labelSmall,

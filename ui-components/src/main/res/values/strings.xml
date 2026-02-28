@@ -12,20 +12,28 @@
     <string name="stat_memo">MEMO</string>
     <string name="stat_tag">TAG</string>
     <string name="stat_day">DAY</string>
-    
-     <!-- Content Descriptions -->
+
+    <!-- Content Descriptions -->
     <string name="cd_consume_touches">Consume touches</string>
     <string name="cd_expand">Expand</string>
     <string name="cd_collapse">Collapse</string>
+    <string name="cd_more_options">More options</string>
+    <string name="cd_play_audio">Play audio</string>
+    <string name="cd_pause_audio">Pause audio</string>
 
     <!-- Memo Sheet -->
     <string name="action_copy">Copy</string>
     <string name="action_share">Share</string>
     <string name="action_edit">Edit</string>
     <string name="action_delete">Delete</string>
+    <string name="action_cancel">Cancel</string>
     <string name="action_lan_share">Send</string>
     <string name="info_created">Created</string>
     <string name="info_characters">Characters</string>
+    <string name="memo_info_characters_value">Characters: %1$d</string>
+    <string name="memo_info_created_value">Created: %1$s</string>
+    <string name="clipboard_label_memo">memo</string>
+    <string name="loading_message">Loading...</string>
 
     <!-- Input Sheet -->
     <string name="input_discard_title">Discard draft?</string>
@@ -43,4 +51,19 @@
     <string name="cd_stop_recording">Stop recording</string>
     <string name="cd_add_voice_memo">Voice Memo</string>
     <string name="action_history">History</string>
+
+    <!-- Relative Time -->
+    <string name="relative_time_just_now">Just now</string>
+    <plurals name="relative_time_minutes_ago">
+        <item quantity="one">%1$d minute ago</item>
+        <item quantity="other">%1$d minutes ago</item>
+    </plurals>
+    <plurals name="relative_time_hours_ago">
+        <item quantity="one">%1$d hour ago</item>
+        <item quantity="other">%1$d hours ago</item>
+    </plurals>
+    <plurals name="relative_time_days_ago">
+        <item quantity="one">%1$d day ago</item>
+        <item quantity="other">%1$d days ago</item>
+    </plurals>
 </resources>

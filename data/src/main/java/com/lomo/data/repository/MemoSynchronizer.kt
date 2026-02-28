@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.domain.model.Memo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -7,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -36,6 +38,11 @@ class MemoSynchronizer
         // Sync state for UI observation - helps prevent writes during active sync
         private val _isSyncing = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSyncing
+
+        private companion object {
+            const val MAX_OUTBOX_RETRIES = 5
+            const val OUTBOX_RETRY_DELAY_MS = 1_500L
+        }
 
         init {
             flushScope.launch {
@@ -136,23 +143,67 @@ class MemoSynchronizer
         private suspend fun drainOutboxLocked() {
             while (true) {
                 val item = mutationHandler.nextMemoFileOutbox() ?: return
+                if (item.retryCount >= MAX_OUTBOX_RETRIES) {
+                    Timber.e(
+                        "Drop poisoned outbox item id=%d op=%s memoId=%s retryCount=%d",
+                        item.id,
+                        item.operation,
+                        item.memoId,
+                        item.retryCount,
+                    )
+                    mutationHandler.acknowledgeMemoFileOutbox(item.id)
+                    continue
+                }
+
                 try {
                     val flushed = mutationHandler.flushMemoFileOutbox(item)
                     if (flushed) {
                         mutationHandler.acknowledgeMemoFileOutbox(item.id)
                     } else {
-                        mutationHandler.markMemoFileOutboxFailed(
-                            id = item.id,
-                            throwable = IllegalStateException("Outbox file flush returned false for ${item.operation}"),
-                        )
-                        return
+                        val shouldContinue =
+                            handleOutboxFailure(
+                                item = item,
+                                throwable = IllegalStateException("Outbox file flush returned false for ${item.operation}"),
+                            )
+                        if (!shouldContinue) return
                     }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    mutationHandler.markMemoFileOutboxFailed(item.id, e)
-                    return
+                    val shouldContinue = handleOutboxFailure(item, e)
+                    if (!shouldContinue) return
                 }
+            }
+        }
+
+        private suspend fun handleOutboxFailure(
+            item: MemoFileOutboxEntity,
+            throwable: Throwable,
+        ): Boolean {
+            mutationHandler.markMemoFileOutboxFailed(item.id, throwable)
+            val nextRetryCount = item.retryCount + 1
+            if (nextRetryCount >= MAX_OUTBOX_RETRIES) {
+                Timber.e(
+                    throwable,
+                    "Drop poisoned outbox item id=%d op=%s memoId=%s after %d retries",
+                    item.id,
+                    item.operation,
+                    item.memoId,
+                    nextRetryCount,
+                )
+                mutationHandler.acknowledgeMemoFileOutbox(item.id)
+                return true
+            }
+
+            scheduleRetry(nextRetryCount)
+            return false
+        }
+
+        private fun scheduleRetry(retryCount: Int) {
+            val delayMillis = OUTBOX_RETRY_DELAY_MS * retryCount.coerceAtLeast(1)
+            flushScope.launch {
+                delay(delayMillis)
+                requestOutboxDrain()
             }
         }
 

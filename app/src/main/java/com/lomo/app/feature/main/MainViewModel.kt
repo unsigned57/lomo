@@ -1,35 +1,26 @@
 package com.lomo.app.feature.main
 
-import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.memo.MemoFlowProcessor
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.GitSyncRepository
-import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
-import com.lomo.ui.component.navigation.SidebarStats
-import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
@@ -38,11 +29,13 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -51,17 +44,22 @@ class MainViewModel
     @Inject
     constructor(
         private val repository: MemoRepository,
-        private val settingsRepository: DirectorySettingsRepository,
-        private val preferencesRepository: PreferencesRepository,
-        private val gitSyncRepo: GitSyncRepository,
-        private val savedStateHandle: SavedStateHandle,
-        private val memoFlowProcessor: MemoFlowProcessor,
+        private val appConfigRepository: AppConfigRepository,
+        private val sidebarStateHolder: MainSidebarStateHolder,
+        private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
+        private val memoUiMapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
         private val mainMemoMutationUseCase: MainMemoMutationUseCase,
         private val refreshMemosUseCase: RefreshMemosUseCase,
-        private val mainMediaCoordinator: MainMediaCoordinator,
+        private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
+        private val mediaRepository: MediaRepository,
         private val startupCoordinator: MainStartupCoordinator,
     ) : ViewModel() {
+        data class PendingEvent<T>(
+            val id: Long,
+            val payload: T,
+        )
+
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
@@ -70,11 +68,8 @@ class MainViewModel
                 .isSyncing()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-        private val _searchQuery = savedStateHandle.getStateFlow(KEY_SEARCH_QUERY, "")
-        val searchQuery: StateFlow<String> = _searchQuery
-
-        private val _selectedTag = savedStateHandle.getStateFlow<String?>(KEY_SELECTED_TAG, null)
-        val selectedTag: StateFlow<String?> = _selectedTag
+        val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
+        val selectedTag: StateFlow<String?> = sidebarStateHolder.selectedTag
 
         sealed interface MainScreenState {
             data object Loading : MainScreenState
@@ -86,7 +81,7 @@ class MainViewModel
             ) : MainScreenState
         }
 
-        // Shared content is modeled as one-shot events to avoid UI -> ViewModel consume round-trips.
+        // Shared content is modeled as pending events with explicit consume semantics.
         sealed interface SharedContent {
             data class Text(
                 val content: String,
@@ -97,19 +92,37 @@ class MainViewModel
             ) : SharedContent
         }
 
-        private val sharedContentEventsFlow =
-            MutableSharedFlow<SharedContent>(
-                extraBufferCapacity = 64,
-                onBufferOverflow = BufferOverflow.DROP_OLDEST,
-            )
-        val sharedContentEvents = sharedContentEventsFlow.asSharedFlow()
+        private var nextEventId: Long = 0L
+        private fun nextPendingEventId(): Long {
+            nextEventId += 1
+            return nextEventId
+        }
+
+        private fun newSharedContentEvent(payload: SharedContent): PendingEvent<SharedContent> =
+            PendingEvent(id = nextPendingEventId(), payload = payload)
+
+        private fun newAppActionEvent(payload: AppAction): PendingEvent<AppAction> =
+            PendingEvent(id = nextPendingEventId(), payload = payload)
+
+        private val _sharedContentEvents = MutableStateFlow<List<PendingEvent<SharedContent>>>(emptyList())
+        val sharedContentEvents: StateFlow<List<PendingEvent<SharedContent>>> = _sharedContentEvents
 
         fun handleSharedText(text: String) {
-            sharedContentEventsFlow.tryEmit(SharedContent.Text(text))
+            _sharedContentEvents.update { events ->
+                val pending = newSharedContentEvent(SharedContent.Text(text))
+                (events + pending).takeLast(64)
+            }
         }
 
         fun handleSharedImage(uri: android.net.Uri) {
-            sharedContentEventsFlow.tryEmit(SharedContent.Image(uri))
+            _sharedContentEvents.update { events ->
+                val pending = newSharedContentEvent(SharedContent.Image(uri))
+                (events + pending).takeLast(64)
+            }
+        }
+
+        fun consumeSharedContentEvent(eventId: Long) {
+            _sharedContentEvents.update { events -> events.filterNot { it.id == eventId } }
         }
 
         sealed interface AppAction {
@@ -120,21 +133,27 @@ class MainViewModel
             ) : AppAction
         }
 
-        private val appActionEventsFlow =
-            MutableSharedFlow<AppAction>(
-                extraBufferCapacity = 64,
-                onBufferOverflow = BufferOverflow.DROP_OLDEST,
-            )
-        val appActionEvents = appActionEventsFlow.asSharedFlow()
+        private val _appActionEvents = MutableStateFlow<List<PendingEvent<AppAction>>>(emptyList())
+        val appActionEvents: StateFlow<List<PendingEvent<AppAction>>> = _appActionEvents
 
         fun requestCreateMemo() {
-            appActionEventsFlow.tryEmit(AppAction.CreateMemo)
+            _appActionEvents.update { events ->
+                val pending = newAppActionEvent(AppAction.CreateMemo)
+                (events + pending).takeLast(64)
+            }
         }
 
         fun requestOpenMemo(memoId: String) {
             if (memoId.isNotBlank()) {
-                appActionEventsFlow.tryEmit(AppAction.OpenMemo(memoId))
+                _appActionEvents.update { events ->
+                    val pending = newAppActionEvent(AppAction.OpenMemo(memoId))
+                    (events + pending).takeLast(64)
+                }
             }
+        }
+
+        fun consumeAppActionEvent(eventId: Long) {
+            _appActionEvents.update { events -> events.filterNot { it.id == eventId } }
         }
 
         private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
@@ -147,14 +166,14 @@ class MainViewModel
         private val visibleMemoIds = MutableStateFlow<Set<String>>(emptySet())
 
         val imageDirectory: StateFlow<String?> =
-            settingsRepository
+            appConfigRepository
                 .getImageDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val voiceDirectory: StateFlow<String?> =
-            settingsRepository
+            appConfigRepository
                 .getVoiceDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -163,48 +182,13 @@ class MainViewModel
                 .getAllMemosList()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        data class SidebarUiState(
-            val stats: SidebarStats = SidebarStats(),
-            val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
-            val tags: List<SidebarTag> = emptyList(),
-        )
-
-        val sidebarUiState: StateFlow<SidebarUiState> =
-            combine(
-                repository.getMemoCountFlow(),
-                repository.getMemoCountByDateFlow(),
-                repository.getTagCountsFlow(),
-            ) { memoCount, memoCountByDateRaw, tagCounts ->
-                val memoCountByDate =
-                    memoCountByDateRaw
-                        .asSequence()
-                        .mapNotNull { (dateStr, count) ->
-                            StorageFilenameFormats.parseOrNull(dateStr)?.let { parsed -> parsed to count }
-                        }.toMap()
-
-                SidebarUiState(
-                    stats =
-                        SidebarStats(
-                            memoCount = memoCount,
-                            tagCount = tagCounts.size,
-                            dayCount = memoCountByDate.size,
-                        ),
-                    memoCountByDate = memoCountByDate,
-                    tags =
-                        tagCounts
-                            .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
-                            .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
-                )
-            }.flowOn(Dispatchers.Default)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SidebarUiState())
-
         fun createDefaultDirectories(
             forImage: Boolean,
             forVoice: Boolean,
         ) {
             viewModelScope.launch {
                 try {
-                    mainMediaCoordinator.createDefaultDirectories(forImage, forVoice)
+                    initializeWorkspaceUseCase.ensureDefaultMediaDirectories(forImage, forVoice)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -215,7 +199,7 @@ class MainViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
-            combine(_searchQuery, _selectedTag) { query: String, tag: String? -> query to tag }
+            combine(searchQuery, selectedTag) { query: String, tag: String? -> query to tag }
                 .flatMapLatest { (query, tag) -> resolveMemoFlow(query, tag) }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -232,39 +216,54 @@ class MainViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<MemoUiModel>> =
             combine(
-                memoFlowProcessor.mapMemoFlow(
-                    memos = memos,
-                    rootDirectory = rootDirectory,
-                    imageDirectory = imageDirectory,
-                    imageMap = imageMap,
-                    prioritizeMemoIds = visibleMemoIds,
-                ),
+                combine(memos, rootDirectory, imageDirectory, imageMap, visibleMemoIds) {
+                        currentMemos,
+                        rootDir,
+                        imageDir,
+                        currentImageMap,
+                        prioritizeIds,
+                    ->
+                    currentMemos to UiMemoMappingInput(
+                        rootDirectory = rootDir,
+                        imageDirectory = imageDir,
+                        imageMap = currentImageMap,
+                        prioritizedMemoIds = prioritizeIds,
+                    )
+                }.distinctUntilChanged()
+                    .mapLatest { (currentMemos, input) ->
+                        memoUiMapper.mapToUiModels(
+                            memos = currentMemos,
+                            rootPath = input.rootDirectory,
+                            imagePath = input.imageDirectory,
+                            imageMap = input.imageMap,
+                            prioritizedMemoIds = input.prioritizedMemoIds,
+                        )
+                    },
                 deletingMemoIds,
             ) { uiModels, deletingIds ->
                 uiModels.map { uiModel ->
-                    uiModel.copy(isDeleting = deletingIds.contains(uiModel.memo.id))
+                    uiModel.copy(isDeleting = uiModel.memo.id in deletingIds)
                 }
-            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun onDirectorySelected(path: String) {
             viewModelScope.launch(Dispatchers.IO) {
-                settingsRepository.setRootDirectory(path)
+                appConfigRepository.setRootDirectory(path)
                 repository.refreshMemos()
             }
         }
 
         fun onSearch(query: String) {
-            savedStateHandle[KEY_SEARCH_QUERY] = query
+            sidebarStateHolder.updateSearchQuery(query)
         }
 
         fun onTagSelected(tag: String?) {
-            val newTag = if (_selectedTag.value == tag) null else tag
-            savedStateHandle[KEY_SELECTED_TAG] = newTag
+            sidebarStateHolder.updateSelectedTag(tag)
         }
 
         fun clearFilters() {
-            savedStateHandle[KEY_SEARCH_QUERY] = ""
-            savedStateHandle[KEY_SELECTED_TAG] = null
+            sidebarStateHolder.clearFilters()
         }
 
         suspend fun refresh() {
@@ -376,13 +375,7 @@ class MainViewModel
                 .drop(1)
                 .onEach { path: String? ->
                     if (path != null) {
-                        try {
-                            mainMediaCoordinator.syncImageCacheBestEffort()
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
-                            // Best-effort background sync.
-                        }
+                        syncImageCacheBestEffort()
                     }
                 }.launchIn(viewModelScope)
 
@@ -400,7 +393,7 @@ class MainViewModel
         fun syncImageCacheNow() {
             viewModelScope.launch {
                 try {
-                    mainMediaCoordinator.syncImageCacheBestEffort()
+                    syncImageCacheBestEffort()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -410,36 +403,27 @@ class MainViewModel
         }
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            preferencesRepository.appPreferencesState(viewModelScope)
+            appConfigRepository.appPreferencesState(viewModelScope)
 
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
 
         val gitSyncEnabled: StateFlow<Boolean> =
-            gitSyncRepo
-                .isGitSyncEnabled()
+            versionHistoryCoordinator
+                .syncEnabled()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
-        sealed interface VersionHistoryState {
-            data object Hidden : VersionHistoryState
-            data object Loading : VersionHistoryState
-            data class Loaded(val memo: Memo, val versions: List<MemoVersion>) : VersionHistoryState
-        }
-
-        private val _versionHistoryState = MutableStateFlow<VersionHistoryState>(VersionHistoryState.Hidden)
-        val versionHistoryState: StateFlow<VersionHistoryState> = _versionHistoryState
+        val versionHistoryState: StateFlow<MainVersionHistoryState> = versionHistoryCoordinator.state
 
         fun loadVersionHistory(memo: Memo) {
-            _versionHistoryState.value = VersionHistoryState.Loading
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    val versions = gitSyncRepo.getMemoVersionHistory(memo.dateKey, memo.timestamp)
-                    _versionHistoryState.value = VersionHistoryState.Loaded(memo, versions)
+                    versionHistoryCoordinator.load(memo)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
                     Timber.w(e, "Failed to load version history")
-                    _versionHistoryState.value = VersionHistoryState.Hidden
+                    versionHistoryCoordinator.hide()
                     _errorMessage.value = e.userMessage("Failed to load version history")
                 }
             }
@@ -448,8 +432,7 @@ class MainViewModel
         fun restoreVersion(memo: Memo, version: MemoVersion) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    repository.updateMemo(memo, version.memoContent)
-                    _versionHistoryState.value = VersionHistoryState.Hidden
+                    versionHistoryCoordinator.restore(memo, version)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -459,7 +442,7 @@ class MainViewModel
         }
 
         fun dismissVersionHistory() {
-            _versionHistoryState.value = VersionHistoryState.Hidden
+            versionHistoryCoordinator.hide()
         }
 
         fun clearError() {
@@ -490,10 +473,22 @@ class MainViewModel
                 else -> "$prefix: $message"
             }
 
-        companion object {
-            private const val KEY_SEARCH_QUERY = "search_query"
-            private const val KEY_SELECTED_TAG = "selected_tag"
+        private suspend fun syncImageCacheBestEffort() {
+            try {
+                mediaRepository.syncImageCache()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Best-effort background sync.
+            }
         }
+
+        private data class UiMemoMappingInput(
+            val rootDirectory: String?,
+            val imageDirectory: String?,
+            val imageMap: Map<String, android.net.Uri>,
+            val prioritizedMemoIds: Set<String>,
+        )
 
         // processMemoContent moved to MemoUiMapper
     }

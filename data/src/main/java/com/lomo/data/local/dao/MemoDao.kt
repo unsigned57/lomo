@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import com.lomo.data.local.entity.MemoFileOutboxEntity
+import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.TrashMemoEntity
@@ -67,7 +68,13 @@ interface MemoDao {
 
     // FTS
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMemoFts(fts: com.lomo.data.local.entity.MemoFtsEntity)
+    suspend fun insertMemoFtsInternal(fts: MemoFtsEntity)
+
+    @Transaction
+    suspend fun insertMemoFts(fts: MemoFtsEntity) {
+        deleteMemoFts(fts.memoId)
+        insertMemoFtsInternal(fts)
+    }
 
     @Query("DELETE FROM lomo_fts WHERE memoId = :memoId")
     suspend fun deleteMemoFts(memoId: String)
@@ -138,6 +145,12 @@ interface MemoDao {
 
     @Query("DELETE FROM MemoFileOutbox WHERE id = :id")
     suspend fun deleteMemoFileOutboxById(id: Long)
+
+    @Query("DELETE FROM MemoFileOutbox")
+    suspend fun clearMemoFileOutbox()
+
+    @Query("DELETE FROM local_file_state")
+    suspend fun clearLocalFileState()
 
     @Query(
         """

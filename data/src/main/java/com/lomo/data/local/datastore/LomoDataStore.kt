@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import timber.log.Timber
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -40,6 +42,22 @@ class LomoDataStore
         @ApplicationContext private val context: Context,
     ) {
         private val dataStore: DataStore<Preferences> = context.dataStore
+        private companion object {
+            private const val TAG = "LomoDataStore"
+        }
+
+        private fun <T> Flow<T>.catchOnlyIOException(
+            flowName: String,
+            fallback: T,
+        ): Flow<T> =
+            catch { throwable ->
+                if (throwable is IOException) {
+                    Timber.tag(TAG).e(throwable, "Error in %s flow", flowName)
+                    emit(fallback)
+                } else {
+                    throw throwable
+                }
+            }
 
         // Keys
         private object Keys {
@@ -73,21 +91,18 @@ class LomoDataStore
             val GIT_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.GIT_AUTO_SYNC_INTERVAL)
             val GIT_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.GIT_LAST_SYNC_TIME)
             val GIT_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ON_REFRESH)
-            val GIT_SYNC_ON_FILE_CHANGE = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ON_FILE_CHANGE)
         }
 
         // Storage Settings
         val rootUri: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.ROOT_URI] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in rootUri flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.ROOT_URI] }
+                .catchOnlyIOException("rootUri", null)
 
         val rootDirectory: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.ROOT_DIRECTORY] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in rootDirectory flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.ROOT_DIRECTORY] }
+                .catchOnlyIOException("rootDirectory", null)
 
         /** Get root directory value once, for use in synchronous init. */
         suspend fun getRootDirectoryOnce(): String? =
@@ -97,28 +112,24 @@ class LomoDataStore
                 }.first()
 
         val imageUri: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.IMAGE_URI] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in imageUri flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.IMAGE_URI] }
+                .catchOnlyIOException("imageUri", null)
 
         val imageDirectory: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.IMAGE_DIRECTORY] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in imageDirectory flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.IMAGE_DIRECTORY] }
+                .catchOnlyIOException("imageDirectory", null)
 
         val voiceUri: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.VOICE_URI] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in voiceUri flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.VOICE_URI] }
+                .catchOnlyIOException("voiceUri", null)
 
         val voiceDirectory: Flow<String?> =
-            dataStore.data.map { prefs -> prefs[Keys.VOICE_DIRECTORY] }.catch { e ->
-                timber.log.Timber.e("LomoDataStore", "Error in voiceDirectory flow", e)
-                emit(null)
-            }
+            dataStore.data
+                .map { prefs -> prefs[Keys.VOICE_DIRECTORY] }
+                .catchOnlyIOException("voiceDirectory", null)
 
         val storageFilenameFormat: Flow<String> =
             dataStore.data
@@ -127,14 +138,7 @@ class LomoDataStore
                         prefs[Keys.STORAGE_FILENAME_FORMAT]
                             ?: PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT,
                     )
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in storageFilenameFormat flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT)
-                }
+                }.catchOnlyIOException("storageFilenameFormat", PreferenceKeys.Defaults.STORAGE_FILENAME_FORMAT)
 
         val storageTimestampFormat: Flow<String> =
             dataStore.data
@@ -143,39 +147,23 @@ class LomoDataStore
                         prefs[Keys.STORAGE_TIMESTAMP_FORMAT]
                             ?: PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT,
                     )
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in storageTimestampFormat flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT)
-                }
+                }.catchOnlyIOException("storageTimestampFormat", PreferenceKeys.Defaults.STORAGE_TIMESTAMP_FORMAT)
 
         // Display Settings
         val dateFormat: Flow<String> =
             dataStore.data
                 .map { prefs -> prefs[Keys.DATE_FORMAT] ?: PreferenceKeys.Defaults.DATE_FORMAT }
-                .catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in dateFormat flow", e)
-                    emit(PreferenceKeys.Defaults.DATE_FORMAT)
-                }
+                .catchOnlyIOException("dateFormat", PreferenceKeys.Defaults.DATE_FORMAT)
 
         val timeFormat: Flow<String> =
             dataStore.data
                 .map { prefs -> prefs[Keys.TIME_FORMAT] ?: PreferenceKeys.Defaults.TIME_FORMAT }
-                .catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in timeFormat flow", e)
-                    emit(PreferenceKeys.Defaults.TIME_FORMAT)
-                }
+                .catchOnlyIOException("timeFormat", PreferenceKeys.Defaults.TIME_FORMAT)
 
         val themeMode: Flow<String> =
             dataStore.data
                 .map { prefs -> prefs[Keys.THEME_MODE] ?: PreferenceKeys.Defaults.THEME_MODE }
-                .catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in themeMode flow", e)
-                    emit(PreferenceKeys.Defaults.THEME_MODE)
-                }
+                .catchOnlyIOException("themeMode", PreferenceKeys.Defaults.THEME_MODE)
 
         // Interaction Settings
         val hapticFeedbackEnabled: Flow<Boolean> =
@@ -183,136 +171,66 @@ class LomoDataStore
                 .map { prefs ->
                     prefs[Keys.HAPTIC_FEEDBACK_ENABLED]
                         ?: PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in hapticFeedbackEnabled flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED)
-                }
+                }.catchOnlyIOException("hapticFeedbackEnabled", PreferenceKeys.Defaults.HAPTIC_FEEDBACK_ENABLED)
 
         val checkUpdatesOnStartup: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.CHECK_UPDATES_ON_STARTUP]
                         ?: PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in checkUpdatesOnStartup flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP)
-                }
+                }.catchOnlyIOException("checkUpdatesOnStartup", PreferenceKeys.Defaults.CHECK_UPDATES_ON_STARTUP)
 
         val showInputHints: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.SHOW_INPUT_HINTS]
                         ?: PreferenceKeys.Defaults.SHOW_INPUT_HINTS
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in showInputHints flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.SHOW_INPUT_HINTS)
-                }
+                }.catchOnlyIOException("showInputHints", PreferenceKeys.Defaults.SHOW_INPUT_HINTS)
 
         val doubleTapEditEnabled: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.DOUBLE_TAP_EDIT_ENABLED]
                         ?: PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in doubleTapEditEnabled flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED)
-                }
+                }.catchOnlyIOException("doubleTapEditEnabled", PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED)
 
         val lanSharePairingKeyHex: Flow<String?> =
             dataStore.data
                 .map { prefs -> prefs[Keys.LAN_SHARE_PAIRING_KEY_HEX] }
-                .catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in lanSharePairingKeyHex flow",
-                        e,
-                    )
-                    emit(null)
-                }
+                .catchOnlyIOException("lanSharePairingKeyHex", null)
 
         val lanShareE2eEnabled: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.LAN_SHARE_E2E_ENABLED]
                         ?: PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in lanShareE2eEnabled flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED)
-                }
+                }.catchOnlyIOException("lanShareE2eEnabled", PreferenceKeys.Defaults.LAN_SHARE_E2E_ENABLED)
 
         val lanShareDeviceName: Flow<String?> =
             dataStore.data
                 .map { prefs -> prefs[Keys.LAN_SHARE_DEVICE_NAME] }
-                .catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in lanShareDeviceName flow",
-                        e,
-                    )
-                    emit(null)
-                }
+                .catchOnlyIOException("lanShareDeviceName", null)
 
         val shareCardStyle: Flow<String> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.SHARE_CARD_STYLE]
                         ?: PreferenceKeys.Defaults.SHARE_CARD_STYLE
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in shareCardStyle flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.SHARE_CARD_STYLE)
-                }
+                }.catchOnlyIOException("shareCardStyle", PreferenceKeys.Defaults.SHARE_CARD_STYLE)
 
         val shareCardShowTime: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.SHARE_CARD_SHOW_TIME]
                         ?: PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in shareCardShowTime flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME)
-                }
+                }.catchOnlyIOException("shareCardShowTime", PreferenceKeys.Defaults.SHARE_CARD_SHOW_TIME)
 
         val shareCardShowBrand: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.SHARE_CARD_SHOW_BRAND]
                         ?: PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND
-                }.catch { e ->
-                    timber.log.Timber.e(
-                        "LomoDataStore",
-                        "Error in shareCardShowBrand flow",
-                        e,
-                    )
-                    emit(PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND)
-                }
+                }.catchOnlyIOException("shareCardShowBrand", PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND)
 
         // Update functions
         suspend fun updateRootUri(uri: String?) {
@@ -483,86 +401,52 @@ class LomoDataStore
                 .map { prefs ->
                     prefs[Keys.GIT_SYNC_ENABLED]
                         ?: PreferenceKeys.Defaults.GIT_SYNC_ENABLED
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncEnabled flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_SYNC_ENABLED)
-                }
+                }.catchOnlyIOException("gitSyncEnabled", PreferenceKeys.Defaults.GIT_SYNC_ENABLED)
 
         val gitRemoteUrl: Flow<String?> =
             dataStore.data
                 .map { prefs -> prefs[Keys.GIT_REMOTE_URL] }
-                .catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitRemoteUrl flow", e)
-                    emit(null)
-                }
+                .catchOnlyIOException("gitRemoteUrl", null)
 
         val gitAuthorName: Flow<String> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.GIT_AUTHOR_NAME]
                         ?: PreferenceKeys.Defaults.GIT_AUTHOR_NAME
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitAuthorName flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_AUTHOR_NAME)
-                }
+                }.catchOnlyIOException("gitAuthorName", PreferenceKeys.Defaults.GIT_AUTHOR_NAME)
 
         val gitAuthorEmail: Flow<String> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.GIT_AUTHOR_EMAIL]
                         ?: PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitAuthorEmail flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL)
-                }
+                }.catchOnlyIOException("gitAuthorEmail", PreferenceKeys.Defaults.GIT_AUTHOR_EMAIL)
 
         val gitAutoSyncEnabled: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.GIT_AUTO_SYNC_ENABLED]
                         ?: PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitAutoSyncEnabled flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED)
-                }
+                }.catchOnlyIOException("gitAutoSyncEnabled", PreferenceKeys.Defaults.GIT_AUTO_SYNC_ENABLED)
 
         val gitAutoSyncInterval: Flow<String> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.GIT_AUTO_SYNC_INTERVAL]
                         ?: PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitAutoSyncInterval flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL)
-                }
+                }.catchOnlyIOException("gitAutoSyncInterval", PreferenceKeys.Defaults.GIT_AUTO_SYNC_INTERVAL)
 
         val gitLastSyncTime: Flow<Long> =
             dataStore.data
                 .map { prefs -> prefs[Keys.GIT_LAST_SYNC_TIME] ?: 0L }
-                .catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitLastSyncTime flow", e)
-                    emit(0L)
-                }
+                .catchOnlyIOException("gitLastSyncTime", 0L)
 
         val gitSyncOnRefresh: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
                     prefs[Keys.GIT_SYNC_ON_REFRESH]
                         ?: PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncOnRefresh flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH)
-                }
-
-        val gitSyncOnFileChange: Flow<Boolean> =
-            dataStore.data
-                .map { prefs ->
-                    prefs[Keys.GIT_SYNC_ON_FILE_CHANGE]
-                        ?: PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE
-                }.catch { e ->
-                    timber.log.Timber.e("LomoDataStore", "Error in gitSyncOnFileChange flow", e)
-                    emit(PreferenceKeys.Defaults.GIT_SYNC_ON_FILE_CHANGE)
-                }
+                }.catchOnlyIOException("gitSyncOnRefresh", PreferenceKeys.Defaults.GIT_SYNC_ON_REFRESH)
 
         suspend fun updateGitSyncEnabled(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ENABLED] = enabled }
@@ -600,9 +484,5 @@ class LomoDataStore
 
         suspend fun updateGitSyncOnRefresh(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ON_REFRESH] = enabled }
-        }
-
-        suspend fun updateGitSyncOnFileChange(enabled: Boolean) {
-            dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ON_FILE_CHANGE] = enabled }
         }
     }

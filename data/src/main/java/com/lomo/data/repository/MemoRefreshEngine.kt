@@ -13,10 +13,8 @@ import com.lomo.data.source.MemoDirectoryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import javax.inject.Inject
 
 class MemoRefreshEngine
-    @Inject
     constructor(
         private val fileDataSource: FileDataSource,
         private val dao: MemoDao,

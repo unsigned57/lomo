@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Manages NSD (Network Service Discovery) for discovering and advertising
@@ -35,7 +36,7 @@ class NsdDiscoveryService(
     private var registrationListener: NsdManager.RegistrationListener? = null
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var registeredServiceName: String? = null
-    private val serviceInfoCallbacks = mutableMapOf<String, NsdManager.ServiceInfoCallback>()
+    private val serviceInfoCallbacks = ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
 
     // --- Service Registration ---
 
@@ -173,7 +174,7 @@ class NsdDiscoveryService(
             Timber.tag(TAG).e(e, "Failed to stop NSD discovery")
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            serviceInfoCallbacks.values.forEach { callback ->
+            serviceInfoCallbacks.values.toList().forEach { callback ->
                 runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
                     .onFailure { Timber.tag(TAG).d(it, "Ignore callback unregister failure") }
             }
@@ -194,7 +195,6 @@ class NsdDiscoveryService(
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
     private fun resolveServiceApi34(serviceInfo: NsdServiceInfo) {
         val key = callbackKey(serviceInfo)
-        if (serviceInfoCallbacks.containsKey(key)) return
 
         val callback =
             object : NsdManager.ServiceInfoCallback {
@@ -209,15 +209,17 @@ class NsdDiscoveryService(
 
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
                     Timber.tag(TAG).e("ServiceInfo callback registration failed for ${serviceInfo.serviceName}: $errorCode")
-                    serviceInfoCallbacks.remove(key)
+                    serviceInfoCallbacks.remove(key, this)
                 }
 
                 override fun onServiceInfoCallbackUnregistered() {
-                    serviceInfoCallbacks.remove(key)
+                    serviceInfoCallbacks.remove(key, this)
                 }
             }
 
-        serviceInfoCallbacks[key] = callback
+        if (serviceInfoCallbacks.putIfAbsent(key, callback) != null) {
+            return
+        }
 
         try {
             nsdManager.registerServiceInfoCallback(
@@ -227,7 +229,7 @@ class NsdDiscoveryService(
             )
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
-            serviceInfoCallbacks.remove(key)
+            serviceInfoCallbacks.remove(key, callback)
         }
     }
 

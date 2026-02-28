@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.RebaseCommand
 import org.eclipse.jgit.api.RebaseResult
+import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.lib.BranchTrackingStatus
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.lib.PersonIdent
@@ -381,8 +382,8 @@ class GitSyncEngine
                 val remoteBranchRef = g.repository.resolve(remoteBranch)
 
                 if (remoteBranchRef != null) {
-                    // Rebase local onto remote (use RECURSIVE — fair 3-way merge,
-                    // falls back to local-priority merge on conflict).
+                    // Rebase local onto remote (use RECURSIVE — fair 3-way merge).
+                    // On conflict we now fail explicitly to avoid silently discarding remote changes.
                     try {
                         val rebaseResult = g.rebase()
                             .setUpstream(remoteBranch)
@@ -393,47 +394,44 @@ class GitSyncEngine
                             RebaseResult.Status.OK,
                             RebaseResult.Status.UP_TO_DATE,
                             RebaseResult.Status.FAST_FORWARD,
+                            RebaseResult.Status.NOTHING_TO_COMMIT,
                             -> {
                                 // Success, proceed to push
                             }
                             RebaseResult.Status.CONFLICTS,
                             RebaseResult.Status.STOPPED,
+                            RebaseResult.Status.FAILED,
+                            RebaseResult.Status.UNCOMMITTED_CHANGES,
+                            RebaseResult.Status.EDIT,
                             -> {
-                                // Resolve conflicts by keeping local (abort rebase, merge instead)
-                                Timber.w("Rebase conflict, aborting and using merge")
-                                g.rebase()
-                                    .setOperation(RebaseCommand.Operation.ABORT)
-                                    .call()
-                                // Fallback to merge with ours strategy
-                                g.merge()
-                                    .include(remoteBranchRef)
-                                    .setStrategy(MergeStrategy.OURS)
-                                    .setCommit(true)
-                                    .setMessage("merge: resolve conflicts (local priority) via Lomo")
-                                    .call()
+                                Timber.w("Rebase requires manual resolution: %s", rebaseResult.status)
+                                abortRebaseQuietly(g)
+                                return GitSyncResult.Error(
+                                    "Sync halted: rebase ${rebaseResult.status.name} detected. " +
+                                        "Remote changes were preserved; please resolve conflicts manually.",
+                                )
+                            }
+                            RebaseResult.Status.ABORTED -> {
+                                Timber.w("Rebase aborted")
+                                return GitSyncResult.Error(
+                                    "Sync halted: rebase aborted. Remote changes were preserved.",
+                                )
                             }
                             else -> {
                                 Timber.w("Unexpected rebase status: ${rebaseResult.status}")
-                                g.rebase()
-                                    .setOperation(RebaseCommand.Operation.ABORT)
-                                    .call()
+                                abortRebaseQuietly(g)
+                                return GitSyncResult.Error(
+                                    "Sync failed: unexpected rebase status ${rebaseResult.status}.",
+                                )
                             }
                         }
                     } catch (e: Exception) {
-                        Timber.w(e, "Rebase failed, falling back to merge")
-                        try {
-                            g.rebase()
-                                .setOperation(RebaseCommand.Operation.ABORT)
-                                .call()
-                        } catch (_: Exception) {
-                            // Ignore abort errors
-                        }
-                        g.merge()
-                            .include(remoteBranchRef)
-                            .setStrategy(MergeStrategy.OURS)
-                            .setCommit(true)
-                            .setMessage("merge: resolve conflicts (local priority) via Lomo")
-                            .call()
+                        Timber.w(e, "Rebase failed, aborting without auto-merge")
+                        abortRebaseQuietly(g)
+                        return GitSyncResult.Error(
+                            "Sync failed during rebase and was aborted to avoid overwriting remote changes: ${e.message}",
+                            e,
+                        )
                     }
                 }
 
@@ -476,11 +474,22 @@ class GitSyncEngine
             throw lastError ?: IllegalStateException("$operation failed without a captured exception")
         }
 
+        private fun abortRebaseQuietly(git: Git) {
+            try {
+                git.rebase()
+                    .setOperation(RebaseCommand.Operation.ABORT)
+                    .call()
+            } catch (_: Exception) {
+                // Ignore when no rebase state exists.
+            }
+        }
+
         private fun tryPush(
             git: Git,
             credentials: List<UsernamePasswordCredentialsProvider>,
             branch: String,
             successMessage: String,
+            force: Boolean = false,
         ): GitSyncResult {
             return try {
                 val pushResults = runWithCredentialFallback(credentials, "Push") { provider ->
@@ -490,6 +499,7 @@ class GitSyncEngine
                             org.eclipse.jgit.transport.RefSpec("refs/heads/$branch:refs/heads/$branch"),
                         )
                         .setCredentialsProvider(provider)
+                        .setForce(force)
                         .call()
                 }
                 // Check each RemoteRefUpdate status
@@ -676,6 +686,109 @@ class GitSyncEngine
                     } catch (e: Exception) {
                         Timber.e(e, "Failed to reset repository")
                         GitSyncResult.Error("Reset failed: ${e.message}", e)
+                    }
+                }
+            }
+
+        suspend fun resetLocalBranchToRemote(
+            rootDir: File,
+            remoteUrl: String,
+        ): GitSyncResult =
+            mutex.withLock {
+                withContext(Dispatchers.IO) {
+                    val credentials = credentialProviders()
+                        ?: return@withContext GitSyncResult.Error("No Personal Access Token configured")
+
+                    val gitDir = File(rootDir, ".git")
+                    if (!gitDir.exists()) {
+                        return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
+                    }
+
+                    cleanStaleLockFiles(rootDir)
+
+                    try {
+                        Git.open(rootDir).use { git ->
+                            ensureRemote(git, remoteUrl)
+
+                            runWithCredentialFallback(credentials, "Fetch before reset") { provider ->
+                                git.fetch()
+                                    .setRemote("origin")
+                                    .setCredentialsProvider(provider)
+                                    .setForceUpdate(true)
+                                    .call()
+                            }
+
+                            val remoteRef =
+                                git.repository.resolve("refs/remotes/origin/main")
+                                    ?: git.repository.resolve("refs/remotes/origin/master")
+                                    ?: return@withContext GitSyncResult.Error(
+                                        "Remote branch not found. Please check repository branch configuration.",
+                                    )
+
+                            abortRebaseQuietly(git)
+
+                            git.reset()
+                                .setMode(ResetCommand.ResetType.HARD)
+                                .setRef(remoteRef.name)
+                                .call()
+                            git.clean().setCleanDirectories(true).setForce(true).call()
+                        }
+
+                        _syncState.value = SyncEngineState.Idle
+                        GitSyncResult.Success("Local branch reset to remote.")
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to reset local branch to remote")
+                        GitSyncResult.Error(
+                            "Failed to reset local branch to remote: ${e.message}",
+                            e,
+                        )
+                    }
+                }
+            }
+
+        suspend fun forcePushLocalToRemote(
+            rootDir: File,
+            remoteUrl: String,
+        ): GitSyncResult =
+            mutex.withLock {
+                withContext(Dispatchers.IO) {
+                    val credentials = credentialProviders()
+                        ?: return@withContext GitSyncResult.Error("No Personal Access Token configured")
+
+                    val gitDir = File(rootDir, ".git")
+                    if (!gitDir.exists()) {
+                        return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
+                    }
+
+                    cleanStaleLockFiles(rootDir)
+
+                    try {
+                        Git.open(rootDir).use { git ->
+                            ensureRemote(git, remoteUrl)
+
+                            val branch = git.repository.branch ?: "main"
+
+                            // Commit local working-tree changes first, so the force push has complete content.
+                            val commitResult = doCommitLocal(rootDir)
+                            if (commitResult is GitSyncResult.Error) {
+                                return@withContext commitResult
+                            }
+
+                            _syncState.value = SyncEngineState.Syncing.Pushing
+                            val pushResult = tryPush(git, credentials, branch, "Force pushed local branch to remote", force = true)
+                            if (pushResult is GitSyncResult.Success) {
+                                val now = System.currentTimeMillis()
+                                dataStore.updateGitLastSyncTime(now)
+                                _syncState.value = SyncEngineState.Success(now, pushResult.message)
+                            }
+                            pushResult
+                        }
+                    } catch (e: Exception) {
+                        Timber.e(e, "Failed to force push local branch")
+                        GitSyncResult.Error(
+                            "Failed to force push local branch: ${e.message}",
+                            e,
+                        )
                     }
                 }
             }

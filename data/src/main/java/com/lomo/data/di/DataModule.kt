@@ -12,9 +12,14 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
+import com.lomo.data.repository.MemoRefreshDbApplier
+import com.lomo.data.repository.MemoRefreshEngine
+import com.lomo.data.repository.MemoRefreshParserWorker
+import com.lomo.data.repository.MemoRefreshPlanner
 import com.lomo.data.repository.MemoRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.SyncSchedulerRepositoryImpl
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
@@ -130,7 +135,60 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideMemoRefreshPlanner(): MemoRefreshPlanner = MemoRefreshPlanner()
+
+    @Provides
+    @Singleton
+    fun provideMemoRefreshParserWorker(
+        fileDataSource: com.lomo.data.source.FileDataSource,
+        dao: MemoDao,
+        parser: com.lomo.data.parser.MarkdownParser,
+    ): MemoRefreshParserWorker =
+        MemoRefreshParserWorker(
+            fileDataSource = fileDataSource,
+            dao = dao,
+            parser = parser,
+        )
+
+    @Provides
+    @Singleton
+    fun provideMemoRefreshDbApplier(
+        dao: MemoDao,
+        localFileStateDao: LocalFileStateDao,
+    ): MemoRefreshDbApplier =
+        MemoRefreshDbApplier(
+            dao = dao,
+            localFileStateDao = localFileStateDao,
+        )
+
+    @Provides
+    @Singleton
+    fun provideMemoRefreshEngine(
+        fileDataSource: com.lomo.data.source.FileDataSource,
+        dao: MemoDao,
+        localFileStateDao: LocalFileStateDao,
+        parser: com.lomo.data.parser.MarkdownParser,
+        planner: MemoRefreshPlanner,
+        parserWorker: MemoRefreshParserWorker,
+        dbApplier: MemoRefreshDbApplier,
+    ): MemoRefreshEngine =
+        MemoRefreshEngine(
+            fileDataSource = fileDataSource,
+            dao = dao,
+            localFileStateDao = localFileStateDao,
+            parser = parser,
+            refreshPlanner = planner,
+            refreshParserWorker = parserWorker,
+            refreshDbApplier = dbApplier,
+        )
+
+    @Provides
+    @Singleton
     fun provideMemoRepository(impl: MemoRepositoryImpl): MemoRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideAppConfigRepository(impl: SettingsRepositoryImpl): AppConfigRepository = impl
 
     @Provides
     @Singleton
@@ -152,7 +210,6 @@ object DataModule {
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
         memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
         safGitMirrorBridge: com.lomo.data.git.SafGitMirrorBridge,
-        memoFileObserver: com.lomo.data.git.MemoFileObserver,
         markdownParser: com.lomo.data.parser.MarkdownParser,
     ): GitSyncRepositoryImpl =
         GitSyncRepositoryImpl(
@@ -161,7 +218,6 @@ object DataModule {
             dataStore,
             memoSynchronizer,
             safGitMirrorBridge,
-            memoFileObserver,
             markdownParser,
         )
 

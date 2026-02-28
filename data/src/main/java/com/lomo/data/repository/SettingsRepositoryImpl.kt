@@ -5,8 +5,7 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.util.StorageFilenameFormats
 import com.lomo.domain.util.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
@@ -19,8 +18,7 @@ class SettingsRepositoryImpl
         private val dao: MemoDao,
         private val dataSource: WorkspaceConfigSource,
         private val dataStore: LomoDataStore,
-    ) : DirectorySettingsRepository,
-        PreferencesRepository {
+    ) : AppConfigRepository {
         override fun getRootDirectory(): Flow<String?> = dataSource.getRootFlow()
 
         override suspend fun getRootDirectoryOnce(): String? = dataStore.getRootDirectoryOnce()
@@ -134,6 +132,8 @@ class SettingsRepositoryImpl
         }
 
         private suspend fun clearMemoCaches() {
+            dao.clearMemoFileOutbox()
+            dao.clearLocalFileState()
             dao.clearTagRefs()
             dao.clearAll()
             dao.clearTrash()

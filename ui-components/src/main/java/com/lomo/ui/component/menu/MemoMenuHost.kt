@@ -9,14 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
-import com.lomo.ui.util.DateTimeUtils
-import com.lomo.ui.util.formatAsDateTime
 import kotlinx.coroutines.launch
-
-object MemoMenuHostDefaults {
-    // Helper to format consistent with app
-    fun formatTime(timestamp: Long): String = timestamp.formatAsDateTime("yyyy-MM-dd", "HH:mm")
-}
 
 /**
  * Encapsulates the Memo Menu BottomSheet logic.
@@ -24,11 +17,8 @@ object MemoMenuHostDefaults {
  * @param onDelete Callback for delete action. The host handles dismissal.
  * @param content The screen content, which receives a `showMenu: (MemoMenuState) -> Unit` callback.
  *
- * Note: We pass MemoMenuState to decouple from Domain Memo object.
- * The caller is responsible for mapping their domain object to state.
- * But for convenience, maybe we can accept a generic object if we pass a mapper?
- * Let's keep it simple: caller passes MemoMenuState to showMenu.
- * Wait, showMenu needs the full state.
+ * `MemoMenuState` now carries a typed-safe `reference` (`MemoMenuReference.Id/Payload`).
+ * Existing `state.memo` usage remains source-compatible.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

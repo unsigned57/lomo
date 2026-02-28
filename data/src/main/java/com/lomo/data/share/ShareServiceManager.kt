@@ -122,9 +122,9 @@ class ShareServiceManager
                 _incomingShare.value = IncomingShareState.Pending(payload)
             }
 
-            server.onSaveAttachment = { name, type, bytes ->
+            server.onSaveAttachment = { name, type, payloadFile ->
                 // suspend 回调，直接调用挂起函数，避免 runBlocking 阻塞
-                saveAttachmentFile(name, type, bytes)
+                saveAttachmentFile(name, type, payloadFile)
             }
 
             server.onSaveMemo = { content, timestamp, attachmentMappings ->
@@ -151,6 +151,11 @@ class ShareServiceManager
                     synchronized(serviceStateLock) {
                         servicesStarted = false
                     }
+                    releaseMulticastLockSafely()
+                    runCatching { nsdService.unregisterService() }
+                        .onFailure { Timber.tag(TAG).e(it, "Failed to clean NSD registration after start failure") }
+                    runCatching { server.stop() }
+                        .onFailure { Timber.tag(TAG).e(it, "Failed to stop server after start failure") }
                     Timber.tag(TAG).e(e, "Failed to start services")
                 }
             }
@@ -162,13 +167,7 @@ class ShareServiceManager
                 discoveryStarted = false
             }
 
-            try {
-                if (multicastLock?.isHeld == true) {
-                    multicastLock?.release()
-                }
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Failed to release multicast lock")
-            }
+            releaseMulticastLockSafely()
 
             nsdService.stopDiscovery()
             nsdService.unregisterService()
@@ -176,6 +175,16 @@ class ShareServiceManager
             client.close()
             client = createShareClient()
             Timber.tag(TAG).d("Services stopped")
+        }
+
+        private fun releaseMulticastLockSafely() {
+            try {
+                if (multicastLock?.isHeld == true) {
+                    multicastLock?.release()
+                }
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Failed to release multicast lock")
+            }
         }
 
         override fun startDiscovery() {
@@ -377,15 +386,12 @@ class ShareServiceManager
         private suspend fun saveAttachmentFile(
             name: String,
             type: String,
-            bytes: ByteArray,
+            payloadFile: File,
         ): String? {
             val safeName = sanitizeAttachmentFilename(name)
-            var tempFile: File? = null
             return try {
-                // Create a temp file and then use FileDataSource to save properly
-                tempFile = File.createTempFile("share_", "_$safeName", context.cacheDir)
-                tempFile.writeBytes(bytes)
-                val tempUri = Uri.fromFile(tempFile)
+                // Attachment payload has already been streamed to a temp file by transfer handler.
+                val tempUri = Uri.fromFile(payloadFile)
 
                 when (type) {
                     "image" -> {
@@ -400,8 +406,10 @@ class ShareServiceManager
                         val output =
                             context.contentResolver.openOutputStream(voiceUri)
                                 ?: throw IllegalStateException("Cannot open voice output stream")
-                        output.use { out ->
-                            out.write(bytes)
+                        payloadFile.inputStream().buffered().use { input ->
+                            output.use { out ->
+                                input.copyTo(out)
+                            }
                         }
                         // Keep standard markdown reference format: ![voice](voice_xxx.ext)
                         safeName
@@ -414,8 +422,6 @@ class ShareServiceManager
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Failed to save attachment: $safeName")
                 null
-            } finally {
-                tempFile?.delete()
             }
         }
 

@@ -91,6 +91,39 @@ data class InputSheetState(
     val hints: List<String> = emptyList(),
 )
 
+sealed interface InputInterceptionResult {
+    data class UpdateValue(
+        val value: TextFieldValue,
+    ) : InputInterceptionResult
+
+    data class SubmitContent(
+        val content: String,
+    ) : InputInterceptionResult
+}
+
+fun interface InputInterceptor {
+    fun intercept(
+        previousValue: TextFieldValue,
+        newValue: TextFieldValue,
+    ): InputInterceptionResult
+}
+
+object TripleEnterSubmitInterceptor : InputInterceptor {
+    override fun intercept(
+        previousValue: TextFieldValue,
+        newValue: TextFieldValue,
+    ): InputInterceptionResult {
+        val oldText = previousValue.text
+        val newText = newValue.text
+        val shouldSubmit = newText.length > oldText.length && newText.endsWith("\n\n\n")
+        return if (shouldSubmit) {
+            InputInterceptionResult.SubmitContent(newText.trim())
+        } else {
+            InputInterceptionResult.UpdateValue(newValue)
+        }
+    }
+}
+
 data class InputSheetCallbacks(
     val onInputValueChange: (TextFieldValue) -> Unit,
     val onDismiss: () -> Unit,
@@ -100,6 +133,18 @@ data class InputSheetCallbacks(
     val onStartRecording: () -> Unit = {},
     val onStopRecording: () -> Unit = {},
     val onCancelRecording: () -> Unit = {},
+    val inputInterceptor: InputInterceptor = TripleEnterSubmitInterceptor,
+)
+
+data class InputSheetSlots(
+    val voiceRecordingPanel: @Composable (VoiceRecordingPanelState, VoiceRecordingPanelCallbacks) -> Unit =
+        { state, callbacks ->
+            VoiceRecordingPanel(state = state, callbacks = callbacks)
+        },
+    val tagSelectorBar: @Composable (TagSelectorBarState, TagSelectorBarCallbacks) -> Unit =
+        { state, callbacks ->
+            TagSelectorBar(state = state, callbacks = callbacks)
+        },
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -107,6 +152,7 @@ data class InputSheetCallbacks(
 fun InputSheet(
     state: InputSheetState,
     callbacks: InputSheetCallbacks,
+    slots: InputSheetSlots = InputSheetSlots(),
 ) {
     val inputValue = state.inputValue
     val availableTags = state.availableTags
@@ -123,9 +169,12 @@ fun InputSheet(
     val onStartRecording = callbacks.onStartRecording
     val onStopRecording = callbacks.onStopRecording
     val onCancelRecording = callbacks.onCancelRecording
+    val inputInterceptor = callbacks.inputInterceptor
 
     var showTagSelector by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
+    var pendingSubmissionTriggerText by remember { mutableStateOf<String?>(null) }
+    var submissionLockSourceText by remember { mutableStateOf<String?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
 
     // Hint rotation logic
@@ -194,6 +243,29 @@ fun InputSheet(
         requestDismiss()
     }
 
+    val clearSubmissionLock = {
+        isSubmitting = false
+        pendingSubmissionTriggerText = null
+        submissionLockSourceText = null
+    }
+
+    val submitWithLock: (content: String, triggerText: String, sourceText: String) -> Unit = submit@{ content, triggerText, sourceText ->
+        if (isSubmitting && pendingSubmissionTriggerText == triggerText) {
+            return@submit
+        }
+        isSubmitting = true
+        pendingSubmissionTriggerText = triggerText
+        submissionLockSourceText = sourceText
+        onSubmit(content)
+    }
+
+    LaunchedEffect(inputValue.text, isSubmitting, submissionLockSourceText) {
+        val sourceText = submissionLockSourceText ?: return@LaunchedEffect
+        if (isSubmitting && inputValue.text != sourceText) {
+            clearSubmissionLock()
+        }
+    }
+
     // Discard confirmation dialog
     if (showDiscardDialog) {
         androidx.compose.material3.AlertDialog(
@@ -236,22 +308,22 @@ fun InputSheet(
         )
     }
 
-    // Smart Enter handler: Triple-Enter (creates 2 empty lines) to send
-    // This allows Double-Enter (1 empty line) to be used for formatting (e.g. quotes)
-    val handleTextChange: (TextFieldValue) -> Unit = { newValue ->
-        if (!isSubmitting) {
-            val oldText = inputValue.text
-            val newText = newValue.text
-
-            // Detect if user is inserting newlines at the end
-            // We check for \n\n\n which means: Text + Newline + EmptyLine + TriggerNewline
-            if (newText.length > oldText.length && newText.endsWith("\n\n\n")) {
-                // Triple Enter detected -> Send
-                isSubmitting = true
+    // Input text interception is pluggable; default behavior is triple-enter submit.
+    val handleTextChange: (TextFieldValue) -> Unit = handleTextChange@{ newValue ->
+        if (isSubmitting) {
+            if (newValue.text == pendingSubmissionTriggerText) {
+                return@handleTextChange
+            }
+            clearSubmissionLock()
+        }
+        when (val interception = inputInterceptor.intercept(inputValue, newValue)) {
+            is InputInterceptionResult.SubmitContent -> {
                 haptic.heavy()
-                onSubmit(newText.trim())
-            } else {
-                onInputValueChange(newValue)
+                submitWithLock(interception.content, newValue.text, inputValue.text)
+            }
+
+            is InputInterceptionResult.UpdateValue -> {
+                onInputValueChange(interception.value)
             }
         }
     }
@@ -359,105 +431,22 @@ fun InputSheet(
                         label = "RecordingStateTransition",
                     ) { recording ->
                         if (recording) {
-                            // Recording UI
-                            Column(
-                                modifier = Modifier.fillMaxWidth().padding(AppSpacing.Medium),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                            ) {
-                                Text(
-                                    text =
-                                        androidx.compose.ui.res
-                                            .stringResource(com.lomo.ui.R.string.recording_in_progress),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-
-                                Spacer(modifier = Modifier.height(AppSpacing.Medium))
-
-                                // Timer
-                                val minutes = (recordingDuration / 1000) / 60
-                                val seconds = (recordingDuration / 1000) % 60
-                                Text(
-                                    text = String.format("%02d:%02d", minutes, seconds),
-                                    style = MaterialTheme.typography.displayMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-
-                                Spacer(modifier = Modifier.height(AppSpacing.Large))
-
-                                // Visualizer (Simple placeholder for now)
-                                Row(
-                                    modifier =
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .background(
-                                                MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                AppShapes.Medium,
-                                            ),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center,
-                                ) {
-                                    // Dynamic waves based on amplitude could go here
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .width(
-                                                    (50 + (recordingAmplitude.coerceIn(0, 32767) / 32767f) * 200).dp,
-                                                ).height(4.dp)
-                                                .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(AppSpacing.Large))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceEvenly,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // Cancel
-                                    IconButton(
-                                        onClick = {
-                                            haptic.medium()
-                                            onCancelRecording()
-                                        },
-                                        modifier = Modifier.size(56.dp),
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Close,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_cancel_recording,
-                                                ),
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(32.dp),
-                                        )
-                                    }
-
-                                    // Stop/Confirm
-                                    androidx.compose.material3.FilledIconButton(
-                                        onClick = {
-                                            haptic.heavy()
-                                            onStopRecording()
-                                        },
-                                        modifier = Modifier.size(72.dp),
-                                        colors =
-                                            androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                                                containerColor = MaterialTheme.colorScheme.primary,
-                                            ),
-                                    ) {
-                                        Icon(
-                                            Icons.Rounded.Stop,
-                                            contentDescription =
-                                                androidx.compose.ui.res.stringResource(
-                                                    com.lomo.ui.R.string.cd_stop_recording,
-                                                ),
-                                            modifier = Modifier.size(36.dp),
-                                        )
-                                    }
-                                }
-                            }
+                            slots.voiceRecordingPanel(
+                                VoiceRecordingPanelState(
+                                    recordingDuration = recordingDuration,
+                                    recordingAmplitude = recordingAmplitude,
+                                ),
+                                VoiceRecordingPanelCallbacks(
+                                    onCancel = {
+                                        haptic.medium()
+                                        onCancelRecording()
+                                    },
+                                    onStop = {
+                                        haptic.heavy()
+                                        onStopRecording()
+                                    },
+                                ),
+                            )
                         } else {
                             Column(
                                 modifier =
@@ -568,63 +557,23 @@ fun InputSheet(
                                                     ),
                                             ),
                                 ) {
-                                    Column {
-                                        Text(
-                                            androidx.compose.ui.res.stringResource(
-                                                com.lomo.ui.R.string.input_select_tag,
-                                            ),
-                                            style =
-                                                MaterialTheme.typography
-                                                    .labelMedium,
-                                            color =
-                                                MaterialTheme.colorScheme
-                                                    .onSurfaceVariant,
-                                            modifier = Modifier.padding(bottom = AppSpacing.Small),
-                                        )
-                                        LazyRow(
-                                            horizontalArrangement =
-                                                Arrangement.spacedBy(AppSpacing.Small),
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .height(32.dp),
-                                        ) {
-                                            items(availableTags) { tag ->
-                                                FilterChip(
-                                                    selected = false,
-                                                    onClick = {
-                                                        haptic.medium()
-                                                        val start =
-                                                            inputValue
-                                                                .text
-                                                        val newText =
-                                                            "$start #$tag "
-                                                        onInputValueChange(
-                                                            TextFieldValue(
-                                                                newText,
-                                                                TextRange(
-                                                                    newText.length,
-                                                                ),
-                                                            ),
-                                                        )
-                                                        showTagSelector =
-                                                            false
-                                                    },
-                                                    label = { Text("#$tag") },
-                                                    colors =
-                                                        FilterChipDefaults
-                                                            .filterChipColors(
-                                                                containerColor =
-                                                                    MaterialTheme
-                                                                        .colorScheme
-                                                                        .surfaceVariant,
-                                                            ),
-                                                    border = null,
+                                    slots.tagSelectorBar(
+                                        TagSelectorBarState(availableTags = availableTags),
+                                        TagSelectorBarCallbacks(
+                                            onTagSelected = { tag ->
+                                                haptic.medium()
+                                                val start = inputValue.text
+                                                val newText = "$start #$tag "
+                                                onInputValueChange(
+                                                    TextFieldValue(
+                                                        newText,
+                                                        TextRange(newText.length),
+                                                    ),
                                                 )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
-                                    }
+                                                showTagSelector = false
+                                            },
+                                        ),
+                                    )
                                 }
 
                                 // Toolbar
@@ -753,7 +702,7 @@ fun InputSheet(
                                         onClick = {
                                             haptic.heavy()
                                             if (inputValue.text.isNotBlank()) {
-                                                onSubmit(inputValue.text.trim())
+                                                submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
                                             }
                                         },
                                         enabled = inputValue.text.isNotBlank(),

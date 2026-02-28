@@ -31,6 +31,35 @@ class DailyReviewQueryUseCase
             if (safeLimit == allMemos.size) return allMemos
 
             val dailyRandom = Random(seedDate.toEpochDay())
-            return allMemos.shuffled(dailyRandom).take(safeLimit)
+            val sampledIndices = sampleIndicesWithoutReplacement(allMemos.size, safeLimit, dailyRandom)
+            return buildList(capacity = safeLimit) {
+                for (index in sampledIndices) {
+                    add(allMemos[index])
+                }
+            }
+        }
+
+        /**
+         * Deterministic partial Fisher-Yates sampling.
+         *
+         * Selects [sampleSize] unique indices in O(sampleSize) expected space/time without
+         * allocating/reordering the entire source list.
+         */
+        private fun sampleIndicesWithoutReplacement(
+            populationSize: Int,
+            sampleSize: Int,
+            random: Random,
+        ): IntArray {
+            val swaps = HashMap<Int, Int>(sampleSize * 2)
+
+            return IntArray(sampleSize) { i ->
+                val j = random.nextInt(i, populationSize)
+                val valueAtI = swaps[i] ?: i
+                val valueAtJ = swaps[j] ?: j
+
+                swaps[i] = valueAtJ
+                swaps[j] = valueAtI
+                valueAtJ
+            }
         }
     }

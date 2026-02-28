@@ -1,6 +1,7 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -35,16 +36,10 @@ import coil3.compose.AsyncImagePainter
 import coil3.compose.SubcomposeAsyncImage
 import coil3.decode.DataSource
 import coil3.request.ImageRequest
+import com.lomo.ui.util.LocalAnimatedVisibilityScope
+import com.lomo.ui.util.LocalSharedTransitionScope
 import org.commonmark.node.Image
 
-/**
- * Extracted image-related components from MarkdownRenderer.kt
- * to improve code organization and reduce file size.
- *
- * NOTE: These components are provided as alternatives/replacements for the
- * inline implementations in MarkdownRenderer.kt. To fully adopt these,
- * the MarkdownRenderer.kt file should be updated to use these extracted components.
- */
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
     private val lock = Any()
@@ -81,14 +76,33 @@ internal fun MarkdownImageBlock(
             ImageRequest.Builder(context).data(destination).build()
         }
 
-    val aspectRatio = MarkdownImageCache.get(destination)
+    var aspectRatio by remember(destination) { mutableStateOf(MarkdownImageCache.get(destination)) }
+
+    val sharedTransitionScope = LocalSharedTransitionScope.current
+    val animatedVisibilityScope = LocalAnimatedVisibilityScope.current
+
+    @OptIn(ExperimentalSharedTransitionApi::class)
+    val sharedModifier =
+        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+            with(sharedTransitionScope) {
+                Modifier.sharedElement(
+                    rememberSharedContentState(key = destination),
+                    animatedVisibilityScope = animatedVisibilityScope,
+                )
+            }
+        } else {
+            Modifier
+        }
+
+    val ratio = aspectRatio
     val modifier =
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .padding(vertical = 4.dp)
-            .let { if (aspectRatio != null) it.aspectRatio(aspectRatio) else it }
-            .let { if (onImageClick != null) it.clickable { onImageClick(destination) } else it }
+            .let { base -> if (ratio != null) base.aspectRatio(ratio) else base }
+            .let { clickable -> if (onImageClick != null) clickable.clickable { onImageClick(destination) } else clickable }
+            .then(sharedModifier)
 
     SubcomposeAsyncImage(
         model = model,
@@ -98,19 +112,25 @@ internal fun MarkdownImageBlock(
     ) {
         val state by painter.state.collectAsState()
 
-        when (state) {
+        val newAspectRatio =
+            (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize?.let { size ->
+                if (size.width > 0f && size.height > 0f) size.width / size.height else null
+            }
+
+        LaunchedEffect(destination, newAspectRatio) {
+            if (newAspectRatio != null && newAspectRatio != aspectRatio) {
+                MarkdownImageCache.put(destination, newAspectRatio)
+                aspectRatio = newAspectRatio
+            }
+        }
+
+        when (val current = state) {
             is AsyncImagePainter.State.Loading -> {
                 ImageLoadingPlaceholder()
             }
 
             is AsyncImagePainter.State.Success -> {
-                val successState = state as AsyncImagePainter.State.Success
-                val size = successState.painter.intrinsicSize
-                if (size.width > 0 && size.height > 0) {
-                    MarkdownImageCache.put(destination, size.width / size.height)
-                }
-
-                if (successState.result.dataSource != DataSource.MEMORY_CACHE) {
+                if (current.result.dataSource != DataSource.MEMORY_CACHE) {
                     ImageWithFadeIn(painter, image.title)
                 } else {
                     Image(

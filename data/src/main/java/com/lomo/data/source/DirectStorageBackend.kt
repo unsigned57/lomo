@@ -11,9 +11,9 @@ import java.io.File
  */
 class DirectStorageBackend(
     private val rootDir: File,
-) : StorageBackend,
-    ImageStorageBackend,
-    VoiceStorageBackend {
+) : MarkdownStorageBackend,
+    WorkspaceConfigBackend,
+    MediaStorageBackend {
     private val imageExtensions =
         setOf(
             "jpg",
