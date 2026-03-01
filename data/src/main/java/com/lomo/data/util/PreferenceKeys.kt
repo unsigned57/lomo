@@ -29,6 +29,7 @@ object PreferenceKeys {
     const val CHECK_UPDATES_ON_STARTUP = "check_updates_on_startup"
     const val SHOW_INPUT_HINTS = "show_input_hints"
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
+    const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
     const val LAN_SHARE_E2E_ENABLED = "lan_share_e2e_enabled"
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
@@ -55,6 +56,7 @@ object PreferenceKeys {
         const val CHECK_UPDATES_ON_STARTUP = PreferenceDefaults.CHECK_UPDATES_ON_STARTUP
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
+        const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val SHARE_CARD_STYLE = PreferenceDefaults.SHARE_CARD_STYLE

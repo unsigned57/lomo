@@ -16,8 +16,10 @@ import com.lomo.data.memo.MemoIdentityPolicy
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.slot
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -142,5 +144,31 @@ class MemoMutationHandlerTest {
             }
             assertEquals(987_654L, captured.captured.lastKnownModifiedTime)
             assertEquals("content://saved/memo_2", captured.captured.safUri)
+        }
+
+    @Test
+    fun `updateMemoInDb refreshes updatedAt`() =
+        runTest {
+            val sourceMemo =
+                Memo(
+                    id = "memo_update",
+                    timestamp = 1_700_000_000_000L,
+                    updatedAt = 1_700_000_000_000L,
+                    content = "before",
+                    rawContent = "- 10:00 before",
+                    dateKey = "2024_01_15",
+                )
+            every { dataStore.storageTimestampFormat } returns flowOf("HH:mm")
+            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+
+            val persistedMemo = slot<com.lomo.data.local.entity.MemoEntity>()
+            coEvery {
+                dao.persistMemoWithOutbox(capture(persistedMemo), any())
+            } returns 1L
+
+            val outboxId = handler.updateMemoInDb(sourceMemo, "after")
+
+            assertEquals(1L, outboxId)
+            assertTrue(persistedMemo.captured.updatedAt > sourceMemo.updatedAt)
         }
 }

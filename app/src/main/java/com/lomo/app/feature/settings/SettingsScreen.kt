@@ -383,6 +383,7 @@ fun SettingsScreen(
                     onToggleHaptic = interactionFeature::updateHapticFeedback,
                     onToggleInputHints = interactionFeature::updateShowInputHints,
                     onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
+                    onToggleAppLock = interactionFeature::updateAppLockEnabled,
                 )
 
                 SystemSettingsSection(

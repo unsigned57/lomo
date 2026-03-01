@@ -20,6 +20,8 @@
     <string name="settings_group_interaction">Interaction</string>
     <string name="settings_haptic_feedback">Haptic Feedback</string>
     <string name="settings_haptic_feedback_subtitle">Vibrate on touch interactions</string>
+    <string name="settings_app_lock">Fingerprint/Passcode lock</string>
+    <string name="settings_app_lock_subtitle">Require biometric or device credential when app starts</string>
 
     <!-- System Group -->
     <string name="settings_group_system">System</string>
@@ -148,9 +150,30 @@
     <string name="cd_close">Close</string>
     <string name="cd_image_viewer_fullscreen">Fullscreen image</string>
     <string name="cd_search">Search</string>
+    <string name="cd_filter">Filter</string>
     <string name="cd_clear_filter">Clear Filter</string>
     <string name="cd_expand">Expand</string>
     <string name="cd_collapse">Collapse</string>
+
+    <!-- Main Filter -->
+    <string name="main_filter_title">Filter &amp; Sort</string>
+    <string name="main_filter_sort_created_time">Creation time</string>
+    <string name="main_filter_sort_updated_time">Update time</string>
+    <string name="main_filter_summary_none">No active filters</string>
+    <string name="main_filter_summary_active">%1$d active filters</string>
+    <string name="main_filter_section_time_range">Date range</string>
+    <string name="main_filter_date_section_hint">Set a flexible start and end date range.</string>
+    <string name="main_filter_start_date">Start date</string>
+    <string name="main_filter_end_date">End date</string>
+    <string name="main_filter_pick_start_date">Pick start date</string>
+    <string name="main_filter_pick_end_date">Pick end date</string>
+    <string name="main_filter_date_not_set">Not set</string>
+    <string name="main_filter_date_range_from">From %1$s</string>
+    <string name="main_filter_date_range_until">Until %1$s</string>
+    <string name="main_filter_date_range_between">%1$s to %2$s</string>
+    <string name="main_filter_date_range_warning">End date is earlier than start date.</string>
+
+    <string name="main_filter_date_dialog_action_apply">Apply</string>
 
     <!-- Empty State -->
     <string name="empty_no_directory_title">No folder selected</string>
@@ -207,6 +230,17 @@
     <string name="update_dialog_release_notes_empty">No release notes were provided for this version.</string>
     <string name="action_download">Download</string>
     <string name="action_cancel">Cancel</string>
+    <string name="app_lock_action_retry">Retry unlock</string>
+    <string name="app_lock_gate_title">Unlock Lomo</string>
+    <string name="app_lock_gate_subtitle">Authentication is required before entering the app.</string>
+    <string name="app_lock_prompt_title">Unlock Lomo</string>
+    <string name="app_lock_prompt_subtitle">Use biometrics or device credential to continue</string>
+    <string name="app_lock_status_loading">Loading security configuration…</string>
+    <string name="app_lock_status_waiting">Tap retry to authenticate.</string>
+    <string name="app_lock_status_unlocking">Waiting for authentication…</string>
+    <string name="app_lock_error_unavailable">No biometric or device credential is available on this device.</string>
+    <string name="app_lock_error_canceled">Authentication was canceled.</string>
+    <string name="app_lock_error_generic">Unable to verify identity. Please retry.</string>
     <string name="action_accept">Accept</string>
     <string name="action_reject">Reject</string>
     <string name="action_save">Save</string>

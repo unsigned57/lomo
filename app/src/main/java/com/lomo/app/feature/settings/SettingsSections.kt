@@ -427,6 +427,7 @@ fun InteractionSettingsSection(
     onToggleHaptic: (Boolean) -> Unit,
     onToggleInputHints: (Boolean) -> Unit,
     onToggleDoubleTapEdit: (Boolean) -> Unit,
+    onToggleAppLock: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
         SwitchPreferenceItem(
@@ -435,6 +436,14 @@ fun InteractionSettingsSection(
             icon = Icons.Default.Vibration,
             checked = state.hapticEnabled,
             onCheckedChange = onToggleHaptic,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_app_lock),
+            subtitle = stringResource(R.string.settings_app_lock_subtitle),
+            icon = Icons.Default.Lock,
+            checked = state.appLockEnabled,
+            onCheckedChange = onToggleAppLock,
         )
         SettingsDivider()
         SwitchPreferenceItem(

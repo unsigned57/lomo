@@ -240,11 +240,13 @@ class SettingsStateProvider(
             appConfigCoordinator.hapticFeedbackEnabled,
             appConfigCoordinator.showInputHints,
             appConfigCoordinator.doubleTapEditEnabled,
-        ) { hapticEnabled, showInputHints, doubleTapEditEnabled ->
+            appConfigCoordinator.appLockEnabled,
+        ) { hapticEnabled, showInputHints, doubleTapEditEnabled, appLockEnabled ->
             InteractionSectionState(
                 hapticEnabled = hapticEnabled,
                 showInputHints = showInputHints,
                 doubleTapEditEnabled = doubleTapEditEnabled,
+                appLockEnabled = appLockEnabled,
             )
         }.stateIn(
             scope = scope,
@@ -254,6 +256,7 @@ class SettingsStateProvider(
                     hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
                     showInputHints = appConfigCoordinator.showInputHints.value,
                     doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
+                    appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                 ),
         )
 

@@ -67,6 +67,11 @@ class SettingsAppConfigCoordinator(
             .isDoubleTapEditEnabled()
             .stateIn(scope, SharingStarted.WhileSubscribed(5000), PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED)
 
+    val appLockEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isAppLockEnabled()
+            .stateIn(scope, SharingStarted.WhileSubscribed(5000), PreferenceDefaults.APP_LOCK_ENABLED)
+
     val storageFilenameFormat: StateFlow<String> =
         appConfigRepository
             .getStorageFilenameFormat()
@@ -171,6 +176,10 @@ class SettingsAppConfigCoordinator(
 
     suspend fun updateDoubleTapEditEnabled(enabled: Boolean) {
         appConfigRepository.setDoubleTapEditEnabled(enabled)
+    }
+
+    suspend fun updateAppLockEnabled(enabled: Boolean) {
+        appConfigRepository.setAppLockEnabled(enabled)
     }
 
     suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {

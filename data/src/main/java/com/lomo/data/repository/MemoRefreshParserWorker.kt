@@ -134,7 +134,13 @@ class MemoRefreshParserWorker
                 filename = filename,
                 fallbackTimestampMillis = meta.lastModified,
             )
-        return domainMemos.map { MemoEntity.fromDomain(it) } to meta
+        val memos =
+            domainMemos.map { memo ->
+                MemoEntity
+                    .fromDomain(memo)
+                    .copy(updatedAt = meta.lastModified)
+            }
+        return memos to meta
     }
 
     private suspend fun parseTrashFile(meta: FileMetadataWithId): Pair<List<TrashMemoEntity>, FileMetadataWithId>? {
@@ -158,7 +164,7 @@ class MemoRefreshParserWorker
             domainMemos.map {
                 TrashMemoEntity.fromDomain(
                     it.copy(isDeleted = true),
-                )
+                ).copy(updatedAt = meta.lastModified)
             }
         return memos to meta
     }

@@ -9,10 +9,14 @@ import com.lomo.domain.model.StorageLocation
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -58,5 +62,25 @@ class SettingsRepositoryImplTest {
             coVerify(exactly = 1) {
                 dataSource.setRoot(type = StorageRootType.MAIN, pathOrUri = "content://lomo/root")
             }
+        }
+
+    @Test
+    fun `isAppLockEnabled delegates to datastore`() =
+        runTest {
+            every { dataStore.appLockEnabled } returns flowOf(true)
+
+            val enabled = repository.isAppLockEnabled().first()
+
+            assertEquals(true, enabled)
+        }
+
+    @Test
+    fun `setAppLockEnabled delegates to datastore`() =
+        runTest {
+            coEvery { dataStore.updateAppLockEnabled(true) } just runs
+
+            repository.setAppLockEnabled(true)
+
+            coVerify(exactly = 1) { dataStore.updateAppLockEnabled(true) }
         }
 }

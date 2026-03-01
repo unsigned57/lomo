@@ -13,6 +13,7 @@ import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
@@ -64,6 +65,7 @@ class SettingsViewModelTest {
         every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+        every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
         every { appConfigRepository.getStorageFilenameFormat() } returns flowOf("default")
         every { appConfigRepository.getStorageTimestampFormat() } returns flowOf("HHmm")
         every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
@@ -189,6 +191,18 @@ class SettingsViewModelTest {
                     unknownError = "unknown",
                 )
             assertEquals("unknown", presentedTechnical)
+        }
+
+    @Test
+    fun `updateAppLockEnabled delegates to repository`() =
+        runTest {
+            coEvery { appConfigRepository.setAppLockEnabled(true) } returns Unit
+            val viewModel = createViewModel()
+
+            viewModel.interactionFeature.updateAppLockEnabled(true)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { appConfigRepository.setAppLockEnabled(true) }
         }
 
     private fun createViewModel(): SettingsViewModel =

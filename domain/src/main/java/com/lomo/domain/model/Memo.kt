@@ -5,6 +5,7 @@ import java.time.LocalDate
 data class Memo(
     val id: String, // Unique ID (e.g. timestamp hash or UUID)
     val timestamp: Long,
+    val updatedAt: Long = timestamp,
     val content: String,
     val rawContent: String, // Full line content including timestamp
     val dateKey: String, // Filename stem (e.g. "2026_02_27"), format varies

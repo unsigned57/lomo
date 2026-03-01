@@ -50,9 +50,12 @@ import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.rememberMemoEditorController
+import com.lomo.domain.model.MemoListFilter
+import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * MainScreen with comprehensive audit improvements.
@@ -97,6 +100,7 @@ fun MainScreen(
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTag by sidebarViewModel.selectedTag.collectAsStateWithLifecycle()
+    val memoListFilter by viewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
@@ -243,21 +247,27 @@ fun MainScreen(
         },
         showVersionHistory = gitSyncEnabled,
     ) { showMenu, openEditor ->
+        var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
 
         // Track previous filter values to detect actual changes (not recomposition)
         var previousTag by rememberSaveable { mutableStateOf<String?>(null) }
         var previousQuery by rememberSaveable { mutableStateOf("") }
+        var previousMemoFilter by remember { mutableStateOf(MemoListFilter()) }
 
         // Scroll to top ONLY when filter actually changes (user action)
-        LaunchedEffect(selectedTag, searchQuery) {
-            val filterChanged = previousTag != selectedTag || previousQuery != searchQuery
+        LaunchedEffect(selectedTag, searchQuery, memoListFilter) {
+            val filterChanged =
+                previousTag != selectedTag ||
+                    previousQuery != searchQuery ||
+                    previousMemoFilter != memoListFilter
             // Only scroll if this is a real user-initiated filter change
             // (not initial composition or navigation return)
-            if (filterChanged && (previousTag != null || previousQuery.isNotEmpty())) {
+            if (filterChanged && (previousTag != null || previousQuery.isNotEmpty() || previousMemoFilter.isActive)) {
                 listState.scrollToItem(0)
             }
             previousTag = selectedTag
             previousQuery = searchQuery
+            previousMemoFilter = memoListFilter
         }
 
         MainScreenNavigationActionHost(
@@ -273,7 +283,11 @@ fun MainScreen(
             onNavigateToDailyReview = onNavigateToDailyReview,
             onNavigateToGallery = onNavigateToGallery,
             onClearSidebarFilters = sidebarViewModel::clearFilters,
-            onClearSelectedTag = { sidebarViewModel.onTagSelected(null) },
+            onClearMainFilters = {
+                sidebarViewModel.onTagSelected(null)
+                viewModel.clearMemoListFilter()
+            },
+            onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
             onOpenCreateMemo = editorController::openForCreate,
             onRefreshMemos = viewModel::refresh,
             onRefreshingChange = { isRefreshing = it },
@@ -287,6 +301,9 @@ fun MainScreen(
                 scrollBehavior = scrollBehavior,
                 selectedTag = selectedTag,
                 searchQuery = searchQuery,
+                memoListFilter = memoListFilter,
+                isFilterActive = selectedTag != null || memoListFilter.isActive,
+                isMemoFilterSheetVisible = isMemoFilterSheetVisible,
                 uiState = uiState,
                 hasItems = hasItems,
                 uiMemos = uiMemos,
@@ -299,6 +316,12 @@ fun MainScreen(
                 onMemoDoubleClick = openEditor,
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 onShowMemoMenu = showMenu,
+                onMemoSortOptionSelected = viewModel::updateMemoSortOption,
+                onMemoStartDateSelected = viewModel::updateMemoStartDate,
+                onMemoEndDateSelected = viewModel::updateMemoEndDate,
+                onClearMemoDateRange = viewModel::clearMemoDateRange,
+                onResetMemoFilter = viewModel::clearMemoListFilter,
+                onDismissMemoFilterSheet = { isMemoFilterSheetVisible = false },
                 onScrollToTop = {
                     scope.launch {
                         if (listState.firstVisibleItemIndex > 10) {
@@ -350,6 +373,9 @@ private fun MainScreenRenderHost(
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     selectedTag: String?,
     searchQuery: String,
+    memoListFilter: MemoListFilter,
+    isFilterActive: Boolean,
+    isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
     hasItems: Boolean,
     uiMemos: List<MemoUiModel>,
@@ -362,6 +388,12 @@ private fun MainScreenRenderHost(
     onMemoDoubleClick: (com.lomo.domain.model.Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     onShowMemoMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onMemoSortOptionSelected: (MemoSortOption) -> Unit,
+    onMemoStartDateSelected: (LocalDate?) -> Unit,
+    onMemoEndDateSelected: (LocalDate?) -> Unit,
+    onClearMemoDateRange: () -> Unit,
+    onResetMemoFilter: () -> Unit,
+    onDismissMemoFilterSheet: () -> Unit,
     onScrollToTop: () -> Unit,
 ) {
     val sidebarContent: @Composable () -> Unit = {
@@ -394,8 +426,9 @@ private fun MainScreenRenderHost(
                     scrollBehavior = scrollBehavior,
                     onMenu = actions.onMenuOpen,
                     onSearch = actions.onSearch,
+                    onFilter = actions.onOpenMemoFilterPanel,
                     onClearFilter = actions.onClearFilter,
-                    isFilterActive = selectedTag != null,
+                    isFilterActive = isFilterActive,
                     showNavigationIcon = !isExpanded,
                 )
             },
@@ -485,6 +518,18 @@ private fun MainScreenRenderHost(
                     }
                 }
             }
+        }
+
+        if (isMemoFilterSheetVisible) {
+            MainMemoFilterSheet(
+                filter = memoListFilter,
+                onSortOptionSelected = onMemoSortOptionSelected,
+                onStartDateSelected = onMemoStartDateSelected,
+                onEndDateSelected = onMemoEndDateSelected,
+                onClearDateRange = onClearMemoDateRange,
+                onReset = onResetMemoFilter,
+                onDismiss = onDismissMemoFilterSheet,
+            )
         }
     }
 

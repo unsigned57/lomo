@@ -98,6 +98,12 @@ class SettingsRepositoryImpl
             dataStore.updateDoubleTapEditEnabled(enabled)
         }
 
+        override fun isAppLockEnabled(): Flow<Boolean> = dataStore.appLockEnabled
+
+        override suspend fun setAppLockEnabled(enabled: Boolean) {
+            dataStore.updateAppLockEnabled(enabled)
+        }
+
         override fun getShareCardStyle(): Flow<ShareCardStyle> = dataStore.shareCardStyle.map { ShareCardStyle.fromValue(it) }
 
         override suspend fun setShareCardStyle(style: ShareCardStyle) {

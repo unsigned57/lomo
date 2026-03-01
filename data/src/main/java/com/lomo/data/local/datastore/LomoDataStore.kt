@@ -76,6 +76,7 @@ class LomoDataStore
             val CHECK_UPDATES_ON_STARTUP = booleanPreferencesKey(PreferenceKeys.CHECK_UPDATES_ON_STARTUP)
             val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
             val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
+            val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
             val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
             val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
             val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
@@ -194,6 +195,13 @@ class LomoDataStore
                     prefs[Keys.DOUBLE_TAP_EDIT_ENABLED]
                         ?: PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED
                 }.catchOnlyIOException("doubleTapEditEnabled", PreferenceKeys.Defaults.DOUBLE_TAP_EDIT_ENABLED)
+
+        val appLockEnabled: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.APP_LOCK_ENABLED]
+                        ?: PreferenceKeys.Defaults.APP_LOCK_ENABLED
+                }.catchOnlyIOException("appLockEnabled", PreferenceKeys.Defaults.APP_LOCK_ENABLED)
 
         val lanSharePairingKeyHex: Flow<String?> =
             dataStore.data
@@ -335,6 +343,10 @@ class LomoDataStore
 
         suspend fun updateDoubleTapEditEnabled(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.DOUBLE_TAP_EDIT_ENABLED] = enabled }
+        }
+
+        suspend fun updateAppLockEnabled(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.APP_LOCK_ENABLED] = enabled }
         }
 
         suspend fun updateLanSharePairingKeyHex(keyHex: String?) {

@@ -91,6 +91,10 @@ class SettingsInteractionFeatureViewModel(
     fun updateDoubleTapEditEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateDoubleTapEditEnabled(enabled) }
     }
+
+    fun updateAppLockEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateAppLockEnabled(enabled) }
+    }
 }
 
 class SettingsSystemFeatureViewModel(

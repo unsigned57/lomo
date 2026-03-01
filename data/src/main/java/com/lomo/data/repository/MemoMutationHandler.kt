@@ -361,12 +361,19 @@ class MemoMutationHandler
             newContent: String,
         ): Memo {
             val timeString = formatMemoTime(memo.timestamp)
+            val updatedAt = nextUpdatedAt(memo.updatedAt)
             return memo.copy(
                 content = newContent,
+                updatedAt = updatedAt,
                 rawContent = "- $timeString $newContent",
                 tags = textProcessor.extractTags(newContent),
                 imageUrls = textProcessor.extractImages(newContent),
             )
+        }
+
+        private fun nextUpdatedAt(previousUpdatedAt: Long): Long {
+            val now = System.currentTimeMillis()
+            return if (now > previousUpdatedAt) now else previousUpdatedAt + 1
         }
 
         private suspend fun formatMemoTime(timestamp: Long): String {

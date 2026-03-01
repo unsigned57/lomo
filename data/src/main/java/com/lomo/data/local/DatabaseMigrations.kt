@@ -97,6 +97,14 @@ val MIGRATION_22_23: Migration =
         }
     }
 
+val MIGRATION_23_24: Migration =
+    object : Migration(23, 24) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            migrateMemoUpdatedAtColumn(db, tableName = "Lomo")
+            migrateMemoUpdatedAtColumn(db, tableName = "LomoTrash")
+        }
+    }
+
 val ALL_DATABASE_MIGRATIONS =
     arrayOf(
         MIGRATION_18_19,
@@ -104,7 +112,21 @@ val ALL_DATABASE_MIGRATIONS =
         MIGRATION_20_21,
         MIGRATION_21_22,
         MIGRATION_22_23,
+        MIGRATION_23_24,
     )
+
+private fun migrateMemoUpdatedAtColumn(
+    db: SupportSQLiteDatabase,
+    tableName: String,
+) {
+    if (!db.tableExists(tableName)) return
+
+    if ("updatedAt" !in db.tableColumns(tableName)) {
+        db.execSQL("ALTER TABLE `$tableName` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+    }
+    db.execSQL("UPDATE `$tableName` SET `updatedAt` = `timestamp` WHERE `updatedAt` <= 0")
+    db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_updatedAt` ON `$tableName` (`updatedAt`)")
+}
 
 private fun normalizeMemoTable(
     db: SupportSQLiteDatabase,

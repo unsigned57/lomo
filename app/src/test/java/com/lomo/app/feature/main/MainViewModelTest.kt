@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -32,6 +33,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
@@ -166,6 +168,35 @@ class MainViewModelTest {
 
             assertEquals("", viewModel.searchQuery.value)
             assertNull(viewModel.selectedTag.value)
+        }
+
+    @Test
+    fun `updateMemoStartDate clears endDate when end is earlier`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 1))
+            viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 5))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(LocalDate.of(2026, 3, 5), viewModel.memoListFilter.value.startDate)
+            assertNull(viewModel.memoListFilter.value.endDate)
+        }
+
+    @Test
+    fun `clearMemoListFilter resets sort and date range`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
+            viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 1))
+            viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 10))
+            viewModel.clearMemoListFilter()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(MemoSortOption.CREATED_TIME, viewModel.memoListFilter.value.sortOption)
+            assertNull(viewModel.memoListFilter.value.startDate)
+            assertNull(viewModel.memoListFilter.value.endDate)
         }
 
     @Test

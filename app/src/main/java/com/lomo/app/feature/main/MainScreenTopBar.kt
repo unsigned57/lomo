@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.*
@@ -17,6 +18,7 @@ internal fun MainTopBar(
     scrollBehavior: TopAppBarScrollBehavior,
     onMenu: () -> Unit,
     onSearch: () -> Unit,
+    onFilter: () -> Unit,
     onClearFilter: () -> Unit,
     isFilterActive: Boolean,
     showNavigationIcon: Boolean = true,
@@ -65,6 +67,18 @@ internal fun MainTopBar(
                     Icons.Rounded.Search,
                     androidx.compose.ui.res
                         .stringResource(com.lomo.app.R.string.cd_search),
+                )
+            }
+            IconButton(
+                onClick = {
+                    haptic.medium()
+                    onFilter()
+                },
+            ) {
+                Icon(
+                    Icons.Rounded.FilterList,
+                    androidx.compose.ui.res
+                        .stringResource(com.lomo.app.R.string.cd_filter),
                 )
             }
         },

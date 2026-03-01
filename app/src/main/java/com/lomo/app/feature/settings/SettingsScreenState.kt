@@ -50,6 +50,7 @@ data class InteractionSectionState(
     val hapticEnabled: Boolean,
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
+    val appLockEnabled: Boolean,
 )
 
 data class SystemSectionState(

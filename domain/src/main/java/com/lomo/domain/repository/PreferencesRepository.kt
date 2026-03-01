@@ -44,6 +44,10 @@ interface PreferencesRepository {
 
     suspend fun setDoubleTapEditEnabled(enabled: Boolean)
 
+    fun isAppLockEnabled(): Flow<Boolean>
+
+    suspend fun setAppLockEnabled(enabled: Boolean)
+
     fun isCheckUpdatesOnStartupEnabled(): Flow<Boolean>
 
     suspend fun setCheckUpdatesOnStartup(enabled: Boolean)

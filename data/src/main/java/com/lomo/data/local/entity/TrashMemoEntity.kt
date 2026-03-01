@@ -11,12 +11,14 @@ import com.lomo.domain.model.Memo
     indices =
         [
             Index(value = ["timestamp"]),
+            Index(value = ["updatedAt"]),
             Index(value = ["date"]),
         ],
 )
 data class TrashMemoEntity(
     @PrimaryKey val id: String,
     val timestamp: Long,
+    val updatedAt: Long = timestamp,
     val content: String,
     val rawContent: String,
     val date: String,
@@ -27,6 +29,7 @@ data class TrashMemoEntity(
         Memo(
             id = id,
             timestamp = timestamp,
+            updatedAt = updatedAt,
             content = content,
             rawContent = rawContent,
             dateKey = date,
@@ -41,6 +44,7 @@ data class TrashMemoEntity(
             TrashMemoEntity(
                 id = memo.id,
                 timestamp = memo.timestamp,
+                updatedAt = memo.updatedAt,
                 content = memo.content,
                 rawContent = memo.rawContent,
                 date = memo.dateKey,

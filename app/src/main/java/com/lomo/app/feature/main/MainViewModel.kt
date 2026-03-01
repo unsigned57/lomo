@@ -8,11 +8,14 @@ import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
-import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoVersion
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
@@ -27,7 +30,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
@@ -36,6 +38,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.time.LocalDate
 import javax.inject.Inject
 
 @HiltViewModel
@@ -53,6 +56,7 @@ class MainViewModel
         private val startupCoordinator: MainStartupCoordinator,
         private val resolveMainMemoQueryUseCase: ResolveMainMemoQueryUseCase,
     ) : ViewModel() {
+        private val applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase()
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
@@ -63,6 +67,8 @@ class MainViewModel
 
         val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
         val selectedTag: StateFlow<String?> = sidebarStateHolder.selectedTag
+        private val _memoListFilter = MutableStateFlow(MemoListFilter())
+        val memoListFilter: StateFlow<MemoListFilter> = _memoListFilter
 
         sealed interface MainScreenState {
             data object Loading : MainScreenState
@@ -171,8 +177,14 @@ class MainViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
-            combine(searchQuery, selectedTag) { query: String, tag: String? -> query to tag }
-                .flatMapLatest { (query, tag) -> resolveMemoFlow(query, tag) }
+            combine(searchQuery, selectedTag, memoListFilter) { query: String, tag: String?, filter: MemoListFilter ->
+                MemoQueryInput(query = query, tag = tag, filter = filter)
+            }.flatMapLatest { input ->
+                resolveMemoFlow(query = input.query, tag = input.tag)
+                    .map { sourceMemos ->
+                        applyMainMemoFilterUseCase(memos = sourceMemos, filter = input.filter)
+                    }
+            }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         init {
@@ -231,6 +243,36 @@ class MainViewModel
 
         fun onTagSelected(tag: String?) {
             sidebarStateHolder.updateSelectedTag(tag)
+        }
+
+        fun updateMemoSortOption(sortOption: MemoSortOption) {
+            _memoListFilter.value = _memoListFilter.value.copy(sortOption = sortOption)
+        }
+
+        fun updateMemoStartDate(startDate: LocalDate?) {
+            val current = _memoListFilter.value
+            val adjustedEnd =
+                current.endDate?.takeUnless { endDate ->
+                    startDate != null && endDate.isBefore(startDate)
+                }
+            _memoListFilter.value = current.copy(startDate = startDate, endDate = adjustedEnd)
+        }
+
+        fun updateMemoEndDate(endDate: LocalDate?) {
+            val current = _memoListFilter.value
+            val adjustedStart =
+                current.startDate?.takeUnless { startDate ->
+                    endDate != null && startDate.isAfter(endDate)
+                }
+            _memoListFilter.value = current.copy(startDate = adjustedStart, endDate = endDate)
+        }
+
+        fun clearMemoDateRange() {
+            _memoListFilter.value = _memoListFilter.value.copy(startDate = null, endDate = null)
+        }
+
+        fun clearMemoListFilter() {
+            _memoListFilter.value = MemoListFilter()
         }
 
         fun clearFilters() {
@@ -436,6 +478,12 @@ class MainViewModel
             val imageDirectory: String?,
             val imageMap: Map<String, android.net.Uri>,
             val prioritizedMemoIds: Set<String>,
+        )
+
+        private data class MemoQueryInput(
+            val query: String,
+            val tag: String?,
+            val filter: MemoListFilter,
         )
 
         // processMemoContent moved to MemoUiMapper

@@ -7,6 +7,7 @@ object PreferenceDefaults {
     const val CHECK_UPDATES_ON_STARTUP = true
     const val SHOW_INPUT_HINTS = true
     const val DOUBLE_TAP_EDIT_ENABLED = true
+    const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
     const val SHARE_CARD_STYLE = "clean"
