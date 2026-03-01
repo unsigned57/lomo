@@ -105,7 +105,25 @@ This file helps future AI agents build project context quickly and avoid repeati
 - If strings change, sync localization (at least `values` and `values-zh-rCN`)
 - If baseline flow changes, regenerate profile and verify release APK embedding
 
-## 9. Quick Navigation Index
+## 9. MVVM + Clean Architecture Rules (Mandatory)
+
+- Layer responsibilities (must follow)
+  - UI layer (`app`: Activity/Fragment/Compose/ViewModel) is limited to UI state handling, interaction orchestration, navigation, and UseCase invocation. Business rules must not be implemented here.
+  - Domain layer (`domain`) contains only UseCases / Entities / Repository interfaces / pure domain rules. It must not depend on Android framework types or concrete data implementations.
+  - Data layer (`data`) contains only Repository implementations / DataSources / DAO / DTO / mappers / external system adapters. It must not contain UI logic.
+- Dependency and call direction (both required)
+  - Runtime business call chain must be: `UI -> Domain -> Data`.
+  - Compile-time dependencies must be: `app -> domain`, `data -> domain`; `domain -> app` and `domain -> data` are forbidden.
+- Cross-layer access bans (zero tolerance)
+  - ViewModels must not access DataSource / DAO / Retrofit / file system / Git engine or other Data-layer details directly.
+  - UI layer must not directly implement domain rules such as transactions, sync strategy, conflict merge policy, or permission policy.
+  - Data layer must not depend on UI types (for example: `ViewModel`, `UiState`, Compose types).
+- Implementation requirements
+  - New business rules must first be modeled in `domain` as a UseCase or domain rule, then invoked by `app` and implemented by `data`.
+  - New data sources must be exposed upward through Repository interfaces; DataSource must not be exposed directly to upper layers.
+  - Code review must check God Classes, business-logic placement, cross-layer dependencies, and responsibility boundaries; any violation blocks merge.
+
+## 10. Quick Navigation Index
 
 - App entry: `app/src/main/java/com/lomo/app/LomoApplication.kt`
 - Navigation host: `app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
