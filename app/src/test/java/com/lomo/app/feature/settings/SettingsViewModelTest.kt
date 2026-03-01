@@ -84,7 +84,7 @@ class SettingsViewModelTest {
         every { gitSyncRepo.getAutoSyncEnabled() } returns flowOf(false)
         every { gitSyncRepo.getAutoSyncInterval() } returns flowOf("15m")
         every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { gitSyncRepo.getLastSyncTime() } returns flowOf(0L)
+        every { gitSyncRepo.observeLastSyncTimeMillis() } returns flowOf(null)
         every { gitSyncRepo.syncState() } returns flowOf(SyncEngineState.Idle)
 
         coEvery { gitSyncRepo.getToken() } returns null

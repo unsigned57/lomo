@@ -88,7 +88,7 @@ class SettingsRepositoryImpl
 
         override fun isShowInputHintsEnabled(): Flow<Boolean> = dataStore.showInputHints
 
-        override suspend fun setShowInputHints(enabled: Boolean) {
+        override suspend fun setShowInputHintsEnabled(enabled: Boolean) {
             dataStore.updateShowInputHints(enabled)
         }
 

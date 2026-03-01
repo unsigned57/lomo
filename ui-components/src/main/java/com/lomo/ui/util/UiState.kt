@@ -6,11 +6,6 @@ package com.lomo.ui.util
  * UI state models are feature-layer concerns and should live outside ui-components.
  * This sealed class remains to keep existing call sites source-compatible.
  */
-@Deprecated(
-    message = "Legacy compatibility shim in ui-components. Prefer feature/app-layer state models.",
-    level = DeprecationLevel.WARNING,
-)
-@Suppress("DEPRECATION")
 sealed class UiState<out T> {
     /** Initial idle state before any operation */
     data object Idle : UiState<Nothing>()

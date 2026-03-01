@@ -2,25 +2,32 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.testutil.invokeSuspendViaReflection
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import kotlin.coroutines.Continuation
 
 class PreferencesRepositoryDefaultsTest {
     @Test
-    fun `setShowInputHintsEnabled delegates to legacy setter by default`() =
+    fun `legacy setShowInputHints delegates to setShowInputHintsEnabled by default`() =
         runTest {
-            val repository = LegacySetterOnlyPreferencesRepository()
+            val repository = ModernSetterOnlyPreferencesRepository()
+            val legacySetterMethod =
+                PreferencesRepository::class.java.getDeclaredMethod(
+                    "setShowInputHints",
+                    Boolean::class.javaPrimitiveType,
+                    Continuation::class.java,
+                )
 
-            repository.setShowInputHintsEnabled(enabled = false)
+            invokeSuspendViaReflection(legacySetterMethod, repository, false)
 
             assertEquals(false, repository.lastShowInputHintsSetValue)
         }
 
-    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-    private class LegacySetterOnlyPreferencesRepository : PreferencesRepository {
+    private class ModernSetterOnlyPreferencesRepository : PreferencesRepository {
         var lastShowInputHintsSetValue: Boolean? = null
 
         override fun getDateFormat(): Flow<String> = flowOf("yyyy-MM-dd")
@@ -49,7 +56,7 @@ class PreferencesRepositoryDefaultsTest {
 
         override fun isShowInputHintsEnabled(): Flow<Boolean> = flowOf(true)
 
-        override suspend fun setShowInputHints(enabled: Boolean) {
+        override suspend fun setShowInputHintsEnabled(enabled: Boolean) {
             lastShowInputHintsSetValue = enabled
         }
 

@@ -379,8 +379,7 @@ private fun MDOrderedList(
     Column(modifier = modifier.fillMaxWidth().padding(start = 8.dp)) {
         var node = list.firstChild
 
-        @Suppress("DEPRECATION")
-        var index = list.startNumber
+        var index = list.markerStartNumber ?: 0
         while (node != null) {
             if (node is ListItem) {
                 MDListItem(

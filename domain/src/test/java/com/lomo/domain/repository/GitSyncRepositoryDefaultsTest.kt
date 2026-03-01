@@ -17,7 +17,7 @@ class GitSyncRepositoryDefaultsTest {
     @Test
     fun `observeLastSyncTimeMillis maps zero sentinel to null`() =
         runTest {
-            val repository = LastSyncOnlyGitSyncRepository(flowOf(0L))
+            val repository = LastSyncOnlyGitSyncRepository(flowOf(null))
 
             val lastSync = repository.observeLastSyncTimeMillis().first()
 
@@ -35,7 +35,7 @@ class GitSyncRepositoryDefaultsTest {
         }
 
     private class LastSyncOnlyGitSyncRepository(
-        private val lastSyncTimeFlow: Flow<Long>,
+        private val lastSyncTimeFlow: Flow<Long?>,
     ) : GitSyncRepository {
         override fun isGitSyncEnabled(): Flow<Boolean> = flowOf(false)
 
@@ -45,8 +45,7 @@ class GitSyncRepositoryDefaultsTest {
 
         override fun getAutoSyncInterval(): Flow<String> = flowOf("never")
 
-        @Deprecated("Test stub for legacy sentinel-based API.")
-        override fun getLastSyncTime(): Flow<Long> = lastSyncTimeFlow
+        override fun observeLastSyncTimeMillis(): Flow<Long?> = lastSyncTimeFlow
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = flowOf(false)
 

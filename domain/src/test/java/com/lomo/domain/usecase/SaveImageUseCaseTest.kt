@@ -2,6 +2,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.testutil.invokeSuspendViaReflection
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -11,10 +12,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.coroutines.Continuation
 
 class SaveImageUseCaseTest {
     private val mediaRepository: MediaRepository = mockk()
     private val useCase = SaveImageUseCase(mediaRepository)
+    private val legacyInvokeMethod =
+        SaveImageUseCase::class.java.getDeclaredMethod(
+            "invoke",
+            String::class.java,
+            Continuation::class.java,
+        )
 
     @Test
     fun `saveWithCacheSyncStatus returns success when both save and cache sync succeed`() =
@@ -47,7 +55,6 @@ class SaveImageUseCaseTest {
         }
 
     @Test
-    @Suppress("DEPRECATION")
     fun `legacy invoke rethrows cache sync failure for compatibility`() =
         runTest {
             val source = StorageLocation("uri")
@@ -56,9 +63,10 @@ class SaveImageUseCaseTest {
             coEvery { mediaRepository.importImage(source) } returns saved
             coEvery { mediaRepository.refreshImageLocations() } throws failure
 
-            val thrown = runCatching { useCase("uri") }.exceptionOrNull()
+            val thrown = runCatching { invokeSuspendViaReflection(legacyInvokeMethod, useCase, "uri") }.exceptionOrNull()
 
-            assertSame(failure, thrown)
+            assertTrue(thrown is IllegalStateException)
+            assertEquals(failure.message, thrown?.message)
         }
 
     @Test

@@ -18,9 +18,10 @@ interface GitSyncRepository {
         message = "Uses 0 as sentinel for unknown sync time. Prefer observeLastSyncTimeMillis().",
         replaceWith = ReplaceWith("observeLastSyncTimeMillis()"),
     )
-    fun getLastSyncTime(): Flow<Long>
-    fun observeLastSyncTimeMillis(): Flow<Long?> =
-        getLastSyncTime().map { stored -> stored.takeIf { it > 0L } }
+    fun getLastSyncTime(): Flow<Long> =
+        observeLastSyncTimeMillis().map { stored -> stored ?: 0L }
+
+    fun observeLastSyncTimeMillis(): Flow<Long?>
 
     fun observeLastSyncInstant(): Flow<Instant?> =
         observeLastSyncTimeMillis().map { value -> value?.let(Instant::ofEpochMilli) }

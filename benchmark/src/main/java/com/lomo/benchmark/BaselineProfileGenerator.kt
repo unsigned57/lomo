@@ -7,7 +7,6 @@ import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
-import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkSetupContract
@@ -379,14 +378,7 @@ class BaselineProfileGenerator {
     private fun MacrobenchmarkScope.findEditorField(timeout: Long): UiObject2? {
         val byClass = findObject(By.clazz("android.widget.EditText"), timeout)
         if (byClass != null) return byClass
-
-        // Compose TextField fallback through UiSelector.
-        return runCatching {
-            device.findObject(UiSelector().className("android.widget.EditText"))?.let { legacy ->
-                @Suppress("DEPRECATION")
-                device.findObject(By.clazz("android.widget.EditText"))
-            }
-        }.getOrNull()
+        return findObject(By.clazz("android.widget.EditText"), SHORT_TIMEOUT_MS / 2)
     }
 
     private fun MacrobenchmarkScope.clickByDescriptionOrThrow(description: String) {

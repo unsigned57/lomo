@@ -104,7 +104,8 @@ class SettingsGitCoordinator(
 
     val gitLastSyncTime: StateFlow<Long> =
         gitSyncRepo
-            .getLastSyncTime()
+            .observeLastSyncTimeMillis()
+            .map { value -> value ?: 0L }
             .stateIn(scope, SharingStarted.WhileSubscribed(5000), 0L)
 
     val gitSyncState: StateFlow<SyncEngineState> =

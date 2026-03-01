@@ -19,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -71,8 +72,8 @@ class GitSyncRepositoryImpl
 
         override fun getAutoSyncInterval(): Flow<String> = dataStore.gitAutoSyncInterval
 
-        @Deprecated("Implements legacy sentinel-based API for compatibility.")
-        override fun getLastSyncTime(): Flow<Long> = dataStore.gitLastSyncTime
+        override fun observeLastSyncTimeMillis(): Flow<Long?> =
+            dataStore.gitLastSyncTime.map { stored -> stored.takeIf { it > 0L } }
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
 

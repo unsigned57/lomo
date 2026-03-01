@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
@@ -206,19 +207,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractSharedTexts(intent: Intent): List<String> {
         val texts = mutableListOf<String>()
+        val extras = intent.extras
         intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
             if (text.isNotBlank()) {
                 texts += text
             }
         }
-        @Suppress("DEPRECATION")
-        intent.getStringArrayListExtra(Intent.EXTRA_TEXT)?.forEach { text ->
+        extras?.getStringArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
             if (text.isNotBlank()) {
                 texts += text
             }
         }
-        @Suppress("DEPRECATION")
-        intent.getCharSequenceArrayListExtra(Intent.EXTRA_TEXT)?.forEach { text ->
+        extras?.getCharSequenceArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
             val normalized = text?.toString()
             if (!normalized.isNullOrBlank()) {
                 texts += normalized
@@ -229,11 +229,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractSharedImageUris(intent: Intent): List<Uri> {
         val uris = mutableListOf<Uri>()
-        androidx.core.content.IntentCompat
+        IntentCompat
             .getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
             ?.let(uris::add)
-        @Suppress("DEPRECATION")
-        intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)?.forEach(uris::add)
+        IntentCompat
+            .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+            ?.forEach(uris::add)
         intent.clipData?.let { clipData ->
             repeat(clipData.itemCount) { index ->
                 clipData.getItemAt(index).uri?.let(uris::add)

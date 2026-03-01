@@ -233,10 +233,8 @@ class NsdDiscoveryService(
         }
     }
 
-    @Suppress("DEPRECATION")
     private fun resolveServiceLegacy(serviceInfo: NsdServiceInfo) {
-        nsdManager.resolveService(
-            serviceInfo,
+        val listener =
             object : NsdManager.ResolveListener {
                 override fun onResolveFailed(
                     info: NsdServiceInfo,
@@ -248,19 +246,33 @@ class NsdDiscoveryService(
                 override fun onServiceResolved(info: NsdServiceInfo) {
                     handleResolvedService(info)
                 }
-            },
-        )
+            }
+
+        runCatching {
+            val resolveService =
+                NsdManager::class.java.getMethod(
+                    "resolveService",
+                    NsdServiceInfo::class.java,
+                    NsdManager.ResolveListener::class.java,
+                )
+            resolveService.invoke(nsdManager, serviceInfo, listener)
+        }.onFailure { error ->
+            Timber.tag(TAG).e(error, "Failed to resolve service for ${serviceInfo.serviceName}")
+        }
     }
 
     private fun callbackKey(serviceInfo: NsdServiceInfo): String = "${serviceInfo.serviceName}|${serviceInfo.serviceType}"
 
-    @Suppress("DEPRECATION")
     private fun handleResolvedService(info: NsdServiceInfo) {
         val hostAddress: java.net.InetAddress? =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 info.hostAddresses.firstOrNull { it is java.net.Inet4Address }
             } else {
-                info.host
+                runCatching {
+                    NsdServiceInfo::class.java
+                        .getMethod("getHost")
+                        .invoke(info) as? java.net.InetAddress
+                }.getOrNull()
             }
 
         if (hostAddress !is java.net.Inet4Address) {
