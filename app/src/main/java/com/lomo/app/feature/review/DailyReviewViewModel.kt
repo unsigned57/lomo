@@ -10,10 +10,12 @@ import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.ui.util.UiState
@@ -171,7 +173,17 @@ class DailyReviewViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    onResult(saveImageUseCase(uri.toString()))
+                    val path =
+                        when (
+                            val result =
+                                saveImageUseCase.saveWithCacheSyncStatus(
+                                    StorageLocation(uri.toString()),
+                                )
+                        ) {
+                            is SaveImageResult.SavedAndCacheSynced -> result.location.raw
+                            is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
+                        }
+                    onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {

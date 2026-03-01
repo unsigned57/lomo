@@ -5,11 +5,12 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.ui.util.stateInViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 
 /**
  * Aggregated UI preferences consumed by multiple screens.
@@ -87,11 +88,11 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
 
 fun PreferencesRepository.appPreferencesState(scope: CoroutineScope): StateFlow<AppPreferencesState> =
     observeAppPreferences()
-        .stateInViewModel(scope, AppPreferencesState.defaults())
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000L), AppPreferencesState.defaults())
 
 fun MemoRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =
     getActiveDayCount()
-        .stateInViewModel(scope, 0)
+        .stateIn(scope, SharingStarted.WhileSubscribed(5000L), 0)
 
 private data class BasePreferences(
     val dateFormat: String,

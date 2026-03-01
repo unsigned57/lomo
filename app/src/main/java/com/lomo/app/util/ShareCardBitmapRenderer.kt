@@ -12,6 +12,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.util.TypedValue
 import com.lomo.app.R
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ShareCardTextInput
@@ -412,7 +413,12 @@ class ShareCardBitmapRenderer
         private fun sp(
             resources: android.content.res.Resources,
             value: Float,
-        ): Float = value * resources.displayMetrics.scaledDensity
+        ): Float =
+            TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_SP,
+                value,
+                resources.displayMetrics,
+            )
 
         private fun formatShareCardTime(createdAtMillis: Long): String =
             shareCardTimeFormatter.format(

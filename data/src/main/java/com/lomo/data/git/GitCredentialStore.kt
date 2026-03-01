@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package com.lomo.data.git
 
 import android.content.Context

@@ -6,9 +6,11 @@ import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -45,7 +47,7 @@ class MemoEditorViewModel
                         _errorMessage.value = "Please select a folder first"
                         return@launch
                     }
-                    validator.validateForCreate(content)
+                    validator.requireValidForCreate(content)
                     repository.saveMemo(content, System.currentTimeMillis())
                     onSuccess?.invoke()
                     clearTrackedImages()
@@ -66,7 +68,7 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    validator.validateForUpdate(newContent)
+                    validator.requireValidForUpdate(newContent)
                     repository.updateMemo(memo, newContent)
                     appWidgetRepository.updateAllWidgets()
                     clearTrackedImages()
@@ -85,7 +87,16 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    val path = saveImageUseCase(uri.toString())
+                    val path =
+                        when (
+                            val result =
+                                saveImageUseCase.saveWithCacheSyncStatus(
+                                    StorageLocation(uri.toString()),
+                                )
+                        ) {
+                            is SaveImageResult.SavedAndCacheSynced -> result.location.raw
+                            is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
+                        }
                     trackedImageFilenames += path
                     onResult(path)
                 } catch (e: kotlinx.coroutines.CancellationException) {

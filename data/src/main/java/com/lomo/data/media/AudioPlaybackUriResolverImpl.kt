@@ -75,7 +75,7 @@ class AudioPlaybackUriResolverImpl
                     for (part in parts) {
                         document = document?.findFile(part) ?: return null
                     }
-                    document?.uri?.toString()
+                    document.uri.toString()
                 }
             } catch (cancellation: CancellationException) {
                 throw cancellation

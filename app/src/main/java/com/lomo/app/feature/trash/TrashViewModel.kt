@@ -12,7 +12,6 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.ui.util.stateInViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted

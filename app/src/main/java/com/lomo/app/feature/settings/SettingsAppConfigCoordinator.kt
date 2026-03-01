@@ -171,7 +171,7 @@ class SettingsAppConfigCoordinator(
     }
 
     suspend fun updateShowInputHints(enabled: Boolean) {
-        appConfigRepository.setShowInputHints(enabled)
+        appConfigRepository.setShowInputHintsEnabled(enabled)
     }
 
     suspend fun updateDoubleTapEditEnabled(enabled: Boolean) {
