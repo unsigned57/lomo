@@ -6,10 +6,16 @@ import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
+import io.mockk.slot
+import io.mockk.verify
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -72,5 +78,31 @@ class MemoRepositoryImplTest {
 
             coVerify(exactly = 1) { synchronizer.deleteMemoAsync(memo) }
             coVerify(exactly = 0) { synchronizer.updateMemoAsync(any(), any()) }
+        }
+
+    @Test
+    fun `searchMemosList CJK phrase uses bigram AND match query`() =
+        runTest {
+            val captured = slot<String>()
+            every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
+            every { dao.searchMemosFlow(any()) } returns flowOf(emptyList())
+
+            repository.searchMemosList("苏格拉底").first()
+
+            assertEquals("苏格* AND 格拉* AND 拉底*", captured.captured)
+            verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
+            verify(exactly = 0) { dao.searchMemosFlow(any()) }
+        }
+
+    @Test
+    fun `searchMemosList single CJK char keeps unigram query`() =
+        runTest {
+            val captured = slot<String>()
+            every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
+
+            repository.searchMemosList("苏").first()
+
+            assertEquals("苏*", captured.captured)
+            verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
         }
 }

@@ -38,6 +38,55 @@ object SearchTokenizer {
         return sb.toString().trim()
     }
 
+    /**
+     * Tokenize search input for MATCH queries.
+     * For CJK runs with 2+ chars, emit only bigrams to avoid single-char broad matches.
+     */
+    fun tokenizeQueryTerms(text: String): List<String> {
+        val tokens = mutableListOf<String>()
+        val length = text.length
+        var i = 0
+
+        while (i < length) {
+            val c = text[i]
+            if (isCJK(c)) {
+                var j = i + 1
+                while (j < length && isCJK(text[j])) {
+                    j++
+                }
+
+                val runLength = j - i
+                if (runLength == 1) {
+                    tokens.add(c.toString())
+                } else {
+                    var k = i
+                    while (k < j - 1) {
+                        tokens.add(text.substring(k, k + 2))
+                        k++
+                    }
+                }
+                i = j
+                continue
+            }
+
+            if (Character.isLetterOrDigit(c)) {
+                var j = i + 1
+                while (j < length && Character.isLetterOrDigit(text[j]) && !isCJK(text[j])) {
+                    j++
+                }
+                tokens.add(text.substring(i, j))
+                i = j
+                continue
+            }
+
+            i++
+        }
+
+        return tokens.distinct()
+    }
+
+    fun containsCjk(text: String): Boolean = text.any(::isCJK)
+
     private fun isCJK(c: Char): Boolean {
         val block = UnicodeBlock.of(c)
         return block == UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||

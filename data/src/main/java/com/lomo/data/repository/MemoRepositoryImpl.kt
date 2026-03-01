@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
@@ -69,34 +70,15 @@ class MemoRepositoryImpl
 
         override fun searchMemosList(query: String): Flow<List<Memo>> {
             val trimmed = query.trim()
-            val hasCjk =
-                trimmed.any {
-                    val block =
-                        java.lang.Character.UnicodeBlock
-                            .of(it)
-                    block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-                        block == java.lang.Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-                        block == java.lang.Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
-                        block == java.lang.Character.UnicodeBlock.HIRAGANA ||
-                        block == java.lang.Character.UnicodeBlock.KATAKANA ||
-                        block == java.lang.Character.UnicodeBlock.HANGUL_SYLLABLES
-                }
+            val hasCjk = SearchTokenizer.containsCjk(trimmed)
 
             val source =
                 if (hasCjk) {
-                    val tokens =
-                        com.lomo.data.util.SearchTokenizer
-                            .tokenize(trimmed)
-                            .split(Regex("\\s+"))
-                            .filter { it.isNotBlank() }
-                            .distinct()
-                            .take(5)
+                    val tokens = SearchTokenizer.tokenizeQueryTerms(trimmed).take(5)
                     if (tokens.isEmpty()) {
                         dao.searchMemosFlow(trimmed)
                     } else {
-                        val matchQuery = tokens.joinToString(" OR ") { token -> "$token*" }
+                        val matchQuery = tokens.joinToString(" AND ") { token -> "$token*" }
                         dao.searchMemosByFtsFlow(matchQuery)
                     }
                 } else {
