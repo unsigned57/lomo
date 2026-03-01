@@ -4,11 +4,15 @@ import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.ShareAttachmentExtractionResult
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,12 +33,16 @@ class ShareViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var shareService: LanShareService
+    private lateinit var extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase
+    private lateinit var shareErrorPolicy: ShareErrorPolicy
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
 
         shareService = mockk(relaxed = true)
+        extractShareAttachmentsUseCase = mockk(relaxed = true)
+        shareErrorPolicy = ShareErrorPolicy()
         every { shareService.discoveredDevices } returns MutableStateFlow(emptyList())
         every { shareService.incomingShare } returns MutableStateFlow(IncomingShareState.None)
         every { shareService.transferState } returns MutableStateFlow(ShareTransferState.Idle)
@@ -42,6 +50,11 @@ class ShareViewModelTest {
         every { shareService.lanShareE2eEnabled } returns flowOf(true)
         every { shareService.lanSharePairingConfigured } returns flowOf(true)
         every { shareService.lanShareDeviceName } returns flowOf("Local")
+        every { extractShareAttachmentsUseCase.invoke(any()) } returns
+            ShareAttachmentExtractionResult(
+                localAttachmentPaths = emptyList(),
+                attachmentUris = emptyMap(),
+            )
 
         coEvery { shareService.requiresPairingBeforeSend() } returns false
         coEvery { shareService.sendMemo(any(), any(), any(), any()) } returns Result.success(Unit)
@@ -63,6 +76,8 @@ class ShareViewModelTest {
             val viewModel =
                 ShareViewModel(
                     shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
                         SavedStateHandle(
                             mapOf(
@@ -95,6 +110,8 @@ class ShareViewModelTest {
             val viewModel =
                 ShareViewModel(
                     shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
                         SavedStateHandle(
                             mapOf(
@@ -117,11 +134,58 @@ class ShareViewModelTest {
         }
 
     @Test
+    fun `sendMemo delegates attachment extraction to usecase and forwards result`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            val device =
+                DiscoveredDevice(
+                    name = "Peer",
+                    host = "192.168.1.2",
+                    port = 1080,
+                )
+            val expectedAttachmentUris = mapOf("images/photo.png" to "content://images/photo.png")
+            every { extractShareAttachmentsUseCase.invoke("memo-content") } returns
+                ShareAttachmentExtractionResult(
+                    localAttachmentPaths = expectedAttachmentUris.keys.toList(),
+                    attachmentUris = expectedAttachmentUris,
+                )
+
+            val viewModel =
+                ShareViewModel(
+                    shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.sendMemo(device)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            verify(exactly = 1) { extractShareAttachmentsUseCase.invoke("memo-content") }
+            coVerify(exactly = 1) {
+                shareService.sendMemo(
+                    device = device,
+                    content = "memo-content",
+                    timestamp = 123L,
+                    attachmentUris = expectedAttachmentUris,
+                )
+            }
+        }
+
+    @Test
     fun `missing share payload exposes operationError`() =
         runTest {
             val viewModel =
                 ShareViewModel(
                     shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle = SavedStateHandle(),
                 )
 
@@ -139,6 +203,8 @@ class ShareViewModelTest {
             val viewModel =
                 ShareViewModel(
                     shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
                         SavedStateHandle(
                             mapOf(
@@ -162,6 +228,8 @@ class ShareViewModelTest {
             val viewModel =
                 ShareViewModel(
                     shareServiceManager = shareService,
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
                         SavedStateHandle(
                             mapOf(

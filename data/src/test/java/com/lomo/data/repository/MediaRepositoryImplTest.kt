@@ -1,6 +1,9 @@
 package com.lomo.data.repository
 
 import com.lomo.data.source.FileDataSource
+import com.lomo.domain.model.MediaCategory
+import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageLocation
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -26,7 +29,7 @@ class MediaRepositoryImplTest {
     }
 
     @Test
-    fun `syncImageCache emits file-backed image map`() =
+    fun `refreshImageLocations emits file-backed image map`() =
         runTest {
             coEvery { dataSource.getImageRootFlow() } returns flowOf("content://images")
             coEvery { dataSource.listImageFiles() } returns
@@ -35,39 +38,45 @@ class MediaRepositoryImplTest {
                     "new.jpg" to "uri://new",
                 )
 
-            repository.syncImageCache()
+            repository.refreshImageLocations()
 
-            val map = repository.getImageUriMap().first()
-            assertEquals(mapOf("keep.jpg" to "uri://keep", "new.jpg" to "uri://new"), map)
+            val map = repository.observeImageLocations().first()
+            assertEquals(
+                mapOf(
+                    MediaEntryId("keep.jpg") to StorageLocation("uri://keep"),
+                    MediaEntryId("new.jpg") to StorageLocation("uri://new"),
+                ),
+                map,
+            )
         }
 
     @Test
-    fun `syncImageCache clears map when image root is missing`() =
+    fun `refreshImageLocations clears map when image root is missing`() =
         runTest {
             coEvery { dataSource.getImageRootFlow() } returns flowOf(null)
 
-            repository.syncImageCache()
+            repository.refreshImageLocations()
 
-            assertEquals(emptyMap<String, String>(), repository.getImageUriMap().first())
+            assertEquals(emptyMap<MediaEntryId, StorageLocation>(), repository.observeImageLocations().first())
         }
 
     @Test
-    fun `createDefaultImageDirectory returns null when directory creation fails`() =
+    fun `ensureCategoryWorkspace returns null when image directory creation fails`() =
         runTest {
             coEvery { dataSource.createDirectory("images") } throws IllegalStateException("boom")
 
-            val result = repository.createDefaultImageDirectory()
+            val result = repository.ensureCategoryWorkspace(MediaCategory.IMAGE)
 
             assertNull(result)
             coVerify(exactly = 0) { dataSource.setImageRoot(any()) }
         }
 
     @Test
-    fun `createDefaultVoiceDirectory returns null when directory creation fails`() =
+    fun `ensureCategoryWorkspace returns null when voice directory creation fails`() =
         runTest {
             coEvery { dataSource.createDirectory("voice") } throws IllegalArgumentException("boom")
 
-            val result = repository.createDefaultVoiceDirectory()
+            val result = repository.ensureCategoryWorkspace(MediaCategory.VOICE)
 
             assertNull(result)
             coVerify(exactly = 0) { dataSource.setVoiceRoot(any()) }

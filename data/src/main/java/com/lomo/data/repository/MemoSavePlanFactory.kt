@@ -1,11 +1,12 @@
 package com.lomo.data.repository
 
+import com.lomo.data.memo.MemoIdentityPolicy
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
 import java.time.Instant
 import java.time.ZoneId
 import javax.inject.Inject
@@ -27,6 +28,7 @@ class MemoSavePlanFactory
     constructor(
         private val parser: MarkdownParser,
         private val textProcessor: MemoTextProcessor,
+        private val memoIdentityPolicy: MemoIdentityPolicy,
     ) {
         fun create(
             content: String,
@@ -58,24 +60,20 @@ class MemoSavePlanFactory
                     fallbackTimestampMillis = timestamp,
                 )
             val sameTimestampCount = precomputedSameTimestampCount ?: countTimestampOccurrences(existingFileContent, timeString)
-            val safeOffset = if (sameTimestampCount > 999) 999 else sameTimestampCount
-            val canonicalTimestamp = baseCanonicalTimestamp + safeOffset
+            val canonicalTimestamp =
+                memoIdentityPolicy.applyTimestampOffset(
+                    baseTimestampMillis = baseCanonicalTimestamp,
+                    occurrenceIndex = sameTimestampCount,
+                )
 
-            val contentHash =
-                content
-                    .trim()
-                    .hashCode()
-                    .let {
-                        kotlin.math.abs(it).toString(16)
-                    }
-            val baseId = "${dateString}_${timeString}_$contentHash"
+            val baseId = memoIdentityPolicy.buildBaseId(dateString, timeString, content)
             val collisionIndex = precomputedCollisionCount ?: countBaseIdCollisionsInFile(
                 fileContent = existingFileContent,
                 dateString = dateString,
                 fallbackTimestampMillis = timestamp,
                 baseId = baseId,
             )
-            val optimisticId = if (collisionIndex == 0) baseId else "${baseId}_$collisionIndex"
+            val optimisticId = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionIndex)
             val rawContent = "- $timeString $content"
 
             val memo =
@@ -117,14 +115,13 @@ class MemoSavePlanFactory
         ): Int {
             if (fileContent.isBlank()) return 0
 
-            val collisionPrefix = "${baseId}_"
             return parser
                 .parseContent(
                     content = fileContent,
                     filename = dateString,
                     fallbackTimestampMillis = fallbackTimestampMillis,
                 ).count { memo ->
-                    memo.id == baseId || memo.id.startsWith(collisionPrefix)
+                    memoIdentityPolicy.matchesBaseOrCollision(memo.id, baseId)
                 }
         }
     }

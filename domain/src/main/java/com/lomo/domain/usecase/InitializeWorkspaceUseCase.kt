@@ -1,26 +1,26 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.MediaCategory
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
-import javax.inject.Inject
 
 class InitializeWorkspaceUseCase
-    @Inject
     constructor(
         private val directorySettingsRepository: DirectorySettingsRepository,
         private val mediaRepository: MediaRepository,
     ) {
-        suspend fun currentRootDirectory(): String? = directorySettingsRepository.getRootDirectoryOnce()
+        suspend fun currentRootLocation(): StorageLocation? = directorySettingsRepository.currentRootLocation()
 
         suspend fun ensureDefaultMediaDirectories(
             forImage: Boolean,
             forVoice: Boolean,
         ) {
             if (forImage) {
-                mediaRepository.createDefaultImageDirectory()
+                mediaRepository.ensureCategoryWorkspace(MediaCategory.IMAGE)
             }
             if (forVoice) {
-                mediaRepository.createDefaultVoiceDirectory()
+                mediaRepository.ensureCategoryWorkspace(MediaCategory.VOICE)
             }
         }
     }

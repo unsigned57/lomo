@@ -11,8 +11,8 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.lomo.data.util.PreferenceKeys
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch

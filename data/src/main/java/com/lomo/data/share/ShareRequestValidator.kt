@@ -15,7 +15,7 @@ internal class ShareRequestValidator {
             return "Memo content is empty"
         }
         if (request.e2eEnabled) {
-            if (request.encryptedContent.length > MAX_ENCRYPTED_MEMO_CHARS) {
+            if (request.encryptedContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = true)) {
                 return "Encrypted memo content too large"
             }
             if (!isValidContentNonce(request.contentNonce)) {
@@ -31,7 +31,7 @@ internal class ShareRequestValidator {
                 return "Invalid auth signature"
             }
         } else {
-            if (request.encryptedContent.length > MAX_MEMO_CHARS) {
+            if (request.encryptedContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
                 return "Memo content too large"
             }
             if (request.contentNonce.isNotBlank()) {
@@ -41,7 +41,7 @@ internal class ShareRequestValidator {
                 return "Auth fields are not allowed in open mode"
             }
         }
-        if (request.attachments.size > MAX_ATTACHMENTS) {
+        if (!ShareTransferLimits.isAttachmentCountValid(request.attachments.size)) {
             return "Too many attachments"
         }
 
@@ -60,7 +60,7 @@ internal class ShareRequestValidator {
             if (attachment.size < 0) {
                 return "Invalid attachment size"
             }
-            if (attachment.size > MAX_ATTACHMENT_SIZE_BYTES) {
+            if (attachment.size > ShareTransferLimits.MAX_ATTACHMENT_SIZE_BYTES) {
                 return "Attachment too large"
             }
         }
@@ -75,7 +75,7 @@ internal class ShareRequestValidator {
             return "Memo content is empty"
         }
         if (metadata.e2eEnabled) {
-            if (metadata.encryptedContent.length > MAX_ENCRYPTED_MEMO_CHARS) {
+            if (metadata.encryptedContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = true)) {
                 return "Encrypted memo content too large"
             }
             if (!isValidContentNonce(metadata.contentNonce)) {
@@ -91,7 +91,7 @@ internal class ShareRequestValidator {
                 return "Invalid auth signature"
             }
         } else {
-            if (metadata.encryptedContent.length > MAX_MEMO_CHARS) {
+            if (metadata.encryptedContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
                 return "Memo content too large"
             }
             if (metadata.contentNonce.isNotBlank()) {
@@ -104,7 +104,7 @@ internal class ShareRequestValidator {
                 return "Attachment nonces are not allowed in open mode"
             }
         }
-        if (metadata.attachmentNames.size > MAX_ATTACHMENTS) {
+        if (!ShareTransferLimits.isAttachmentCountValid(metadata.attachmentNames.size)) {
             return "Too many attachments"
         }
 
@@ -119,7 +119,7 @@ internal class ShareRequestValidator {
             }
         }
         if (metadata.e2eEnabled) {
-            if (metadata.attachmentNonces.size > MAX_ATTACHMENTS) {
+            if (!ShareTransferLimits.isAttachmentCountValid(metadata.attachmentNonces.size)) {
                 return "Too many attachment nonces"
             }
             val normalizedAttachmentNonces = mutableMapOf<String, String>()
@@ -168,11 +168,7 @@ internal class ShareRequestValidator {
 
     private companion object {
         private const val MAX_SENDER_NAME_CHARS = 64
-        private const val MAX_MEMO_CHARS = 200_000
-        private const val MAX_ENCRYPTED_MEMO_CHARS = 600_000
-        private const val MAX_ATTACHMENTS = 20
         private const val MAX_ATTACHMENT_NAME_CHARS = 1024
-        private const val MAX_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
         private const val MAX_AUTH_NONCE_CHARS = 64
         private const val MAX_NONCE_BASE64_CHARS = 64
     }

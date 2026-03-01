@@ -1,6 +1,6 @@
 package com.lomo.data.util
 
-import com.lomo.domain.util.PreferenceDefaults
+import com.lomo.domain.model.PreferenceDefaults
 
 /**
  * Centralized preference key constants to avoid magic strings and ensure consistency across the

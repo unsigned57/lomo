@@ -244,7 +244,7 @@ tasks.matching { it.name == "signReleaseBundle" || it.name == "packageReleaseBun
 
 dependencies {
     implementation(project(":domain"))
-    implementation(project(":data"))
+    runtimeOnly(project(":data"))
     implementation(project(":ui-components"))
 
     implementation(libs.androidx.core.ktx)

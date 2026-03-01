@@ -1,10 +1,11 @@
 package com.lomo.data.parser
 
+import com.lomo.data.memo.MemoIdentityPolicy
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
@@ -17,6 +18,7 @@ class MarkdownParser
     @Inject
     constructor(
         private val textProcessor: MemoTextProcessor,
+        private val memoIdentityPolicy: MemoIdentityPolicy,
     ) {
 
         fun parseFile(file: File): List<Memo> {
@@ -51,31 +53,21 @@ class MarkdownParser
                     val offset = timestampCounts.getOrDefault(currentTimestamp, 0)
                     timestampCounts[currentTimestamp] = offset + 1
 
-                    // Add offset to timestamp (cap at 999 to stay within same second)
-                    val safeOffset = if (offset > 999) 999 else offset
                     val timestampWithOffset =
-                        resolveTimestamp(
-                            dateStr = filename,
-                            timeStr = currentTimestamp,
-                            fallbackTimestampMillis = fallbackTimestampMillis,
-                        ) + safeOffset
+                        memoIdentityPolicy.applyTimestampOffset(
+                            baseTimestampMillis =
+                                resolveTimestamp(
+                                    dateStr = filename,
+                                    timeStr = currentTimestamp,
+                                    fallbackTimestampMillis = fallbackTimestampMillis,
+                                ),
+                            occurrenceIndex = offset,
+                        )
                     val timestampLong = timestampWithOffset
 
-                    // Stable ID: Use filename, timestamp string, AND content hash.
-                    // This ensures that even if order changes (e.g. deletion), the ID remains stable.
-                    val contentHash =
-                        fullContent.trim().hashCode().let {
-                            // Use absolute value to avoid negative signs in ID
-                            kotlin.math.abs(it).toString(16)
-                        }
-
-                    val baseId = "${filename}_${currentTimestamp}_$contentHash"
-                    var id = baseId
-                    var collisionCount = 1
-                    while (seenIds.contains(id)) {
-                        id = "${baseId}_$collisionCount"
-                        collisionCount++
-                    }
+                    val baseId = memoIdentityPolicy.buildBaseId(filename, currentTimestamp, fullContent)
+                    val collisionCount = memoIdentityPolicy.nextCollisionIndex(seenIds, baseId)
+                    val id = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionCount)
 
                     seenIds.add(id)
 

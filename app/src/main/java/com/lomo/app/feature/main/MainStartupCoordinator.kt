@@ -1,14 +1,16 @@
 package com.lomo.app.feature.main
 
 import com.lomo.app.BuildConfig
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
-import com.lomo.ui.media.AudioPlayerManager
+import com.lomo.domain.repository.AudioPlaybackController
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 
@@ -20,12 +22,12 @@ class MainStartupCoordinator
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
         private val appVersionRepository: AppVersionRepository,
-        private val audioPlayerManager: AudioPlayerManager,
+        private val audioPlayerController: AudioPlaybackController,
     ) {
         suspend fun initializeRootDirectory(): String? {
-            val rootDirectory = initializeWorkspaceUseCase.currentRootDirectory()
-            audioPlayerManager.setRootDirectory(rootDirectory)
-            return rootDirectory
+            val rootLocation = initializeWorkspaceUseCase.currentRootLocation()
+            audioPlayerController.setRootLocation(rootLocation)
+            return rootLocation?.raw
         }
 
         suspend fun runDeferredStartupTasks(rootDir: String?) {
@@ -35,22 +37,24 @@ class MainStartupCoordinator
 
         fun observeRootDirectoryChanges(): Flow<String?> =
             appConfigRepository
-                .getRootDirectory()
+                .observeLocation(StorageArea.ROOT)
                 .drop(1)
-                .onEach { directory ->
-                    audioPlayerManager.setRootDirectory(directory)
+                .onEach { location ->
+                    audioPlayerController.setRootLocation(location)
                 }
+                .map { it?.raw }
 
         fun observeVoiceDirectoryChanges(): Flow<String?> =
             appConfigRepository
-                .getVoiceDirectory()
-                .onEach { voiceDirectory ->
-                    audioPlayerManager.setVoiceDirectory(voiceDirectory)
+                .observeLocation(StorageArea.VOICE)
+                .onEach { voiceLocation ->
+                    audioPlayerController.setVoiceLocation(voiceLocation)
                 }
+                .map { it?.raw }
 
         private suspend fun warmImageCacheOnStartup() {
             try {
-                mediaRepository.syncImageCache()
+                mediaRepository.refreshImageLocations()
             } catch (_: Exception) {
                 // best-effort cache warm-up
             }
@@ -68,7 +72,7 @@ class MainStartupCoordinator
                     // best-effort refresh
                 }
                 try {
-                    mediaRepository.syncImageCache()
+                    mediaRepository.refreshImageLocations()
                 } catch (_: Exception) {
                     // best-effort cache rebuild
                 }

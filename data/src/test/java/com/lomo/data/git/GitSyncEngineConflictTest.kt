@@ -36,7 +36,12 @@ class GitSyncEngineConflictTest {
         every { dataStore.gitAuthorName } returns flowOf("Lomo Test")
         every { dataStore.gitAuthorEmail } returns flowOf("lomo@test.local")
 
-        engine = GitSyncEngine(credentialStore, dataStore)
+        engine =
+            GitSyncEngine(
+                dataStore = dataStore,
+                credentialStrategy = GitCredentialStrategy(credentialStore),
+                primitives = GitRepositoryPrimitives(),
+            )
         tempRoot = Files.createTempDirectory("git-sync-engine-conflict").toFile()
     }
 

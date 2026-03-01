@@ -1,5 +1,7 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.MediaCategory
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
 import io.mockk.coEvery
@@ -15,35 +17,36 @@ class InitializeWorkspaceUseCaseTest {
     private val useCase = InitializeWorkspaceUseCase(directorySettingsRepository, mediaRepository)
 
     @Test
-    fun `currentRootDirectory returns repository value`() =
+    fun `currentRootLocation returns repository value`() =
         runTest {
-            coEvery { directorySettingsRepository.getRootDirectoryOnce() } returns "/workspace"
+            val expected = StorageLocation("/workspace")
+            coEvery { directorySettingsRepository.currentRootLocation() } returns expected
 
-            val result = useCase.currentRootDirectory()
+            val result = useCase.currentRootLocation()
 
-            assertEquals("/workspace", result)
+            assertEquals(expected, result)
         }
 
     @Test
-    fun `ensureDefaultMediaDirectories creates only image directory when requested`() =
+    fun `ensureDefaultMediaDirectories creates only image workspace when requested`() =
         runTest {
-            coEvery { mediaRepository.createDefaultImageDirectory() } returns null
+            coEvery { mediaRepository.ensureCategoryWorkspace(MediaCategory.IMAGE) } returns null
 
             useCase.ensureDefaultMediaDirectories(forImage = true, forVoice = false)
 
-            coVerify(exactly = 1) { mediaRepository.createDefaultImageDirectory() }
-            coVerify(exactly = 0) { mediaRepository.createDefaultVoiceDirectory() }
+            coVerify(exactly = 1) { mediaRepository.ensureCategoryWorkspace(MediaCategory.IMAGE) }
+            coVerify(exactly = 0) { mediaRepository.ensureCategoryWorkspace(MediaCategory.VOICE) }
         }
 
     @Test
-    fun `ensureDefaultMediaDirectories creates only voice directory when requested`() =
+    fun `ensureDefaultMediaDirectories creates only voice workspace when requested`() =
         runTest {
-            coEvery { mediaRepository.createDefaultVoiceDirectory() } returns null
+            coEvery { mediaRepository.ensureCategoryWorkspace(MediaCategory.VOICE) } returns null
 
             useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = true)
 
-            coVerify(exactly = 0) { mediaRepository.createDefaultImageDirectory() }
-            coVerify(exactly = 1) { mediaRepository.createDefaultVoiceDirectory() }
+            coVerify(exactly = 0) { mediaRepository.ensureCategoryWorkspace(MediaCategory.IMAGE) }
+            coVerify(exactly = 1) { mediaRepository.ensureCategoryWorkspace(MediaCategory.VOICE) }
         }
 
     @Test
@@ -51,7 +54,7 @@ class InitializeWorkspaceUseCaseTest {
         runTest {
             useCase.ensureDefaultMediaDirectories(forImage = false, forVoice = false)
 
-            coVerify(exactly = 0) { mediaRepository.createDefaultImageDirectory() }
-            coVerify(exactly = 0) { mediaRepository.createDefaultVoiceDirectory() }
+            coVerify(exactly = 0) { mediaRepository.ensureCategoryWorkspace(MediaCategory.IMAGE) }
+            coVerify(exactly = 0) { mediaRepository.ensureCategoryWorkspace(MediaCategory.VOICE) }
         }
 }

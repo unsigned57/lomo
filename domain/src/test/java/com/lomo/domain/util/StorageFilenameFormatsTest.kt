@@ -1,4 +1,4 @@
-package com.lomo.domain.util
+package com.lomo.domain.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

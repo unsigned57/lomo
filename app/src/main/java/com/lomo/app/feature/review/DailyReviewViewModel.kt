@@ -2,12 +2,14 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
@@ -22,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -54,7 +57,8 @@ class DailyReviewViewModel
 
         val rootDirectory: StateFlow<String?> =
             appConfigRepository
-                .getRootDirectory()
+                .observeLocation(StorageArea.ROOT)
+                .map { it?.raw }
                 .stateIn(
                     scope = viewModelScope,
                     started =
@@ -65,7 +69,8 @@ class DailyReviewViewModel
 
         val imageDirectory: StateFlow<String?> =
             appConfigRepository
-                .getImageDirectory()
+                .observeLocation(StorageArea.IMAGE)
+                .map { it?.raw }
                 .stateIn(
                     scope = viewModelScope,
                     started =
@@ -85,9 +90,7 @@ class DailyReviewViewModel
                 viewModelScope.launch {
                     _uiState.value = UiState.Loading
                     try {
-                        // Use today's date for seeded random
-                        val today = java.time.LocalDate.now()
-                        val rawMemos = dailyReviewQueryUseCase(limit = 10, seedDate = today)
+                        val rawMemos = dailyReviewQueryUseCase()
 
                         if (rawMemos.isEmpty()) {
                             _uiState.value = UiState.Success(emptyList())
@@ -136,7 +139,7 @@ class DailyReviewViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to update memo")
+                    _errorMessage.value = e.toUserMessage("Failed to update memo")
                 }
                 if (success) {
                     loadDailyReview()
@@ -153,7 +156,7 @@ class DailyReviewViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to delete memo")
+                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
                 }
                 if (success) {
                     loadDailyReview()
@@ -172,7 +175,7 @@ class DailyReviewViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to save image")
+                    _errorMessage.value = e.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }
@@ -181,13 +184,6 @@ class DailyReviewViewModel
         fun clearError() {
             _errorMessage.value = null
         }
-
-        private fun Throwable.userMessage(prefix: String): String =
-            if (message.isNullOrBlank()) {
-                prefix
-            } else {
-                "$prefix: ${message.orEmpty()}"
-            }
 
         private data class UiMemoMappingInput(
             val memos: List<Memo>,

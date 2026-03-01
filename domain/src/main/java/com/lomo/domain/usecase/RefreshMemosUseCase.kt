@@ -1,9 +1,7 @@
 package com.lomo.domain.usecase
 
-import javax.inject.Inject
 
 class RefreshMemosUseCase
-    @Inject
     constructor(
         private val memoMaintenanceUseCase: MemoMaintenanceUseCase,
     ) {

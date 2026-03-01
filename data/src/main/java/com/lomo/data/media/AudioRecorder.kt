@@ -5,7 +5,8 @@ import android.media.MediaRecorder
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.util.Log
-import com.lomo.domain.device.VoiceRecorder
+import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import kotlin.math.log10
@@ -14,16 +15,16 @@ class AudioRecorder
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
-    ) : VoiceRecorder {
+    ) : VoiceRecordingRepository {
         private var recorder: MediaRecorder? = null
         private var outputFileDescriptor: ParcelFileDescriptor? = null
         private var isRecording = false
 
-        override fun start(outputUri: String) {
+        override fun start(outputLocation: StorageLocation) {
             if (isRecording) {
                 stop()
             }
-            val targetUri = android.net.Uri.parse(outputUri)
+            val targetUri = android.net.Uri.parse(outputLocation.raw)
 
             val mediaRecorder = createRecorder()
             try {

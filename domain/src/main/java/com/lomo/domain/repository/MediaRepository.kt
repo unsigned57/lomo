@@ -1,27 +1,25 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.MediaCategory
+import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Repository interface for media file operations (images and voice recordings).
- * Default directory creation is here because it's a media concern, not a settings concern.
+ * Repository interface for media asset lifecycle operations.
  */
 interface MediaRepository {
-    // Images
-    suspend fun saveImage(sourceUri: String): String
+    suspend fun importImage(source: StorageLocation): StorageLocation
 
-    suspend fun deleteImage(filename: String)
+    suspend fun removeImage(entryId: MediaEntryId)
 
-    fun getImageUriMap(): Flow<Map<String, String>>
+    fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>>
 
-    suspend fun syncImageCache()
+    suspend fun refreshImageLocations()
 
-    suspend fun createDefaultImageDirectory(): String?
+    suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation?
 
-    // Voice
-    suspend fun createVoiceFile(filename: String): String
+    suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation
 
-    suspend fun deleteVoiceFile(filename: String)
-
-    suspend fun createDefaultVoiceDirectory(): String?
+    suspend fun removeVoiceCapture(entryId: MediaEntryId)
 }

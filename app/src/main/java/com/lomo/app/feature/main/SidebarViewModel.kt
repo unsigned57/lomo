@@ -4,7 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel

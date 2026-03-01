@@ -38,11 +38,6 @@ class LomoShareClient(
 ) {
     companion object {
         private const val TAG = "LomoShareClient"
-        private const val MAX_ATTACHMENTS = 20
-        private const val MAX_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
-        private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
-        private const val GCM_TAG_BYTES = 16L
-        private const val MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES = MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
     }
 
     private val json =
@@ -211,7 +206,7 @@ class LomoShareClient(
             val authNonce: String
             val authSignature: String
 
-            if (attachmentUris.size > MAX_ATTACHMENTS) {
+            if (!ShareTransferLimits.isAttachmentCountValid(attachmentUris.size)) {
                 throw IllegalArgumentException("Too many attachments")
             }
 
@@ -239,12 +234,12 @@ class LomoShareClient(
                             uri = uri,
                             keyHex = keyHex,
                             aad = "attachment:$filename",
-                            maxBytes = MAX_ATTACHMENT_SIZE_BYTES,
+                            maxBytes = ShareTransferLimits.maxAttachmentPayloadBytes(e2eEnabled = false),
                         ) ?: throw IllegalStateException("Failed to read attachment: $filename")
                     val tempPayload = encrypted.payloadFile
                     tempPayloadFiles += tempPayload
                     totalEncryptedAttachmentBytes += tempPayload.length()
-                    if (totalEncryptedAttachmentBytes > MAX_TOTAL_ENCRYPTED_ATTACHMENT_BYTES) {
+                    if (totalEncryptedAttachmentBytes > ShareTransferLimits.maxTotalAttachmentPayloadBytes(e2eEnabled = true)) {
                         throw IllegalArgumentException("Attachments too large")
                     }
                     attachmentPayloads +=
@@ -287,11 +282,11 @@ class LomoShareClient(
                 for ((filename, uri) in attachmentUris) {
                     val size = resolveUriSize(uri)
                     if (size != null) {
-                        if (size > MAX_ATTACHMENT_SIZE_BYTES) {
+                        if (size > ShareTransferLimits.maxAttachmentPayloadBytes(e2eEnabled = false)) {
                             throw IllegalArgumentException("Attachment too large")
                         }
                         totalAttachmentBytes += size
-                        if (totalAttachmentBytes > MAX_TOTAL_ATTACHMENT_BYTES) {
+                        if (totalAttachmentBytes > ShareTransferLimits.maxTotalAttachmentPayloadBytes(e2eEnabled = false)) {
                             throw IllegalArgumentException("Attachments too large")
                         }
                     }

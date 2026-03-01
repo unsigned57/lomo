@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
@@ -37,7 +38,6 @@ class GitSyncRepositoryImpl
         private val markdownParser: MarkdownParser,
     ) : GitSyncRepository {
         companion object {
-            private const val MSG_PAT_REQUIRED = "No Personal Access Token configured"
             private const val MEMO_CHANGE_DEBOUNCE_MS = 5_000L
             private const val TIMESTAMP_TOLERANCE_MS = 1000L
         }
@@ -118,8 +118,8 @@ class GitSyncRepositoryImpl
                 return GitSyncResult.NotConfigured
             }
             if (credentialStore.getToken().isNullOrBlank()) {
-                gitSyncEngine.markError(MSG_PAT_REQUIRED)
-                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+                gitSyncEngine.markError(GitSyncErrorMessages.PAT_REQUIRED)
+                return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             }
 
             val directRootDir = resolveRootDir()
@@ -199,8 +199,8 @@ class GitSyncRepositoryImpl
                 return GitSyncResult.NotConfigured
             }
             if (credentialStore.getToken().isNullOrBlank()) {
-                gitSyncEngine.markError(MSG_PAT_REQUIRED)
-                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+                gitSyncEngine.markError(GitSyncErrorMessages.PAT_REQUIRED)
+                return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             }
 
             val directRootDir = resolveRootDir()
@@ -324,7 +324,7 @@ class GitSyncRepositoryImpl
                 return GitSyncResult.Error("Repository URL is not configured")
             }
             if (credentialStore.getToken().isNullOrBlank()) {
-                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+                return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             }
             return runGitIo {
                 gitSyncEngine.testConnection(remoteUrl)
@@ -358,7 +358,7 @@ class GitSyncRepositoryImpl
                 return GitSyncResult.Error("Repository URL is not configured")
             }
             if (credentialStore.getToken().isNullOrBlank()) {
-                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+                return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             }
 
             val directRootDir = resolveRootDir()
@@ -394,7 +394,7 @@ class GitSyncRepositoryImpl
                 return GitSyncResult.Error("Repository URL is not configured")
             }
             if (credentialStore.getToken().isNullOrBlank()) {
-                return GitSyncResult.Error(MSG_PAT_REQUIRED)
+                return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             }
 
             val directRootDir = resolveRootDir()

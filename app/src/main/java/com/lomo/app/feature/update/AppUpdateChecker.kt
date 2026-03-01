@@ -1,29 +1,28 @@
 package com.lomo.app.feature.update
 
-import com.lomo.domain.repository.PreferencesRepository
-import kotlinx.coroutines.flow.first
+import com.lomo.domain.model.AppUpdateInfo
+import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import javax.inject.Inject
-
-data class AppUpdateInfo(
-    val url: String,
-    val version: String,
-    val releaseNotes: String,
-)
 
 class AppUpdateChecker
     @Inject
     constructor(
-        private val settingsRepository: PreferencesRepository,
-        private val updateManager: UpdateManager,
+        private val checkStartupAppUpdateUseCase: CheckStartupAppUpdateUseCase,
     ) {
-        suspend fun checkForStartupUpdate(): AppUpdateInfo? {
-            if (!settingsRepository.isCheckUpdatesOnStartupEnabled().first()) return null
-            return updateManager.checkForUpdatesInfo()?.let { info ->
-                AppUpdateInfo(
-                    url = info.htmlUrl,
-                    version = info.version,
-                    releaseNotes = info.releaseNotes,
-                )
-            }
+        suspend fun checkForStartupUpdate(): AppUpdateInfo? =
+            checkStartupAppUpdateUseCase()
+                ?.let { info ->
+                    info.copy(releaseNotes = normalizeReleaseNotesForDisplay(info.releaseNotes))
+                }
+
+        private fun normalizeReleaseNotesForDisplay(raw: String): String {
+            return raw
+                .replace(FORCE_UPDATE_MARKER, "")
+                .replace("\r\n", "\n")
+                .trim()
+        }
+
+        private companion object {
+            private const val FORCE_UPDATE_MARKER = "[FORCE_UPDATE]"
         }
     }

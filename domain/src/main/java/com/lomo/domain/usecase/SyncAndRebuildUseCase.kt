@@ -5,10 +5,8 @@ import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
-import javax.inject.Inject
 
 class SyncAndRebuildUseCase
-    @Inject
     constructor(
         private val memoRepository: MemoRepository,
         private val gitSyncRepository: GitSyncRepository,

@@ -4,7 +4,6 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 import java.time.LocalDate
 import kotlin.random.Random
-import javax.inject.Inject
 
 /**
  * Picks a deterministic "daily review" random sample from the memo stream.
@@ -16,10 +15,15 @@ import javax.inject.Inject
  * storage can provide indexed access efficiently.
  */
 class DailyReviewQueryUseCase
-    @Inject
     constructor(
         private val repository: MemoRepository,
     ) {
+        suspend operator fun invoke(): List<Memo> =
+            invoke(
+                limit = DEFAULT_DAILY_REVIEW_LIMIT,
+                seedDate = LocalDate.now(),
+            )
+
         suspend operator fun invoke(
             limit: Int,
             seedDate: LocalDate,
@@ -92,6 +96,7 @@ class DailyReviewQueryUseCase
         }
 
         private companion object {
+            private const val DEFAULT_DAILY_REVIEW_LIMIT = 10
             private const val DAILY_REVIEW_PAGE_SIZE = 64
         }
     }

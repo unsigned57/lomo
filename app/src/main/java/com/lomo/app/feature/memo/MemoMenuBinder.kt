@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import com.lomo.app.util.ShareUtils
+import com.lomo.app.util.LocalShareUtils
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuHost
 import com.lomo.ui.component.menu.MemoMenuState
@@ -27,6 +27,7 @@ fun MemoMenuBinder(
 ) {
     val context = LocalContext.current
     val hostView = LocalView.current
+    val shareUtils = LocalShareUtils.current
     val scope = rememberCoroutineScope()
 
     MemoMenuHost(
@@ -45,7 +46,7 @@ fun MemoMenuBinder(
         onShare = { state ->
             val memo = state.memo as? Memo
             scope.launch {
-                ShareUtils.shareMemoAsImage(
+                shareUtils.shareMemoAsImage(
                     context = context,
                     content = state.content,
                     hostView = hostView,

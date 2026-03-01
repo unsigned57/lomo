@@ -11,6 +11,8 @@ import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.repository.AppVersionRepositoryImpl
+import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
+import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRefreshDbApplier
@@ -18,16 +20,22 @@ import com.lomo.data.repository.MemoRefreshEngine
 import com.lomo.data.repository.MemoRefreshParserWorker
 import com.lomo.data.repository.MemoRefreshPlanner
 import com.lomo.data.repository.MemoRepositoryImpl
+import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
+import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
-import com.lomo.data.repository.SyncSchedulerRepositoryImpl
+import com.lomo.data.repository.SyncPolicyRepositoryImpl
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.AppRuntimeInfoRepository
+import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.repository.SyncSchedulerRepository
+import com.lomo.domain.repository.WorkspaceTransitionRepository
+import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.SyncPolicyRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -108,23 +116,32 @@ object DataModule {
     fun provideMemoRepositoryImpl(
         dao: MemoDao,
         synchronizer: com.lomo.data.repository.MemoSynchronizer,
+        resolveMemoUpdateActionUseCase: com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase,
     ): MemoRepositoryImpl =
         MemoRepositoryImpl(
             dao,
             synchronizer,
+            resolveMemoUpdateActionUseCase,
         )
 
     @Provides
     @Singleton
     fun provideSettingsRepositoryImpl(
-        dao: MemoDao,
         dataSource: com.lomo.data.source.WorkspaceConfigSource,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
     ): SettingsRepositoryImpl =
         SettingsRepositoryImpl(
-            dao,
             dataSource,
             dataStore,
+        )
+
+    @Provides
+    @Singleton
+    fun provideWorkspaceTransitionRepositoryImpl(
+        memoDao: MemoDao,
+    ): WorkspaceTransitionRepositoryImpl =
+        WorkspaceTransitionRepositoryImpl(
+            memoDao = memoDao,
         )
 
     @Provides
@@ -195,6 +212,18 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideAppUpdateRepository(impl: AppUpdateRepositoryImpl): AppUpdateRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideAppRuntimeInfoRepository(impl: AppRuntimeInfoRepositoryImpl): AppRuntimeInfoRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideShareImageRepository(impl: ShareImageRepositoryImpl): ShareImageRepository = impl
+
+    @Provides
+    @Singleton
     fun provideAppConfigRepository(impl: SettingsRepositoryImpl): AppConfigRepository = impl
 
     @Provides
@@ -204,6 +233,10 @@ object DataModule {
     @Provides
     @Singleton
     fun providePreferencesRepository(impl: SettingsRepositoryImpl): PreferencesRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideWorkspaceTransitionRepository(impl: WorkspaceTransitionRepositoryImpl): WorkspaceTransitionRepository = impl
 
     @Provides
     @Singleton
@@ -234,7 +267,15 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideVoiceRecorder(audioRecorder: com.lomo.data.media.AudioRecorder): com.lomo.domain.device.VoiceRecorder = audioRecorder
+    fun provideVoiceRecorder(
+        audioRecorder: com.lomo.data.media.AudioRecorder,
+    ): com.lomo.domain.repository.VoiceRecordingRepository = audioRecorder
+
+    @Provides
+    @Singleton
+    fun provideAudioPlaybackUriResolver(
+        impl: com.lomo.data.media.AudioPlaybackUriResolverImpl,
+    ): com.lomo.domain.repository.AudioPlaybackResolverRepository = impl
 
     @Provides
     @Singleton
@@ -246,5 +287,5 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideSyncSchedulerRepository(impl: SyncSchedulerRepositoryImpl): SyncSchedulerRepository = impl
+    fun provideSyncPolicyRepository(impl: SyncPolicyRepositoryImpl): SyncPolicyRepository = impl
 }

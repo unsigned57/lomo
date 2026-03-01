@@ -7,8 +7,11 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.LanShareService
-import com.lomo.domain.repository.SyncSchedulerRepository
+import com.lomo.domain.repository.SyncPolicyRepository
+import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
+import com.lomo.domain.usecase.GitRemoteUrlUseCase
+import com.lomo.domain.usecase.GitSyncErrorUseCase
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -33,8 +36,11 @@ class SettingsViewModelTest {
     private lateinit var appConfigRepository: AppConfigRepository
     private lateinit var shareServiceManager: LanShareService
     private lateinit var gitSyncRepo: GitSyncRepository
-    private lateinit var syncSchedulerRepository: SyncSchedulerRepository
+    private lateinit var syncPolicyRepository: SyncPolicyRepository
+    private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
     private lateinit var syncAndRebuildUseCase: SyncAndRebuildUseCase
+    private lateinit var gitRemoteUrlUseCase: GitRemoteUrlUseCase
+    private lateinit var gitSyncErrorUseCase: GitSyncErrorUseCase
 
     @Before
     fun setUp() {
@@ -43,12 +49,15 @@ class SettingsViewModelTest {
         appConfigRepository = mockk(relaxed = true)
         shareServiceManager = mockk(relaxed = true)
         gitSyncRepo = mockk(relaxed = true)
-        syncSchedulerRepository = mockk(relaxed = true)
+        syncPolicyRepository = mockk(relaxed = true)
+        switchRootStorageUseCase = mockk(relaxed = true)
         syncAndRebuildUseCase = mockk(relaxed = true)
+        gitRemoteUrlUseCase = GitRemoteUrlUseCase()
+        gitSyncErrorUseCase = GitSyncErrorUseCase()
 
-        every { appConfigRepository.getRootDisplayName() } returns flowOf("")
-        every { appConfigRepository.getImageDisplayName() } returns flowOf("")
-        every { appConfigRepository.getVoiceDisplayName() } returns flowOf("")
+        every { appConfigRepository.observeRootDisplayName() } returns flowOf("")
+        every { appConfigRepository.observeImageDisplayName() } returns flowOf("")
+        every { appConfigRepository.observeVoiceDisplayName() } returns flowOf("")
         every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
         every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
         every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
@@ -93,7 +102,7 @@ class SettingsViewModelTest {
             coEvery { syncAndRebuildUseCase.invoke(forceSync = true) } throws IllegalStateException("sync failed")
             val viewModel = createViewModel()
 
-            viewModel.triggerGitSyncNow()
+            viewModel.gitFeature.triggerGitSyncNow()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("sync failed", viewModel.operationError.value)
@@ -105,11 +114,11 @@ class SettingsViewModelTest {
             coEvery { gitSyncRepo.testConnection() } throws IllegalStateException("network down")
             val viewModel = createViewModel()
 
-            viewModel.testGitConnection()
+            viewModel.gitFeature.testGitConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                SettingsViewModel.ConnectionTestState.Error("network down"),
+                SettingsGitConnectionTestState.Error("network down"),
                 viewModel.connectionTestState.value,
             )
             assertEquals("network down", viewModel.operationError.value)
@@ -122,11 +131,11 @@ class SettingsViewModelTest {
                 GitSyncResult.Error("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute")
             val viewModel = createViewModel()
 
-            viewModel.testGitConnection()
+            viewModel.gitFeature.testGitConnection()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                SettingsViewModel.ConnectionTestState.Error("Failed to test Git connection"),
+                SettingsGitConnectionTestState.Error("Failed to test Git connection"),
                 viewModel.connectionTestState.value,
             )
         }
@@ -137,7 +146,7 @@ class SettingsViewModelTest {
             coEvery { shareServiceManager.setLanSharePairingCode(any()) } throws IllegalArgumentException("invalid code")
             val viewModel = createViewModel()
 
-            viewModel.updateLanSharePairingCode("bad")
+            viewModel.lanShareFeature.updateLanSharePairingCode("bad")
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
@@ -149,10 +158,37 @@ class SettingsViewModelTest {
             coEvery { shareServiceManager.setLanSharePairingCode(any()) } throws CancellationException("cancelled")
             val viewModel = createViewModel()
 
-            viewModel.updateLanSharePairingCode("123456")
+            viewModel.lanShareFeature.updateLanSharePairingCode("123456")
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertNull(viewModel.pairingCodeError.value)
+        }
+
+    @Test
+    fun `git sync error presentation delegates to policy classification`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            val conflict = "Sync halted: rebase STOPPED detected."
+            val presentedConflict =
+                viewModel.gitFeature.presentGitSyncErrorMessage(
+                    message = conflict,
+                    conflictSummary = "conflict",
+                    directPathRequired = "direct",
+                    unknownError = "unknown",
+                )
+            assertEquals("conflict", presentedConflict)
+            assertEquals(true, viewModel.gitFeature.shouldShowGitConflictDialog(conflict))
+
+            val technical = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute"
+            val presentedTechnical =
+                viewModel.gitFeature.presentGitSyncErrorMessage(
+                    message = technical,
+                    conflictSummary = "conflict",
+                    directPathRequired = "direct",
+                    unknownError = "unknown",
+                )
+            assertEquals("unknown", presentedTechnical)
         }
 
     private fun createViewModel(): SettingsViewModel =
@@ -160,7 +196,10 @@ class SettingsViewModelTest {
             appConfigRepository = appConfigRepository,
             shareServiceManager = shareServiceManager,
             gitSyncRepo = gitSyncRepo,
-            syncSchedulerRepository = syncSchedulerRepository,
+            syncPolicyRepository = syncPolicyRepository,
+            switchRootStorageUseCase = switchRootStorageUseCase,
             syncAndRebuildUseCase = syncAndRebuildUseCase,
+            gitRemoteUrlUseCase = gitRemoteUrlUseCase,
+            gitSyncErrorUseCase = gitSyncErrorUseCase,
         )
 }

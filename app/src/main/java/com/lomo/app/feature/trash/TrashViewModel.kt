@@ -2,11 +2,14 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.runDeleteAnimationWithRollback
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.ui.util.stateInViewModel
@@ -17,6 +20,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
@@ -40,11 +44,14 @@ class TrashViewModel
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
         val imageDirectory: StateFlow<String?> =
-            appConfigRepository.getImageDirectory().stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(5000),
-                null,
-            )
+            appConfigRepository
+                .observeLocation(StorageArea.IMAGE)
+                .map { it?.raw }
+                .stateIn(
+                    viewModelScope,
+                    SharingStarted.WhileSubscribed(5000),
+                    null,
+                )
 
         val trashMemos: StateFlow<List<Memo>> =
             repository
@@ -66,7 +73,8 @@ class TrashViewModel
 
         val rootDirectory: StateFlow<String?> =
             appConfigRepository
-                .getRootDirectory()
+                .observeLocation(StorageArea.ROOT)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -102,40 +110,30 @@ class TrashViewModel
 
         fun restoreMemo(memo: Memo) {
             viewModelScope.launch {
-                deletingMemoIds.update { it + memo.id }
-                kotlinx.coroutines.delay(300L)
-                var restored = false
-                try {
-                    repository.restoreMemo(memo)
-                    restored = true
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = "Failed to restore memo: ${e.message}"
-                } finally {
-                    if (!restored) {
-                        deletingMemoIds.update { it - memo.id }
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = memo.id,
+                        deletingIds = deletingMemoIds,
+                    ) {
+                        repository.restoreMemo(memo)
                     }
+                result.exceptionOrNull()?.let { throwable ->
+                    _errorMessage.value = throwable.toUserMessage("Failed to restore memo")
                 }
             }
         }
 
         fun deletePermanently(memo: Memo) {
             viewModelScope.launch {
-                deletingMemoIds.update { it + memo.id }
-                kotlinx.coroutines.delay(300L)
-                var deleted = false
-                try {
-                    repository.deletePermanently(memo)
-                    deleted = true
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = "Failed to delete memo: ${e.message}"
-                } finally {
-                    if (!deleted) {
-                        deletingMemoIds.update { it - memo.id }
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = memo.id,
+                        deletingIds = deletingMemoIds,
+                    ) {
+                        repository.deletePermanently(memo)
                     }
+                result.exceptionOrNull()?.let { throwable ->
+                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
                 }
             }
         }

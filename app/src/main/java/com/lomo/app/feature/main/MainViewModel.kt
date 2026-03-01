@@ -2,17 +2,18 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.runDeleteAnimationWithRollback
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.usecase.InitializeWorkspaceUseCase
-import com.lomo.domain.usecase.RefreshMemosUseCase
+import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -32,8 +33,6 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -50,16 +49,10 @@ class MainViewModel
         private val memoUiMapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
         private val mainMemoMutationUseCase: MainMemoMutationUseCase,
-        private val refreshMemosUseCase: RefreshMemosUseCase,
-        private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
-        private val mediaRepository: MediaRepository,
+        private val workspaceCoordinator: MainWorkspaceCoordinator,
         private val startupCoordinator: MainStartupCoordinator,
+        private val resolveMainMemoQueryUseCase: ResolveMainMemoQueryUseCase,
     ) : ViewModel() {
-        data class PendingEvent<T>(
-            val id: Long,
-            val payload: T,
-        )
-
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
@@ -86,44 +79,26 @@ class MainViewModel
             ) : SharedContent
         }
 
-        private var nextEventId: Long = 0L
-        private fun nextPendingEventId(): Long {
-            nextEventId += 1
-            return nextEventId
-        }
+        private val sharedContentQueue = MainEventQueueCoordinator<SharedContent>()
+        val sharedContentEvents: StateFlow<List<PendingUiEvent<SharedContent>>> = sharedContentQueue.events
 
-        private fun newSharedContentEvent(payload: SharedContent): PendingEvent<SharedContent> =
-            PendingEvent(id = nextPendingEventId(), payload = payload)
-
-        private fun newAppActionEvent(payload: AppAction): PendingEvent<AppAction> =
-            PendingEvent(id = nextPendingEventId(), payload = payload)
-
-        private val _sharedContentEvents = MutableStateFlow<List<PendingEvent<SharedContent>>>(emptyList())
-        val sharedContentEvents: StateFlow<List<PendingEvent<SharedContent>>> = _sharedContentEvents
-
-        private val _pendingSharedImageEvents = MutableStateFlow<List<PendingEvent<android.net.Uri>>>(emptyList())
-        val pendingSharedImageEvents: StateFlow<List<PendingEvent<android.net.Uri>>> = _pendingSharedImageEvents
+        private val pendingSharedImageQueue = MainEventQueueCoordinator<android.net.Uri>()
+        val pendingSharedImageEvents: StateFlow<List<PendingUiEvent<android.net.Uri>>> = pendingSharedImageQueue.events
 
         fun handleSharedText(text: String) {
-            _sharedContentEvents.update { events ->
-                val pending = newSharedContentEvent(SharedContent.Text(text))
-                (events + pending).takeLast(64)
-            }
+            sharedContentQueue.enqueue(SharedContent.Text(text))
         }
 
         fun handleSharedImage(uri: android.net.Uri) {
-            _pendingSharedImageEvents.update { events ->
-                val pending = PendingEvent(id = nextPendingEventId(), payload = uri)
-                (events + pending).takeLast(64)
-            }
+            pendingSharedImageQueue.enqueue(uri)
         }
 
         fun consumeSharedContentEvent(eventId: Long) {
-            _sharedContentEvents.update { events -> events.filterNot { it.id == eventId } }
+            sharedContentQueue.consume(eventId)
         }
 
         fun consumePendingSharedImageEvent(eventId: Long) {
-            _pendingSharedImageEvents.update { events -> events.filterNot { it.id == eventId } }
+            pendingSharedImageQueue.consume(eventId)
         }
 
         sealed interface AppAction {
@@ -134,27 +109,21 @@ class MainViewModel
             ) : AppAction
         }
 
-        private val _appActionEvents = MutableStateFlow<List<PendingEvent<AppAction>>>(emptyList())
-        val appActionEvents: StateFlow<List<PendingEvent<AppAction>>> = _appActionEvents
+        private val appActionQueue = MainEventQueueCoordinator<AppAction>()
+        val appActionEvents: StateFlow<List<PendingUiEvent<AppAction>>> = appActionQueue.events
 
         fun requestCreateMemo() {
-            _appActionEvents.update { events ->
-                val pending = newAppActionEvent(AppAction.CreateMemo)
-                (events + pending).takeLast(64)
-            }
+            appActionQueue.enqueue(AppAction.CreateMemo)
         }
 
         fun requestOpenMemo(memoId: String) {
             if (memoId.isNotBlank()) {
-                _appActionEvents.update { events ->
-                    val pending = newAppActionEvent(AppAction.OpenMemo(memoId))
-                    (events + pending).takeLast(64)
-                }
+                appActionQueue.enqueue(AppAction.OpenMemo(memoId))
             }
         }
 
         fun consumeAppActionEvent(eventId: Long) {
-            _appActionEvents.update { events -> events.filterNot { it.id == eventId } }
+            appActionQueue.consume(eventId)
         }
 
         private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
@@ -168,14 +137,16 @@ class MainViewModel
 
         val imageDirectory: StateFlow<String?> =
             appConfigRepository
-                .getImageDirectory()
+                .observeLocation(StorageArea.IMAGE)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val voiceDirectory: StateFlow<String?> =
             appConfigRepository
-                .getVoiceDirectory()
+                .observeLocation(StorageArea.VOICE)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val allMemos: StateFlow<List<Memo>> =
@@ -189,11 +160,11 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    initializeWorkspaceUseCase.ensureDefaultMediaDirectories(forImage, forVoice)
+                    workspaceCoordinator.createDefaultDirectories(forImage, forVoice)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to create directories")
+                    _errorMessage.value = e.toUserMessage("Failed to create directories")
                 }
             }
         }
@@ -250,8 +221,7 @@ class MainViewModel
 
         fun onDirectorySelected(path: String) {
             viewModelScope.launch(Dispatchers.IO) {
-                appConfigRepository.setRootDirectory(path)
-                repository.refreshMemos()
+                workspaceCoordinator.switchRootAndRefresh(path)
             }
         }
 
@@ -270,11 +240,11 @@ class MainViewModel
         suspend fun refresh() {
             withContext(Dispatchers.IO) {
                 try {
-                    refreshMemosUseCase()
+                    workspaceCoordinator.refreshMemos()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.message
+                    _errorMessage.value = e.toUserMessage("Failed to refresh memos")
                 }
             }
         }
@@ -295,20 +265,15 @@ class MainViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                deletingMemoIds.value = deletingMemoIds.value + memo.id
-                kotlinx.coroutines.delay(300L) // Wait for fade out animation
-                var deleted = false
-                try {
-                    mainMemoMutationUseCase.deleteMemo(memo)
-                    deleted = true
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage()
-                } finally {
-                    if (!deleted) {
-                        deletingMemoIds.value = deletingMemoIds.value - memo.id
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = memo.id,
+                        deletingIds = deletingMemoIds,
+                    ) {
+                        mainMemoMutationUseCase.deleteMemo(memo)
                     }
+                result.exceptionOrNull()?.let { throwable ->
+                    _errorMessage.value = throwable.toUserMessage()
                 }
             }
         }
@@ -324,7 +289,7 @@ class MainViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to update todo")
+                    _errorMessage.value = e.toUserMessage("Failed to update todo")
                 }
             }
         }
@@ -376,7 +341,7 @@ class MainViewModel
                 .drop(1)
                 .onEach { path: String? ->
                     if (path != null) {
-                        syncImageCacheBestEffort()
+                        workspaceCoordinator.syncImageCacheBestEffort()
                     }
                 }.launchIn(viewModelScope)
 
@@ -394,11 +359,11 @@ class MainViewModel
         fun syncImageCacheNow() {
             viewModelScope.launch {
                 try {
-                    syncImageCacheBestEffort()
+                    workspaceCoordinator.syncImageCacheBestEffort()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to sync image cache")
+                    _errorMessage.value = e.toUserMessage("Failed to sync image cache")
                 }
             }
         }
@@ -425,7 +390,7 @@ class MainViewModel
                 } catch (e: Exception) {
                     Timber.w(e, "Failed to load version history")
                     versionHistoryCoordinator.hide()
-                    _errorMessage.value = e.userMessage("Failed to load version history")
+                    _errorMessage.value = e.toUserMessage("Failed to load version history")
                 }
             }
         }
@@ -437,7 +402,7 @@ class MainViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to restore version")
+                    _errorMessage.value = e.toUserMessage("Failed to restore version")
                 }
             }
         }
@@ -460,29 +425,11 @@ class MainViewModel
             query: String,
             tag: String?,
         ): Flow<List<Memo>> =
-            when {
-                !tag.isNullOrBlank() -> repository.getMemosByTagList(tag)
-                query.isNotBlank() -> repository.searchMemosList(query)
-                else -> allMemos
+            when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query, selectedTag = tag)) {
+                is ResolveMainMemoQueryUseCase.ResolvedQuery.ByTag -> repository.getMemosByTagList(resolvedQuery.tag)
+                is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText -> repository.searchMemosList(resolvedQuery.query)
+                ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos -> allMemos
             }
-
-        private fun Throwable.userMessage(prefix: String? = null): String =
-            when {
-                prefix.isNullOrBlank() && message.isNullOrBlank() -> "Unexpected error"
-                prefix.isNullOrBlank() -> message.orEmpty()
-                message.isNullOrBlank() -> prefix
-                else -> "$prefix: $message"
-            }
-
-        private suspend fun syncImageCacheBestEffort() {
-            try {
-                mediaRepository.syncImageCache()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                // Best-effort background sync.
-            }
-        }
 
         private data class UiMemoMappingInput(
             val rootDirectory: String?,

@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
+import com.lomo.data.memo.MemoIdentityPolicy
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileDataSource
@@ -10,6 +11,7 @@ import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -37,13 +39,15 @@ class MemoSynchronizerTest {
 
     private lateinit var processor: MemoTextProcessor
     private lateinit var parser: MarkdownParser
+    private lateinit var memoIdentityPolicy: MemoIdentityPolicy
     private lateinit var synchronizer: MemoSynchronizer
 
     @Before
     fun setup() {
         MockKAnnotations.init(this, relaxed = true)
         processor = MemoTextProcessor()
-        parser = MarkdownParser(processor)
+        memoIdentityPolicy = MemoIdentityPolicy()
+        parser = MarkdownParser(processor, memoIdentityPolicy)
 
         // Mock default formats
         coEvery { dataStore.storageFilenameFormat } returns
@@ -56,7 +60,7 @@ class MemoSynchronizerTest {
                 fileDataSource,
                 memoDao,
                 localFileStateDao,
-                MemoSavePlanFactory(parser, processor),
+                MemoSavePlanFactory(parser, processor, memoIdentityPolicy),
                 processor,
                 dataStore,
                 MemoTrashMutationHandler(
@@ -65,6 +69,8 @@ class MemoSynchronizerTest {
                     localFileStateDao,
                     processor,
                 ),
+                ResolveMemoUpdateActionUseCase(),
+                memoIdentityPolicy,
             )
         val refreshEngine =
             MemoRefreshEngine(

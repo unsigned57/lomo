@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -28,6 +30,7 @@ class MemoRepositoryImplTest {
             MemoRepositoryImpl(
                 dao = dao,
                 synchronizer = synchronizer,
+                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
             )
     }
 
@@ -51,5 +54,23 @@ class MemoRepositoryImplTest {
                     repository.saveMemo("content", timestamp = 456L)
                 }.exceptionOrNull()
             assertTrue(thrown is IllegalStateException)
+        }
+
+    @Test
+    fun `updateMemo routes blank content to delete path`() =
+        runTest {
+            val memo =
+                Memo(
+                    id = "memo-1",
+                    timestamp = 1L,
+                    content = "old",
+                    rawContent = "- 10:00 old",
+                    dateKey = "2026_02_01",
+                )
+
+            repository.updateMemo(memo, "   ")
+
+            coVerify(exactly = 1) { synchronizer.deleteMemoAsync(memo) }
+            coVerify(exactly = 0) { synchronizer.updateMemoAsync(any(), any()) }
         }
 }

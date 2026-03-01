@@ -31,6 +31,26 @@ data class SharePayload(
 /**
  * State of an outgoing share transfer (sender side).
  */
+enum class ShareTransferErrorCode {
+    PAIRING_REQUIRED,
+    ATTACHMENT_RESOLVE_FAILED,
+    TOO_MANY_ATTACHMENTS,
+    ATTACHMENT_TOO_LARGE,
+    ATTACHMENTS_TOO_LARGE,
+    UNSUPPORTED_ATTACHMENT_TYPE,
+    CONNECTION_FAILED,
+    TRANSFER_REJECTED,
+    TRANSFER_FAILED,
+    UNKNOWN,
+}
+
+data class ShareTransferError(
+    val code: ShareTransferErrorCode,
+    val detail: String? = null,
+    val deviceName: String? = null,
+    val missingAttachmentCount: Int? = null,
+)
+
 sealed interface ShareTransferState {
     data object Idle : ShareTransferState
 
@@ -49,7 +69,7 @@ sealed interface ShareTransferState {
     ) : ShareTransferState
 
     data class Error(
-        val message: String,
+        val error: ShareTransferError,
     ) : ShareTransferState
 }
 

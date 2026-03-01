@@ -1,31 +1,32 @@
 package com.lomo.domain.repository
 
+import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageAreaUpdate
+import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.Flow
 
 interface DirectorySettingsRepository {
-    fun getRootDirectory(): Flow<String?>
+    fun observeLocation(area: StorageArea): Flow<StorageLocation?>
 
-    suspend fun getRootDirectoryOnce(): String?
+    suspend fun currentLocation(area: StorageArea): StorageLocation?
 
-    fun getRootDisplayName(): Flow<String?>
+    fun observeDisplayName(area: StorageArea): Flow<String?>
 
-    fun getImageDirectory(): Flow<String?>
+    suspend fun applyLocation(update: StorageAreaUpdate)
 
-    fun getImageDisplayName(): Flow<String?>
+    fun observeRootLocation(): Flow<StorageLocation?> = observeLocation(StorageArea.ROOT)
 
-    fun getVoiceDirectory(): Flow<String?>
+    suspend fun currentRootLocation(): StorageLocation? = currentLocation(StorageArea.ROOT)
 
-    fun getVoiceDisplayName(): Flow<String?>
+    fun observeRootDisplayName(): Flow<String?> = observeDisplayName(StorageArea.ROOT)
 
-    suspend fun setRootDirectory(path: String)
+    fun observeImageLocation(): Flow<StorageLocation?> = observeLocation(StorageArea.IMAGE)
 
-    suspend fun setImageDirectory(path: String)
+    fun observeImageDisplayName(): Flow<String?> = observeDisplayName(StorageArea.IMAGE)
 
-    suspend fun setVoiceDirectory(path: String)
+    fun observeVoiceLocation(): Flow<StorageLocation?> = observeLocation(StorageArea.VOICE)
 
-    suspend fun updateRootUri(uri: String?)
+    fun observeVoiceDisplayName(): Flow<String?> = observeDisplayName(StorageArea.VOICE)
 
-    suspend fun updateImageUri(uri: String?)
-
-    suspend fun updateVoiceUri(uri: String?)
+    suspend fun applyRootLocation(location: StorageLocation) = applyLocation(StorageAreaUpdate(StorageArea.ROOT, location))
 }

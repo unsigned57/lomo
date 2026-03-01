@@ -1,6 +1,6 @@
 package com.lomo.data.util
 
-import com.lomo.domain.util.StorageFilenameFormats
+import com.lomo.domain.model.StorageFilenameFormats
 import java.time.LocalDate
 
 object MemoLocalDateResolver {

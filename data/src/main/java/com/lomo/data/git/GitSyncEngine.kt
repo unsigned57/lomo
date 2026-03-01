@@ -2,61 +2,37 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.GitSyncStatus
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import org.eclipse.jgit.api.Git
-import org.eclipse.jgit.api.RebaseCommand
-import org.eclipse.jgit.api.RebaseResult
-import org.eclipse.jgit.api.ResetCommand
-import org.eclipse.jgit.lib.BranchTrackingStatus
-import org.eclipse.jgit.lib.ObjectId
-import org.eclipse.jgit.lib.PersonIdent
-import org.eclipse.jgit.merge.MergeStrategy
-import org.eclipse.jgit.revwalk.RevCommit
-import org.eclipse.jgit.transport.RemoteRefUpdate
-import org.eclipse.jgit.transport.URIish
-import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
-import org.eclipse.jgit.treewalk.TreeWalk
-import timber.log.Timber
+import com.lomo.domain.model.SyncEngineState
 import java.io.File
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import timber.log.Timber
 
 @Singleton
 class GitSyncEngine
     @Inject
     constructor(
-        private val credentialStore: GitCredentialStore,
-        private val dataStore: LomoDataStore,
+        dataStore: LomoDataStore,
+        credentialStrategy: GitCredentialStrategy,
+        primitives: GitRepositoryPrimitives,
     ) {
+        private val workflow = GitSyncWorkflow(dataStore, credentialStrategy, primitives)
+        private val fileHistoryReader = GitFileHistoryReader(primitives)
+
+        private val initCoordinator = GitSyncInitCoordinator(workflow)
+        private val commitSyncCoordinator = GitSyncCommitSyncCoordinator(workflow, dataStore)
+        private val queryTestCoordinator = GitSyncQueryTestCoordinator(credentialStrategy, fileHistoryReader)
+        private val conflictRecoveryCoordinator =
+            GitSyncConflictRecoveryCoordinator(workflow, dataStore, credentialStrategy, primitives)
+
         private val mutex = Mutex()
         private val _syncState = MutableStateFlow<SyncEngineState>(SyncEngineState.Idle)
         val syncState: StateFlow<SyncEngineState> = _syncState
-
-        @Volatile
-        private var cachedCredentialIndex: Int = -1
-
-        private fun credentialProviders(): List<UsernamePasswordCredentialsProvider>? {
-            val token = credentialStore.getToken()?.trim().orEmpty()
-            if (token.isBlank()) return null
-
-            return listOf(
-                // Common GitHub style for token-based HTTPS auth.
-                UsernamePasswordCredentialsProvider("x-access-token", token),
-                // Legacy behavior kept as fallback for compatibility with existing setups.
-                UsernamePasswordCredentialsProvider(token, ""),
-                UsernamePasswordCredentialsProvider(token, "x-oauth-basic"),
-            )
-        }
 
         fun markNotConfigured() {
             _syncState.value = SyncEngineState.NotConfigured
@@ -66,478 +42,64 @@ class GitSyncEngine
             _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
         }
 
-        private suspend fun authorIdent(): PersonIdent {
-            val name = dataStore.gitAuthorName.first()
-            val email = dataStore.gitAuthorEmail.first()
-            return PersonIdent(name.ifBlank { "Lomo" }, email.ifBlank { "lomo@local" })
-        }
-
-        private fun cleanStaleLockFiles(rootDir: File) {
-            val lockFile = File(rootDir, ".git/index.lock")
-            if (lockFile.exists()) {
-                val deleted = lockFile.delete()
-                Timber.w("Cleaned stale index.lock: deleted=%b", deleted)
-            }
-        }
-
-        suspend fun initOrClone(rootDir: File, remoteUrl: String): GitSyncResult =
-            mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    _syncState.value = SyncEngineState.Initializing
-                    try {
-                        val result = doInitOrClone(rootDir, remoteUrl)
-                        when (result) {
-                            is GitSyncResult.Success ->
-                                _syncState.value = SyncEngineState.Success(
-                                    System.currentTimeMillis(),
-                                    result.message,
-                                )
-                            is GitSyncResult.Error ->
-                                _syncState.value = SyncEngineState.Error(
-                                    result.message,
-                                    System.currentTimeMillis(),
-                                )
-                            else -> _syncState.value = SyncEngineState.Idle
-                        }
-                        result
-                    } catch (e: Exception) {
-                        Timber.e(e, "Git init/clone failed")
-                        val msg = e.message ?: "Unknown error"
-                        _syncState.value = SyncEngineState.Error(msg, System.currentTimeMillis())
-                        GitSyncResult.Error(msg, e)
-                    }
-                }
-            }
-
-        private suspend fun doInitOrClone(rootDir: File, remoteUrl: String): GitSyncResult {
-            val credentials = credentialProviders()
-                ?: return GitSyncResult.Error("No Personal Access Token configured")
-
-            cleanStaleLockFiles(rootDir)
-
-            val gitDir = File(rootDir, ".git")
-            if (gitDir.exists()) {
-                // Already a git repo, just ensure remote is set
-                val git = Git.open(rootDir)
-                git.use { g ->
-                    ensureRemote(g, remoteUrl)
-                }
-                return GitSyncResult.Success("Repository opened")
-            }
-
-            // Try to clone first (remote might have content)
-            return try {
-                runWithCredentialFallback(credentials, "Clone") { provider ->
-                    Git.cloneRepository()
-                        .setURI(remoteUrl)
-                        .setDirectory(rootDir)
-                        .setCredentialsProvider(provider)
-                        .setCloneAllBranches(false)
-                        .setDepth(1)
-                        .call()
-                        .close()
-                }
-                ensureGitignore(rootDir)
-                GitSyncResult.Success("Repository cloned")
-            } catch (e: Exception) {
-                // Clone may fail if repo is empty or doesn't exist yet
-                Timber.w(e, "Clone failed, initializing new repo")
-                // Clean up any residual .git directory left by the failed clone
-                val residualGitDir = File(rootDir, ".git")
-                if (residualGitDir.exists()) {
-                    residualGitDir.deleteRecursively()
-                }
-                initNewRepo(rootDir, remoteUrl, credentials)
-            }
-        }
-
-        private suspend fun initNewRepo(
+        suspend fun initOrClone(
             rootDir: File,
             remoteUrl: String,
-            credentials: List<UsernamePasswordCredentialsProvider>,
-        ): GitSyncResult {
-            val git = Git.init().setDirectory(rootDir).call()
-            git.use { g ->
-                ensureRemote(g, remoteUrl)
-                ensureGitignore(rootDir)
-
-                g.add().addFilepattern(".").call()
-
-                val author = authorIdent()
-                g.commit()
-                    .setAuthor(author)
-                    .setCommitter(author)
-                    .setMessage("init: first commit via Lomo")
-                    .call()
-
-                // Ensure we're on main branch
-                val currentBranch = g.repository.branch
-                if (currentBranch != "main") {
-                    g.branchRename().setOldName(currentBranch).setNewName("main").call()
-                }
-
+        ): GitSyncResult =
+            mutex.withLock {
+                _syncState.value = SyncEngineState.Initializing
                 try {
-                    runWithCredentialFallback(credentials, "Initial push") { provider ->
-                        g.push()
-                            .setRemote("origin")
-                            .setCredentialsProvider(provider)
-                            .call()
-                    }
+                    initCoordinator.initOrClone(rootDir, remoteUrl).also(::publishResultState)
                 } catch (e: Exception) {
-                    Timber.w(e, "Initial push failed (remote may not exist)")
+                    Timber.e(e, "Git init/clone failed")
+                    val message = e.message ?: "Unknown error"
+                    _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
+                    GitSyncResult.Error(message, e)
                 }
             }
-            return GitSyncResult.Success("Repository initialized")
-        }
-
-        private fun ensureRemote(git: Git, remoteUrl: String) {
-            val config = git.repository.config
-            val existingUrl = config.getString("remote", "origin", "url")
-            if (existingUrl != remoteUrl) {
-                if (existingUrl != null) {
-                    git.remoteSetUrl()
-                        .setRemoteName("origin")
-                        .setRemoteUri(URIish(remoteUrl))
-                        .call()
-                } else {
-                    git.remoteAdd()
-                        .setName("origin")
-                        .setUri(URIish(remoteUrl))
-                        .call()
-                }
-            }
-        }
-
-        private fun ensureGitignore(rootDir: File) {
-            val gitignore = File(rootDir, ".gitignore")
-            if (!gitignore.exists()) {
-                gitignore.writeText(
-                    """
-                    |.trash/
-                    |*.db
-                    |*.db-journal
-                    |*.db-wal
-                    """.trimMargin() + "\n",
-                )
-            }
-        }
 
         suspend fun commitLocal(rootDir: File): GitSyncResult =
             mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    try {
-                        doCommitLocal(rootDir)
-                    } catch (e: Exception) {
-                        Timber.e(e, "Local commit failed")
-                        GitSyncResult.Error("Local commit failed: ${e.message}", e)
-                    }
+                try {
+                    commitSyncCoordinator.commitLocal(rootDir)
+                } catch (e: Exception) {
+                    Timber.e(e, "Local commit failed")
+                    GitSyncResult.Error("Local commit failed: ${e.message}", e)
                 }
             }
 
-        private suspend fun doCommitLocal(rootDir: File): GitSyncResult {
-            val gitDir = File(rootDir, ".git")
-            if (!gitDir.exists()) return GitSyncResult.Error("Not a git repository")
-
-            cleanStaleLockFiles(rootDir)
-
-            val git = Git.open(rootDir)
-            git.use { g ->
-                val author = authorIdent()
-                val branch = g.repository.branch ?: "main"
-
-                // Stage all changes (including deletions)
-                g.add().addFilepattern(".").call()
-                g.add().addFilepattern(".").setUpdate(true).call()
-
-                val status = g.status().call()
-                val hasChanges = status.hasUncommittedChanges() ||
-                    status.added.isNotEmpty() ||
-                    status.changed.isNotEmpty() ||
-                    status.removed.isNotEmpty()
-
-                if (!hasChanges) return GitSyncResult.Success("Nothing to commit")
-
-                val shouldAmend = shouldAmendLastCommit(g, branch)
-                val timestamp = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                g.commit()
-                    .setAuthor(author)
-                    .setCommitter(author)
-                    .setMessage("sync: $timestamp via Lomo")
-                    .setAmend(shouldAmend)
-                    .call()
-
-                return GitSyncResult.Success(if (shouldAmend) "Amended local commit" else "Committed locally")
-            }
-        }
-
-        /**
-         * Returns true if the last commit is an unpushed Lomo sync commit that can be amended.
-         * This avoids creating many small commits between pushes.
-         */
-        private fun shouldAmendLastCommit(g: Git, branch: String): Boolean {
-            val lastCommit = g.log().setMaxCount(1).call().firstOrNull() ?: return false
-            if (!lastCommit.fullMessage.contains("via Lomo")) return false
-
-            // Only amend if the commit hasn't been pushed yet
-            return try {
-                val tracking = BranchTrackingStatus.of(g.repository, branch)
-                tracking != null && tracking.aheadCount > 0
-            } catch (_: Exception) {
-                false
-            }
-        }
-
-        suspend fun sync(rootDir: File, remoteUrl: String): GitSyncResult =
+        suspend fun sync(
+            rootDir: File,
+            remoteUrl: String,
+        ): GitSyncResult =
             mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    _syncState.value = SyncEngineState.Syncing.Committing
-                    try {
-                        val result = doSync(rootDir, remoteUrl)
-                        when (result) {
-                            is GitSyncResult.Success -> {
-                                val now = System.currentTimeMillis()
-                                dataStore.updateGitLastSyncTime(now)
-                                _syncState.value = SyncEngineState.Success(now, result.message)
-                            }
-                            is GitSyncResult.Error ->
-                                _syncState.value = SyncEngineState.Error(
-                                    result.message,
-                                    System.currentTimeMillis(),
-                                )
-                            else -> _syncState.value = SyncEngineState.Idle
-                        }
-                        result
-                    } catch (e: Exception) {
-                        Timber.e(e, "Git sync failed")
-                        val msg = e.message ?: "Unknown error"
-                        _syncState.value = SyncEngineState.Error(msg, System.currentTimeMillis())
-                        GitSyncResult.Error(msg, e)
-                    }
-                }
-            }
-
-        private suspend fun doSync(rootDir: File, remoteUrl: String): GitSyncResult {
-            val credentials = credentialProviders()
-                ?: return GitSyncResult.Error("No Personal Access Token configured")
-
-            cleanStaleLockFiles(rootDir)
-
-            val gitDir = File(rootDir, ".git")
-            if (!gitDir.exists()) {
-                return GitSyncResult.Error("Not a git repository. Please initialize first.")
-            }
-
-            val git = Git.open(rootDir)
-            git.use { g ->
-                // Ensure remote URL matches current settings
-                ensureRemote(g, remoteUrl)
-
-                val author = authorIdent()
-                val branch = g.repository.branch ?: "main"
-
-                // 1. Stage all changes
                 _syncState.value = SyncEngineState.Syncing.Committing
-                g.add().addFilepattern(".").call()
-                // Also stage deletions
-                g.add().addFilepattern(".").setUpdate(true).call()
-
-                // 2. Commit local changes if any
-                val status = g.status().call()
-                val hasChanges = status.hasUncommittedChanges() ||
-                    status.added.isNotEmpty() ||
-                    status.changed.isNotEmpty() ||
-                    status.removed.isNotEmpty()
-
-                if (hasChanges) {
-                    val shouldAmend = shouldAmendLastCommit(g, branch)
-                    val timestamp = LocalDateTime.now()
-                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
-                    g.commit()
-                        .setAuthor(author)
-                        .setCommitter(author)
-                        .setMessage("sync: $timestamp via Lomo")
-                        .setAmend(shouldAmend)
-                        .call()
-                }
-
-                // 3. Fetch remote
-                _syncState.value = SyncEngineState.Syncing.Pulling
                 try {
-                    runWithCredentialFallback(credentials, "Fetch") { provider ->
-                        g.fetch()
-                            .setRemote("origin")
-                            .setCredentialsProvider(provider)
-                            .call()
-                    }
-                } catch (e: Exception) {
-                    Timber.w(e, "Fetch failed")
-                    // If fetch fails (e.g. no remote branch yet), just push
-                    _syncState.value = SyncEngineState.Syncing.Pushing
-                    return tryPush(g, credentials, branch, "Synced (push only)")
-                }
-
-                // 4. Check if remote branch exists
-                val remoteBranch = "origin/$branch"
-                val remoteBranchRef = g.repository.resolve(remoteBranch)
-
-                if (remoteBranchRef != null) {
-                    // Rebase local onto remote (use RECURSIVE — fair 3-way merge).
-                    // On conflict we now fail explicitly to avoid silently discarding remote changes.
-                    try {
-                        val rebaseResult = g.rebase()
-                            .setUpstream(remoteBranch)
-                            .setStrategy(MergeStrategy.RECURSIVE)
-                            .call()
-
-                        when (rebaseResult.status) {
-                            RebaseResult.Status.OK,
-                            RebaseResult.Status.UP_TO_DATE,
-                            RebaseResult.Status.FAST_FORWARD,
-                            RebaseResult.Status.NOTHING_TO_COMMIT,
-                            -> {
-                                // Success, proceed to push
-                            }
-                            RebaseResult.Status.CONFLICTS,
-                            RebaseResult.Status.STOPPED,
-                            RebaseResult.Status.FAILED,
-                            RebaseResult.Status.UNCOMMITTED_CHANGES,
-                            RebaseResult.Status.EDIT,
-                            -> {
-                                Timber.w("Rebase requires manual resolution: %s", rebaseResult.status)
-                                abortRebaseQuietly(g)
-                                return GitSyncResult.Error(
-                                    "Sync halted: rebase ${rebaseResult.status.name} detected. " +
-                                        "Remote changes were preserved; please resolve conflicts manually.",
-                                )
-                            }
-                            RebaseResult.Status.ABORTED -> {
-                                Timber.w("Rebase aborted")
-                                return GitSyncResult.Error(
-                                    "Sync halted: rebase aborted. Remote changes were preserved.",
-                                )
-                            }
-                            else -> {
-                                Timber.w("Unexpected rebase status: ${rebaseResult.status}")
-                                abortRebaseQuietly(g)
-                                return GitSyncResult.Error(
-                                    "Sync failed: unexpected rebase status ${rebaseResult.status}.",
-                                )
-                            }
+                    val outcome =
+                        commitSyncCoordinator.sync(rootDir, remoteUrl) { phase ->
+                            _syncState.value = phase
                         }
-                    } catch (e: Exception) {
-                        Timber.w(e, "Rebase failed, aborting without auto-merge")
-                        abortRebaseQuietly(g)
-                        return GitSyncResult.Error(
-                            "Sync failed during rebase and was aborted to avoid overwriting remote changes: ${e.message}",
-                            e,
-                        )
-                    }
-                }
-
-                // 5. Push to remote
-                _syncState.value = SyncEngineState.Syncing.Pushing
-                return tryPush(g, credentials, branch, "Synced")
-            }
-        }
-
-        private inline fun <T> runWithCredentialFallback(
-            providers: List<UsernamePasswordCredentialsProvider>,
-            operation: String,
-            block: (UsernamePasswordCredentialsProvider) -> T,
-        ): T {
-            // Try cached credential first
-            val cached = cachedCredentialIndex
-            if (cached in providers.indices) {
-                try {
-                    val result = block(providers[cached])
-                    return result
-                } catch (e: Exception) {
-                    Timber.w(e, "$operation failed with cached credential strategy #${cached + 1}, resetting cache")
-                    cachedCredentialIndex = -1
-                }
-            }
-
-            var lastError: Exception? = null
-            providers.forEachIndexed { index, provider ->
-                if (index == cached) return@forEachIndexed // already tried above
-                try {
-                    val result = block(provider)
-                    cachedCredentialIndex = index
-                    return result
-                } catch (e: Exception) {
-                    lastError = e
-                    Timber.w(e, "$operation failed with credential strategy #${index + 1}")
-                }
-            }
-
-            throw lastError ?: IllegalStateException("$operation failed without a captured exception")
-        }
-
-        private fun abortRebaseQuietly(git: Git) {
-            try {
-                git.rebase()
-                    .setOperation(RebaseCommand.Operation.ABORT)
-                    .call()
-            } catch (_: Exception) {
-                // Ignore when no rebase state exists.
-            }
-        }
-
-        private fun tryPush(
-            git: Git,
-            credentials: List<UsernamePasswordCredentialsProvider>,
-            branch: String,
-            successMessage: String,
-            force: Boolean = false,
-        ): GitSyncResult {
-            return try {
-                val pushResults = runWithCredentialFallback(credentials, "Push") { provider ->
-                    git.push()
-                        .setRemote("origin")
-                        .setRefSpecs(
-                            org.eclipse.jgit.transport.RefSpec("refs/heads/$branch:refs/heads/$branch"),
-                        )
-                        .setCredentialsProvider(provider)
-                        .setForce(force)
-                        .call()
-                }
-                // Check each RemoteRefUpdate status
-                for (pushResult in pushResults) {
-                    for (update in pushResult.remoteUpdates) {
-                        when (update.status) {
-                            RemoteRefUpdate.Status.OK,
-                            RemoteRefUpdate.Status.UP_TO_DATE,
-                            -> { /* success */ }
-                            RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ->
-                                return GitSyncResult.Error(
-                                    "Push rejected: non-fast-forward. Remote has diverged.",
-                                )
-                            RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED ->
-                                return GitSyncResult.Error(
-                                    "Push rejected: remote ref was updated during push.",
-                                )
-                            RemoteRefUpdate.Status.REJECTED_NODELETE ->
-                                return GitSyncResult.Error(
-                                    "Push rejected: remote does not allow branch deletion.",
-                                )
-                            RemoteRefUpdate.Status.REJECTED_OTHER_REASON ->
-                                return GitSyncResult.Error(
-                                    "Push rejected: ${update.message ?: "unknown reason"}",
-                                )
-                            else ->
-                                return GitSyncResult.Error(
-                                    "Push failed with status: ${update.status}",
-                                )
+                    val result = outcome.result
+                    when (result) {
+                        is GitSyncResult.Success -> {
+                            val syncedAt = outcome.syncedAtMs ?: System.currentTimeMillis()
+                            _syncState.value = SyncEngineState.Success(syncedAt, result.message)
                         }
+                        is GitSyncResult.Error ->
+                            _syncState.value = SyncEngineState.Error(
+                                result.message,
+                                System.currentTimeMillis(),
+                            )
+                        else -> _syncState.value = SyncEngineState.Idle
                     }
+                    result
+                } catch (e: Exception) {
+                    Timber.e(e, "Git sync failed")
+                    val message = e.message ?: "Unknown error"
+                    _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
+                    GitSyncResult.Error(message, e)
                 }
-                GitSyncResult.Success(successMessage)
-            } catch (e: Exception) {
-                Timber.e(e, "Push failed")
-                GitSyncResult.Error("Push failed: ${e.message}", e)
             }
-        }
 
         data class FileHistoryEntry(
             val commitHash: String,
@@ -550,144 +112,29 @@ class GitSyncEngine
             rootDir: File,
             filename: String,
             maxCount: Int = 50,
-        ): List<FileHistoryEntry> {
-            val gitDir = File(rootDir, ".git")
-            if (!gitDir.exists()) return emptyList()
-
-            return try {
-                val git = Git.open(rootDir)
-                git.use { g ->
-                    val logCommand = g.log()
-                        .addPath(filename)
-                        .setMaxCount(maxCount)
-
-                    val commits = logCommand.call().toList()
-                    val result = mutableListOf<FileHistoryEntry>()
-
-                    for (commit in commits) {
-                        val content = readFileAtCommit(g, commit, filename) ?: continue
-                        result.add(
-                            FileHistoryEntry(
-                                commitHash = commit.name,
-                                commitTime = commit.commitTime.toLong() * 1000L,
-                                commitMessage = commit.shortMessage,
-                                fileContent = content,
-                            ),
-                        )
-                    }
-                    result
-                }
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to get file history for %s", filename)
-                emptyList()
-            }
-        }
-
-        private fun readFileAtCommit(
-            git: Git,
-            commit: RevCommit,
-            filename: String,
-        ): String? {
-            return try {
-                val treeWalk = TreeWalk.forPath(
-                    git.repository,
-                    filename,
-                    commit.tree,
-                ) ?: return null
-
-                val objectId: ObjectId = treeWalk.getObjectId(0)
-                val loader = git.repository.open(objectId)
-                String(loader.bytes, Charsets.UTF_8)
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to read %s at commit %s", filename, commit.name)
-                null
-            }
-        }
-
-        fun getStatus(rootDir: File): GitSyncStatus {
-            val gitDir = File(rootDir, ".git")
-            if (!gitDir.exists()) {
-                return GitSyncStatus(
-                    hasLocalChanges = false,
-                    aheadCount = 0,
-                    behindCount = 0,
-                    lastSyncTime = null,
-                )
-            }
-
-            return try {
-                val git = Git.open(rootDir)
-                git.use { g ->
-                    val status = g.status().call()
-                    val hasChanges = status.hasUncommittedChanges() ||
-                        status.untracked.isNotEmpty()
-
-                    var ahead = 0
-                    var behind = 0
-                    try {
-                        val trackingStatus = BranchTrackingStatus.of(
-                            g.repository,
-                            g.repository.branch,
-                        )
-                        if (trackingStatus != null) {
-                            ahead = trackingStatus.aheadCount
-                            behind = trackingStatus.behindCount
-                        }
-                    } catch (_: Exception) {
-                        // No tracking info available
-                    }
-
-                    GitSyncStatus(
-                        hasLocalChanges = hasChanges,
-                        aheadCount = ahead,
-                        behindCount = behind,
-                        lastSyncTime = null, // Filled by repository layer from DataStore
+        ): List<FileHistoryEntry> =
+            queryTestCoordinator
+                .getFileHistory(rootDir = rootDir, filename = filename, maxCount = maxCount)
+                .map { entry ->
+                    FileHistoryEntry(
+                        commitHash = entry.commitHash,
+                        commitTime = entry.commitTime,
+                        commitMessage = entry.commitMessage,
+                        fileContent = entry.fileContent,
                     )
                 }
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to get git status")
-                GitSyncStatus(
-                    hasLocalChanges = false,
-                    aheadCount = 0,
-                    behindCount = 0,
-                    lastSyncTime = null,
-                )
-            }
-        }
 
-        fun testConnection(remoteUrl: String): GitSyncResult {
-            val credentials = credentialProviders()
-                ?: return GitSyncResult.Error("No Personal Access Token configured")
-            return try {
-                runWithCredentialFallback(credentials, "ls-remote") { provider ->
-                    Git.lsRemoteRepository()
-                        .setRemote(remoteUrl)
-                        .setCredentialsProvider(provider)
-                        .setHeads(true)
-                        .call()
-                }
-                GitSyncResult.Success("Connection successful")
-            } catch (e: Exception) {
-                Timber.w(e, "Connection test failed")
-                GitSyncResult.Error("Connection failed: ${e.message}", e)
-            }
-        }
+        fun getStatus(rootDir: File): GitSyncStatus = queryTestCoordinator.getStatus(rootDir)
+
+        fun testConnection(remoteUrl: String): GitSyncResult = queryTestCoordinator.testConnection(remoteUrl)
 
         suspend fun resetRepository(rootDir: File): GitSyncResult =
             mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    try {
-                        val gitDir = File(rootDir, ".git")
-                        if (gitDir.exists()) {
-                            gitDir.deleteRecursively()
-                        }
-                        _syncState.value = SyncEngineState.Idle
-                        GitSyncResult.Success("Repository reset")
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to reset repository")
-                        GitSyncResult.Error("Reset failed: ${e.message}", e)
-                    }
+                val result = conflictRecoveryCoordinator.resetRepository(rootDir)
+                if (result is GitSyncResult.Success) {
+                    _syncState.value = SyncEngineState.Idle
                 }
+                result
             }
 
         suspend fun resetLocalBranchToRemote(
@@ -695,55 +142,11 @@ class GitSyncEngine
             remoteUrl: String,
         ): GitSyncResult =
             mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    val credentials = credentialProviders()
-                        ?: return@withContext GitSyncResult.Error("No Personal Access Token configured")
-
-                    val gitDir = File(rootDir, ".git")
-                    if (!gitDir.exists()) {
-                        return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
-                    }
-
-                    cleanStaleLockFiles(rootDir)
-
-                    try {
-                        Git.open(rootDir).use { git ->
-                            ensureRemote(git, remoteUrl)
-
-                            runWithCredentialFallback(credentials, "Fetch before reset") { provider ->
-                                git.fetch()
-                                    .setRemote("origin")
-                                    .setCredentialsProvider(provider)
-                                    .setForceUpdate(true)
-                                    .call()
-                            }
-
-                            val remoteRef =
-                                git.repository.resolve("refs/remotes/origin/main")
-                                    ?: git.repository.resolve("refs/remotes/origin/master")
-                                    ?: return@withContext GitSyncResult.Error(
-                                        "Remote branch not found. Please check repository branch configuration.",
-                                    )
-
-                            abortRebaseQuietly(git)
-
-                            git.reset()
-                                .setMode(ResetCommand.ResetType.HARD)
-                                .setRef(remoteRef.name)
-                                .call()
-                            git.clean().setCleanDirectories(true).setForce(true).call()
-                        }
-
-                        _syncState.value = SyncEngineState.Idle
-                        GitSyncResult.Success("Local branch reset to remote.")
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to reset local branch to remote")
-                        GitSyncResult.Error(
-                            "Failed to reset local branch to remote: ${e.message}",
-                            e,
-                        )
-                    }
+                val result = conflictRecoveryCoordinator.resetLocalBranchToRemote(rootDir, remoteUrl)
+                if (result is GitSyncResult.Success) {
+                    _syncState.value = SyncEngineState.Idle
                 }
+                result
             }
 
         suspend fun forcePushLocalToRemote(
@@ -751,45 +154,26 @@ class GitSyncEngine
             remoteUrl: String,
         ): GitSyncResult =
             mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    val credentials = credentialProviders()
-                        ?: return@withContext GitSyncResult.Error("No Personal Access Token configured")
-
-                    val gitDir = File(rootDir, ".git")
-                    if (!gitDir.exists()) {
-                        return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
-                    }
-
-                    cleanStaleLockFiles(rootDir)
-
-                    try {
-                        Git.open(rootDir).use { git ->
-                            ensureRemote(git, remoteUrl)
-
-                            val branch = git.repository.branch ?: "main"
-
-                            // Commit local working-tree changes first, so the force push has complete content.
-                            val commitResult = doCommitLocal(rootDir)
-                            if (commitResult is GitSyncResult.Error) {
-                                return@withContext commitResult
-                            }
-
-                            _syncState.value = SyncEngineState.Syncing.Pushing
-                            val pushResult = tryPush(git, credentials, branch, "Force pushed local branch to remote", force = true)
-                            if (pushResult is GitSyncResult.Success) {
-                                val now = System.currentTimeMillis()
-                                dataStore.updateGitLastSyncTime(now)
-                                _syncState.value = SyncEngineState.Success(now, pushResult.message)
-                            }
-                            pushResult
-                        }
-                    } catch (e: Exception) {
-                        Timber.e(e, "Failed to force push local branch")
-                        GitSyncResult.Error(
-                            "Failed to force push local branch: ${e.message}",
-                            e,
-                        )
-                    }
+                val outcome =
+                    conflictRecoveryCoordinator.forcePushLocalToRemote(
+                        rootDir = rootDir,
+                        remoteUrl = remoteUrl,
+                        onPushingState = { _syncState.value = SyncEngineState.Syncing.Pushing },
+                    )
+                if (outcome.result is GitSyncResult.Success) {
+                    val syncedAt = outcome.syncedAtMs ?: System.currentTimeMillis()
+                    _syncState.value = SyncEngineState.Success(syncedAt, outcome.result.message)
                 }
+                outcome.result
             }
+
+        private fun publishResultState(result: GitSyncResult) {
+            when (result) {
+                is GitSyncResult.Success ->
+                    _syncState.value = SyncEngineState.Success(System.currentTimeMillis(), result.message)
+                is GitSyncResult.Error ->
+                    _syncState.value = SyncEngineState.Error(result.message, System.currentTimeMillis())
+                else -> _syncState.value = SyncEngineState.Idle
+            }
+        }
     }

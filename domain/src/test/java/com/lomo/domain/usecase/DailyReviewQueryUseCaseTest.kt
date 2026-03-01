@@ -61,6 +61,17 @@ class DailyReviewQueryUseCaseTest {
             assertEquals(memos, result)
         }
 
+    @Test
+    fun `default invoke uses domain daily review policy`() =
+        runTest {
+            val memos = (0 until 30).map { index -> memo(index) }
+            stubPagedMemos(memos)
+
+            val result = useCase()
+
+            assertEquals(10, result.size)
+        }
+
     private fun stubPagedMemos(memos: List<Memo>) {
         coEvery { repository.getMemoCount() } returns memos.size
         coEvery { repository.getMemosPage(any(), any()) } answers {

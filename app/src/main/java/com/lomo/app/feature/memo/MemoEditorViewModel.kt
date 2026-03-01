@@ -2,13 +2,15 @@ package com.lomo.app.feature.memo
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.repository.AppWidgetRepository
+import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
-import com.lomo.domain.validation.MemoContentValidator
+import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -23,7 +25,7 @@ class MemoEditorViewModel
     constructor(
         private val repository: MemoRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
-        private val validator: MemoContentValidator,
+        private val validator: ValidateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
         private val mediaRepository: MediaRepository,
         private val appWidgetRepository: AppWidgetRepository,
@@ -39,7 +41,7 @@ class MemoEditorViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    if (initializeWorkspaceUseCase.currentRootDirectory() == null) {
+                    if (initializeWorkspaceUseCase.currentRootLocation() == null) {
                         _errorMessage.value = "Please select a folder first"
                         return@launch
                     }
@@ -53,7 +55,7 @@ class MemoEditorViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage()
+                    _errorMessage.value = e.toUserMessage()
                 }
             }
         }
@@ -71,7 +73,7 @@ class MemoEditorViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage()
+                    _errorMessage.value = e.toUserMessage()
                 }
             }
         }
@@ -89,7 +91,7 @@ class MemoEditorViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to save image")
+                    _errorMessage.value = e.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }
@@ -102,7 +104,7 @@ class MemoEditorViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to discard input")
+                    _errorMessage.value = e.toUserMessage("Failed to discard input")
                 }
             }
         }
@@ -110,14 +112,6 @@ class MemoEditorViewModel
         fun clearError() {
             _errorMessage.value = null
         }
-
-        private fun Throwable.userMessage(prefix: String? = null): String =
-            when {
-                prefix.isNullOrBlank() && message.isNullOrBlank() -> "Unexpected error"
-                prefix.isNullOrBlank() -> message.orEmpty()
-                message.isNullOrBlank() -> prefix
-                else -> "$prefix: $message"
-            }
 
         private fun clearTrackedImages() {
             trackedImageFilenames.clear()
@@ -129,7 +123,7 @@ class MemoEditorViewModel
 
             toDelete.forEach { filename ->
                 try {
-                    mediaRepository.deleteImage(filename)
+                    mediaRepository.removeImage(MediaEntryId(filename))
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -138,7 +132,7 @@ class MemoEditorViewModel
             }
 
             try {
-                mediaRepository.syncImageCache()
+                mediaRepository.refreshImageLocations()
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

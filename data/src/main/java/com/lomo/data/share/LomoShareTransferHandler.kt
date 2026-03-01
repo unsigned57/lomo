@@ -36,7 +36,7 @@ internal class LomoShareTransferHandler(
         val tempAttachmentFiles = mutableListOf<File>()
         try {
             val contentLength = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-            if (contentLength != null && contentLength > MAX_TRANSFER_BODY_BYTES) {
+            if (contentLength != null && contentLength > ShareTransferLimits.MAX_TRANSFER_BODY_BYTES) {
                 call.respond(HttpStatusCode.PayloadTooLarge, "Transfer payload too large")
                 return
             }
@@ -107,7 +107,7 @@ internal class LomoShareTransferHandler(
                                 call.respond(HttpStatusCode.Unauthorized, "Cannot decrypt transfer content")
                                 return
                             }
-                            if (plainContent.length > MAX_MEMO_CHARS) {
+                            if (plainContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
                                 part.dispose()
                                 call.respond(HttpStatusCode.PayloadTooLarge, "Memo content too large")
                                 return
@@ -184,18 +184,8 @@ internal class LomoShareTransferHandler(
                         }
 
                         val currentMetadata = metadata
-                        val perAttachmentMax =
-                            if (currentMetadata.e2eEnabled) {
-                                MAX_ATTACHMENT_ENCRYPTED_SIZE_BYTES
-                            } else {
-                                MAX_ATTACHMENT_SIZE_BYTES
-                            }
-                        val totalAttachmentMax =
-                            if (currentMetadata.e2eEnabled) {
-                                MAX_TOTAL_ATTACHMENT_ENCRYPTED_BYTES
-                            } else {
-                                MAX_TOTAL_ATTACHMENT_BYTES
-                            }
+                        val perAttachmentMax = ShareTransferLimits.maxAttachmentPayloadBytes(currentMetadata.e2eEnabled)
+                        val totalAttachmentMax = ShareTransferLimits.maxTotalAttachmentPayloadBytes(currentMetadata.e2eEnabled)
 
                         val tempAttachment = File.createTempFile("share_incoming_", ".bin")
                         tempAttachmentFiles += tempAttachment
@@ -220,7 +210,7 @@ internal class LomoShareTransferHandler(
                                     nonceBase64 = attachmentNonce,
                                     aad = "attachment:$expectedReferenceName",
                                     maxCipherBytes = perAttachmentMax,
-                                    maxPlainBytes = MAX_ATTACHMENT_SIZE_BYTES,
+                                    maxPlainBytes = ShareTransferLimits.MAX_ATTACHMENT_SIZE_BYTES,
                                 )
                             } else {
                                 copyPartToTempFile(
@@ -429,15 +419,6 @@ internal class LomoShareTransferHandler(
 
     private companion object {
         private const val TAG = "LomoShareServer"
-        private const val MAX_TRANSFER_BODY_BYTES = 120L * 1024L * 1024L
-        private const val MAX_MEMO_CHARS = 200_000
-        private const val MAX_ATTACHMENTS = 20
         private const val MAX_STORAGE_FILENAME_CHARS = 96
-        private const val MAX_ATTACHMENT_SIZE_BYTES = 100L * 1024L * 1024L
-        private const val GCM_TAG_BYTES = 16L
-        private const val MAX_ATTACHMENT_ENCRYPTED_SIZE_BYTES = MAX_ATTACHMENT_SIZE_BYTES + GCM_TAG_BYTES
-        private const val MAX_TOTAL_ATTACHMENT_BYTES = 100L * 1024L * 1024L
-        private const val MAX_TOTAL_ATTACHMENT_ENCRYPTED_BYTES =
-            MAX_TOTAL_ATTACHMENT_BYTES + (MAX_ATTACHMENTS * GCM_TAG_BYTES)
     }
 }

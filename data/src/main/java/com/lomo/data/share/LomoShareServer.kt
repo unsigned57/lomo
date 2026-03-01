@@ -38,8 +38,6 @@ class LomoShareServer {
         private const val TAG = "LomoShareServer"
         private const val APPROVAL_TIMEOUT_MS = 60_000L // 60 seconds to approve
         private const val SESSION_TTL_MS = 120_000L
-        private const val MAX_PREPARE_BODY_CHARS = 64 * 1024
-        private const val MAX_MEMO_CHARS = 200_000
     }
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
@@ -99,13 +97,13 @@ class LomoShareServer {
                     post("/share/prepare") {
                         try {
                             val contentLength = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
-                            if (contentLength != null && contentLength > MAX_PREPARE_BODY_CHARS) {
+                            if (contentLength != null && contentLength > ShareTransferLimits.MAX_PREPARE_BODY_CHARS) {
                                 call.respond(HttpStatusCode.PayloadTooLarge, "Prepare payload too large")
                                 return@post
                             }
 
                             val body = call.receiveText()
-                            if (body.length > MAX_PREPARE_BODY_CHARS) {
+                            if (body.length > ShareTransferLimits.MAX_PREPARE_BODY_CHARS) {
                                 call.respond(HttpStatusCode.PayloadTooLarge, "Prepare payload too large")
                                 return@post
                             }
@@ -151,7 +149,7 @@ class LomoShareServer {
                                 call.respond(HttpStatusCode.Unauthorized, "Cannot decrypt prepare content")
                                 return@post
                             }
-                            if (decryptedContent.length > MAX_MEMO_CHARS) {
+                            if (decryptedContent.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
                                 call.respond(HttpStatusCode.PayloadTooLarge, "Memo content too large")
                                 return@post
                             }

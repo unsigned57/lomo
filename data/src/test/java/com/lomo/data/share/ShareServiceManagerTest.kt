@@ -2,9 +2,7 @@ package com.lomo.data.share
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
-import com.lomo.data.repository.MemoSynchronizer
 import com.lomo.data.source.FileDataSource
-import com.lomo.domain.repository.MediaRepository
 import io.mockk.MockKAnnotations
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
@@ -21,18 +19,12 @@ class ShareServiceManagerTest {
     private lateinit var context: Context
 
     @MockK(relaxed = true)
-    private lateinit var synchronizer: MemoSynchronizer
-
-    @MockK(relaxed = true)
     private lateinit var dataSource: FileDataSource
 
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
-    @MockK(relaxed = true)
-    private lateinit var mediaRepository: MediaRepository
-
-    private lateinit var manager: ShareServiceManager
+    private lateinit var attachmentStorage: ShareAttachmentStorage
 
     @Before
     fun setUp() {
@@ -44,14 +36,7 @@ class ShareServiceManagerTest {
         every { dataStore.voiceDirectory } returns flowOf(null)
         every { dataStore.rootUri } returns flowOf(null)
         every { dataStore.voiceUri } returns flowOf(null)
-        manager =
-            ShareServiceManager(
-                context = context,
-                synchronizer = synchronizer,
-                dataSource = dataSource,
-                dataStore = dataStore,
-                mediaRepository = mediaRepository,
-            )
+        attachmentStorage = ShareAttachmentStorage(context, dataSource, dataStore)
     }
 
     @Test
@@ -61,7 +46,7 @@ class ShareServiceManagerTest {
             File(tempDir, "voice.m4a").writeText("existing")
             every { dataStore.voiceDirectory } returns flowOf(tempDir.absolutePath)
 
-            val resolved = manager.resolveAvailableAttachmentFilename(type = "audio", preferredName = "voice.m4a")
+            val resolved = attachmentStorage.resolveAvailableAttachmentFilename(type = "audio", preferredName = "voice.m4a")
 
             assertEquals("voice_1.m4a", resolved)
         }

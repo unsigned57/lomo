@@ -2,7 +2,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.validation.MemoContentValidator
+import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
@@ -12,7 +12,7 @@ import org.junit.Test
 
 class ToggleMemoCheckboxUseCaseTest {
     private val repository: MemoRepository = mockk(relaxed = true)
-    private val useCase = ToggleMemoCheckboxUseCase(repository, MemoContentValidator())
+    private val useCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase())
 
     @Test
     fun `updates markdown checkbox line when checking`() =

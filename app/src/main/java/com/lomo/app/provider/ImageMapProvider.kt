@@ -29,9 +29,11 @@ class ImageMapProvider
 
         val imageMap: StateFlow<Map<String, Uri>> =
             repository
-                .getImageUriMap()
-                .map { stringMap ->
-                    stringMap.mapValues { (_, uriString) -> uriString.toUri() }
+                .observeImageLocations()
+                .map { locationMap ->
+                    locationMap
+                        .mapKeys { (entryId, _) -> entryId.raw }
+                        .mapValues { (_, location) -> location.raw.toUri() }
                 }.stateIn(
                     scope = scope,
                     started = SharingStarted.WhileSubscribed(5000),

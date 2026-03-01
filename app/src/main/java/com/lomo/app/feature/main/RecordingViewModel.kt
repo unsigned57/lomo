@@ -2,14 +2,18 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.device.VoiceRecorder
+import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -34,7 +38,7 @@ class RecordingViewModel
     constructor(
         private val settingsRepository: DirectorySettingsRepository,
         private val mediaRepository: MediaRepository,
-        private val voiceRecorder: VoiceRecorder,
+        private val voiceRecorder: VoiceRecordingRepository,
     ) : ViewModel() {
         companion object {
             private val VOICE_FILE_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
@@ -54,7 +58,8 @@ class RecordingViewModel
 
         val voiceDirectory: StateFlow<String?> =
             settingsRepository
-                .getVoiceDirectory()
+                .observeLocation(StorageArea.VOICE)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private var recordingJob: kotlinx.coroutines.Job? = null
@@ -70,7 +75,7 @@ class RecordingViewModel
                     // 1. Create file via repository (handles Voice Backend logic)
                     val target =
                         withContext(Dispatchers.IO) {
-                            mediaRepository.createVoiceFile(filename)
+                            mediaRepository.allocateVoiceCaptureTarget(MediaEntryId(filename)).raw
                         }
 
                     currentRecordingTarget = target
@@ -78,7 +83,7 @@ class RecordingViewModel
 
                     // 2. Start recording to the file URI
                     withContext(Dispatchers.IO) {
-                        voiceRecorder.start(target)
+                        voiceRecorder.start(StorageLocation(target))
                     }
                     _isRecording.value = true
                     _recordingDuration.value = 0
@@ -145,7 +150,7 @@ class RecordingViewModel
                 }
                 if (!filename.isNullOrBlank()) {
                     try {
-                        mediaRepository.deleteVoiceFile(filename)
+                        mediaRepository.removeVoiceCapture(MediaEntryId(filename))
                     } catch (e: Exception) {
                         Timber.w(e, "Failed to delete canceled recording file: %s", filename)
                     }

@@ -1,46 +1,45 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
-import javax.inject.Inject
 
 sealed interface SaveImageResult {
-    val path: String
+    val location: StorageLocation
 
     data class SavedAndCacheSynced(
-        override val path: String,
+        override val location: StorageLocation,
     ) : SaveImageResult
 
     data class SavedButCacheSyncFailed(
-        override val path: String,
+        override val location: StorageLocation,
         val cause: Throwable,
     ) : SaveImageResult
 }
 
 class SaveImageUseCase
-    @Inject
     constructor(
         private val mediaRepository: MediaRepository,
     ) {
-        suspend fun saveWithCacheSyncStatus(sourceUri: String): SaveImageResult {
-            val path = mediaRepository.saveImage(sourceUri)
+        suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult {
+            val location = mediaRepository.importImage(source)
             return try {
-                mediaRepository.syncImageCache()
-                SaveImageResult.SavedAndCacheSynced(path)
+                mediaRepository.refreshImageLocations()
+                SaveImageResult.SavedAndCacheSynced(location)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Throwable) {
-                SaveImageResult.SavedButCacheSyncFailed(path = path, cause = e)
+                SaveImageResult.SavedButCacheSyncFailed(location = location, cause = e)
             }
         }
 
         @Deprecated(
             message = "Use saveWithCacheSyncStatus for explicit non-atomic save/cache-sync outcome.",
-            replaceWith = ReplaceWith("saveWithCacheSyncStatus(sourceUri)"),
+            replaceWith = ReplaceWith("saveWithCacheSyncStatus(com.lomo.domain.model.StorageLocation(sourceUri))"),
         )
         suspend operator fun invoke(sourceUri: String): String {
-            return when (val result = saveWithCacheSyncStatus(sourceUri)) {
-                is SaveImageResult.SavedAndCacheSynced -> result.path
+            return when (val result = saveWithCacheSyncStatus(StorageLocation(sourceUri))) {
+                is SaveImageResult.SavedAndCacheSynced -> result.location.raw
                 is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
             }
         }

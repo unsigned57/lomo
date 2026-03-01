@@ -3,12 +3,14 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -46,12 +49,14 @@ class TagFilterViewModel
 
         private val rootDirectory: StateFlow<String?> =
             appConfigRepository
-                .getRootDirectory()
+                .observeLocation(StorageArea.ROOT)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private val imageDirectory: StateFlow<String?> =
             appConfigRepository
-                .getImageDirectory()
+                .observeLocation(StorageArea.IMAGE)
+                .map { it?.raw }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
@@ -95,7 +100,7 @@ class TagFilterViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to delete memo")
+                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
                 }
             }
         }
@@ -110,7 +115,7 @@ class TagFilterViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to update memo")
+                    _errorMessage.value = e.toUserMessage("Failed to update memo")
                 }
             }
         }
@@ -126,7 +131,7 @@ class TagFilterViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to save image")
+                    _errorMessage.value = e.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }
@@ -135,13 +140,6 @@ class TagFilterViewModel
         fun clearError() {
             _errorMessage.value = null
         }
-
-        private fun Throwable.userMessage(prefix: String): String =
-            if (message.isNullOrBlank()) {
-                prefix
-            } else {
-                "$prefix: ${message.orEmpty()}"
-            }
 
         private data class UiMemoMappingInput(
             val memos: List<Memo>,

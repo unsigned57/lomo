@@ -1,5 +1,6 @@
 package com.lomo.data.util
 
+import com.lomo.data.memo.MemoContentHashPolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -76,7 +77,7 @@ class MemoTextProcessorTest {
                 "- 12:30 Duplicate",
                 "- 12:30 Duplicate",
             )
-        val contentHash = "Duplicate".trim().hashCode().let { kotlin.math.abs(it).toString(16) }
+        val contentHash = MemoContentHashPolicy.hashHex("Duplicate")
         val baseId = "2024_01_15_12:30_$contentHash"
         val secondId = "${baseId}_1"
 
@@ -99,7 +100,7 @@ class MemoTextProcessorTest {
                 "- 12:30 Duplicate",
                 "- 12:30 Duplicate",
             )
-        val contentHash = "Duplicate".trim().hashCode().let { kotlin.math.abs(it).toString(16) }
+        val contentHash = MemoContentHashPolicy.hashHex("Duplicate")
         val baseId = "2024_01_15_12:30_$contentHash"
         val secondId = "${baseId}_1"
 

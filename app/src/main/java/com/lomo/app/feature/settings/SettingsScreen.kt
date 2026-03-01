@@ -1,18 +1,14 @@
 package com.lomo.app.feature.settings
 
 import android.content.Intent
-import android.text.format.DateUtils
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -22,65 +18,36 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.material.icons.outlined.Brightness6
-import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.DeleteForever
-import androidx.compose.material.icons.outlined.Description
-import androidx.compose.material.icons.outlined.Email
-import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.Link
-import androidx.compose.material.icons.outlined.PhoneAndroid
-import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Schedule
-import androidx.compose.material.icons.outlined.Sync
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 import androidx.core.os.LocaleListCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
+import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.SyncEngineState
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
-import com.lomo.ui.component.dialog.SelectionDialog
-import com.lomo.ui.component.settings.PreferenceItem
-import com.lomo.ui.component.settings.SettingsGroup
-import com.lomo.ui.component.settings.SwitchPreferenceItem
+import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -92,39 +59,14 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
-    val rootDir by viewModel.rootDirectory.collectAsStateWithLifecycle()
-    val imageDir by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val voiceDir by viewModel.voiceDirectory.collectAsStateWithLifecycle()
-    val dateFormat by viewModel.dateFormat.collectAsStateWithLifecycle()
-    val timeFormat by viewModel.timeFormat.collectAsStateWithLifecycle()
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val hapticEnabled by viewModel.hapticFeedbackEnabled.collectAsStateWithLifecycle()
-    val checkUpdates by viewModel.checkUpdatesOnStartup.collectAsStateWithLifecycle()
-    val showInputHints by viewModel.showInputHints.collectAsStateWithLifecycle()
-    val doubleTapEditEnabled by viewModel.doubleTapEditEnabled.collectAsStateWithLifecycle()
-    val filenameFormat by viewModel.storageFilenameFormat.collectAsStateWithLifecycle()
-    val timestampFormat by viewModel.storageTimestampFormat.collectAsStateWithLifecycle()
-    val shareCardStyle by viewModel.shareCardStyle.collectAsStateWithLifecycle()
-    val shareCardShowTime by viewModel.shareCardShowTime.collectAsStateWithLifecycle()
-    val shareCardShowBrand by viewModel.shareCardShowBrand.collectAsStateWithLifecycle()
-    val lanShareE2eEnabled by viewModel.lanShareE2eEnabled.collectAsStateWithLifecycle()
-    val lanSharePairingConfigured by viewModel.lanSharePairingConfigured.collectAsStateWithLifecycle()
-    val lanShareDeviceName by viewModel.lanShareDeviceName.collectAsStateWithLifecycle()
-    val pairingCodeError by viewModel.pairingCodeError.collectAsStateWithLifecycle()
-
-    val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
-    val gitRemoteUrl by viewModel.gitRemoteUrl.collectAsStateWithLifecycle()
-    val gitPatConfigured by viewModel.gitPatConfigured.collectAsStateWithLifecycle()
-    val gitAuthorName by viewModel.gitAuthorName.collectAsStateWithLifecycle()
-    val gitAuthorEmail by viewModel.gitAuthorEmail.collectAsStateWithLifecycle()
-    val gitAutoSyncEnabled by viewModel.gitAutoSyncEnabled.collectAsStateWithLifecycle()
-    val gitAutoSyncInterval by viewModel.gitAutoSyncInterval.collectAsStateWithLifecycle()
-    val gitSyncOnRefreshEnabled by viewModel.gitSyncOnRefreshEnabled.collectAsStateWithLifecycle()
-    val gitLastSyncTime by viewModel.gitLastSyncTime.collectAsStateWithLifecycle()
-    val gitSyncState by viewModel.gitSyncState.collectAsStateWithLifecycle()
-    val connectionTestState by viewModel.connectionTestState.collectAsStateWithLifecycle()
-    val resetInProgress by viewModel.resetInProgress.collectAsStateWithLifecycle()
-    val operationError by viewModel.operationError.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val storageFeature = viewModel.storageFeature
+    val displayFeature = viewModel.displayFeature
+    val shareCardFeature = viewModel.shareCardFeature
+    val interactionFeature = viewModel.interactionFeature
+    val systemFeature = viewModel.systemFeature
+    val lanShareFeature = viewModel.lanShareFeature
+    val gitFeature = viewModel.gitFeature
 
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -134,54 +76,27 @@ fun SettingsScreen(
     val unknownErrorMessage = stringResource(R.string.error_unknown)
     val gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary)
     val gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required)
-
-    var showDateDialog by remember { mutableStateOf(false) }
-    var showTimeDialog by remember { mutableStateOf(false) }
-    var showThemeDialog by remember { mutableStateOf(false) }
-    var showFilenameDialog by remember { mutableStateOf(false) }
-    var showTimestampDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
-    var showShareCardStyleDialog by remember { mutableStateOf(false) }
-
-    var showLanPairingDialog by remember { mutableStateOf(false) }
-    var lanPairingCodeInput by remember { mutableStateOf("") }
-    var lanPairingCodeVisible by remember { mutableStateOf(false) }
-    var showDeviceNameDialog by remember { mutableStateOf(false) }
-    var deviceNameInput by remember { mutableStateOf("") }
-
-    var showGitRemoteUrlDialog by remember { mutableStateOf(false) }
-    var gitRemoteUrlInput by remember { mutableStateOf("") }
-    var showGitPatDialog by remember { mutableStateOf(false) }
-    var gitPatInput by remember { mutableStateOf("") }
-    var gitPatVisible by remember { mutableStateOf(false) }
-    var showGitAuthorNameDialog by remember { mutableStateOf(false) }
-    var gitAuthorNameInput by remember { mutableStateOf("") }
-    var showGitAuthorEmailDialog by remember { mutableStateOf(false) }
-    var gitAuthorEmailInput by remember { mutableStateOf("") }
-    var showGitSyncIntervalDialog by remember { mutableStateOf(false) }
-    var showGitResetConfirmDialog by remember { mutableStateOf(false) }
-    var showGitConflictResolutionDialog by remember { mutableStateOf(false) }
-    var gitConflictMessage by remember { mutableStateOf("") }
+    val dialogState = rememberSettingsDialogState()
 
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
-    val themeModes = com.lomo.domain.model.ThemeMode.entries
-    val shareCardStyles = com.lomo.domain.model.ShareCardStyle.entries
+    val themeModes = ThemeMode.entries
+    val shareCardStyles = ShareCardStyle.entries
     val filenameFormats = StorageFilenameFormats.supportedPatterns
     val timestampFormats = StorageTimestampFormats.supportedPatterns
     val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
 
     val themeModeLabels =
         mapOf(
-            com.lomo.domain.model.ThemeMode.SYSTEM to stringResource(R.string.settings_system),
-            com.lomo.domain.model.ThemeMode.LIGHT to stringResource(R.string.settings_light_mode),
-            com.lomo.domain.model.ThemeMode.DARK to stringResource(R.string.settings_dark_mode),
+            ThemeMode.SYSTEM to stringResource(R.string.settings_system),
+            ThemeMode.LIGHT to stringResource(R.string.settings_light_mode),
+            ThemeMode.DARK to stringResource(R.string.settings_dark_mode),
         )
     val shareCardStyleLabels =
         mapOf(
-            com.lomo.domain.model.ShareCardStyle.WARM to stringResource(R.string.share_card_style_warm),
-            com.lomo.domain.model.ShareCardStyle.CLEAN to stringResource(R.string.share_card_style_clean),
-            com.lomo.domain.model.ShareCardStyle.DARK to stringResource(R.string.share_card_style_dark),
+            ShareCardStyle.WARM to stringResource(R.string.share_card_style_warm),
+            ShareCardStyle.CLEAN to stringResource(R.string.share_card_style_clean),
+            ShareCardStyle.DARK to stringResource(R.string.share_card_style_dark),
         )
     val languageLabels =
         mapOf(
@@ -213,7 +128,7 @@ fun SettingsScreen(
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(it, flags)
-                    viewModel.updateRootUri(it.toString())
+                    storageFeature.updateRootUri(it.toString())
                 }.onFailure { throwable ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
@@ -230,7 +145,7 @@ fun SettingsScreen(
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(it, flags)
-                    viewModel.updateImageUri(it.toString())
+                    storageFeature.updateImageUri(it.toString())
                 }.onFailure { throwable ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
@@ -247,7 +162,7 @@ fun SettingsScreen(
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 runCatching {
                     context.contentResolver.takePersistableUriPermission(it, flags)
-                    viewModel.updateVoiceUri(it.toString())
+                    storageFeature.updateVoiceUri(it.toString())
                 }.onFailure { throwable ->
                     scope.launch {
                         snackbarHostState.showSnackbar(
@@ -258,16 +173,14 @@ fun SettingsScreen(
             }
         }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-    LaunchedEffect(operationError) {
-        val error = operationError ?: return@LaunchedEffect
-        if (isGitSyncConflictError(error)) {
-            gitConflictMessage = error
-            showGitConflictResolutionDialog = true
+    LaunchedEffect(uiState.operationError) {
+        val error = uiState.operationError ?: return@LaunchedEffect
+        if (gitFeature.shouldShowGitConflictDialog(error)) {
+            dialogState.gitConflictMessage = error
+            dialogState.showGitConflictResolutionDialog = true
         } else {
             snackbarHostState.showSnackbar(
-                localizeGitSyncErrorMessage(
+                gitFeature.presentGitSyncErrorMessage(
                     message = error,
                     conflictSummary = gitConflictSummary,
                     directPathRequired = gitDirectPathRequired,
@@ -278,13 +191,15 @@ fun SettingsScreen(
         viewModel.clearOperationError()
     }
 
-    LaunchedEffect(gitSyncState) {
-        val errorState = gitSyncState as? SyncEngineState.Error ?: return@LaunchedEffect
-        if (isGitSyncConflictError(errorState.message) && !showGitConflictResolutionDialog) {
-            gitConflictMessage = errorState.message
-            showGitConflictResolutionDialog = true
+    LaunchedEffect(uiState.git.syncState) {
+        val errorState = uiState.git.syncState as? SyncEngineState.Error ?: return@LaunchedEffect
+        if (gitFeature.shouldShowGitConflictDialog(errorState.message) && !dialogState.showGitConflictResolutionDialog) {
+            dialogState.gitConflictMessage = errorState.message
+            dialogState.showGitConflictResolutionDialog = true
         }
     }
+
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     AnimatedContent(
         targetState = currentLanguageTag,
@@ -357,1000 +272,165 @@ fun SettingsScreen(
                         ),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
             ) {
-                SettingsGroup(title = stringResource(R.string.settings_group_storage)) {
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_memo_directory),
-                        subtitle = rootDir.ifBlank { stringResource(R.string.settings_not_set) },
-                        icon = Icons.Default.Folder,
-                        onClick = { rootLauncher.launch(null) },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_image_storage),
-                        subtitle = imageDir.ifBlank { stringResource(R.string.settings_not_set) },
-                        icon = Icons.Outlined.PhotoLibrary,
-                        onClick = { imageLauncher.launch(null) },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_voice_storage),
-                        subtitle = voiceDir.ifBlank { stringResource(R.string.settings_not_set) },
-                        icon = Icons.Default.Audiotrack,
-                        onClick = { voiceLauncher.launch(null) },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_filename_format),
-                        subtitle = filenameFormat,
-                        icon = Icons.Outlined.Description,
-                        onClick = { showFilenameDialog = true },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_timestamp_format),
-                        subtitle = timestampFormat,
-                        icon = Icons.Outlined.AccessTime,
-                        onClick = { showTimestampDialog = true },
-                    )
-                }
+                StorageSettingsSection(
+                    state = uiState.storage,
+                    onSelectRoot = { rootLauncher.launch(null) },
+                    onSelectImageRoot = { imageLauncher.launch(null) },
+                    onSelectVoiceRoot = { voiceLauncher.launch(null) },
+                    onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
+                    onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
+                )
 
-                SettingsGroup(title = stringResource(R.string.settings_group_display)) {
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_language),
-                        subtitle = languageLabels[languageTag] ?: languageTag,
-                        icon = Icons.Outlined.Language,
-                        onClick = { showLanguageDialog = true },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_theme_mode),
-                        subtitle = themeModeLabels[themeMode] ?: themeMode.value,
-                        icon = Icons.Outlined.Brightness6,
-                        onClick = { showThemeDialog = true },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_date_format),
-                        subtitle = dateFormat,
-                        icon = Icons.Outlined.CalendarToday,
-                        onClick = { showDateDialog = true },
-                    )
-                    SettingsDivider()
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_time_format),
-                        subtitle = timeFormat,
-                        icon = Icons.Outlined.Schedule,
-                        onClick = { showTimeDialog = true },
-                    )
-                }
+                DisplaySettingsSection(
+                    state = uiState.display,
+                    languageLabel = languageLabels[languageTag] ?: languageTag,
+                    themeLabel = themeModeLabels[uiState.display.themeMode] ?: uiState.display.themeMode.value,
+                    onOpenLanguageDialog = { dialogState.showLanguageDialog = true },
+                    onOpenThemeDialog = { dialogState.showThemeDialog = true },
+                    onOpenDateFormatDialog = { dialogState.showDateDialog = true },
+                    onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
+                )
 
-                LanShareSettingsGroup(
-                    lanShareE2eEnabled = lanShareE2eEnabled,
-                    lanSharePairingConfigured = lanSharePairingConfigured,
-                    lanShareDeviceName = lanShareDeviceName,
+                LanShareSettingsSection(
+                    state = uiState.lanShare,
                     onToggleE2e = { enabled ->
-                        viewModel.updateLanShareE2eEnabled(enabled)
-                        if (enabled && !lanSharePairingConfigured) {
-                            lanPairingCodeInput = ""
-                            lanPairingCodeVisible = false
-                            viewModel.clearPairingCodeError()
-                            showLanPairingDialog = true
+                        lanShareFeature.updateLanShareE2eEnabled(enabled)
+                        if (
+                            LanSharePairingDialogTriggerPolicy.shouldShowOnE2eEnabled(
+                                enabled = enabled,
+                                pairingConfigured = uiState.lanShare.pairingConfigured,
+                            )
+                        ) {
+                            dialogState.lanPairingCodeInput = ""
+                            dialogState.lanPairingCodeVisible = false
+                            lanShareFeature.clearPairingCodeError()
+                            dialogState.showLanPairingDialog = true
                         }
                     },
                     onOpenPairingDialog = {
-                        lanPairingCodeVisible = false
-                        viewModel.clearPairingCodeError()
-                        showLanPairingDialog = true
+                        dialogState.lanPairingCodeVisible = false
+                        lanShareFeature.clearPairingCodeError()
+                        dialogState.showLanPairingDialog = true
                     },
                     onOpenDeviceNameDialog = {
-                        deviceNameInput = lanShareDeviceName
-                        showDeviceNameDialog = true
+                        dialogState.deviceNameInput = uiState.lanShare.deviceName
+                        dialogState.showDeviceNameDialog = true
                     },
                 )
 
-                SettingsGroup(title = stringResource(R.string.settings_group_share_card)) {
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_share_card_style),
-                        subtitle = shareCardStyleLabels[shareCardStyle] ?: shareCardStyle.value,
-                        icon = Icons.Outlined.Description,
-                        onClick = { showShareCardStyleDialog = true },
-                    )
-                    SettingsDivider()
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_share_card_show_time),
-                        subtitle = stringResource(R.string.settings_share_card_show_time_subtitle),
-                        icon = Icons.Outlined.Schedule,
-                        checked = shareCardShowTime,
-                        onCheckedChange = { viewModel.updateShareCardShowTime(it) },
-                    )
-                    SettingsDivider()
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_share_card_show_brand),
-                        subtitle = stringResource(R.string.settings_share_card_show_brand_subtitle),
-                        icon = Icons.Outlined.Info,
-                        checked = shareCardShowBrand,
-                        onCheckedChange = { viewModel.updateShareCardShowBrand(it) },
-                    )
-                }
+                ShareCardSettingsSection(
+                    state = uiState.shareCard,
+                    styleLabel = shareCardStyleLabels[uiState.shareCard.style] ?: uiState.shareCard.style.value,
+                    onOpenStyleDialog = { dialogState.showShareCardStyleDialog = true },
+                    onToggleShowTime = shareCardFeature::updateShareCardShowTime,
+                    onToggleShowBrand = shareCardFeature::updateShareCardShowBrand,
+                )
 
-                SettingsGroup(title = stringResource(R.string.settings_group_git_sync)) {
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_git_sync_enable),
-                        subtitle = stringResource(R.string.settings_git_sync_enable_subtitle),
-                        icon = Icons.Outlined.Sync,
-                        checked = gitSyncEnabled,
-                        onCheckedChange = { viewModel.updateGitSyncEnabled(it) },
-                    )
-                    AnimatedVisibility(
-                        visible = gitSyncEnabled,
-                        enter =
-                            expandVertically(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationMedium2,
-                                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                                    ),
-                            ) +
-                                fadeIn(
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationMedium2,
-                                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                                        ),
-                                ),
-                        exit =
-                            shrinkVertically(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationShort4,
-                                        easing = MotionTokens.EasingEmphasizedAccelerate,
-                                    ),
-                            ) +
-                                fadeOut(
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationShort4,
-                                            easing = MotionTokens.EasingEmphasizedAccelerate,
-                                        ),
-                                ),
-                        label = "GitSyncAdvancedVisibility",
-                    ) {
-                        Column {
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_remote_url),
-                                subtitle = gitRemoteUrl.ifBlank { stringResource(R.string.settings_not_set) },
-                                icon = Icons.Outlined.Link,
-                                onClick = {
-                                    gitRemoteUrlInput = gitRemoteUrl
-                                    showGitRemoteUrlDialog = true
-                                },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_pat),
-                                subtitle =
-                                    stringResource(
-                                        if (gitPatConfigured) {
-                                            R.string.settings_git_pat_configured
-                                        } else {
-                                            R.string.settings_git_pat_not_set
-                                        },
-                                    ),
-                                icon = Icons.Default.Lock,
-                                onClick = {
-                                    gitPatInput = ""
-                                    gitPatVisible = false
-                                    showGitPatDialog = true
-                                },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_author_name),
-                                subtitle = gitAuthorName.ifBlank { stringResource(R.string.settings_not_set) },
-                                icon = Icons.Outlined.Person,
-                                onClick = {
-                                    gitAuthorNameInput = gitAuthorName
-                                    showGitAuthorNameDialog = true
-                                },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_author_email),
-                                subtitle = gitAuthorEmail.ifBlank { stringResource(R.string.settings_not_set) },
-                                icon = Icons.Outlined.Email,
-                                onClick = {
-                                    gitAuthorEmailInput = gitAuthorEmail
-                                    showGitAuthorEmailDialog = true
-                                },
-                            )
-                            SettingsDivider()
-                            SwitchPreferenceItem(
-                                title = stringResource(R.string.settings_git_auto_sync),
-                                subtitle = stringResource(R.string.settings_git_auto_sync_subtitle),
-                                icon = Icons.Outlined.Schedule,
-                                checked = gitAutoSyncEnabled,
-                                onCheckedChange = { viewModel.updateGitAutoSyncEnabled(it) },
-                            )
-                            AnimatedVisibility(
-                                visible = gitAutoSyncEnabled,
-                                enter =
-                                    expandVertically(
-                                        animationSpec =
-                                            tween(
-                                                durationMillis = MotionTokens.DurationMedium2,
-                                                easing = MotionTokens.EasingEmphasizedDecelerate,
-                                            ),
-                                    ) +
-                                        fadeIn(
-                                            animationSpec =
-                                                tween(
-                                                    durationMillis = MotionTokens.DurationMedium2,
-                                                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                                                ),
-                                        ),
-                                exit =
-                                    shrinkVertically(
-                                        animationSpec =
-                                            tween(
-                                                durationMillis = MotionTokens.DurationShort4,
-                                                easing = MotionTokens.EasingEmphasizedAccelerate,
-                                            ),
-                                    ) +
-                                        fadeOut(
-                                            animationSpec =
-                                                tween(
-                                                    durationMillis = MotionTokens.DurationShort4,
-                                                    easing = MotionTokens.EasingEmphasizedAccelerate,
-                                                ),
-                                        ),
-                                label = "GitAutoSyncIntervalVisibility",
-                            ) {
-                                Column {
-                                    SettingsDivider()
-                                    PreferenceItem(
-                                        title = stringResource(R.string.settings_git_sync_interval),
-                                        subtitle = gitSyncIntervalLabels[gitAutoSyncInterval] ?: gitAutoSyncInterval,
-                                        icon = Icons.Outlined.Schedule,
-                                        onClick = { showGitSyncIntervalDialog = true },
-                                    )
-                                }
-                            }
-                            SettingsDivider()
-                            SwitchPreferenceItem(
-                                title = stringResource(R.string.settings_git_sync_on_refresh),
-                                subtitle = stringResource(R.string.settings_git_sync_on_refresh_subtitle),
-                                icon = Icons.Outlined.Refresh,
-                                checked = gitSyncOnRefreshEnabled,
-                                onCheckedChange = { viewModel.updateGitSyncOnRefresh(it) },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_sync_now),
-                                subtitle = gitSyncNowSubtitle(gitSyncState, gitLastSyncTime),
-                                icon = Icons.Outlined.Sync,
-                                onClick = {
-                                    if (gitSyncState !is SyncEngineState.Syncing &&
-                                        gitSyncState !is SyncEngineState.Initializing
-                                    ) {
-                                        viewModel.triggerGitSyncNow()
-                                    }
-                                },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_test_connection),
-                                subtitle = when (connectionTestState) {
-                                    is SettingsViewModel.ConnectionTestState.Idle -> ""
-                                    is SettingsViewModel.ConnectionTestState.Testing ->
-                                        stringResource(R.string.settings_git_test_connection_testing)
-                                    is SettingsViewModel.ConnectionTestState.Success ->
-                                        stringResource(R.string.settings_git_test_connection_success)
-                                    is SettingsViewModel.ConnectionTestState.Error ->
-                                        stringResource(
-                                            R.string.settings_git_test_connection_failed,
-                                            (connectionTestState as SettingsViewModel.ConnectionTestState.Error).message,
-                                        )
-                                },
-                                icon = Icons.Outlined.Link,
-                                onClick = {
-                                    viewModel.resetConnectionTestState()
-                                    viewModel.testGitConnection()
-                                },
-                            )
-                            SettingsDivider()
-                            PreferenceItem(
-                                title = stringResource(R.string.settings_git_reset_repo),
-                                subtitle = stringResource(R.string.settings_git_reset_repo_subtitle),
-                                icon = Icons.Outlined.DeleteForever,
-                                onClick = { showGitResetConfirmDialog = true },
-                            )
-                        }
-                    }
-                }
-
-                SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_haptic_feedback),
-                        subtitle = stringResource(R.string.settings_haptic_feedback_subtitle),
-                        icon = Icons.Default.Vibration,
-                        checked = hapticEnabled,
-                        onCheckedChange = { viewModel.updateHapticFeedback(it) },
-                    )
-                    SettingsDivider()
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_show_input_hints),
-                        subtitle = stringResource(R.string.settings_show_input_hints_subtitle),
-                        icon = Icons.Outlined.Info,
-                        checked = showInputHints,
-                        onCheckedChange = { viewModel.updateShowInputHints(it) },
-                    )
-                    SettingsDivider()
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_double_tap_edit),
-                        subtitle = stringResource(R.string.settings_double_tap_edit_subtitle),
-                        icon = Icons.Outlined.Info,
-                        checked = doubleTapEditEnabled,
-                        onCheckedChange = { viewModel.updateDoubleTapEditEnabled(it) },
-                    )
-                }
-
-                SettingsGroup(title = stringResource(R.string.settings_group_system)) {
-                    SwitchPreferenceItem(
-                        title = stringResource(R.string.settings_check_updates),
-                        subtitle = stringResource(R.string.settings_check_updates_subtitle),
-                        icon = Icons.Outlined.Schedule,
-                        checked = checkUpdates,
-                        onCheckedChange = { viewModel.updateCheckUpdatesOnStartup(it) },
-                    )
-                }
-
-                SettingsGroup(title = stringResource(R.string.settings_group_about)) {
-                    PreferenceItem(
-                        title = stringResource(R.string.settings_github),
-                        subtitle = stringResource(R.string.settings_github_subtitle),
-                        icon = Icons.Outlined.Info,
-                        onClick = { uriHandler.openUri("https://github.com/unsigned57/lomo") },
-                    )
-                }
-            }
-        }
-    }
-
-    if (showDateDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_date_format),
-            options = dateFormats,
-            currentSelection = dateFormat,
-            onDismiss = { showDateDialog = false },
-            onSelect = {
-                viewModel.updateDateFormat(it)
-                showDateDialog = false
-            },
-        )
-    }
-
-    if (showTimeDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_time_format),
-            options = timeFormats,
-            currentSelection = timeFormat,
-            onDismiss = { showTimeDialog = false },
-            onSelect = {
-                viewModel.updateTimeFormat(it)
-                showTimeDialog = false
-            },
-        )
-    }
-
-    if (showThemeDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_theme),
-            options = themeModes,
-            currentSelection = themeMode,
-            onDismiss = { showThemeDialog = false },
-            onSelect = {
-                viewModel.updateThemeMode(it)
-                showThemeDialog = false
-            },
-            labelProvider = { themeModeLabels[it] ?: it.value },
-        )
-    }
-
-    if (showLanguageDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_language),
-            options = listOf("system", "zh-CN", "en"),
-            currentSelection = currentLanguageTag,
-            onDismiss = { showLanguageDialog = false },
-            onSelect = { tag ->
-                val locales =
-                    if (tag == "system") {
-                        LocaleListCompat.getEmptyLocaleList()
-                    } else {
-                        LocaleListCompat.forLanguageTags(tag)
-                    }
-                AppCompatDelegate.setApplicationLocales(locales)
-                showLanguageDialog = false
-            },
-            labelProvider = { languageLabels[it] ?: it },
-        )
-    }
-
-    if (showFilenameDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_filename_format),
-            options = filenameFormats,
-            currentSelection = filenameFormat,
-            onDismiss = { showFilenameDialog = false },
-            onSelect = {
-                viewModel.updateStorageFilenameFormat(it)
-                showFilenameDialog = false
-            },
-        )
-    }
-
-    if (showTimestampDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_timestamp_format),
-            options = timestampFormats,
-            currentSelection = timestampFormat,
-            onDismiss = { showTimestampDialog = false },
-            onSelect = {
-                viewModel.updateStorageTimestampFormat(it)
-                showTimestampDialog = false
-            },
-        )
-    }
-
-    if (showShareCardStyleDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_share_card_style),
-            options = shareCardStyles,
-            currentSelection = shareCardStyle,
-            onDismiss = { showShareCardStyleDialog = false },
-            onSelect = {
-                viewModel.updateShareCardStyle(it)
-                showShareCardStyleDialog = false
-            },
-            labelProvider = { shareCardStyleLabels[it] ?: it.value },
-        )
-    }
-
-    if (showLanPairingDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                viewModel.clearPairingCodeError()
-                showLanPairingDialog = false
-            },
-            title = { Text(stringResource(R.string.settings_lan_share_pairing_dialog_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_lan_share_pairing_dialog_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = lanPairingCodeInput,
-                        onValueChange = {
-                            lanPairingCodeInput = it
-                            if (pairingCodeError != null) {
-                                viewModel.clearPairingCodeError()
-                            }
-                        },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.settings_lan_share_pairing_hint)) },
-                        visualTransformation =
-                            if (lanPairingCodeVisible) {
-                                VisualTransformation.None
-                            } else {
-                                PasswordVisualTransformation()
-                            },
-                        trailingIcon = {
-                            TextButton(onClick = { lanPairingCodeVisible = !lanPairingCodeVisible }) {
-                                Text(
-                                    text =
-                                        if (lanPairingCodeVisible) {
-                                            stringResource(R.string.share_password_hide)
-                                        } else {
-                                            stringResource(R.string.share_password_show)
-                                        },
+                GitSyncSettingsSection(
+                    state = uiState.git,
+                    syncIntervalLabel = gitSyncIntervalLabels[uiState.git.autoSyncInterval] ?: uiState.git.autoSyncInterval,
+                    syncNowSubtitle =
+                        SettingsErrorPresenter.gitSyncNowSubtitle(
+                            state = uiState.git.syncState,
+                            lastSyncTime = uiState.git.lastSyncTime,
+                            localizeError = { message ->
+                                gitFeature.presentGitSyncErrorMessage(
+                                    message = message,
+                                    conflictSummary = gitConflictSummary,
+                                    directPathRequired = gitDirectPathRequired,
+                                    unknownError = unknownErrorMessage,
                                 )
-                            }
-                        },
-                        isError = pairingCodeError != null,
-                        supportingText =
-                            pairingCodeError?.let {
-                                {
-                                    Text(localizePairingCodeError(it))
-                                }
                             },
-                    )
-                    if (lanSharePairingConfigured) {
-                        TextButton(
-                            onClick = {
-                                viewModel.clearLanSharePairingCode()
-                                showLanPairingDialog = false
-                            },
+                        ),
+                    connectionSubtitle = connectionTestSubtitle(uiState.git.connectionTestState),
+                    onToggleEnabled = gitFeature::updateGitSyncEnabled,
+                    onOpenRemoteUrlDialog = {
+                        dialogState.gitRemoteUrlInput = uiState.git.remoteUrl
+                        dialogState.showGitRemoteUrlDialog = true
+                    },
+                    onOpenPatDialog = {
+                        dialogState.gitPatInput = ""
+                        dialogState.gitPatVisible = false
+                        dialogState.showGitPatDialog = true
+                    },
+                    onOpenAuthorNameDialog = {
+                        dialogState.gitAuthorNameInput = uiState.git.authorName
+                        dialogState.showGitAuthorNameDialog = true
+                    },
+                    onOpenAuthorEmailDialog = {
+                        dialogState.gitAuthorEmailInput = uiState.git.authorEmail
+                        dialogState.showGitAuthorEmailDialog = true
+                    },
+                    onToggleAutoSync = gitFeature::updateGitAutoSyncEnabled,
+                    onOpenSyncIntervalDialog = { dialogState.showGitSyncIntervalDialog = true },
+                    onToggleSyncOnRefresh = gitFeature::updateGitSyncOnRefresh,
+                    onSyncNow = {
+                        if (uiState.git.syncState !is SyncEngineState.Syncing &&
+                            uiState.git.syncState !is SyncEngineState.Initializing
                         ) {
-                            Text(stringResource(R.string.action_clear_pairing_code))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateLanSharePairingCode(lanPairingCodeInput)
-                        if (lanPairingCodeInput.trim().length in 6..64) {
-                            showLanPairingDialog = false
+                            gitFeature.triggerGitSyncNow()
                         }
                     },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.clearPairingCodeError()
-                        showLanPairingDialog = false
+                    onTestConnection = {
+                        gitFeature.resetConnectionTestState()
+                        gitFeature.testGitConnection()
                     },
-                ) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    if (showDeviceNameDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeviceNameDialog = false },
-            title = { Text(stringResource(R.string.share_device_name_label)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.share_device_name_placeholder),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = deviceNameInput,
-                        onValueChange = { deviceNameInput = it },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.share_device_name_label)) },
-                    )
-                    TextButton(
-                        onClick = {
-                            viewModel.updateLanShareDeviceName("")
-                            showDeviceNameDialog = false
-                        },
-                    ) {
-                        Text(stringResource(R.string.share_device_name_use_system))
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateLanShareDeviceName(deviceNameInput)
-                        showDeviceNameDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeviceNameDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    if (showGitRemoteUrlDialog) {
-        val isUrlValid = viewModel.isValidGitRemoteUrl(gitRemoteUrlInput)
-        AlertDialog(
-            onDismissRequest = { showGitRemoteUrlDialog = false },
-            title = { Text(stringResource(R.string.settings_git_remote_url)) },
-            text = {
-                OutlinedTextField(
-                    value = gitRemoteUrlInput,
-                    onValueChange = { gitRemoteUrlInput = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
-                    isError = gitRemoteUrlInput.isNotBlank() && !isUrlValid,
-                    supportingText = if (gitRemoteUrlInput.isNotBlank() && !isUrlValid) {
-                        { Text(stringResource(R.string.settings_git_remote_url_error_https_required)) }
-                    } else {
-                        null
-                    },
+                    onOpenResetDialog = { dialogState.showGitResetConfirmDialog = true },
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateGitRemoteUrl(gitRemoteUrlInput.trim())
-                        showGitRemoteUrlDialog = false
-                    },
-                    enabled = isUrlValid,
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGitRemoteUrlDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
 
-    if (showGitPatDialog) {
-        AlertDialog(
-            onDismissRequest = { showGitPatDialog = false },
-            title = { Text(stringResource(R.string.settings_git_pat_dialog_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = stringResource(R.string.settings_git_pat_dialog_message),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    OutlinedTextField(
-                        value = gitPatInput,
-                        onValueChange = { gitPatInput = it },
-                        singleLine = true,
-                        label = { Text(stringResource(R.string.settings_git_pat_hint)) },
-                        visualTransformation =
-                            if (gitPatVisible) {
-                                VisualTransformation.None
-                            } else {
-                                PasswordVisualTransformation()
-                            },
-                        trailingIcon = {
-                            TextButton(onClick = { gitPatVisible = !gitPatVisible }) {
-                                Text(
-                                    text =
-                                        if (gitPatVisible) {
-                                            stringResource(R.string.share_password_hide)
-                                        } else {
-                                            stringResource(R.string.share_password_show)
-                                        },
-                                )
-                            }
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateGitPat(gitPatInput.trim())
-                        showGitPatDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGitPatDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    if (showGitAuthorNameDialog) {
-        AlertDialog(
-            onDismissRequest = { showGitAuthorNameDialog = false },
-            title = { Text(stringResource(R.string.settings_git_author_name)) },
-            text = {
-                OutlinedTextField(
-                    value = gitAuthorNameInput,
-                    onValueChange = { gitAuthorNameInput = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.settings_git_author_name_hint)) },
+                InteractionSettingsSection(
+                    state = uiState.interaction,
+                    onToggleHaptic = interactionFeature::updateHapticFeedback,
+                    onToggleInputHints = interactionFeature::updateShowInputHints,
+                    onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateGitAuthorName(gitAuthorNameInput.trim())
-                        showGitAuthorNameDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGitAuthorNameDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
 
-    if (showGitAuthorEmailDialog) {
-        AlertDialog(
-            onDismissRequest = { showGitAuthorEmailDialog = false },
-            title = { Text(stringResource(R.string.settings_git_author_email)) },
-            text = {
-                OutlinedTextField(
-                    value = gitAuthorEmailInput,
-                    onValueChange = { gitAuthorEmailInput = it },
-                    singleLine = true,
-                    label = { Text(stringResource(R.string.settings_git_author_email_hint)) },
+                SystemSettingsSection(
+                    state = uiState.system,
+                    onToggleCheckUpdates = systemFeature::updateCheckUpdatesOnStartup,
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.updateGitAuthorEmail(gitAuthorEmailInput.trim())
-                        showGitAuthorEmailDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.action_save))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGitAuthorEmailDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
 
-    if (showGitSyncIntervalDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_git_select_sync_interval),
-            options = gitSyncIntervals,
-            currentSelection = gitAutoSyncInterval,
-            onDismiss = { showGitSyncIntervalDialog = false },
-            onSelect = {
-                viewModel.updateGitAutoSyncInterval(it)
-                showGitSyncIntervalDialog = false
-            },
-            labelProvider = { gitSyncIntervalLabels[it] ?: it },
-        )
-    }
-
-    if (showGitResetConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showGitResetConfirmDialog = false },
-            title = { Text(stringResource(R.string.settings_git_reset_repo_confirm_title)) },
-            text = { Text(stringResource(R.string.settings_git_reset_repo_confirm_message)) },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.resetGitRepository()
-                        showGitResetConfirmDialog = false
-                    },
-                    enabled = !resetInProgress,
-                ) {
-                    Text(stringResource(R.string.action_reset))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showGitResetConfirmDialog = false }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
-    if (showGitConflictResolutionDialog) {
-        AlertDialog(
-            onDismissRequest = { showGitConflictResolutionDialog = false },
-            title = { Text(stringResource(R.string.settings_git_conflict_dialog_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.settings_git_conflict_dialog_message,
-                        localizeGitSyncErrorMessage(gitConflictMessage),
-                    ),
+                AboutSettingsSection(
+                    onOpenGithub = { uriHandler.openUri("https://github.com/unsigned57/lomo") },
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.resolveGitConflictUsingLocal()
-                        showGitConflictResolutionDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.settings_git_conflict_keep_local))
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.resolveGitConflictUsingRemote()
-                        showGitConflictResolutionDialog = false
-                    },
-                ) {
-                    Text(stringResource(R.string.settings_git_conflict_use_remote))
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun LanShareSettingsGroup(
-    lanShareE2eEnabled: Boolean,
-    lanSharePairingConfigured: Boolean,
-    lanShareDeviceName: String,
-    onToggleE2e: (Boolean) -> Unit,
-    onOpenPairingDialog: () -> Unit,
-    onOpenDeviceNameDialog: () -> Unit,
-) {
-    SettingsGroup(title = stringResource(R.string.share_lan_title)) {
-        SwitchPreferenceItem(
-            title = stringResource(R.string.share_e2e_enabled_title),
-            subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
-            icon = Icons.Default.Lock,
-            checked = lanShareE2eEnabled,
-            onCheckedChange = onToggleE2e,
-        )
-        AnimatedVisibility(
-            visible = lanShareE2eEnabled,
-            enter =
-                expandVertically(
-                    animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                        ),
-                ) +
-                    fadeIn(
-                        animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasizedDecelerate,
-                            ),
-                    ),
-            exit =
-                shrinkVertically(
-                    animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationShort4,
-                            easing = MotionTokens.EasingEmphasizedAccelerate,
-                        ),
-                ) +
-                    fadeOut(
-                        animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationShort4,
-                                easing = MotionTokens.EasingEmphasizedAccelerate,
-                            ),
-                    ),
-            label = "LanPairingVisibility",
-        ) {
-            Column {
-                SettingsDivider()
-                PreferenceItem(
-                    title = stringResource(R.string.settings_lan_share_pairing_code),
-                    subtitle =
-                        stringResource(
-                            if (lanSharePairingConfigured) {
-                                R.string.settings_lan_share_pairing_configured
-                            } else {
-                                R.string.settings_lan_share_pairing_not_set
-                            },
-                        ),
-                    icon = Icons.Default.Lock,
-                    onClick = onOpenPairingDialog,
-                )
-            }
-        }
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.share_device_name_label),
-            subtitle = lanShareDeviceName.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.PhoneAndroid,
-            onClick = onOpenDeviceNameDialog,
-        )
-    }
-}
-
-@Composable
-private fun gitSyncNowSubtitle(state: SyncEngineState, lastSyncTime: Long): String =
-    when (state) {
-        is SyncEngineState.Syncing.Pulling -> stringResource(R.string.settings_git_sync_status_pulling)
-        is SyncEngineState.Syncing.Committing -> stringResource(R.string.settings_git_sync_status_committing)
-        is SyncEngineState.Syncing.Pushing -> stringResource(R.string.settings_git_sync_status_pushing)
-        is SyncEngineState.Initializing -> stringResource(R.string.settings_git_sync_status_initializing)
-        is SyncEngineState.Error ->
-            stringResource(
-                R.string.settings_git_sync_status_error,
-                localizeGitSyncErrorMessage(state.message),
-            )
-        is SyncEngineState.NotConfigured -> stringResource(R.string.settings_git_sync_status_not_configured)
-        else -> {
-            if (lastSyncTime > 0) {
-                val relative = DateUtils.getRelativeTimeSpanString(
-                    lastSyncTime,
-                    System.currentTimeMillis(),
-                    DateUtils.MINUTE_IN_MILLIS,
-                ).toString()
-                stringResource(R.string.settings_git_sync_now_subtitle, relative)
-            } else {
-                stringResource(R.string.settings_git_sync_never)
             }
         }
     }
 
-@Composable
-private fun localizeGitSyncErrorMessage(message: String): String =
-    if (isGitSyncConflictError(message)) {
-        stringResource(R.string.settings_git_sync_conflict_summary)
-    } else if (message.startsWith("Git sync requires direct path mode", ignoreCase = true)) {
-        stringResource(R.string.settings_git_sync_direct_path_required)
-    } else if (looksTechnicalErrorMessage(message)) {
-        stringResource(R.string.error_unknown)
-    } else {
-        message
-    }
-
-private fun isGitSyncConflictError(message: String): Boolean {
-    val normalized = message.trim()
-    return normalized.contains("rebase STOPPED", ignoreCase = true) ||
-        normalized.contains("resolve conflicts manually", ignoreCase = true) ||
-        (normalized.contains("rebase", ignoreCase = true) &&
-            normalized.contains("preserved", ignoreCase = true))
-}
-
-private fun localizeGitSyncErrorMessage(
-    message: String,
-    conflictSummary: String,
-    directPathRequired: String,
-    unknownError: String,
-): String =
-    when {
-        isGitSyncConflictError(message) -> conflictSummary
-        message.startsWith("Git sync requires direct path mode", ignoreCase = true) -> directPathRequired
-        looksTechnicalErrorMessage(message) -> unknownError
-        else -> message
-    }
-
-@Composable
-private fun SettingsDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(horizontal = AppSpacing.ScreenHorizontalPadding),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+    SettingsDialogHost(
+        uiState = uiState,
+        storageFeature = storageFeature,
+        displayFeature = displayFeature,
+        shareCardFeature = shareCardFeature,
+        lanShareFeature = lanShareFeature,
+        gitFeature = gitFeature,
+        dialogState = dialogState,
+        options =
+            SettingsDialogOptions(
+                dateFormats = dateFormats,
+                timeFormats = timeFormats,
+                themeModes = themeModes,
+                shareCardStyles = shareCardStyles,
+                filenameFormats = filenameFormats,
+                timestampFormats = timestampFormats,
+                gitSyncIntervals = gitSyncIntervals,
+                languageTag = currentLanguageTag,
+                languageLabels = languageLabels,
+                themeModeLabels = themeModeLabels,
+                shareCardStyleLabels = shareCardStyleLabels,
+                gitSyncIntervalLabels = gitSyncIntervalLabels,
+            ),
+        onApplyLanguageTag = { tag ->
+            val locales =
+                if (tag == "system") {
+                    LocaleListCompat.getEmptyLocaleList()
+                } else {
+                    LocaleListCompat.forLanguageTags(tag)
+                }
+            AppCompatDelegate.setApplicationLocales(locales)
+        },
+        gitConflictSummary = gitConflictSummary,
+        gitDirectPathRequired = gitDirectPathRequired,
+        unknownErrorMessage = unknownErrorMessage,
     )
-}
-
-@Composable
-private fun localizePairingCodeError(raw: String): String {
-    val detail = raw.trim()
-    return when {
-        detail.equals("Pairing code must be 6-64 characters", ignoreCase = true) -> {
-            stringResource(R.string.share_error_invalid_pairing_code)
-        }
-
-        detail.equals("Invalid password", ignoreCase = true) -> {
-            stringResource(R.string.share_error_invalid_pairing_code)
-        }
-
-        detail.isBlank() -> {
-            stringResource(R.string.share_error_unknown)
-        }
-
-        else -> {
-            stringResource(R.string.share_error_unknown)
-        }
-    }
-}
-
-private fun looksTechnicalErrorMessage(message: String): Boolean {
-    val detail = message.trim()
-    if (detail.isBlank()) return true
-    return detail.length > 200 ||
-        detail.contains('\n') ||
-        detail.contains('\r') ||
-        detail.contains("exception", ignoreCase = true) ||
-        detail.contains("java.", ignoreCase = true) ||
-        detail.contains("kotlin.", ignoreCase = true) ||
-        detail.contains("stacktrace", ignoreCase = true) ||
-        detail.contains("\tat")
 }

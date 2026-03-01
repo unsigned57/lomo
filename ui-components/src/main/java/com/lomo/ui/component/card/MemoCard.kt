@@ -20,12 +20,14 @@ import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -240,7 +242,7 @@ fun MemoCard(
 
             // Tags & Expand Button
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -281,33 +283,19 @@ fun MemoCard(
                 }
 
                 if (shouldShowExpand) {
-                    if (!isExpanded) {
+                    val expanding = !isExpanded
+                    val label = if (expanding) R.string.cd_expand else R.string.cd_collapse
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 24.dp) {
                         TextButton(
                             onClick = {
                                 haptic.medium()
-                                isExpanded = true
+                                isExpanded = expanding
                             },
                             contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.heightIn(min = 48.dp),
+                            modifier = Modifier.heightIn(min = 24.dp),
                         ) {
                             Text(
-                                stringResource(R.string.cd_expand),
-                                style =
-                                    MaterialTheme.typography
-                                        .labelSmall,
-                            )
-                        }
-                    } else {
-                        TextButton(
-                            onClick = {
-                                haptic.medium()
-                                isExpanded = false
-                            },
-                            contentPadding = PaddingValues(0.dp),
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.cd_collapse),
+                                stringResource(label),
                                 style =
                                     MaterialTheme.typography
                                         .labelSmall,

@@ -2,12 +2,14 @@ package com.lomo.app.feature.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
@@ -27,6 +29,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -51,12 +54,14 @@ class SearchViewModel
 
         val rootDirectory: StateFlow<String?> =
             appConfigRepository
-                .getRootDirectory()
+                .observeLocation(StorageArea.ROOT)
+                .map { it?.raw }
                 .stateInViewModel(viewModelScope, null)
 
         val imageDirectory: StateFlow<String?> =
             appConfigRepository
-                .getImageDirectory()
+                .observeLocation(StorageArea.IMAGE)
+                .map { it?.raw }
                 .stateInViewModel(viewModelScope, null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
@@ -116,7 +121,7 @@ class SearchViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to delete memo")
+                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
                 }
             }
         }
@@ -131,7 +136,7 @@ class SearchViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to update memo")
+                    _errorMessage.value = e.toUserMessage("Failed to update memo")
                 }
             }
         }
@@ -147,7 +152,7 @@ class SearchViewModel
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    _errorMessage.value = e.userMessage("Failed to save image")
+                    _errorMessage.value = e.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }
@@ -156,13 +161,6 @@ class SearchViewModel
         fun clearError() {
             _errorMessage.value = null
         }
-
-        private fun Throwable.userMessage(prefix: String): String =
-            if (message.isNullOrBlank()) {
-                prefix
-            } else {
-                "$prefix: ${message.orEmpty()}"
-            }
 
         private data class UiMemoMappingInput(
             val memos: List<Memo>,

@@ -5,8 +5,9 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.lomo.app.BuildConfig
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MemoRepository
-import com.lomo.domain.repository.DirectorySettingsRepository
+import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +18,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class BenchmarkSetupReceiver : BroadcastReceiver() {
-    @Inject lateinit var settingsRepository: DirectorySettingsRepository
+    @Inject lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
     @Inject lateinit var memoRepository: MemoRepository
 
     override fun onReceive(
@@ -53,7 +54,7 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
                 }
                 rootDir.mkdirs()
 
-                settingsRepository.setRootDirectory(rootDir.absolutePath)
+                switchRootStorageUseCase.updateRootLocation(StorageLocation(rootDir.absolutePath))
                 seedMemos(seedCount)
                 memoRepository.refreshMemos()
 

@@ -11,14 +11,20 @@ import androidx.compose.runtime.getValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
+import com.lomo.app.util.LocalShareUtils
+import com.lomo.app.util.ShareUtils
+import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
+import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.LomoTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
-    @Inject lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
+    @Inject lateinit var audioPlayerController: AudioPlaybackController
+
+    @Inject lateinit var shareUtils: ShareUtils
 
     @Inject lateinit var shareServiceManager: LanShareService
 
@@ -48,7 +54,8 @@ class MainActivity : AppCompatActivity() {
             LomoTheme(themeMode = appPreferences.themeMode.value) {
                 com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
                     androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.media.LocalAudioPlayerManager provides audioPlayerManager,
+                        LocalAudioPlayerManager provides audioPlayerController,
+                        LocalShareUtils provides shareUtils,
                     ) {
                         LomoAppRoot(
                             viewModel = viewModel,

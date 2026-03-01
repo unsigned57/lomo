@@ -4,7 +4,7 @@ import android.app.Application
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
 import com.lomo.app.BuildConfig
-import com.lomo.domain.repository.SyncSchedulerRepository
+import com.lomo.domain.repository.SyncPolicyRepository
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -18,7 +18,7 @@ class LomoApplication :
     Application(),
     Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
-    @Inject lateinit var syncSchedulerRepository: SyncSchedulerRepository
+    @Inject lateinit var syncPolicyRepository: SyncPolicyRepository
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     override val workManagerConfiguration: Configuration
@@ -35,13 +35,13 @@ class LomoApplication :
         // Defer non-critical worker registration off the main thread.
         appScope.launch {
             try {
-                syncSchedulerRepository.ensureLocalPeriodicSyncScheduled()
+                syncPolicyRepository.ensureCoreSyncActive()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to schedule sync")
             }
 
             try {
-                syncSchedulerRepository.rescheduleGitAutoSync()
+                syncPolicyRepository.applyGitSyncPolicy()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to schedule git sync")
             }

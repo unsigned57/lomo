@@ -4,6 +4,8 @@ import com.lomo.data.local.dao.MemoDao
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.usecase.MemoUpdateAction
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -15,6 +17,7 @@ class MemoRepositoryImpl
     constructor(
         private val dao: MemoDao,
         private val synchronizer: MemoSynchronizer,
+        private val resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
     ) : MemoRepository {
         override fun getAllMemosList(): Flow<List<Memo>> =
             dao
@@ -54,7 +57,10 @@ class MemoRepositoryImpl
             memo: Memo,
             newContent: String,
         ) {
-            synchronizer.updateMemoAsync(memo, newContent)
+            when (resolveMemoUpdateActionUseCase(newContent)) {
+                MemoUpdateAction.MOVE_TO_TRASH -> synchronizer.deleteMemoAsync(memo)
+                MemoUpdateAction.UPDATE_CONTENT -> synchronizer.updateMemoAsync(memo, newContent)
+            }
         }
 
         override suspend fun deleteMemo(memo: Memo) {

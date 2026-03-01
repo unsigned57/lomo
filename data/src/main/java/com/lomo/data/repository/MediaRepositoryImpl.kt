@@ -2,6 +2,9 @@ package com.lomo.data.repository
 
 import android.net.Uri
 import com.lomo.data.source.FileDataSource
+import com.lomo.domain.model.MediaCategory
+import com.lomo.domain.model.MediaEntryId
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,56 +24,63 @@ class MediaRepositoryImpl
             private const val VOICE_DIRECTORY_NAME = "voice"
         }
 
-        private val imageUriMap = MutableStateFlow<Map<String, String>>(emptyMap())
+        private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
-        override suspend fun saveImage(sourceUri: String): String = dataSource.saveImage(Uri.parse(sourceUri))
+        override suspend fun importImage(source: StorageLocation): StorageLocation =
+            StorageLocation(dataSource.saveImage(Uri.parse(source.raw)))
 
-        override suspend fun deleteImage(filename: String) {
-            dataSource.deleteImage(filename)
+        override suspend fun removeImage(entryId: MediaEntryId) {
+            dataSource.deleteImage(entryId.raw)
         }
 
-        override fun getImageUriMap(): Flow<Map<String, String>> = imageUriMap.asStateFlow()
+        override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
 
-        override suspend fun syncImageCache() {
+        override suspend fun refreshImageLocations() {
             if (dataSource.getImageRootFlow().first() == null) {
-                imageUriMap.value = emptyMap()
+                imageLocationMap.value = emptyMap()
                 return
             }
 
-            imageUriMap.value = dataSource.listImageFiles().associate { (name, uri) -> name to uri }
+            imageLocationMap.value =
+                dataSource.listImageFiles().associate { (name, uri) ->
+                    MediaEntryId(name) to StorageLocation(uri)
+                }
         }
 
-        override suspend fun createDefaultImageDirectory(): String? =
-            createDefaultDirectory(
-                directoryName = IMAGE_DIRECTORY_NAME,
-                setRoot = dataSource::setImageRoot,
-            )
+        override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
+            when (category) {
+                MediaCategory.IMAGE ->
+                    createDefaultWorkspace(
+                        folderName = IMAGE_DIRECTORY_NAME,
+                        setRoot = dataSource::setImageRoot,
+                    )
+                MediaCategory.VOICE ->
+                    createDefaultWorkspace(
+                        folderName = VOICE_DIRECTORY_NAME,
+                        setRoot = dataSource::setVoiceRoot,
+                    )
+            }
 
-        override suspend fun createVoiceFile(filename: String): String = dataSource.createVoiceFile(filename).toString()
+        override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
+            StorageLocation(dataSource.createVoiceFile(entryId.raw).toString())
 
-        override suspend fun deleteVoiceFile(filename: String) {
-            dataSource.deleteVoiceFile(filename)
+        override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
+            dataSource.deleteVoiceFile(entryId.raw)
         }
 
-        override suspend fun createDefaultVoiceDirectory(): String? =
-            createDefaultDirectory(
-                directoryName = VOICE_DIRECTORY_NAME,
-                setRoot = dataSource::setVoiceRoot,
-            )
-
-        private suspend fun createDefaultDirectory(
-            directoryName: String,
+        private suspend fun createDefaultWorkspace(
+            folderName: String,
             setRoot: suspend (String) -> Unit,
-        ): String? =
+        ): StorageLocation? =
             try {
-                val uri = dataSource.createDirectory(directoryName)
+                val uri = dataSource.createDirectory(folderName)
                 setRoot(uri)
-                uri
+                StorageLocation(uri)
             } catch (e: Exception) {
                 Timber.tag(TAG).w(
                     e,
-                    "Failed to create default media directory: directory=%s",
-                    directoryName,
+                    "Failed to create default media workspace: folder=%s",
+                    folderName,
                 )
                 null
             }

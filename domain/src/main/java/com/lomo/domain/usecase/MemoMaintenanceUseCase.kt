@@ -2,7 +2,6 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import javax.inject.Inject
 
 /**
  * Consolidates memo maintenance commands so callers can depend on one domain entrypoint.
@@ -13,7 +12,6 @@ class MemoMaintenanceUseCase private constructor(
     private val deleteAction: suspend (Memo) -> Unit,
     private val refreshAction: suspend () -> Unit,
 ) {
-    @Inject
     constructor(
         repository: MemoRepository,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,

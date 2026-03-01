@@ -4,13 +4,17 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
+import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
+import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
-import com.lomo.domain.validation.MemoContentValidator
+import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -42,7 +46,8 @@ class MainViewModelTest {
     private lateinit var appWidgetRepository: AppWidgetRepository
     private lateinit var memoUiMapper: MemoUiMapper
     private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var audioPlayerManager: com.lomo.ui.media.AudioPlayerManager
+    private lateinit var audioPlayerController: com.lomo.domain.repository.AudioPlaybackController
+    private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
 
     @Before
     fun setup() {
@@ -57,7 +62,8 @@ class MainViewModelTest {
         appWidgetRepository = mockk(relaxed = true)
         memoUiMapper = MemoUiMapper()
         imageMapProvider = mockk(relaxed = true)
-        audioPlayerManager = mockk(relaxed = true)
+        audioPlayerController = mockk(relaxed = true)
+        switchRootStorageUseCase = mockk(relaxed = true)
 
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.isSyncing() } returns flowOf(false)
@@ -71,10 +77,10 @@ class MainViewModelTest {
         every { repository.getActiveDayCount() } returns flowOf(0)
         every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
         every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { appConfigRepository.getRootDirectory() } returns flowOf<String?>(null)
-        coEvery { appConfigRepository.getRootDirectoryOnce() } returns null
-        every { appConfigRepository.getImageDirectory() } returns flowOf<String?>(null)
-        every { appConfigRepository.getVoiceDirectory() } returns flowOf<String?>(null)
+        every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
+        coEvery { appConfigRepository.currentRootLocation() } returns null
+        every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
+        every { appConfigRepository.observeLocation(StorageArea.VOICE) } returns flowOf(null)
 
         every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
         every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
@@ -210,8 +216,8 @@ class MainViewModelTest {
     @Test
     fun `uiState is ready when root exists`() =
         runTest {
-            every { appConfigRepository.getRootDirectory() } returns flowOf("/tmp/root")
-            coEvery { appConfigRepository.getRootDirectoryOnce() } returns "/tmp/root"
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
             val viewModel = createViewModel()
             testDispatcher.scheduler.advanceUntilIdle()
 
@@ -229,12 +235,17 @@ class MainViewModelTest {
             mainMemoMutationUseCase =
                 MainMemoMutationUseCase(
                     deleteMemoUseCase = DeleteMemoUseCase(repository),
-                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, MemoContentValidator()),
+                    toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase()),
                     appWidgetRepository = appWidgetRepository,
                 ),
-            refreshMemosUseCase = RefreshMemosUseCase(SyncAndRebuildUseCase(repository, gitSyncRepo)),
-            initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-            mediaRepository = mediaRepository,
+            workspaceCoordinator =
+                MainWorkspaceCoordinator(
+                    repository = repository,
+                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                    refreshMemosUseCase = RefreshMemosUseCase(SyncAndRebuildUseCase(repository, gitSyncRepo)),
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    mediaRepository = mediaRepository,
+                ),
             startupCoordinator =
                 MainStartupCoordinator(
                     appConfigRepository = appConfigRepository,
@@ -242,7 +253,8 @@ class MainViewModelTest {
                     initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                     syncAndRebuildUseCase = SyncAndRebuildUseCase(repository, gitSyncRepo),
                     appVersionRepository = appVersionRepository,
-                    audioPlayerManager = audioPlayerManager,
+                    audioPlayerController = audioPlayerController,
                 ),
+            resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
         )
 }

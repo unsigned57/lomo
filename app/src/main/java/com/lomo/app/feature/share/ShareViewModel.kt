@@ -3,10 +3,13 @@ package com.lomo.app.feature.share
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.toUserMessage
+import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +26,8 @@ class ShareViewModel
     @Inject
     constructor(
         private val shareServiceManager: LanShareService,
+        private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
+        private val shareErrorPolicy: ShareErrorPolicy,
         savedStateHandle: SavedStateHandle,
     ) : ViewModel() {
         private val memoPayloadKey: String = savedStateHandle.get<String>("payloadKey").orEmpty()
@@ -95,14 +100,13 @@ class ShareViewModel
                         _pairingRequiredEvent.value += 1
                         return@launch
                     }
-                    // Extract attachment URIs from memo content
-                    val attachmentUris = extractAttachmentUris(currentContent)
+                    val attachmentResult = extractShareAttachmentsUseCase(currentContent)
                     val result =
                         shareServiceManager.sendMemo(
                             device = device,
                             content = currentContent,
                             timestamp = memoTimestamp,
-                            attachmentUris = attachmentUris,
+                            attachmentUris = attachmentResult.attachmentUris,
                         )
                     result.exceptionOrNull()?.let { throwable ->
                         reportOperationError(throwable, "Failed to send memo")
@@ -135,7 +139,7 @@ class ShareViewModel
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (e: Exception) {
-                    _pairingCodeError.value = INVALID_PAIRING_CODE_ERROR_MESSAGE
+                    _pairingCodeError.value = LanSharePairingCodePolicy.saveFailureMessage(e)
                 }
             }
         }
@@ -160,6 +164,8 @@ class ShareViewModel
         fun clearOperationError() {
             _operationError.value = null
         }
+
+        fun isTechnicalShareError(message: String): Boolean = shareErrorPolicy.isTechnicalMessage(message)
 
         fun updateLanShareDeviceName(deviceName: String) {
             viewModelScope.launch {
@@ -191,70 +197,13 @@ class ShareViewModel
             }
         }
 
-        private fun extractAttachmentUris(content: String): Map<String, String> {
-            return extractLocalAttachmentPaths(content).associateWith { it }
-        }
-
-        private fun extractLocalAttachmentPaths(content: String): List<String> {
-            val markdownImages = MARKDOWN_IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            val wikiImages =
-                WIKI_IMAGE_PATTERN.findAll(content).mapNotNull { match ->
-                    match.groupValues.getOrNull(1)?.substringBefore('|')
-                }
-            val audioLinks = AUDIO_LINK_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-
-            return (markdownImages + wikiImages + audioLinks)
-                .map { it.trim() }
-                .filter { path ->
-                    path.isNotEmpty() &&
-                        !path.startsWith("http://", ignoreCase = true) &&
-                        !path.startsWith("https://", ignoreCase = true)
-                }.distinct()
-                .toList()
-        }
-
-        private companion object {
-            private val MARKDOWN_IMAGE_PATTERN = Regex("!\\[.*?\\]\\((.*?)\\)")
-            private val WIKI_IMAGE_PATTERN = Regex("!\\[\\[(.*?)\\]\\]")
-            private val AUDIO_LINK_PATTERN =
-                Regex(
-                    "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
-                    RegexOption.IGNORE_CASE,
-                )
-            private const val INVALID_PAIRING_CODE_ERROR_MESSAGE = "Pairing code must be 6-64 characters"
-        }
-
         private fun reportOperationError(
             throwable: Throwable,
             fallbackMessage: String,
         ) {
             if (throwable is CancellationException) throw throwable
-            val message =
-                sanitizeUserFacingMessage(
-                    rawMessage = throwable.message,
-                    fallbackMessage = fallbackMessage,
-                )
+            val message = throwable.toUserMessage(fallbackMessage, shareErrorPolicy::sanitizeUserFacingMessage)
             _operationError.value = message
             Timber.e(throwable, "ShareViewModel operation failed: %s", message)
         }
-
-        private fun sanitizeUserFacingMessage(
-            rawMessage: String?,
-            fallbackMessage: String,
-        ): String {
-            val message = rawMessage?.trim().orEmpty()
-            if (message.isBlank()) return fallbackMessage
-            if (looksTechnicalErrorMessage(message)) return fallbackMessage
-            return message
-        }
-
-        private fun looksTechnicalErrorMessage(message: String): Boolean =
-            message.length > 200 ||
-                message.contains('\n') ||
-                message.contains('\r') ||
-                message.contains("exception", ignoreCase = true) ||
-                message.contains("java.", ignoreCase = true) ||
-                message.contains("kotlin.", ignoreCase = true) ||
-                message.contains("stacktrace", ignoreCase = true) ||
-                message.contains("\tat")
     }

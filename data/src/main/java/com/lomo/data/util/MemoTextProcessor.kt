@@ -1,6 +1,7 @@
 package com.lomo.data.util
 
-import com.lomo.domain.util.StorageTimestampFormats
+import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.data.memo.MemoContentHashPolicy
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -224,35 +225,6 @@ class MemoTextProcessor
             return builder.toString()
         }
 
-        /**
-         * Strips Markdown syntax for simple plain text display (e.g. in Widgets).
-         */
-        fun stripMarkdown(content: String): String {
-            var str = content
-            // Headers
-            str = str.replace(Regex("(?m)^#{1,6}\\s+"), "")
-            // Bold/Italic (excluding list markers)
-            str = str.replace(Regex("(\\*\\*|__)"), "")
-            // We carefully remove single * or _ ensuring we don't break list bullets if they used *
-
-            // Checkboxes
-            str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[ \\]"), "☐")
-            str = str.replace(Regex("(?m)^\\s*[-*+]\\s*\\[x\\]"), "☑")
-
-            // Images ![]()
-            str = str.replace(Regex("!\\[.*?\\]\\(.*?\\)"), "[Image]")
-            // Wiki Images ![[...]]
-            str = str.replace(Regex("!\\[\\[(.*?)\\]\\]"), "[Image: $1]")
-
-            // Links [text](url) -> text
-            str = str.replace(Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)"), "$1")
-
-            // Lists: Replace leading dash/star with bullet for cleaner look if not already replaced
-            str = str.replace(Regex("(?m)^\\s*[-*+]\\s+"), "• ")
-
-            return str.trim()
-        }
-
         private fun findMemoBlockByMemoId(
             lines: List<String>,
             memoId: String,
@@ -363,10 +335,7 @@ class MemoTextProcessor
         private fun isMemoHeaderLine(line: String): Boolean =
             StorageTimestampFormats.parseMemoHeaderLine(line) != null
 
-        private fun contentHash(content: String): String =
-            content.trim().hashCode().let {
-                kotlin.math.abs(it).toString(16)
-            }
+        private fun contentHash(content: String): String = MemoContentHashPolicy.hashHex(content)
 
         private data class ParsedMemoId(
             val timePart: String,

@@ -11,6 +11,8 @@ import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
+import com.lomo.data.memo.MemoIdentityPolicy
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -55,6 +57,8 @@ class MemoMutationHandlerTest {
                 textProcessor = MemoTextProcessor(),
                 dataStore = dataStore,
                 trashMutationHandler = trashMutationHandler,
+                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
+                memoIdentityPolicy = MemoIdentityPolicy(),
             )
     }
 

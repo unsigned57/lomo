@@ -10,15 +10,17 @@ import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
 import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.TrashMemoEntity
+import com.lomo.data.memo.MemoIdentityPolicy
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
-import com.lomo.domain.util.StorageFilenameFormats
-import com.lomo.domain.util.StorageTimestampFormats
-import kotlin.math.abs
+import com.lomo.domain.model.StorageFilenameFormats
+import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.usecase.MemoUpdateAction
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import java.time.ZoneId
@@ -38,6 +40,8 @@ class MemoMutationHandler
         private val textProcessor: MemoTextProcessor,
         private val dataStore: LomoDataStore,
         private val trashMutationHandler: MemoTrashMutationHandler,
+        private val resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
+        private val memoIdentityPolicy: MemoIdentityPolicy,
     ) {
         data class SaveDbResult(
             val savePlan: MemoSavePlan,
@@ -77,7 +81,7 @@ class MemoMutationHandler
             memo: Memo,
             newContent: String,
         ) {
-            if (newContent.isBlank()) {
+            if (resolveMemoUpdateActionUseCase(newContent) == MemoUpdateAction.MOVE_TO_TRASH) {
                 trashMutationHandler.moveToTrash(memo)
                 return
             }
@@ -94,7 +98,7 @@ class MemoMutationHandler
         ): Long? {
             val sourceMemo = dao.getMemo(memo.id)?.toDomain() ?: return null
 
-            if (newContent.isBlank()) {
+            if (resolveMemoUpdateActionUseCase(newContent) == MemoUpdateAction.MOVE_TO_TRASH) {
                 return dao.moveMemoToTrashWithOutbox(
                     trashMemo = TrashMemoEntity.fromDomain(sourceMemo.copy(isDeleted = true)),
                     outbox = buildDeleteOutbox(sourceMemo),
@@ -112,7 +116,7 @@ class MemoMutationHandler
             memo: Memo,
             newContent: String,
         ): Boolean {
-            if (newContent.isBlank()) {
+            if (resolveMemoUpdateActionUseCase(newContent) == MemoUpdateAction.MOVE_TO_TRASH) {
                 return trashMutationHandler.moveToTrashFileOnly(memo)
             }
 
@@ -245,8 +249,7 @@ class MemoMutationHandler
                     .formatter(timestampFormat)
                     .withZone(zoneId)
                     .format(instant)
-            val contentHash = abs(content.trim().hashCode()).toString(16)
-            val baseId = "${dateString}_${timeString}_$contentHash"
+            val baseId = memoIdentityPolicy.buildBaseId(dateString, timeString, content)
             val precomputedCollisionCount =
                 dao.countMemoIdCollisions(
                     baseId = baseId,

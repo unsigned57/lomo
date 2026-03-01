@@ -4,7 +4,7 @@ import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.util.PreferenceDefaults
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.ui.util.stateInViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
