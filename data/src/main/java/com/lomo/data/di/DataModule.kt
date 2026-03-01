@@ -10,6 +10,7 @@ import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import timber.log.Timber
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
@@ -57,24 +58,29 @@ object DataModule {
             targetVersion = MEMO_DATABASE_VERSION,
             migrations = migrations,
         )
-        val fallbackFromVersions =
-            DatabaseTransitionStrategy.fallbackToDestructiveFromVersions(
-                migrations = migrations,
-                targetVersion = MEMO_DATABASE_VERSION,
-            )
 
-        val builder =
-            Room
-                .databaseBuilder(context, MemoDatabase::class.java, DatabaseTransitionStrategy.DATABASE_NAME)
-                .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
-                .addMigrations(*ALL_DATABASE_MIGRATIONS)
-                .addCallback(DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback())
-                .fallbackToDestructiveMigrationOnDowngrade(true)
-        if (fallbackFromVersions.isNotEmpty()) {
-            builder.fallbackToDestructiveMigrationFrom(true, *fallbackFromVersions)
+        val db = buildMemoDatabase(context)
+        return try {
+            // Force database open now to trigger migration inside the provider.
+            // If migration fails, the catch block recreates the database from scratch.
+            db.openHelper.writableDatabase
+            db
+        } catch (e: Exception) {
+            Timber.tag("DataModule").e(e, "Database open/migration failed, recreating from scratch")
+            runCatching { db.close() }
+            context.deleteDatabase(DatabaseTransitionStrategy.DATABASE_NAME)
+            buildMemoDatabase(context)
         }
-        return builder.build()
     }
+
+    private fun buildMemoDatabase(context: Context): MemoDatabase =
+        Room
+            .databaseBuilder(context, MemoDatabase::class.java, DatabaseTransitionStrategy.DATABASE_NAME)
+            .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
+            .addMigrations(*ALL_DATABASE_MIGRATIONS)
+            .addCallback(DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback())
+            .fallbackToDestructiveMigrationOnDowngrade(true)
+            .build()
 
     @Provides
     @Singleton

@@ -105,15 +105,198 @@ val MIGRATION_23_24: Migration =
         }
     }
 
-val ALL_DATABASE_MIGRATIONS =
-    arrayOf(
-        MIGRATION_18_19,
-        MIGRATION_19_20,
-        MIGRATION_20_21,
-        MIGRATION_21_22,
-        MIGRATION_22_23,
-        MIGRATION_23_24,
+/**
+ * Consolidation migrations that bring ANY schema version directly to the
+ * current [MEMO_DATABASE_VERSION] in a single step.
+ *
+ * Room resolves migration paths using shortest-path (fewest hops).
+ * Because each of these migrations jumps directly from version N to
+ * [MEMO_DATABASE_VERSION], Room will always prefer them over the
+ * incremental chain (e.g. 21→22→23→24), eliminating fragile multi-step
+ * migrations that can fail at intermediate points.
+ *
+ * The implementation is detection-based: it inspects actual table names
+ * and column names at runtime rather than assuming a specific schema layout,
+ * so it handles all intermediate schema states safely.
+ */
+private val CONSOLIDATION_MIGRATIONS: Array<Migration> =
+    (1 until MEMO_DATABASE_VERSION)
+        .map { startVersion ->
+            object : Migration(startVersion, MEMO_DATABASE_VERSION) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    consolidateToCurrentSchema(db)
+                }
+            }
+        }.toTypedArray()
+
+val ALL_DATABASE_MIGRATIONS: Array<Migration> =
+    CONSOLIDATION_MIGRATIONS +
+        arrayOf(
+            MIGRATION_18_19,
+            MIGRATION_19_20,
+            MIGRATION_20_21,
+            MIGRATION_21_22,
+            MIGRATION_22_23,
+            MIGRATION_23_24,
+        )
+
+/**
+ * Brings any schema state directly to the current version ([MEMO_DATABASE_VERSION]).
+ *
+ * This function is structured in phases that mirror the schema evolution history
+ * but executes them all atomically in a single migration step:
+ *
+ * Phase A: Normalize all tables to the v22 baseline schema.
+ * Phase B: Apply v22→v23 changes (drop content index).
+ * Phase C: Apply v23→v24 changes (add updatedAt column).
+ *
+ * When adding a new schema version, append a new Phase here.
+ */
+private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
+    // ── Phase A: Bring all tables to v22 normalization baseline ──────
+
+    // A1: Handle old "memos" table (v7-era) with isDeleted column.
+    val hadLegacyMemos = db.tableExists("memos")
+    if (hadLegacyMemos) {
+        migrateLegacyMemosTable(db)
+    }
+
+    // A2: Normalize Lomo/LomoTrash.
+    // If just created from "memos", skip (already correct v22 schema).
+    // If existed from an intermediate version, normalize columns.
+    db.execSQL("DROP TABLE IF EXISTS `MemoTagCrossRef`")
+    if (!hadLegacyMemos) {
+        normalizeMemoTable(db, tableName = "Lomo", withContentIndex = true)
+        normalizeMemoTable(db, tableName = "LomoTrash", withContentIndex = false)
+    }
+
+    // A3: Migrate file_sync_metadata → local_file_state.
+    migrateLegacyFileSyncMetadata(db)
+    normalizeLocalFileStateTable(db)
+
+    // A4: Normalize MemoFileOutbox.
+    normalizeMemoFileOutboxTable(db)
+
+    // A5: Rebuild derived tables from normalized Lomo data.
+    rebuildMemoFtsTable(db)
+    rebuildMemoTagCrossRefTable(db)
+
+    // A6: Drop any remaining legacy tables.
+    dropLegacyTables(db)
+
+    // ── Phase B: v22 → v23 (drop non-B-tree friendly content index) ──
+    db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
+
+    // ── Phase C: v23 → v24 (add updatedAt column) ───────────────────
+    migrateMemoUpdatedAtColumn(db, tableName = "Lomo")
+    migrateMemoUpdatedAtColumn(db, tableName = "LomoTrash")
+}
+
+private fun migrateLegacyMemosTable(db: SupportSQLiteDatabase) {
+    val columns = db.tableColumns("memos")
+
+    createMemoTable(db, "Lomo", withContentIndex = true)
+    createMemoTable(db, "LomoTrash", withContentIndex = false)
+
+    val idExpr =
+        if ("id" in columns) {
+            "COALESCE(CAST(`id` AS TEXT), 'legacy_' || rowid)"
+        } else {
+            "'legacy_' || rowid"
+        }
+    val timestampExpr = pickIntExpr(columns, "timestamp")
+    val contentExpr = pickTextExpr(columns, "content", "rawContent")
+    val rawContentExpr = pickTextExpr(columns, "rawContent", "content")
+    val dateExpr = pickTextExpr(columns, "date")
+    val tagsExpr = pickTextExpr(columns, "tags")
+    val imageUrlsExpr = pickTextExpr(columns, "imageUrls")
+
+    // Insert active memos into Lomo.
+    val activeFilter =
+        if ("isDeleted" in columns) {
+            "WHERE COALESCE(`isDeleted`, 0) = 0"
+        } else {
+            ""
+        }
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO `Lomo` (
+            `id`, `timestamp`, `content`, `rawContent`, `date`, `tags`, `imageUrls`
+        )
+        SELECT
+            $idExpr,
+            $timestampExpr,
+            $contentExpr,
+            $rawContentExpr,
+            $dateExpr,
+            $tagsExpr,
+            $imageUrlsExpr
+        FROM `memos`
+        $activeFilter
+        """.trimIndent(),
     )
+
+    // Insert deleted memos into LomoTrash.
+    if ("isDeleted" in columns) {
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO `LomoTrash` (
+                `id`, `timestamp`, `content`, `rawContent`, `date`, `tags`, `imageUrls`
+            )
+            SELECT
+                $idExpr,
+                $timestampExpr,
+                $contentExpr,
+                $rawContentExpr,
+                $dateExpr,
+                $tagsExpr,
+                $imageUrlsExpr
+            FROM `memos`
+            WHERE `isDeleted` = 1
+            """.trimIndent(),
+        )
+    }
+
+    db.execSQL("DROP TABLE IF EXISTS `memos`")
+}
+
+private fun migrateLegacyFileSyncMetadata(db: SupportSQLiteDatabase) {
+    if (!db.tableExists("file_sync_metadata")) return
+
+    if (!db.tableExists("local_file_state")) {
+        createLocalFileStateTable(db)
+    }
+
+    val columns = db.tableColumns("file_sync_metadata")
+    val filenameExpr = pickTextExpr(columns, "filename")
+    val isTrashExpr = pickIntExpr(columns, "isTrash")
+    val lastModifiedExpr = pickIntExpr(columns, "lastModified")
+
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO `local_file_state` (
+            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`
+        )
+        SELECT
+            $filenameExpr,
+            $isTrashExpr,
+            NULL,
+            $lastModifiedExpr
+        FROM `file_sync_metadata`
+        """.trimIndent(),
+    )
+
+    db.execSQL("DROP TABLE IF EXISTS `file_sync_metadata`")
+}
+
+private fun dropLegacyTables(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS `memos`")
+    db.execSQL("DROP TABLE IF EXISTS `image_cache`")
+    db.execSQL("DROP TABLE IF EXISTS `tags`")
+    db.execSQL("DROP TABLE IF EXISTS `memo_tag_cross_ref`")
+    db.execSQL("DROP TABLE IF EXISTS `memos_fts`")
+    db.execSQL("DROP TABLE IF EXISTS `file_sync_metadata`")
+}
 
 private fun migrateMemoUpdatedAtColumn(
     db: SupportSQLiteDatabase,

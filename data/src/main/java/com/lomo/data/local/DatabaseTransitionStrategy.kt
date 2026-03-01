@@ -52,9 +52,11 @@ internal object DatabaseTransitionStrategy {
         if (!databaseFile.exists()) return
 
         val existingVersion = readUserVersion(databaseFile)
-        val migrationEdges = migrations.map { it.startVersion to it.endVersion }
 
-        if (shouldResetDatabase(existingVersion, targetVersion, migrationEdges)) {
+        // Only reset for truly invalid states: corrupt version or downgrade.
+        // All upgrade paths (1..target) are now covered by consolidation +
+        // incremental migrations, so path-checking is no longer needed.
+        if (shouldResetDatabase(existingVersion, targetVersion)) {
             Timber.tag(TAG).w(
                 "Resetting db '%s' before Room open (existing=%d, target=%d)",
                 databaseName,
@@ -77,12 +79,12 @@ internal object DatabaseTransitionStrategy {
     internal fun shouldResetDatabase(
         existingVersion: Int,
         targetVersion: Int,
-        migrationEdges: List<Pair<Int, Int>>,
     ): Boolean {
         if (existingVersion <= 0) return true
         if (existingVersion == targetVersion) return false
         if (existingVersion > targetVersion) return true
-        return !canReachTargetVersion(existingVersion, targetVersion, migrationEdges)
+        // All upgrade paths (1..target) are covered by migrations.
+        return false
     }
 
     internal fun canReachTargetVersion(
