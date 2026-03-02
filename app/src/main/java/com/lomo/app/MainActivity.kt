@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.util.LocalShareUtils
@@ -47,7 +48,9 @@ import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -72,8 +75,14 @@ class MainActivity : AppCompatActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        var isAppLockConfigResolved = false
+        lifecycleScope.launch {
+            runCatching { appConfigRepository.isAppLockEnabled().first() }
+            isAppLockConfigResolved = true
+        }
+
         splashScreen.setKeepOnScreenCondition {
-            viewModel.uiState.value is MainViewModel.MainScreenState.Loading
+            viewModel.uiState.value is MainViewModel.MainScreenState.Loading || !isAppLockConfigResolved
         }
 
         enableEdgeToEdge()
@@ -135,7 +144,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            val showLockGate = appLockEnabled == null || (appLockEnabled == true && !hasUnlockedThisLaunch)
+            val showLockGate = appLockEnabled == true && !hasUnlockedThisLaunch
 
             LomoTheme(themeMode = appPreferences.themeMode.value) {
                 com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
@@ -148,7 +157,7 @@ class MainActivity : AppCompatActivity() {
                     ) { isLockGateVisible ->
                         if (isLockGateVisible) {
                             AppLockGate(
-                                isConfigLoading = appLockEnabled == null,
+                                isConfigLoading = false,
                                 isUnlockInProgress = unlockPromptInProgress,
                                 errorMessage = unlockErrorMessage,
                                 onRetry = {
