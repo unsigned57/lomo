@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,18 +22,15 @@ import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -50,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.MemoListFilter
@@ -159,16 +154,7 @@ internal fun MainMemoFilterSheet(
                         },
                     )
                 }
-
-                if (filter.startDate != null || filter.endDate != null) {
-                    Spacer(modifier = Modifier.height(AppSpacing.Small))
-                    MainMemoDateRangePreview(
-                        startDate = filter.startDate,
-                        endDate = filter.endDate,
-                    )
-                }
             }
-
 
         }
     }
@@ -177,7 +163,6 @@ internal fun MainMemoFilterSheet(
         DatePickerTarget.START -> {
             MainMemoDatePickerDialog(
                 title = stringResource(R.string.main_filter_pick_start_date),
-                fieldLabel = stringResource(R.string.main_filter_start_date),
                 initialDate = filter.startDate,
                 onConfirm = { date ->
                     onStartDateSelected(date)
@@ -190,7 +175,6 @@ internal fun MainMemoFilterSheet(
         DatePickerTarget.END -> {
             MainMemoDatePickerDialog(
                 title = stringResource(R.string.main_filter_pick_end_date),
-                fieldLabel = stringResource(R.string.main_filter_end_date),
                 initialDate = filter.endDate,
                 onConfirm = { date ->
                     onEndDateSelected(date)
@@ -409,61 +393,10 @@ private fun MainMemoDateField(
     }
 }
 
-@Composable
-private fun MainMemoDateRangePreview(
-    startDate: LocalDate?,
-    endDate: LocalDate?,
-) {
-    val hasConflict = startDate != null && endDate != null && endDate.isBefore(startDate)
-    val previewText =
-        when {
-            startDate != null && endDate != null ->
-                stringResource(
-                    R.string.main_filter_date_range_between,
-                    startDate.format(DATE_LABEL_FORMATTER),
-                    endDate.format(DATE_LABEL_FORMATTER),
-                )
-
-            startDate != null ->
-                stringResource(
-                    R.string.main_filter_date_range_from,
-                    startDate.format(DATE_LABEL_FORMATTER),
-                )
-
-            endDate != null ->
-                stringResource(
-                    R.string.main_filter_date_range_until,
-                    endDate.format(DATE_LABEL_FORMATTER),
-                )
-
-            else -> return
-        }
-
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = AppSpacing.Small),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            imageVector = if (hasConflict) Icons.Rounded.Close else Icons.Rounded.CalendarMonth,
-            contentDescription = null,
-            tint = if (hasConflict) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(modifier = Modifier.width(AppSpacing.Small))
-        Text(
-            text = if (hasConflict) stringResource(R.string.main_filter_date_range_warning) else previewText,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (hasConflict) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium,
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainMemoDatePickerDialog(
     title: String,
-    fieldLabel: String,
     initialDate: LocalDate?,
     onConfirm: (LocalDate?) -> Unit,
     onDismiss: () -> Unit,

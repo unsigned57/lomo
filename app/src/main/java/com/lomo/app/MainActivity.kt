@@ -9,14 +9,18 @@ import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -38,6 +43,7 @@ import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.media.LocalAudioPlayerManager
+import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -133,26 +139,34 @@ class MainActivity : AppCompatActivity() {
 
             LomoTheme(themeMode = appPreferences.themeMode.value) {
                 com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
-                    if (showLockGate) {
-                        AppLockGate(
-                            isConfigLoading = appLockEnabled == null,
-                            isUnlockInProgress = unlockPromptInProgress,
-                            errorMessage = unlockErrorMessage,
-                            onRetry = {
-                                if (appLockEnabled == true && !unlockPromptInProgress) {
-                                    requestUnlock()
-                                }
-                            },
-                        )
-                    } else {
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            LocalAudioPlayerManager provides audioPlayerController,
-                            LocalShareUtils provides shareUtils,
-                        ) {
-                            LomoAppRoot(
-                                viewModel = viewModel,
-                                shareServiceManager = shareServiceManager,
+                    AnimatedContent(
+                        targetState = showLockGate,
+                        label = "AppLockGateTransition",
+                        transitionSpec = {
+                            MotionTokens.enterContent togetherWith MotionTokens.exitContent
+                        },
+                    ) { isLockGateVisible ->
+                        if (isLockGateVisible) {
+                            AppLockGate(
+                                isConfigLoading = appLockEnabled == null,
+                                isUnlockInProgress = unlockPromptInProgress,
+                                errorMessage = unlockErrorMessage,
+                                onRetry = {
+                                    if (appLockEnabled == true && !unlockPromptInProgress) {
+                                        requestUnlock()
+                                    }
+                                },
                             )
+                        } else {
+                            androidx.compose.runtime.CompositionLocalProvider(
+                                LocalAudioPlayerManager provides audioPlayerController,
+                                LocalShareUtils provides shareUtils,
+                            ) {
+                                LomoAppRoot(
+                                    viewModel = viewModel,
+                                    shareServiceManager = shareServiceManager,
+                                )
+                            }
                         }
                     }
                 }
@@ -339,48 +353,78 @@ private fun AppLockGate(
     errorMessage: String?,
     onRetry: () -> Unit,
 ) {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(AppSpacing.Large),
-        contentAlignment = Alignment.Center,
+    val statusMessage =
+        when {
+            isConfigLoading -> stringResource(R.string.app_lock_status_loading)
+            isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
+            !errorMessage.isNullOrBlank() -> errorMessage
+            else -> stringResource(R.string.app_lock_status_waiting)
+        }
+    val statusColor =
+        if (!errorMessage.isNullOrBlank() && !isConfigLoading && !isUnlockInProgress) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(AppSpacing.Large),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = stringResource(R.string.app_lock_gate_title),
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                text = stringResource(R.string.app_lock_gate_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = AppSpacing.ExtraSmall,
+            ) {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.Large),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+                ) {
+                    Text(
+                        text = stringResource(R.string.app_lock_gate_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        text = stringResource(R.string.app_lock_gate_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
 
-            val statusMessage =
-                when {
-                    isConfigLoading -> stringResource(R.string.app_lock_status_loading)
-                    isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
-                    !errorMessage.isNullOrBlank() -> errorMessage
-                    else -> stringResource(R.string.app_lock_status_waiting)
-                }
+                    if (isConfigLoading || isUnlockInProgress) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
 
-            if (isConfigLoading || isUnlockInProgress) {
-                CircularProgressIndicator()
-            }
+                    Text(
+                        text = statusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = statusColor,
+                        textAlign = TextAlign.Center,
+                    )
 
-            Text(
-                text = statusMessage,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            if (!isConfigLoading && !isUnlockInProgress) {
-                Button(onClick = onRetry) {
-                    Text(text = stringResource(R.string.app_lock_action_retry))
+                    if (!isConfigLoading && !isUnlockInProgress) {
+                        Button(
+                            onClick = onRetry,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                        ) {
+                            Text(
+                                text = stringResource(R.string.app_lock_action_retry),
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                    }
                 }
             }
         }

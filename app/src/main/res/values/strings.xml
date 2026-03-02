@@ -162,17 +162,12 @@
     <string name="main_filter_summary_none">No active filters</string>
     <string name="main_filter_summary_active">%1$d active filters</string>
     <string name="main_filter_section_time_range">Date range</string>
-    <string name="main_filter_date_section_hint">Set a flexible start and end date range.</string>
+    <string name="main_filter_date_section_hint">Set start and end dates independently.</string>
     <string name="main_filter_start_date">Start date</string>
     <string name="main_filter_end_date">End date</string>
     <string name="main_filter_pick_start_date">Pick start date</string>
     <string name="main_filter_pick_end_date">Pick end date</string>
     <string name="main_filter_date_not_set">Not set</string>
-    <string name="main_filter_date_range_from">From %1$s</string>
-    <string name="main_filter_date_range_until">Until %1$s</string>
-    <string name="main_filter_date_range_between">%1$s to %2$s</string>
-    <string name="main_filter_date_range_warning">End date is earlier than start date.</string>
-
     <string name="main_filter_date_dialog_action_apply">Apply</string>
 
     <!-- Empty State -->

@@ -163,17 +163,12 @@
     <string name="main_filter_summary_none">当前没有启用筛选</string>
     <string name="main_filter_summary_active">已启用 %1$d 项筛选</string>
     <string name="main_filter_section_time_range">日期范围</string>
-    <string name="main_filter_date_section_hint">可灵活设置起止日期范围。</string>
+    <string name="main_filter_date_section_hint">开始和结束日期可分别单独设置。</string>
     <string name="main_filter_start_date">开始日期</string>
     <string name="main_filter_end_date">结束日期</string>
     <string name="main_filter_pick_start_date">选择开始日期</string>
     <string name="main_filter_pick_end_date">选择结束日期</string>
     <string name="main_filter_date_not_set">未设置</string>
-    <string name="main_filter_date_range_from">从 %1$s 起</string>
-    <string name="main_filter_date_range_until">截止到 %1$s</string>
-    <string name="main_filter_date_range_between">%1$s 至 %2$s</string>
-    <string name="main_filter_date_range_warning">结束日期早于开始日期，请检查。</string>
-
     <string name="main_filter_date_dialog_action_apply">应用</string>
 
     <!-- Empty State -->

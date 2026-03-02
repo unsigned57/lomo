@@ -178,7 +178,7 @@ class MainViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
             combine(searchQuery, selectedTag, memoListFilter) { query: String, tag: String?, filter: MemoListFilter ->
-                MemoQueryInput(query = query, tag = tag, filter = filter)
+                MemoQueryInput(query = query, tag = tag, filter = filter.toEffectiveDateRangeFilter())
             }.flatMapLatest { input ->
                 resolveMemoFlow(query = input.query, tag = input.tag)
                     .map { sourceMemos ->
@@ -486,7 +486,26 @@ class MainViewModel
             val filter: MemoListFilter,
         )
 
+        /**
+         * Expand one-sided date selection into an open range to keep filtering semantics:
+         * - start only => [start, +infinity)
+         * - end only => (-infinity, end]
+         */
+        private fun MemoListFilter.toEffectiveDateRangeFilter(): MemoListFilter {
+            if (startDate != null && endDate != null) return this
+            if (startDate == null && endDate == null) return this
+
+            val effectiveStart = startDate ?: OPEN_RANGE_START
+            val effectiveEnd = endDate ?: OPEN_RANGE_END
+            return copy(startDate = effectiveStart, endDate = effectiveEnd)
+        }
+
         // processMemoContent moved to MemoUiMapper
+
+        private companion object {
+            private val OPEN_RANGE_START: LocalDate = LocalDate.MIN
+            private val OPEN_RANGE_END: LocalDate = LocalDate.MAX
+        }
     }
 
 data class MemoUiModel(

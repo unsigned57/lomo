@@ -34,6 +34,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
+import java.time.ZoneId
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
@@ -184,6 +185,44 @@ class MainViewModelTest {
         }
 
     @Test
+    fun `start date only keeps memos on and after selected day`() =
+        runTest {
+            every { repository.getAllMemosList() } returns
+                flowOf(
+                    listOf(
+                        memo("before", LocalDate.of(2026, 2, 28), 8),
+                        memo("start", LocalDate.of(2026, 3, 1), 8),
+                        memo("after", LocalDate.of(2026, 3, 2), 8),
+                    ),
+                )
+            val viewModel = createViewModel()
+
+            viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 1))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("after", "start"), viewModel.memos.value.map { it.id })
+        }
+
+    @Test
+    fun `end date only keeps memos on and before selected day`() =
+        runTest {
+            every { repository.getAllMemosList() } returns
+                flowOf(
+                    listOf(
+                        memo("before", LocalDate.of(2026, 2, 28), 8),
+                        memo("end", LocalDate.of(2026, 3, 1), 8),
+                        memo("after", LocalDate.of(2026, 3, 2), 8),
+                    ),
+                )
+            val viewModel = createViewModel()
+
+            viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 1))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(listOf("end", "before"), viewModel.memos.value.map { it.id })
+        }
+
+    @Test
     fun `clearMemoListFilter resets sort and date range`() =
         runTest {
             val viewModel = createViewModel()
@@ -287,5 +326,24 @@ class MainViewModelTest {
                     audioPlayerController = audioPlayerController,
                 ),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
+        )
+
+    private fun memo(
+        id: String,
+        date: LocalDate,
+        hour: Int,
+    ): Memo =
+        Memo(
+            id = id,
+            timestamp =
+                date
+                    .atTime(hour, 0)
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli(),
+            content = id,
+            rawContent = id,
+            dateKey = date.toString().replace("-", "_"),
+            localDate = date,
         )
 }
