@@ -114,7 +114,6 @@ internal fun MainMemoFilterSheet(
                     )
                 }
             }
-
             MainMemoFilterSectionCard(
                 icon = Icons.Rounded.CalendarMonth,
                 title = stringResource(R.string.main_filter_section_time_range),

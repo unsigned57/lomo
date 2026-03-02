@@ -192,15 +192,15 @@ class MainViewModelTest {
 
             viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
             assertEquals(MemoSortOption.UPDATED_TIME, viewModel.memoListFilter.value.sortOption)
-            assertFalse(viewModel.memoListFilter.value.sortAscending)
+            assertTrue(viewModel.memoListFilter.value.sortAscending)
 
             viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
             assertEquals(MemoSortOption.UPDATED_TIME, viewModel.memoListFilter.value.sortOption)
-            assertTrue(viewModel.memoListFilter.value.sortAscending)
+            assertFalse(viewModel.memoListFilter.value.sortAscending)
 
             viewModel.updateMemoSortOption(MemoSortOption.CREATED_TIME)
             assertEquals(MemoSortOption.CREATED_TIME, viewModel.memoListFilter.value.sortOption)
-            assertFalse(viewModel.memoListFilter.value.sortAscending)
+            assertTrue(viewModel.memoListFilter.value.sortAscending)
         }
 
     @Test

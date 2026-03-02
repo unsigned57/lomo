@@ -261,7 +261,7 @@ class MainViewModel
                 if (current.sortOption == sortOption) {
                     current.copy(sortAscending = !current.sortAscending)
                 } else {
-                    current.copy(sortOption = sortOption, sortAscending = false)
+                    current.copy(sortOption = sortOption, sortAscending = true)
                 }
         }
 

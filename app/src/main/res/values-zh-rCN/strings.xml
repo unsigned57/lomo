@@ -41,6 +41,7 @@
     <string name="input_hint_2">回车三次快捷发送</string>
     <string name="input_hint_3">支持嵌套标签 #tag/sub</string>
     <string name="input_hint_4">双击memo卡片可以快速进入编辑界面</string>
+    <string name="input_hint_5">排序提示：首次点击排序按钮为升序，再次点击同一按钮切换为降序。</string>
     <string name="settings_check_updates">启动时检测更新</string>
     <string name="settings_check_updates_subtitle">启动应用时自动检测新版本</string>
     
