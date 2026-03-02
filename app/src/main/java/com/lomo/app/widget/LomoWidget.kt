@@ -97,10 +97,10 @@ class LomoWidget : GlanceAppWidget() {
                 ) {
                     // App Icon
                     Image(
-                        provider = ImageProvider(R.drawable.ic_launcher),
-                        contentDescription = null,
-                        modifier = GlanceModifier.size(24.dp),
-                    )
+                provider = ImageProvider(R.mipmap.ic_launcher),
+                contentDescription = context.getString(R.string.app_name),
+                modifier = GlanceModifier.size(48.dp)
+            )
                     Spacer(modifier = GlanceModifier.width(8.dp))
                     // App Name
                     Text(

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Geometric MD3 Overlapping Colors for 'L' + Dot logo -->
+    
+    <!-- Vertical Primary Pillar -->
+    <path
+        android:fillColor="#0B57D0"
+        android:pathData="M 34,41 a 8,8 0 0,1 16,0 v 26 a 8,8 0 0,1 -16,0 z" />
+
+    <!-- Horizontal Secondary Pillar over lower-half -->
+    <path
+        android:fillColor="#C2E7FF"
+        android:pathData="M 42,59 h 24 a 8,8 0 0,1 0,16 h -24 a 8,8 0 0,1 0,-16 z" />
+
+    <!-- Vibrant Tertiary Accent Dot -->
+    <path
+        android:fillColor="#DB382F"
+        android:pathData="M 58,41 a 8,8 0 0,1 16,0 a 8,8 0 0,1 -16,0 z" />
+</vector>
