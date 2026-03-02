@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.UiState
@@ -46,6 +47,7 @@ fun DailyReviewScreen(
     onBackClick: () -> Unit,
     onNavigateToImage: (String) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    onNavigateToMemo: (String) -> Unit = {},
     viewModel: DailyReviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -77,6 +79,12 @@ fun DailyReviewScreen(
         onSaveImage = viewModel::saveImage,
         imageDirectory = imageDirectory,
         onLanShare = onNavigateToShare,
+        onJump = { state ->
+            state.memoAs<Memo>()?.let { memo ->
+                onNavigateToMemo(memo.id)
+            }
+        },
+        showJump = true,
     ) { showMenu, openEditor ->
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),

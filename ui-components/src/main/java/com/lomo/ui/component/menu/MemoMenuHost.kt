@@ -27,8 +27,10 @@ fun MemoMenuHost(
     onDelete: (MemoMenuState) -> Unit,
     onShare: (MemoMenuState) -> Unit = {},
     onLanShare: (MemoMenuState) -> Unit = {},
+    onJump: ((MemoMenuState) -> Unit)? = null,
     onHistory: ((MemoMenuState) -> Unit)? = null,
     showHistory: Boolean = false,
+    showJump: Boolean = false,
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
@@ -66,6 +68,15 @@ fun MemoMenuHost(
                 activeState = null
                 onLanShare(current)
             },
+            onJump = if (onJump != null) {
+                {
+                    val target = activeState
+                    activeState = null
+                    if (target != null) onJump(target)
+                }
+            } else {
+                null
+            },
             onEdit = {
                 scope.launch { sheetState.hide() }.invokeOnCompletion {
                     val target = activeState
@@ -90,6 +101,7 @@ fun MemoMenuHost(
                 null
             },
             showHistory = showHistory,
+            showJump = showJump,
         )
     }
 }

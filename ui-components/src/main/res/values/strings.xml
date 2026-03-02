@@ -35,6 +35,7 @@
     <string name="action_delete">Delete</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_lan_share">Send</string>
+    <string name="action_jump">Jump</string>
     <string name="info_created">Created</string>
     <string name="info_characters">Characters</string>
     <string name="memo_info_characters_value">Characters: %1$d</string>

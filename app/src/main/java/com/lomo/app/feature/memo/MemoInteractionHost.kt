@@ -27,6 +27,7 @@ fun MemoInteractionHost(
         content: String,
         timestamp: Long,
     ) -> Unit,
+    onJump: ((MemoMenuState) -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onImageDirectoryMissing: (() -> Unit)? = null,
     onCameraCaptureError: ((Throwable) -> Unit)? = null,
@@ -39,6 +40,7 @@ fun MemoInteractionHost(
     onCancelRecording: () -> Unit = {},
     hints: List<String> = emptyList(),
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
+    showJump: Boolean = false,
     showVersionHistory: Boolean = false,
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,
@@ -52,7 +54,9 @@ fun MemoInteractionHost(
         onEditMemo = controller::openForEdit,
         onDeleteMemo = onDeleteMemo,
         onLanShare = onLanShare,
+        onJump = onJump,
         onVersionHistory = onVersionHistory,
+        showJump = showJump,
         showVersionHistory = showVersionHistory,
     ) { showMenu ->
         content(showMenu, controller::openForEdit)

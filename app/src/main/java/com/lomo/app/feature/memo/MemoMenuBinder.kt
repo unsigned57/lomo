@@ -21,7 +21,9 @@ fun MemoMenuBinder(
         content: String,
         timestamp: Long,
     ) -> Unit,
+    onJump: ((MemoMenuState) -> Unit)? = null,
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
+    showJump: Boolean = false,
     showVersionHistory: Boolean = false,
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
@@ -64,7 +66,9 @@ fun MemoMenuBinder(
                 onLanShare(memo.content, memo.timestamp)
             }
         },
+        onJump = onJump,
         onHistory = onVersionHistory,
+        showJump = showJump,
         showHistory = showVersionHistory,
     ) { showMenu ->
         content(showMenu)

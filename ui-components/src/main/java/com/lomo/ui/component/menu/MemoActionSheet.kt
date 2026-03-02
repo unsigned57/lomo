@@ -67,11 +67,13 @@ fun MemoActionSheet(
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onLanShare: () -> Unit,
+    onJump: (() -> Unit)? = null,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
     onHistory: (() -> Unit)? = null,
     showHistory: Boolean = false,
+    showJump: Boolean = false,
     actions: List<MemoActionSheetAction>? = null,
     useHorizontalScroll: Boolean = true,
     showSwipeAffordance: Boolean = true,
@@ -84,8 +86,10 @@ fun MemoActionSheet(
             onCopy = onCopy,
             onShare = onShare,
             onLanShare = onLanShare,
+            onJump = onJump,
             onHistory = onHistory,
             showHistory = showHistory,
+            showJump = showJump,
             onEdit = onEdit,
             onDelete = onDelete,
         )
@@ -181,14 +185,17 @@ private fun rememberDefaultMemoActionSheetActions(
     onCopy: () -> Unit,
     onShare: () -> Unit,
     onLanShare: () -> Unit,
+    onJump: (() -> Unit)?,
     onHistory: (() -> Unit)?,
     showHistory: Boolean,
+    showJump: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ): List<MemoActionSheetAction> {
     val onCopyState = rememberUpdatedState(onCopy)
     val onShareState = rememberUpdatedState(onShare)
     val onLanShareState = rememberUpdatedState(onLanShare)
+    val onJumpState = rememberUpdatedState(onJump)
     val onHistoryState = rememberUpdatedState(onHistory)
     val onEditState = rememberUpdatedState(onEdit)
     val onDeleteState = rememberUpdatedState(onDelete)
@@ -196,16 +203,20 @@ private fun rememberDefaultMemoActionSheetActions(
     val copyLabel = stringResource(R.string.action_copy)
     val shareLabel = stringResource(R.string.action_share)
     val lanShareLabel = stringResource(R.string.action_lan_share)
+    val jumpLabel = stringResource(R.string.action_jump)
     val historyLabel = stringResource(R.string.action_history)
     val editLabel = stringResource(R.string.action_edit)
     val deleteLabel = stringResource(R.string.action_delete)
+    val hasJumpAction = showJump && onJump != null
     val hasHistoryAction = showHistory && onHistory != null
 
     return remember(
+        hasJumpAction,
         hasHistoryAction,
         copyLabel,
         shareLabel,
         lanShareLabel,
+        jumpLabel,
         historyLabel,
         editLabel,
         deleteLabel,
@@ -238,6 +249,17 @@ private fun rememberDefaultMemoActionSheetActions(
                     haptic = MemoActionHaptic.MEDIUM,
                 ),
             )
+            if (hasJumpAction) {
+                add(
+                    MemoActionSheetAction(
+                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                        label = jumpLabel,
+                        onClick = { onJumpState.value?.invoke() },
+                        dismissAfterClick = true,
+                        haptic = MemoActionHaptic.MEDIUM,
+                    ),
+                )
+            }
             if (hasHistoryAction) {
                 add(
                     MemoActionSheetAction(

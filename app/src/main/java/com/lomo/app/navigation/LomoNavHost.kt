@@ -118,6 +118,12 @@ fun LomoNavHost(
                                 navController.navigate(NavRoute.ImageViewer(encoded))
                             },
                             onNavigateToShare = navigateToShare,
+                            onNavigateToMemo = { memoId ->
+                                viewModel.requestOpenMemo(memoId)
+                                if (!navController.popBackStack()) {
+                                    navController.navigate(NavRoute.Main)
+                                }
+                            },
                         )
                     }
                 }

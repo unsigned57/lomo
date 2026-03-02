@@ -31,6 +31,7 @@
     <string name="action_delete">删除</string>
     <string name="action_cancel">取消</string>
     <string name="action_lan_share">发送</string>
+    <string name="action_jump">跳转</string>
     <string name="info_created">创建时间</string>
     <string name="info_characters">字符数</string>
     <string name="memo_info_characters_value">字符数：%1$d</string>
