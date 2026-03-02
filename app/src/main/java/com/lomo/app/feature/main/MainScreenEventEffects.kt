@@ -21,6 +21,7 @@ fun MainScreenEventEffectsHost(
     onEnsureEditorVisible: () -> Unit,
     onOpenCreateMemo: () -> Unit,
     onOpenEditMemo: (Memo) -> Unit,
+    onFocusMemoInList: suspend (String) -> Boolean,
     onResolveMemoById: suspend (String) -> Memo?,
     onSaveImage: (Uri, (String) -> Unit) -> Unit,
     onRequireImageDirectory: () -> Unit,
@@ -41,6 +42,7 @@ fun MainScreenEventEffectsHost(
 
     HandleAppActionEvents(
         events = appActionEvents,
+        focusMemoInList = onFocusMemoInList,
         resolveMemoById = onResolveMemoById,
         openCreate = onOpenCreateMemo,
         openEdit = onOpenEditMemo,
@@ -89,6 +91,7 @@ fun HandleSharedContentEvents(
 @Composable
 fun HandleAppActionEvents(
     events: List<PendingUiEvent<MainViewModel.AppAction>>,
+    focusMemoInList: suspend (String) -> Boolean,
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     openCreate: () -> Unit,
     openEdit: (com.lomo.domain.model.Memo) -> Unit,
@@ -107,6 +110,9 @@ fun HandleAppActionEvents(
                     } else {
                         snackbarHostState.showSnackbar(unknownErrorMessage)
                     }
+                }
+                is MainViewModel.AppAction.FocusMemo -> {
+                    focusMemoInList(action.memoId)
                 }
             }
             onConsume(event.id)

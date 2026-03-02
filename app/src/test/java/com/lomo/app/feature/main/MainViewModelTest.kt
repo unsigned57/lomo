@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -184,6 +185,23 @@ class MainViewModelTest {
             assertNull(viewModel.memoListFilter.value.endDate)
         }
 
+    fun `sort option toggles ascending and descending on repeated taps`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
+            assertEquals(MemoSortOption.UPDATED_TIME, viewModel.memoListFilter.value.sortOption)
+            assertTrue(viewModel.memoListFilter.value.sortAscending)
+
+            viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
+            assertEquals(MemoSortOption.UPDATED_TIME, viewModel.memoListFilter.value.sortOption)
+            assertFalse(viewModel.memoListFilter.value.sortAscending)
+
+            viewModel.updateMemoSortOption(MemoSortOption.CREATED_TIME)
+            assertEquals(MemoSortOption.CREATED_TIME, viewModel.memoListFilter.value.sortOption)
+            assertTrue(viewModel.memoListFilter.value.sortAscending)
+        }
+
     @Test
     fun `start date only keeps memos on and after selected day`() =
         runTest {
@@ -228,12 +246,14 @@ class MainViewModelTest {
             val viewModel = createViewModel()
 
             viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
+            viewModel.updateMemoSortOption(MemoSortOption.UPDATED_TIME)
             viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 1))
             viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 10))
             viewModel.clearMemoListFilter()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(MemoSortOption.CREATED_TIME, viewModel.memoListFilter.value.sortOption)
+            assertFalse(viewModel.memoListFilter.value.sortAscending)
             assertNull(viewModel.memoListFilter.value.startDate)
             assertNull(viewModel.memoListFilter.value.endDate)
         }

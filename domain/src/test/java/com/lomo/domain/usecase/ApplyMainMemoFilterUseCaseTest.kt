@@ -55,6 +55,24 @@ class ApplyMainMemoFilterUseCaseTest {
     }
 
     @Test
+    fun `ascending sorting order is applied when enabled`() {
+        val memos =
+            listOf(
+                memo(id = "new", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 5)),
+                memo(id = "old", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 0)),
+                memo(id = "middle", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 10, 2)),
+            )
+
+        val result =
+            useCase(
+                memos = memos,
+                filter = MemoListFilter(sortAscending = true),
+            )
+
+        assertEquals(listOf("old", "middle", "new"), result.map { it.id })
+    }
+
+    @Test
     fun `date range keeps only memos within selected boundaries`() {
         val result =
             useCase(
@@ -98,6 +116,7 @@ class ApplyMainMemoFilterUseCaseTest {
     fun `filter active flag reflects non default settings`() {
         assertFalse(MemoListFilter().isActive)
         assertTrue(MemoListFilter(sortOption = MemoSortOption.UPDATED_TIME).isActive)
+        assertTrue(MemoListFilter(sortAscending = true).isActive)
         assertTrue(MemoListFilter(startDate = LocalDate.of(2026, 3, 1)).isActive)
     }
 

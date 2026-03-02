@@ -1,5 +1,8 @@
 package com.lomo.app.feature.main
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -175,6 +178,15 @@ fun MainScreen(
         onEnsureEditorVisible = editorController::ensureVisible,
         onOpenCreateMemo = editorController::openForCreate,
         onOpenEditMemo = editorController::openForEdit,
+        onFocusMemoInList = { memoId ->
+            val index = uiMemos.indexOfFirst { it.memo.id == memoId }
+            if (index >= 0) {
+                listState.animateScrollToItem(index)
+                true
+            } else {
+                false
+            }
+        },
         onResolveMemoById = viewModel::resolveMemoById,
         onSaveImage = { uri, onResult -> editorViewModel.saveImage(uri = uri, onResult = onResult) },
         onRequireImageDirectory = directoryGuideController::requestImage,
@@ -235,6 +247,7 @@ fun MainScreen(
                     stringResource(R.string.input_hint_2),
                     stringResource(R.string.input_hint_3),
                     stringResource(R.string.input_hint_4),
+                    stringResource(R.string.input_hint_5),
                 )
             } else {
                 emptyList()
@@ -285,7 +298,7 @@ fun MainScreen(
             onClearSidebarFilters = sidebarViewModel::clearFilters,
             onClearMainFilters = {
                 sidebarViewModel.onTagSelected(null)
-                viewModel.clearMemoListFilter()
+                viewModel.clearMemoDateRange()
             },
             onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
             onOpenCreateMemo = editorController::openForCreate,
@@ -302,7 +315,7 @@ fun MainScreen(
                 selectedTag = selectedTag,
                 searchQuery = searchQuery,
                 memoListFilter = memoListFilter,
-                isFilterActive = selectedTag != null || memoListFilter.isActive,
+                isFilterActive = selectedTag != null || memoListFilter.hasDateRange,
                 isMemoFilterSheetVisible = isMemoFilterSheetVisible,
                 uiState = uiState,
                 hasItems = hasItems,
@@ -490,29 +503,31 @@ private fun MainScreenRenderHost(
                         }
 
                         is MainViewModel.MainScreenState.Ready -> {
-                            if (!hasItems) {
-                                MainEmptyState(
-                                    searchQuery = searchQuery,
-                                    selectedTag = selectedTag,
-                                    hasDirectory = true,
-                                    onSettings = actions.onSettings,
-                                )
-                            } else {
-                                MemoListContent(
-                                    memos = uiMemos,
-                                    listState = listState,
-                                    isRefreshing = isRefreshing,
-                                    onRefresh = actions.onRefresh,
-                                    onVisibleMemoIdsChanged = onVisibleMemoIdsChanged,
-                                    onTodoClick = onTodoClick,
-                                    dateFormat = dateFormat,
-                                    timeFormat = timeFormat,
-                                    onMemoDoubleClick = onMemoDoubleClick,
-                                    doubleTapEditEnabled = doubleTapEditEnabled,
-                                    onTagClick = actions.onSidebarTagClick,
-                                    onImageClick = actions.onNavigateToImage,
-                                    onShowMemoMenu = onShowMemoMenu,
-                                )
+                            MainReadyStateEnterContainer {
+                                if (!hasItems) {
+                                    MainEmptyState(
+                                        searchQuery = searchQuery,
+                                        selectedTag = selectedTag,
+                                        hasDirectory = true,
+                                        onSettings = actions.onSettings,
+                                    )
+                                } else {
+                                    MemoListContent(
+                                        memos = uiMemos,
+                                        listState = listState,
+                                        isRefreshing = isRefreshing,
+                                        onRefresh = actions.onRefresh,
+                                        onVisibleMemoIdsChanged = onVisibleMemoIdsChanged,
+                                        onTodoClick = onTodoClick,
+                                        dateFormat = dateFormat,
+                                        timeFormat = timeFormat,
+                                        onMemoDoubleClick = onMemoDoubleClick,
+                                        doubleTapEditEnabled = doubleTapEditEnabled,
+                                        onTagClick = actions.onSidebarTagClick,
+                                        onImageClick = actions.onNavigateToImage,
+                                        onShowMemoMenu = onShowMemoMenu,
+                                    )
+                                }
                             }
                         }
                     }
@@ -554,6 +569,27 @@ private fun MainScreenRenderHost(
             },
             content = screenContent,
         )
+    }
+}
+
+@Composable
+private fun MainReadyStateEnterContainer(
+    content: @Composable () -> Unit,
+) {
+    val visibleState =
+        remember {
+            MutableTransitionState(false).apply {
+                targetState = true
+            }
+        }
+    AnimatedVisibility(
+        visibleState = visibleState,
+        enter = MotionTokens.enterContent,
+        exit = ExitTransition.None,
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            content()
+        }
     }
 }
 

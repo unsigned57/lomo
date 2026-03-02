@@ -119,7 +119,7 @@ fun LomoNavHost(
                             },
                             onNavigateToShare = navigateToShare,
                             onNavigateToMemo = { memoId ->
-                                viewModel.requestOpenMemo(memoId)
+                                viewModel.requestFocusMemo(memoId)
                                 if (!navController.popBackStack()) {
                                     navController.navigate(NavRoute.Main)
                                 }

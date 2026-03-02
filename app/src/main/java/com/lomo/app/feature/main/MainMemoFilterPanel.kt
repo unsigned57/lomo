@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.MemoListFilter
@@ -71,10 +72,8 @@ internal fun MainMemoFilterSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val haptic = LocalAppHapticFeedback.current
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
-    val defaultSortOption = MemoListFilter().sortOption
     val activeFilterCount =
         buildList {
-            if (filter.sortOption != defaultSortOption) add(Unit)
             if (filter.startDate != null) add(Unit)
             if (filter.endDate != null) add(Unit)
         }.size
@@ -115,7 +114,6 @@ internal fun MainMemoFilterSheet(
                     )
                 }
             }
-
             MainMemoFilterSectionCard(
                 icon = Icons.Rounded.CalendarMonth,
                 title = stringResource(R.string.main_filter_section_time_range),
@@ -347,39 +345,44 @@ private fun MainMemoDateField(
         shape = RoundedCornerShape(AppSpacing.Small),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(
+        Box(
             modifier =
                 Modifier
+                    .fillMaxWidth()
                     .padding(horizontal = AppSpacing.Small, vertical = AppSpacing.Small),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         ) {
-            Icon(
-                imageVector = Icons.Rounded.CalendarMonth,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp),
-            )
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
             ) {
+                Icon(
+                    imageVector = Icons.Rounded.CalendarMonth,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
                 Text(
                     text = label,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
                 )
             }
 
             if (hasValue) {
                 IconButton(
                     onClick = onClear,
-                    modifier = Modifier.size(24.dp)
+                    modifier =
+                        Modifier
+                            .size(24.dp)
+                            .align(Alignment.TopEnd),
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Close,

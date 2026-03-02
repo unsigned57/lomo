@@ -15,9 +15,15 @@ class ApplyMainMemoFilterUseCase {
         val normalizedStartDate = minOfOrNull(filter.startDate, filter.endDate)
         val normalizedEndDate = maxOfOrNull(filter.startDate, filter.endDate)
         val comparator =
-            compareByDescending<Memo> { memo -> sortTimestamp(memo, filter.sortOption) }
-                .thenByDescending { memo -> memo.timestamp }
-                .thenByDescending { memo -> memo.id }
+            if (filter.sortAscending) {
+                compareBy<Memo> { memo -> sortTimestamp(memo, filter.sortOption) }
+                    .thenBy { memo -> memo.timestamp }
+                    .thenBy { memo -> memo.id }
+            } else {
+                compareByDescending<Memo> { memo -> sortTimestamp(memo, filter.sortOption) }
+                    .thenByDescending { memo -> memo.timestamp }
+                    .thenByDescending { memo -> memo.id }
+            }
 
         return memos
             .asSequence()

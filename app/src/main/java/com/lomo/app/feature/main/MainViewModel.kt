@@ -113,6 +113,10 @@ class MainViewModel
             data class OpenMemo(
                 val memoId: String,
             ) : AppAction
+
+            data class FocusMemo(
+                val memoId: String,
+            ) : AppAction
         }
 
         private val appActionQueue = MainEventQueueCoordinator<AppAction>()
@@ -125,6 +129,12 @@ class MainViewModel
         fun requestOpenMemo(memoId: String) {
             if (memoId.isNotBlank()) {
                 appActionQueue.enqueue(AppAction.OpenMemo(memoId))
+            }
+        }
+
+        fun requestFocusMemo(memoId: String) {
+            if (memoId.isNotBlank()) {
+                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
             }
         }
 
@@ -246,7 +256,13 @@ class MainViewModel
         }
 
         fun updateMemoSortOption(sortOption: MemoSortOption) {
-            _memoListFilter.value = _memoListFilter.value.copy(sortOption = sortOption)
+            val current = _memoListFilter.value
+            _memoListFilter.value =
+                if (current.sortOption == sortOption) {
+                    current.copy(sortAscending = !current.sortAscending)
+                } else {
+                    current.copy(sortOption = sortOption, sortAscending = true)
+                }
         }
 
         fun updateMemoStartDate(startDate: LocalDate?) {

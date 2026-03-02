@@ -9,6 +9,7 @@ enum class MemoSortOption {
 
 data class MemoListFilter(
     val sortOption: MemoSortOption = MemoSortOption.CREATED_TIME,
+    val sortAscending: Boolean = false,
     val startDate: LocalDate? = null,
     val endDate: LocalDate? = null,
 ) {
@@ -16,5 +17,5 @@ data class MemoListFilter(
         get() = startDate != null || endDate != null
 
     val isActive: Boolean
-        get() = sortOption != MemoSortOption.CREATED_TIME || hasDateRange
+        get() = sortOption != MemoSortOption.CREATED_TIME || sortAscending || hasDateRange
 }
