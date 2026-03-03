@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -283,7 +285,7 @@ fun InputSheet(
 
     InputSheetScaffold(
         isSheetVisible = isSheetVisible,
-        scrimAlpha = if (isSheetVisible || isDismissing) 0.32f else 0f,
+        scrimAlpha = if (isSheetVisible) 0.32f else 0f,
         onRequestDismiss = requestDismiss,
     ) {
         AnimatedContent(
@@ -373,12 +375,22 @@ private fun InputSheetScaffold(
     onRequestDismiss: () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val animatedScrimAlpha by animateFloatAsState(
+        targetValue = scrimAlpha,
+        animationSpec =
+            androidx.compose.animation.core.tween(
+                durationMillis = MotionTokens.DurationLong2,
+                easing = MotionTokens.EasingStandard,
+            ),
+        label = "InputSheetScrimAlpha",
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = scrimAlpha))
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = animatedScrimAlpha))
                     .pointerInput(Unit) {
                         detectTapGestures(onTap = { onRequestDismiss() })
                     },
@@ -416,7 +428,12 @@ private fun InputSheetScaffold(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .clip(AppShapes.ExtraLarge)
+                        .clip(
+                            RoundedCornerShape(
+                                topStart = 28.dp,
+                                topEnd = 28.dp,
+                            ),
+                        )
                         .background(MaterialTheme.colorScheme.surface)
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { /* consume */ })
