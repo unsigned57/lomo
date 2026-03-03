@@ -197,8 +197,8 @@
 
     <!-- Gallery -->
     <string name="gallery_title">Gallery</string>
-    <string name="gallery_empty_title">No images yet</string>
-    <string name="gallery_empty_desc">Images in your memo library will appear here</string>
+    <string name="gallery_empty_title">No image memos yet</string>
+    <string name="gallery_empty_desc">Memos containing images will appear here</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">Trash Bin</string>

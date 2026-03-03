@@ -198,8 +198,8 @@
 
     <!-- Gallery -->
     <string name="gallery_title">画廊</string>
-    <string name="gallery_empty_title">暂无图片</string>
-    <string name="gallery_empty_desc">笔记库中的图片会显示在这里</string>
+    <string name="gallery_empty_title">暂无带图备忘录</string>
+    <string name="gallery_empty_desc">包含图片的备忘录会显示在这里</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">回收站</string>

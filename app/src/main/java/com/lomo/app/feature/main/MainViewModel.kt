@@ -241,6 +241,41 @@ class MainViewModel
             }
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        val galleryUiMemos: StateFlow<List<MemoUiModel>> =
+            combine(
+                combine(allMemos, rootDirectory, imageDirectory, imageMap) {
+                        currentMemos,
+                        rootDir,
+                        imageDir,
+                        currentImageMap,
+                    ->
+                    currentMemos to UiMemoMappingInput(
+                        rootDirectory = rootDir,
+                        imageDirectory = imageDir,
+                        imageMap = currentImageMap,
+                        prioritizedMemoIds = emptySet(),
+                    )
+                }.distinctUntilChanged()
+                    .mapLatest { (currentMemos, input) ->
+                        memoUiMapper.mapToUiModels(
+                            memos = currentMemos,
+                            rootPath = input.rootDirectory,
+                            imagePath = input.imageDirectory,
+                            imageMap = input.imageMap,
+                            prioritizedMemoIds = input.prioritizedMemoIds,
+                        )
+                    },
+                deletingMemoIds,
+            ) { uiModels, deletingIds ->
+                uiModels
+                    .asSequence()
+                    .filter { uiModel -> uiModel.imageUrls.isNotEmpty() }
+                    .map { uiModel -> uiModel.copy(isDeleting = uiModel.memo.id in deletingIds) }
+                    .sortedByDescending { uiModel -> uiModel.memo.timestamp }
+                    .toList()
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
         fun onDirectorySelected(path: String) {
             viewModelScope.launch(Dispatchers.IO) {
                 workspaceCoordinator.switchRootAndRefresh(path)

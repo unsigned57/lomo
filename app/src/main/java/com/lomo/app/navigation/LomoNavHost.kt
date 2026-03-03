@@ -136,6 +136,7 @@ fun LomoNavHost(
                             val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
                             navController.navigate(NavRoute.ImageViewer(encoded))
                         },
+                        onNavigateToShare = navigateToShare,
                     )
                 }
 
