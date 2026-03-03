@@ -1,11 +1,11 @@
 package com.lomo.app.util
 
-import java.io.File
-import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
+import kotlin.io.path.createTempDirectory
 
 class SharedMemoCacheCleanerTest {
     @Test
@@ -25,7 +25,12 @@ class SharedMemoCacheCleanerTest {
                 nowMs = nowMs,
             )
 
-            val remainingNames = tempDir.listFiles().orEmpty().filter { it.isFile }.map(File::getName)
+            val remainingNames =
+                tempDir
+                    .listFiles()
+                    .orEmpty()
+                    .filter { it.isFile }
+                    .map(File::getName)
             assertFalse(remainingNames.contains(stale.name))
             assertEquals(2, remainingNames.size)
             assertTrue(remainingNames.contains(keepNewest.name))

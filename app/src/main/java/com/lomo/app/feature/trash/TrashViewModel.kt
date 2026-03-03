@@ -80,10 +80,10 @@ class TrashViewModel
         val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
             combine(
                 combine(trashMemos, rootDirectory, imageDirectory, imageMap) {
-                        memos,
-                        rootDir,
-                        imageDir,
-                        currentImageMap,
+                    memos,
+                    rootDir,
+                    imageDir,
+                    currentImageMap,
                     ->
                     UiMemoMappingInput(
                         memos = memos,

@@ -98,19 +98,20 @@ internal fun MainMemoFilterSheet(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small)
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
             ) {
                 MemoSortOption.entries.forEach { option ->
-                    val icon = when (option) {
-                        MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
-                        MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
-                    }
+                    val icon =
+                        when (option) {
+                            MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
+                            MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
+                        }
                     MainMemoSortButton(
                         modifier = Modifier.weight(1f),
                         text = sortOptionLabel(option),
                         icon = icon,
                         selected = filter.sortOption == option,
-                        onClick = { onSortOptionSelected(option) }
+                        onClick = { onSortOptionSelected(option) },
                     )
                 }
             }
@@ -121,7 +122,7 @@ internal fun MainMemoFilterSheet(
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small)
+                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
                 ) {
                     MainMemoDateField(
                         modifier = Modifier.weight(1f),
@@ -153,7 +154,6 @@ internal fun MainMemoFilterSheet(
                     )
                 }
             }
-
         }
     }
 
@@ -182,7 +182,9 @@ internal fun MainMemoFilterSheet(
             )
         }
 
-        null -> Unit
+        null -> {
+            Unit
+        }
     }
 }
 
@@ -294,19 +296,20 @@ private fun MainMemoSortButton(
         }
 
     Surface(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .clickable {
-                haptic.medium()
-                onClick()
-            },
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    haptic.medium()
+                    onClick()
+                },
         shape = RoundedCornerShape(12.dp),
         color = containerColor,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(12.dp).height(56.dp)
+            modifier = Modifier.padding(12.dp).height(56.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -388,7 +391,7 @@ private fun MainMemoDateField(
                         imageVector = Icons.Rounded.Close,
                         contentDescription = stringResource(R.string.action_clear),
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -458,7 +461,7 @@ private fun MainMemoDatePickerDialog(
                     text = title,
                     modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 16.dp),
                 )
-            }
+            },
         )
     }
 }
@@ -484,8 +487,7 @@ private fun sortOptionLabel(option: MemoSortOption): String =
     }
 
 @Composable
-private fun LocalDate?.formatOrDefault(): String =
-    this?.format(DATE_LABEL_FORMATTER) ?: stringResource(R.string.main_filter_date_not_set)
+private fun LocalDate?.formatOrDefault(): String = this?.format(DATE_LABEL_FORMATTER) ?: stringResource(R.string.main_filter_date_not_set)
 
 private fun LocalDate.toEpochMillis(): Long =
     atStartOfDay(DEFAULT_ZONE)

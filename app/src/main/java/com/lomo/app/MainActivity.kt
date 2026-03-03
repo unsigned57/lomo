@@ -35,8 +35,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.LocalShareUtils
@@ -45,9 +45,9 @@ import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.media.LocalAudioPlayerManager
-import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
+import com.lomo.ui.theme.MotionTokens
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -203,8 +203,10 @@ class MainActivity : AppCompatActivity() {
     private fun handleIntent(intent: Intent?) {
         when (intent?.action) {
             Intent.ACTION_SEND,
-            Intent.ACTION_SEND_MULTIPLE
-            -> handleShareIntent(intent)
+            Intent.ACTION_SEND_MULTIPLE,
+            -> {
+                handleShareIntent(intent)
+            }
 
             ACTION_NEW_MEMO -> {
                 viewModel.requestCreateMemo()
@@ -316,7 +318,9 @@ class MainActivity : AppCompatActivity() {
                             when (errorCode) {
                                 BiometricPrompt.ERROR_USER_CANCELED,
                                 BiometricPrompt.ERROR_NEGATIVE_BUTTON,
-                                BiometricPrompt.ERROR_CANCELED -> getString(R.string.app_lock_error_canceled)
+                                BiometricPrompt.ERROR_CANCELED,
+                                -> getString(R.string.app_lock_error_canceled)
+
                                 else -> errString.toString().ifBlank { getString(R.string.app_lock_error_generic) }
                             }
                         onFailure(message)

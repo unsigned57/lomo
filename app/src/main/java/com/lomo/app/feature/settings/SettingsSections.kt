@@ -22,9 +22,9 @@ import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Link
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Sync
@@ -495,16 +495,24 @@ fun AboutSettingsSection(onOpenGithub: () -> Unit) {
 @Composable
 fun connectionTestSubtitle(state: SettingsGitConnectionTestState): String =
     when (state) {
-        is SettingsGitConnectionTestState.Idle -> ""
-        is SettingsGitConnectionTestState.Testing ->
+        is SettingsGitConnectionTestState.Idle -> {
+            ""
+        }
+
+        is SettingsGitConnectionTestState.Testing -> {
             stringResource(R.string.settings_git_test_connection_testing)
-        is SettingsGitConnectionTestState.Success ->
+        }
+
+        is SettingsGitConnectionTestState.Success -> {
             stringResource(R.string.settings_git_test_connection_success)
-        is SettingsGitConnectionTestState.Error ->
+        }
+
+        is SettingsGitConnectionTestState.Error -> {
             stringResource(
                 R.string.settings_git_test_connection_failed,
                 state.message,
             )
+        }
     }
 
 @Composable

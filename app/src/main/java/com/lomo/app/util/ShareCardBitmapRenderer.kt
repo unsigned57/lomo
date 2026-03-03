@@ -55,14 +55,15 @@ class ShareCardBitmapRenderer
                 )
             val displayTags = shareCardDisplayFormatter.formatTagsForDisplay(shareCardContent.tags)
             val safeText =
-                shareCardDisplayFormatter.formatBodyText(
-                    bodyText = shareCardContent.bodyText,
-                    audioPlaceholder = context.getString(R.string.share_card_placeholder_audio),
-                    imagePlaceholder = context.getString(R.string.share_card_placeholder_image),
-                    imageNamedPlaceholderPattern = context.getString(R.string.share_card_placeholder_image_named),
-                ).ifBlank {
-                    context.getString(R.string.app_name)
-                }
+                shareCardDisplayFormatter
+                    .formatBodyText(
+                        bodyText = shareCardContent.bodyText,
+                        audioPlaceholder = context.getString(R.string.share_card_placeholder_audio),
+                        imagePlaceholder = context.getString(R.string.share_card_placeholder_image),
+                        imageNamedPlaceholderPattern = context.getString(R.string.share_card_placeholder_image_named),
+                    ).ifBlank {
+                        context.getString(R.string.app_name)
+                    }
             val palette = resolvePalette(style)
             val createdAtMillis = timestampMillis ?: System.currentTimeMillis()
             val createdAtText = formatShareCardTime(createdAtMillis)

@@ -23,7 +23,9 @@ class LomoApplication :
     Application(),
     Configuration.Provider {
     @Inject lateinit var workerFactory: HiltWorkerFactory
+
     @Inject lateinit var syncPolicyRepository: SyncPolicyRepository
+
     @Inject lateinit var appConfigRepository: AppConfigRepository
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 

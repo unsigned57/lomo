@@ -285,11 +285,12 @@ fun SettingsDialogHost(
                     singleLine = true,
                     label = { Text(stringResource(R.string.settings_git_remote_url_hint)) },
                     isError = dialogState.gitRemoteUrlInput.isNotBlank() && !isUrlValid,
-                    supportingText = if (dialogState.gitRemoteUrlInput.isNotBlank() && !isUrlValid) {
-                        { Text(stringResource(R.string.settings_git_remote_url_error_https_required)) }
-                    } else {
-                        null
-                    },
+                    supportingText =
+                        if (dialogState.gitRemoteUrlInput.isNotBlank() && !isUrlValid) {
+                            { Text(stringResource(R.string.settings_git_remote_url_error_https_required)) }
+                        } else {
+                            null
+                        },
                 )
             },
             confirmButton = {

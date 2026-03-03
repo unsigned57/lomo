@@ -34,24 +34,35 @@ class ValidateMemoContentUseCase
     constructor() {
         fun validateCreate(content: String): MemoValidationResult =
             when {
-                content.isBlank() -> MemoValidationResult.Invalid.EmptyContentForCreate
-                content.length > MemoConstraints.MAX_MEMO_LENGTH ->
+                content.isBlank() -> {
+                    MemoValidationResult.Invalid.EmptyContentForCreate
+                }
+
+                content.length > MemoConstraints.MAX_MEMO_LENGTH -> {
                     MemoValidationResult.Invalid.ContentTooLong(
                         maxLength = MemoConstraints.MAX_MEMO_LENGTH,
                         actualLength = content.length,
                     )
-                else -> MemoValidationResult.Valid
+                }
+
+                else -> {
+                    MemoValidationResult.Valid
+                }
             }
 
         fun validateUpdate(content: String): MemoValidationResult =
             when {
                 // Blank update is allowed because repository treats it as delete.
-                content.length > MemoConstraints.MAX_MEMO_LENGTH ->
+                content.length > MemoConstraints.MAX_MEMO_LENGTH -> {
                     MemoValidationResult.Invalid.ContentTooLong(
                         maxLength = MemoConstraints.MAX_MEMO_LENGTH,
                         actualLength = content.length,
                     )
-                else -> MemoValidationResult.Valid
+                }
+
+                else -> {
+                    MemoValidationResult.Valid
+                }
             }
 
         fun requireValidForCreate(content: String) {

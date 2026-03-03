@@ -1,10 +1,10 @@
 package com.lomo.data.git
 
+import org.eclipse.jgit.api.Git
+import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
-import org.eclipse.jgit.api.Git
-import timber.log.Timber
 
 data class GitFileHistoryEntry(
     val commitHash: String,
@@ -31,7 +31,8 @@ class GitFileHistoryReader
                 val git = Git.open(rootDir)
                 git.use { g ->
                     val commits =
-                        g.log()
+                        g
+                            .log()
                             .addPath(filename)
                             .setMaxCount(maxCount)
                             .call()

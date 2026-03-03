@@ -32,7 +32,10 @@ class SafGitMirrorBridge
                 mirrorDir
             }
 
-        suspend fun pullFromSaf(rootUriString: String, mirrorDir: File) {
+        suspend fun pullFromSaf(
+            rootUriString: String,
+            mirrorDir: File,
+        ) {
             withContext(Dispatchers.IO) {
                 val root = resolveRootDocument(rootUriString)
                 if (!mirrorDir.exists()) mirrorDir.mkdirs()
@@ -47,7 +50,10 @@ class SafGitMirrorBridge
             }
         }
 
-        suspend fun pushToSaf(rootUriString: String, mirrorDir: File) {
+        suspend fun pushToSaf(
+            rootUriString: String,
+            mirrorDir: File,
+        ) {
             withContext(Dispatchers.IO) {
                 val root = resolveRootDocument(rootUriString)
                 if (!mirrorDir.exists()) mirrorDir.mkdirs()
@@ -262,8 +268,7 @@ class SafGitMirrorBridge
             }
         }
 
-        private fun mimeTypeFor(filename: String): String =
-            URLConnection.guessContentTypeFromName(filename) ?: "application/octet-stream"
+        private fun mimeTypeFor(filename: String): String = URLConnection.guessContentTypeFromName(filename) ?: "application/octet-stream"
 
         private fun sha256(input: String): String {
             val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))

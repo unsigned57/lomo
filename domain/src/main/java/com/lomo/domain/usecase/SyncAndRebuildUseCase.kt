@@ -33,12 +33,21 @@ class SyncAndRebuildUseCase
         private suspend fun syncFailureOrNull(): Exception? =
             try {
                 when (val result = gitSyncRepository.sync()) {
-                    is GitSyncResult.Success -> null
-                    is GitSyncResult.Error -> result.toException()
-                    GitSyncResult.NotConfigured ->
+                    is GitSyncResult.Success -> {
+                        null
+                    }
+
+                    is GitSyncResult.Error -> {
+                        result.toException()
+                    }
+
+                    GitSyncResult.NotConfigured -> {
                         SyncFailureException("Git sync is not configured")
-                    GitSyncResult.DirectPathRequired ->
+                    }
+
+                    GitSyncResult.DirectPathRequired -> {
                         SyncFailureException("Git sync requires a direct local directory path")
+                    }
                 }
             } catch (e: CancellationException) {
                 throw e

@@ -1,8 +1,8 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
-import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow

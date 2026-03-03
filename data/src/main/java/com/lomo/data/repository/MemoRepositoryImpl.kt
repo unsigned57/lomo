@@ -26,8 +26,7 @@ class MemoRepositoryImpl
                 .map { entities -> entities.map { it.toDomain() } }
                 .flowOn(Dispatchers.Default)
 
-        override suspend fun getRecentMemos(limit: Int): List<Memo> =
-            dao.getRecentMemos(limit).map { it.toDomain() }
+        override suspend fun getRecentMemos(limit: Int): List<Memo> = dao.getRecentMemos(limit).map { it.toDomain() }
 
         override suspend fun getMemosPage(
             limit: Int,
@@ -117,8 +116,7 @@ class MemoRepositoryImpl
                     rows.map { row ->
                         MemoTagCount(name = row.name, count = row.count)
                     }
-                }
-                .flowOn(Dispatchers.Default)
+                }.flowOn(Dispatchers.Default)
 
         override fun getActiveDayCount(): Flow<Int> = dao.getActiveDayCount()
 

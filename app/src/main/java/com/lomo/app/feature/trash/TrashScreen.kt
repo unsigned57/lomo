@@ -241,14 +241,18 @@ private fun TrashActionSheet(
                 listOf(
                     MemoActionSheetAction(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
-                        label = androidx.compose.ui.res.stringResource(R.string.action_restore),
+                        label =
+                            androidx.compose.ui.res
+                                .stringResource(R.string.action_restore),
                         onClick = onRestore,
                         dismissAfterClick = true,
                         haptic = MemoActionHaptic.MEDIUM,
                     ),
                     MemoActionSheetAction(
                         icon = Icons.Default.DeleteForever,
-                        label = androidx.compose.ui.res.stringResource(R.string.action_delete_permanently),
+                        label =
+                            androidx.compose.ui.res
+                                .stringResource(R.string.action_delete_permanently),
                         onClick = onDeletePermanently,
                         isDestructive = true,
                         dismissAfterClick = true,

@@ -213,15 +213,26 @@ class MemoMutationHandler
 
         suspend fun flushMemoFileOutbox(item: MemoFileOutboxEntity): Boolean =
             when (item.operation) {
-                MemoFileOutboxOp.CREATE -> flushCreateFromOutbox(item)
+                MemoFileOutboxOp.CREATE -> {
+                    flushCreateFromOutbox(item)
+                }
+
                 MemoFileOutboxOp.UPDATE -> {
                     val newContent = item.newContent ?: return false
                     flushMemoUpdateToFile(outboxSourceMemo(item), newContent)
                 }
 
-                MemoFileOutboxOp.DELETE -> flushDeleteMemoToFile(outboxSourceMemo(item))
-                MemoFileOutboxOp.RESTORE -> flushRestoreMemoToFile(outboxSourceMemo(item))
-                else -> false
+                MemoFileOutboxOp.DELETE -> {
+                    flushDeleteMemoToFile(outboxSourceMemo(item))
+                }
+
+                MemoFileOutboxOp.RESTORE -> {
+                    flushRestoreMemoToFile(outboxSourceMemo(item))
+                }
+
+                else -> {
+                    false
+                }
             }
 
         private suspend fun persistMainMemoEntity(entity: MemoEntity) {

@@ -5,4 +5,3 @@ interface AppVersionRepository {
 
     suspend fun updateLastAppVersion(version: String?)
 }
-

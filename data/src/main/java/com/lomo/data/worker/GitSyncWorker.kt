@@ -18,7 +18,6 @@ class GitSyncWorker
         @Assisted workerParams: WorkerParameters,
         private val gitSyncRepository: GitSyncRepository,
     ) : CoroutineWorker(appContext, workerParams) {
-
         override suspend fun doWork(): Result {
             Timber.d("GitSyncWorker started")
             return when (val result = gitSyncRepository.sync()) {
@@ -26,10 +25,12 @@ class GitSyncWorker
                     Timber.d("GitSyncWorker success: ${result.message}")
                     Result.success()
                 }
+
                 is GitSyncResult.Error -> {
                     Timber.e("GitSyncWorker error: ${result.message}")
                     if (runAttemptCount < 3) Result.retry() else Result.failure()
                 }
+
                 // NotConfigured or DirectPathRequired — nothing to do
                 else -> {
                     Timber.d("GitSyncWorker skipped: $result")

@@ -8,10 +8,10 @@ import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
+import com.lomo.domain.usecase.SwitchRootStorageUseCase
+import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every

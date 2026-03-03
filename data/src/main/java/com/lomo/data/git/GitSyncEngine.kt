@@ -4,14 +4,14 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.SyncEngineState
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class GitSyncEngine
@@ -85,12 +85,18 @@ class GitSyncEngine
                             val syncedAt = outcome.syncedAtMs ?: System.currentTimeMillis()
                             _syncState.value = SyncEngineState.Success(syncedAt, result.message)
                         }
-                        is GitSyncResult.Error ->
-                            _syncState.value = SyncEngineState.Error(
-                                result.message,
-                                System.currentTimeMillis(),
-                            )
-                        else -> _syncState.value = SyncEngineState.Idle
+
+                        is GitSyncResult.Error -> {
+                            _syncState.value =
+                                SyncEngineState.Error(
+                                    result.message,
+                                    System.currentTimeMillis(),
+                                )
+                        }
+
+                        else -> {
+                            _syncState.value = SyncEngineState.Idle
+                        }
                     }
                     result
                 } catch (e: Exception) {
@@ -169,11 +175,17 @@ class GitSyncEngine
 
         private fun publishResultState(result: GitSyncResult) {
             when (result) {
-                is GitSyncResult.Success ->
+                is GitSyncResult.Success -> {
                     _syncState.value = SyncEngineState.Success(System.currentTimeMillis(), result.message)
-                is GitSyncResult.Error ->
+                }
+
+                is GitSyncResult.Error -> {
                     _syncState.value = SyncEngineState.Error(result.message, System.currentTimeMillis())
-                else -> _syncState.value = SyncEngineState.Idle
+                }
+
+                else -> {
+                    _syncState.value = SyncEngineState.Idle
+                }
             }
         }
     }

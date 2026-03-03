@@ -102,7 +102,10 @@ fun HandleAppActionEvents(
     LaunchedEffect(events) {
         events.forEach { event ->
             when (val action = event.payload) {
-                MainViewModel.AppAction.CreateMemo -> openCreate()
+                MainViewModel.AppAction.CreateMemo -> {
+                    openCreate()
+                }
+
                 is MainViewModel.AppAction.OpenMemo -> {
                     val memo = resolveMemoById(action.memoId)
                     if (memo != null) {
@@ -111,6 +114,7 @@ fun HandleAppActionEvents(
                         snackbarHostState.showSnackbar(unknownErrorMessage)
                     }
                 }
+
                 is MainViewModel.AppAction.FocusMemo -> {
                     focusMemoInList(action.memoId)
                 }

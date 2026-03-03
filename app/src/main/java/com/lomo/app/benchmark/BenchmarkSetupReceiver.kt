@@ -19,6 +19,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class BenchmarkSetupReceiver : BroadcastReceiver() {
     @Inject lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
+
     @Inject lateinit var memoRepository: MemoRepository
 
     override fun onReceive(

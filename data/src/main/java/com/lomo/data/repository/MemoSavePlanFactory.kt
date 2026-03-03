@@ -67,12 +67,13 @@ class MemoSavePlanFactory
                 )
 
             val baseId = memoIdentityPolicy.buildBaseId(dateString, timeString, content)
-            val collisionIndex = precomputedCollisionCount ?: countBaseIdCollisionsInFile(
-                fileContent = existingFileContent,
-                dateString = dateString,
-                fallbackTimestampMillis = timestamp,
-                baseId = baseId,
-            )
+            val collisionIndex =
+                precomputedCollisionCount ?: countBaseIdCollisionsInFile(
+                    fileContent = existingFileContent,
+                    dateString = dateString,
+                    fallbackTimestampMillis = timestamp,
+                    baseId = baseId,
+                )
             val optimisticId = memoIdentityPolicy.applyCollisionSuffix(baseId, collisionIndex)
             val rawContent = "- $timeString $content"
 

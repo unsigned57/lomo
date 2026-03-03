@@ -39,7 +39,9 @@ class BaselineProfileGenerator {
     @Test
     fun generateBaselineProfile() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val device = androidx.test.uiautomator.UiDevice.getInstance(instrumentation)
+        val device =
+            androidx.test.uiautomator.UiDevice
+                .getInstance(instrumentation)
         val targetContext = instrumentation.targetContext
 
         prepareBenchmarkStorage(device)
@@ -496,11 +498,10 @@ class BaselineProfileGenerator {
     private fun MacrobenchmarkScope.findObject(
         selector: BySelectorWrapper,
         timeoutMs: Long,
-    ): UiObject2? {
-        return when (selector) {
+    ): UiObject2? =
+        when (selector) {
             is BySelectorWrapper.BySelectorImpl -> device.wait(Until.findObject(selector.selector), timeoutMs)
         }
-    }
 
     private fun MacrobenchmarkScope.findObject(
         selector: androidx.test.uiautomator.BySelector,

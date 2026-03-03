@@ -68,15 +68,16 @@ fun MemoMenuHost(
                 activeState = null
                 onLanShare(current)
             },
-            onJump = if (onJump != null) {
-                {
-                    val target = activeState
-                    activeState = null
-                    if (target != null) onJump(target)
-                }
-            } else {
-                null
-            },
+            onJump =
+                if (onJump != null) {
+                    {
+                        val target = activeState
+                        activeState = null
+                        if (target != null) onJump(target)
+                    }
+                } else {
+                    null
+                },
             onEdit = {
                 scope.launch { sheetState.hide() }.invokeOnCompletion {
                     val target = activeState
@@ -91,15 +92,16 @@ fun MemoMenuHost(
                     if (target != null) onDelete(target)
                 }
             },
-            onHistory = if (onHistory != null) {
-                {
-                    val target = activeState
-                    activeState = null
-                    if (target != null) onHistory(target)
-                }
-            } else {
-                null
-            },
+            onHistory =
+                if (onHistory != null) {
+                    {
+                        val target = activeState
+                        activeState = null
+                        if (target != null) onHistory(target)
+                    }
+                } else {
+                    null
+                },
             showHistory = showHistory,
             showJump = showJump,
         )

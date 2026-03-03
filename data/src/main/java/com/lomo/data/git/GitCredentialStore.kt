@@ -17,7 +17,8 @@ class GitCredentialStore
         @ApplicationContext private val context: Context,
     ) {
         private val masterKey: MasterKey by lazy {
-            MasterKey.Builder(context)
+            MasterKey
+                .Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
         }

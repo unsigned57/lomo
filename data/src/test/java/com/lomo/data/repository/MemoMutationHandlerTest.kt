@@ -6,13 +6,13 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
+import com.lomo.data.memo.MemoIdentityPolicy
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
-import com.lomo.data.memo.MemoIdentityPolicy
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -159,7 +159,9 @@ class MemoMutationHandlerTest {
                     dateKey = "2024_01_15",
                 )
             every { dataStore.storageTimestampFormat } returns flowOf("HH:mm")
-            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { dao.getMemo(sourceMemo.id) } returns
+                com.lomo.data.local.entity.MemoEntity
+                    .fromDomain(sourceMemo)
 
             val persistedMemo = slot<com.lomo.data.local.entity.MemoEntity>()
             coEvery {

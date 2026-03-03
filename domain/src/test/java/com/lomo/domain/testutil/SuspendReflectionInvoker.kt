@@ -1,9 +1,9 @@
 package com.lomo.domain.testutil
 
+import kotlinx.coroutines.suspendCancellableCoroutine
 import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED

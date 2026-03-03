@@ -54,7 +54,9 @@ class ShareAttachmentStorage
                         availableName
                     }
 
-                    else -> null
+                    else -> {
+                        null
+                    }
                 }
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Failed to save attachment: $safeName")

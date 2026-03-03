@@ -2,8 +2,6 @@ package com.lomo.data.repository
 
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -11,6 +9,8 @@ import org.json.JSONObject
 import timber.log.Timber
 import java.net.HttpURLConnection
 import java.net.URL
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class AppUpdateRepositoryImpl

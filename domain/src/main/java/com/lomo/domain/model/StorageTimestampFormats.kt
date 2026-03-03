@@ -35,8 +35,7 @@ object StorageTimestampFormats {
             .map(::buildFormatter)
             .toList()
 
-    fun normalize(pattern: String?): String =
-        pattern?.takeIf { supportedPatterns.contains(it) } ?: DEFAULT_PATTERN
+    fun normalize(pattern: String?): String = pattern?.takeIf { supportedPatterns.contains(it) } ?: DEFAULT_PATTERN
 
     fun formatter(pattern: String): DateTimeFormatter =
         formattersByPattern[normalize(pattern)] ?: formattersByPattern.getValue(DEFAULT_PATTERN)
@@ -75,6 +74,5 @@ object StorageTimestampFormats {
         val contentPart: String,
     )
 
-    private fun buildFormatter(pattern: String): DateTimeFormatter =
-        DateTimeFormatter.ofPattern(pattern, Locale.US)
+    private fun buildFormatter(pattern: String): DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
 }

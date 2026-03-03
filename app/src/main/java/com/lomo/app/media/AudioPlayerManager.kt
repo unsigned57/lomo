@@ -9,8 +9,6 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +19,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class AudioPlayerManager
@@ -55,8 +55,7 @@ class AudioPlayerManager
         private var scopeJob = SupervisorJob()
         private var scope = createScope(scopeJob)
 
-        private fun createScope(job: Job): CoroutineScope =
-            CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
+        private fun createScope(job: Job): CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
 
         private fun ensureActiveScope() {
             if (!scopeJob.isActive) {

@@ -8,11 +8,11 @@ import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.feature.preferences.activeDayCountState
 import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
-import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoVersion
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
@@ -194,8 +194,7 @@ class MainViewModel
                     .map { sourceMemos ->
                         applyMainMemoFilterUseCase(memos = sourceMemos, filter = input.filter)
                     }
-            }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         init {
             // Keep deleting flags only for rows that still exist in current list.
@@ -211,18 +210,19 @@ class MainViewModel
         val uiMemos: StateFlow<List<MemoUiModel>> =
             combine(
                 combine(memos, rootDirectory, imageDirectory, imageMap, visibleMemoIds) {
-                        currentMemos,
-                        rootDir,
-                        imageDir,
-                        currentImageMap,
-                        prioritizeIds,
+                    currentMemos,
+                    rootDir,
+                    imageDir,
+                    currentImageMap,
+                    prioritizeIds,
                     ->
-                    currentMemos to UiMemoMappingInput(
-                        rootDirectory = rootDir,
-                        imageDirectory = imageDir,
-                        imageMap = currentImageMap,
-                        prioritizedMemoIds = prioritizeIds,
-                    )
+                    currentMemos to
+                        UiMemoMappingInput(
+                            rootDirectory = rootDir,
+                            imageDirectory = imageDir,
+                            imageMap = currentImageMap,
+                            prioritizedMemoIds = prioritizeIds,
+                        )
                 }.distinctUntilChanged()
                     .mapLatest { (currentMemos, input) ->
                         memoUiMapper.mapToUiModels(
@@ -238,24 +238,24 @@ class MainViewModel
                 uiModels.map { uiModel ->
                     uiModel.copy(isDeleting = uiModel.memo.id in deletingIds)
                 }
-            }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val galleryUiMemos: StateFlow<List<MemoUiModel>> =
             combine(
                 combine(allMemos, rootDirectory, imageDirectory, imageMap) {
-                        currentMemos,
-                        rootDir,
-                        imageDir,
-                        currentImageMap,
+                    currentMemos,
+                    rootDir,
+                    imageDir,
+                    currentImageMap,
                     ->
-                    currentMemos to UiMemoMappingInput(
-                        rootDirectory = rootDir,
-                        imageDirectory = imageDir,
-                        imageMap = currentImageMap,
-                        prioritizedMemoIds = emptySet(),
-                    )
+                    currentMemos to
+                        UiMemoMappingInput(
+                            rootDirectory = rootDir,
+                            imageDirectory = imageDir,
+                            imageMap = currentImageMap,
+                            prioritizedMemoIds = emptySet(),
+                        )
                 }.distinctUntilChanged()
                     .mapLatest { (currentMemos, input) ->
                         memoUiMapper.mapToUiModels(
@@ -492,7 +492,10 @@ class MainViewModel
             }
         }
 
-        fun restoreVersion(memo: Memo, version: MemoVersion) {
+        fun restoreVersion(
+            memo: Memo,
+            version: MemoVersion,
+        ) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     versionHistoryCoordinator.restore(memo, version)

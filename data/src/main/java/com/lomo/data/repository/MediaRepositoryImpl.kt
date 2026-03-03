@@ -49,16 +49,19 @@ class MediaRepositoryImpl
 
         override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =
             when (category) {
-                MediaCategory.IMAGE ->
+                MediaCategory.IMAGE -> {
                     createDefaultWorkspace(
                         folderName = IMAGE_DIRECTORY_NAME,
                         setRoot = dataSource::setImageRoot,
                     )
-                MediaCategory.VOICE ->
+                }
+
+                MediaCategory.VOICE -> {
                     createDefaultWorkspace(
                         folderName = VOICE_DIRECTORY_NAME,
                         setRoot = dataSource::setVoiceRoot,
                     )
+                }
             }
 
         override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =

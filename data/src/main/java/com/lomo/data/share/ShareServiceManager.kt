@@ -1,7 +1,7 @@
 package com.lomo.data.share
 
-import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.flow.MutableStateFlow

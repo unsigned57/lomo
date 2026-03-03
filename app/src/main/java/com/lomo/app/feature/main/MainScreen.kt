@@ -581,9 +581,7 @@ private fun MainScreenRenderHost(
 }
 
 @Composable
-private fun MainReadyStateEnterContainer(
-    content: @Composable () -> Unit,
-) {
+private fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
     val visibleState =
         remember {
             MutableTransitionState(false).apply {
@@ -616,6 +614,7 @@ private fun VersionHistoryOverlay(
                 onDismiss = onDismiss,
             )
         }
+
         is MainVersionHistoryState.Loaded -> {
             com.lomo.app.feature.memo.MemoVersionHistorySheet(
                 versions = state.versions,
@@ -624,6 +623,9 @@ private fun VersionHistoryOverlay(
                 onDismiss = onDismiss,
             )
         }
-        MainVersionHistoryState.Hidden -> Unit
+
+        MainVersionHistoryState.Hidden -> {
+            Unit
+        }
     }
 }

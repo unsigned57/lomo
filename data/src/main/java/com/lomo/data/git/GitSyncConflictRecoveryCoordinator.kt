@@ -2,14 +2,14 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ResetCommand
 import timber.log.Timber
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 internal class GitSyncConflictRecoveryCoordinator
@@ -44,8 +44,9 @@ internal class GitSyncConflictRecoveryCoordinator
             remoteUrl: String,
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
-                val credentials = credentialStrategy.credentialProviders()
-                    ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
+                val credentials =
+                    credentialStrategy.credentialProviders()
+                        ?: return@withContext GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
@@ -59,7 +60,8 @@ internal class GitSyncConflictRecoveryCoordinator
                         primitives.ensureRemote(git, remoteUrl)
 
                         credentialStrategy.runWithCredentialFallback(credentials, "Fetch before reset") { provider ->
-                            git.fetch()
+                            git
+                                .fetch()
                                 .setRemote("origin")
                                 .setCredentialsProvider(provider)
                                 .setForceUpdate(true)
@@ -75,11 +77,16 @@ internal class GitSyncConflictRecoveryCoordinator
 
                         primitives.abortRebaseQuietly(git)
 
-                        git.reset()
+                        git
+                            .reset()
                             .setMode(ResetCommand.ResetType.HARD)
                             .setRef(remoteRef.name)
                             .call()
-                        git.clean().setCleanDirectories(true).setForce(true).call()
+                        git
+                            .clean()
+                            .setCleanDirectories(true)
+                            .setForce(true)
+                            .call()
                     }
 
                     GitSyncResult.Success("Local branch reset to remote.")
@@ -98,11 +105,12 @@ internal class GitSyncConflictRecoveryCoordinator
             onPushingState: () -> Unit,
         ): ForcePushOutcome =
             withContext(Dispatchers.IO) {
-                val credentials = credentialStrategy.credentialProviders()
-                    ?: return@withContext ForcePushOutcome(
-                        result = GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED),
-                        syncedAtMs = null,
-                    )
+                val credentials =
+                    credentialStrategy.credentialProviders()
+                        ?: return@withContext ForcePushOutcome(
+                            result = GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED),
+                            syncedAtMs = null,
+                        )
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {

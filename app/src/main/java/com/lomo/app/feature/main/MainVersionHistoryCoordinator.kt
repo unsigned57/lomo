@@ -12,8 +12,13 @@ import javax.inject.Inject
 
 sealed interface MainVersionHistoryState {
     data object Hidden : MainVersionHistoryState
+
     data object Loading : MainVersionHistoryState
-    data class Loaded(val memo: Memo, val versions: List<MemoVersion>) : MainVersionHistoryState
+
+    data class Loaded(
+        val memo: Memo,
+        val versions: List<MemoVersion>,
+    ) : MainVersionHistoryState
 }
 
 class MainVersionHistoryCoordinator

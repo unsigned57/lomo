@@ -2,12 +2,12 @@ package com.lomo.app.feature.main
 
 import com.lomo.app.BuildConfig
 import com.lomo.domain.model.StorageArea
-import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
-import com.lomo.domain.repository.AudioPlaybackController
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
@@ -41,16 +41,14 @@ class MainStartupCoordinator
                 .drop(1)
                 .onEach { location ->
                     audioPlayerController.setRootLocation(location)
-                }
-                .map { it?.raw }
+                }.map { it?.raw }
 
         fun observeVoiceDirectoryChanges(): Flow<String?> =
             appConfigRepository
                 .observeLocation(StorageArea.VOICE)
                 .onEach { voiceLocation ->
                     audioPlayerController.setVoiceLocation(voiceLocation)
-                }
-                .map { it?.raw }
+                }.map { it?.raw }
 
         private suspend fun warmImageCacheOnStartup() {
             try {

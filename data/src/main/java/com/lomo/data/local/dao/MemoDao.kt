@@ -6,9 +6,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFtsEntity
-import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.entity.toTagCrossRefs
@@ -274,8 +274,13 @@ interface MemoDao {
     ): Long {
         insertMemo(memo)
         replaceTagRefsForMemo(memo)
-        val tokenizedContent = com.lomo.data.util.SearchTokenizer.tokenize(memo.content)
-        insertMemoFts(com.lomo.data.local.entity.MemoFtsEntity(memo.id, tokenizedContent))
+        val tokenizedContent =
+            com.lomo.data.util.SearchTokenizer
+                .tokenize(memo.content)
+        insertMemoFts(
+            com.lomo.data.local.entity
+                .MemoFtsEntity(memo.id, tokenizedContent),
+        )
         return insertMemoFileOutbox(outbox)
     }
 
@@ -298,8 +303,13 @@ interface MemoDao {
     ): Long {
         insertMemo(memo)
         replaceTagRefsForMemo(memo)
-        val tokenizedContent = com.lomo.data.util.SearchTokenizer.tokenize(memo.content)
-        insertMemoFts(com.lomo.data.local.entity.MemoFtsEntity(memo.id, tokenizedContent))
+        val tokenizedContent =
+            com.lomo.data.util.SearchTokenizer
+                .tokenize(memo.content)
+        insertMemoFts(
+            com.lomo.data.local.entity
+                .MemoFtsEntity(memo.id, tokenizedContent),
+        )
         deleteTrashMemoById(memo.id)
         return insertMemoFileOutbox(outbox)
     }

@@ -1,5 +1,6 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
@@ -7,7 +8,6 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import com.lomo.domain.model.PreferenceDefaults
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow

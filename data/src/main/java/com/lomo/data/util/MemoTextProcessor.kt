@@ -1,7 +1,7 @@
 package com.lomo.data.util
 
-import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.data.memo.MemoContentHashPolicy
+import com.lomo.domain.model.StorageTimestampFormats
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -332,8 +332,7 @@ class MemoTextProcessor
             return endIndex
         }
 
-        private fun isMemoHeaderLine(line: String): Boolean =
-            StorageTimestampFormats.parseMemoHeaderLine(line) != null
+        private fun isMemoHeaderLine(line: String): Boolean = StorageTimestampFormats.parseMemoHeaderLine(line) != null
 
         private fun contentHash(content: String): String = MemoContentHashPolicy.hashHex(content)
 

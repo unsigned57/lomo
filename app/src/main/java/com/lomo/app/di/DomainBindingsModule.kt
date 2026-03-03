@@ -7,26 +7,26 @@ import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
+import com.lomo.domain.usecase.GitRemoteUrlUseCase
+import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.domain.usecase.GitRemoteUrlUseCase
-import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
-import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -118,8 +118,7 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun provideDailyReviewQueryUseCase(memoRepository: MemoRepository): DailyReviewQueryUseCase =
-        DailyReviewQueryUseCase(memoRepository)
+    fun provideDailyReviewQueryUseCase(memoRepository: MemoRepository): DailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
 
     @Provides
     @Singleton
@@ -135,8 +134,7 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun providePersistShareImageUseCase(repository: ShareImageRepository): PersistShareImageUseCase =
-        PersistShareImageUseCase(repository)
+    fun providePersistShareImageUseCase(repository: ShareImageRepository): PersistShareImageUseCase = PersistShareImageUseCase(repository)
 
     @Provides
     @Singleton

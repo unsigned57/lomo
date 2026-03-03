@@ -29,8 +29,7 @@ object StorageFilenameFormats {
     private val supportedFormatters: List<DateTimeFormatter> =
         supportedPatterns.map(::buildStrictFormatter)
 
-    fun normalize(pattern: String?): String =
-        pattern?.takeIf { supportedPatterns.contains(it) } ?: DEFAULT_PATTERN
+    fun normalize(pattern: String?): String = pattern?.takeIf { supportedPatterns.contains(it) } ?: DEFAULT_PATTERN
 
     fun formatter(pattern: String): DateTimeFormatter =
         formattersByPattern[normalize(pattern)] ?: formattersByPattern.getValue(DEFAULT_PATTERN)

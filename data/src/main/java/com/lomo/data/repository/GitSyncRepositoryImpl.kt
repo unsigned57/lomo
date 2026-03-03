@@ -1,8 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.git.GitCredentialStore
-import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
@@ -72,8 +72,7 @@ class GitSyncRepositoryImpl
 
         override fun getAutoSyncInterval(): Flow<String> = dataStore.gitAutoSyncInterval
 
-        override fun observeLastSyncTimeMillis(): Flow<Long?> =
-            dataStore.gitLastSyncTime.map { stored -> stored.takeIf { it > 0L } }
+        override fun observeLastSyncTimeMillis(): Flow<Long?> = dataStore.gitLastSyncTime.map { stored -> stored.takeIf { it > 0L } }
 
         override fun getSyncOnRefreshEnabled(): Flow<Boolean> = dataStore.gitSyncOnRefresh
 
@@ -91,7 +90,10 @@ class GitSyncRepositoryImpl
 
         override suspend fun getToken(): String? = credentialStore.getToken()
 
-        override suspend fun setAuthorInfo(name: String, email: String) {
+        override suspend fun setAuthorInfo(
+            name: String,
+            email: String,
+        ) {
             dataStore.updateGitAuthorName(name)
             dataStore.updateGitAuthorEmail(email)
         }
@@ -162,8 +164,9 @@ class GitSyncRepositoryImpl
                 val enabled = dataStore.gitSyncEnabled.first()
                 if (!enabled) return GitSyncResult.NotConfigured
 
-                val directRootDir = resolveRootDir()
-                    ?: return GitSyncResult.Success("SAF mode, skipping local commit")
+                val directRootDir =
+                    resolveRootDir()
+                        ?: return GitSyncResult.Success("SAF mode, skipping local commit")
 
                 val gitDir = File(directRootDir, ".git")
                 if (!gitDir.exists()) return GitSyncResult.Success("Not initialized yet")
@@ -456,9 +459,10 @@ class GitSyncRepositoryImpl
                 val (commitHash, commitTime, commitMessage, fileContent) = pair
 
                 val memos = markdownParser.parseContent(fileContent, dateKey)
-                val matchingMemo = memos.firstOrNull { memo ->
-                    abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
-                } ?: continue
+                val matchingMemo =
+                    memos.firstOrNull { memo ->
+                        abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
+                    } ?: continue
 
                 versions.add(
                     MemoVersion(
@@ -475,14 +479,16 @@ class GitSyncRepositoryImpl
             val distinctVersions = versions.distinctBy { it.memoContent }
             if (distinctVersions.isEmpty()) return emptyList()
 
-            val currentMemoContent = runCatching {
-                val currentFile = File(rootDir, filename)
-                if (!currentFile.exists()) return@runCatching null
-                val currentMemos = markdownParser.parseFile(currentFile)
-                currentMemos.firstOrNull { memo ->
-                    abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
-                }?.content
-            }.getOrNull()
+            val currentMemoContent =
+                runCatching {
+                    val currentFile = File(rootDir, filename)
+                    if (!currentFile.exists()) return@runCatching null
+                    val currentMemos = markdownParser.parseFile(currentFile)
+                    currentMemos
+                        .firstOrNull { memo ->
+                            abs(memo.timestamp - memoTimestamp) <= TIMESTAMP_TOLERANCE_MS
+                        }?.content
+                }.getOrNull()
 
             return if (currentMemoContent.isNullOrBlank()) {
                 distinctVersions.mapIndexed { index, version -> version.copy(isCurrent = index == 0) }

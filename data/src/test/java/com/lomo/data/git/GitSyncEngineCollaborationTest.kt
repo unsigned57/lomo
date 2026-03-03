@@ -7,8 +7,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
 import io.mockk.verify
-import java.io.File
-import java.nio.file.Files
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.eclipse.jgit.api.Git
@@ -16,6 +14,8 @@ import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 class GitSyncEngineCollaborationTest {
     private lateinit var credentialStore: GitCredentialStore
@@ -55,7 +55,11 @@ class GitSyncEngineCollaborationTest {
     fun `initOrClone delegates remote and lock handling to primitives`() =
         runTest {
             val localRepo = File(tempRoot, "local").also { it.mkdirs() }
-            Git.init().setDirectory(localRepo).call().close()
+            Git
+                .init()
+                .setDirectory(localRepo)
+                .call()
+                .close()
 
             val result = engine.initOrClone(localRepo, "https://example.com/org/repo.git")
 
@@ -70,7 +74,8 @@ class GitSyncEngineCollaborationTest {
         Git.init().setDirectory(localRepo).call().use { git ->
             File(localRepo, "memo.md").writeText("first\n")
             git.add().addFilepattern("memo.md").call()
-            git.commit()
+            git
+                .commit()
                 .setMessage("add memo")
                 .setAuthor("Local", "local@test.local")
                 .setCommitter("Local", "local@test.local")

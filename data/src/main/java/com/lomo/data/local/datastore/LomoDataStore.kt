@@ -42,6 +42,7 @@ class LomoDataStore
         @ApplicationContext private val context: Context,
     ) {
         private val dataStore: DataStore<Preferences> = context.dataStore
+
         private companion object {
             private const val TAG = "LomoDataStore"
         }

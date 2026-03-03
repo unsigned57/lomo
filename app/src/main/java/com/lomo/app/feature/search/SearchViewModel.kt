@@ -90,10 +90,10 @@ class SearchViewModel
         @OptIn(ExperimentalCoroutinesApi::class)
         val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
             combine(searchResults, rootDirectory, imageDirectory, imageMap) {
-                    memos,
-                    rootDir,
-                    imageDir,
-                    currentImageMap,
+                memos,
+                rootDir,
+                imageDir,
+                currentImageMap,
                 ->
                 UiMemoMappingInput(
                     memos = memos,

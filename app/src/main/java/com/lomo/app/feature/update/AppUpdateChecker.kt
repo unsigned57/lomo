@@ -15,12 +15,11 @@ class AppUpdateChecker
                     info.copy(releaseNotes = normalizeReleaseNotesForDisplay(info.releaseNotes))
                 }
 
-        private fun normalizeReleaseNotesForDisplay(raw: String): String {
-            return raw
+        private fun normalizeReleaseNotesForDisplay(raw: String): String =
+            raw
                 .replace(FORCE_UPDATE_MARKER, "")
                 .replace("\r\n", "\n")
                 .trim()
-        }
 
         private companion object {
             private const val FORCE_UPDATE_MARKER = "[FORCE_UPDATE]"

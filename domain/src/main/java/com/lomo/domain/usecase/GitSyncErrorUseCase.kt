@@ -20,6 +20,7 @@ class GitSyncErrorUseCase
                 ErrorKind.DIRECT_PATH_REQUIRED,
                 ErrorKind.USER_FACING,
                 -> message
+
                 ErrorKind.TECHNICAL,
                 ErrorKind.EMPTY,
                 -> fallbackMessage
@@ -38,8 +39,10 @@ class GitSyncErrorUseCase
         fun isConflictMessage(message: String): Boolean =
             message.contains("rebase STOPPED", ignoreCase = true) ||
                 message.contains("resolve conflicts manually", ignoreCase = true) ||
-                (message.contains("rebase", ignoreCase = true) &&
-                    message.contains("preserved", ignoreCase = true))
+                (
+                    message.contains("rebase", ignoreCase = true) &&
+                        message.contains("preserved", ignoreCase = true)
+                )
 
         fun looksTechnicalMessage(message: String): Boolean =
             message.length > 200 ||

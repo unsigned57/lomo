@@ -65,7 +65,9 @@ interface MarkdownStorageBackend {
     ): Boolean
 }
 
-interface MediaStorageBackend : ImageStorageBackend, VoiceStorageBackend
+interface MediaStorageBackend :
+    ImageStorageBackend,
+    VoiceStorageBackend
 
 interface ImageStorageBackend {
     suspend fun saveImage(

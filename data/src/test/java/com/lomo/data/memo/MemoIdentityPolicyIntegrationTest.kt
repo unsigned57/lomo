@@ -3,10 +3,10 @@ package com.lomo.data.memo
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.repository.MemoSavePlanFactory
 import com.lomo.data.util.MemoTextProcessor
-import java.time.LocalDateTime
-import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.LocalDateTime
+import java.time.ZoneId
 
 class MemoIdentityPolicyIntegrationTest {
     private val textProcessor = MemoTextProcessor()
@@ -29,11 +29,12 @@ class MemoIdentityPolicyIntegrationTest {
             )
 
         val parsed =
-            parser.parseContent(
-                content = savePlan.rawContent,
-                filename = savePlan.dateKey,
-                fallbackTimestampMillis = timestamp,
-            ).single()
+            parser
+                .parseContent(
+                    content = savePlan.rawContent,
+                    filename = savePlan.dateKey,
+                    fallbackTimestampMillis = timestamp,
+                ).single()
 
         assertEquals(savePlan.memo.id, parsed.id)
         assertEquals(savePlan.memo.timestamp, parsed.timestamp)

@@ -63,12 +63,12 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.lomo.ui.R
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
@@ -680,7 +680,11 @@ private fun InputHintPlaceholder(hintText: String) {
 
 private fun fadeScaleContentTransition(): ContentTransform =
     (
-        fadeIn(animationSpec = androidx.compose.animation.core.tween(MotionTokens.DurationMedium2)) +
+        fadeIn(
+            animationSpec =
+                androidx.compose.animation.core
+                    .tween(MotionTokens.DurationMedium2),
+        ) +
             scaleIn(
                 initialScale = 0.95f,
                 animationSpec =
@@ -691,6 +695,8 @@ private fun fadeScaleContentTransition(): ContentTransform =
             )
     ).togetherWith(
         fadeOut(
-            animationSpec = androidx.compose.animation.core.tween(durationMillis = MotionTokens.DurationShort4),
+            animationSpec =
+                androidx.compose.animation.core
+                    .tween(durationMillis = MotionTokens.DurationShort4),
         ),
     )

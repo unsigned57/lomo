@@ -96,9 +96,10 @@ fun MemoVersionHistorySheet(
 
             if (isLoading) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(132.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(132.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -113,9 +114,10 @@ fun MemoVersionHistorySheet(
                 }
             } else if (versions.isEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(132.dp),
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .height(132.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -154,9 +156,10 @@ private fun VersionItem(
         shape = MaterialTheme.shapes.medium,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

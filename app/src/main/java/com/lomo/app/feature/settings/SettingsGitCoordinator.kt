@@ -1,13 +1,13 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.usecase.SyncAndRebuildUseCase
-import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
+import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -153,10 +153,13 @@ class SettingsGitCoordinator(
     ): String =
         when (gitSyncErrorUseCase.classify(message)) {
             GitSyncErrorUseCase.ErrorKind.CONFLICT -> conflictSummary
+
             GitSyncErrorUseCase.ErrorKind.DIRECT_PATH_REQUIRED -> directPathRequired
+
             GitSyncErrorUseCase.ErrorKind.TECHNICAL,
             GitSyncErrorUseCase.ErrorKind.EMPTY,
             -> unknownError
+
             GitSyncErrorUseCase.ErrorKind.USER_FACING -> message
         }
 
@@ -198,8 +201,8 @@ class SettingsGitCoordinator(
             syncAndRebuildUseCase(forceSync = true)
         }
 
-    suspend fun resolveGitConflictUsingRemote(): String? {
-        return try {
+    suspend fun resolveGitConflictUsingRemote(): String? =
+        try {
             when (val resetResult = gitSyncRepo.resetLocalBranchToRemote()) {
                 is GitSyncResult.Error -> {
                     sanitizeUserFacingMessage(
@@ -222,10 +225,9 @@ class SettingsGitCoordinator(
                 fallbackMessage = "Failed to resolve conflict with remote history",
             )
         }
-    }
 
-    suspend fun resolveGitConflictUsingLocal(): String? {
-        return try {
+    suspend fun resolveGitConflictUsingLocal(): String? =
+        try {
             when (val result = gitSyncRepo.forcePushLocalToRemote()) {
                 is GitSyncResult.Error -> {
                     sanitizeUserFacingMessage(
@@ -248,23 +250,29 @@ class SettingsGitCoordinator(
                 fallbackMessage = "Failed to keep local changes during conflict resolution",
             )
         }
-    }
 
-    suspend fun testGitConnection(): String? {
-        return try {
+    suspend fun testGitConnection(): String? =
+        try {
             _connectionTestState.value = SettingsGitConnectionTestState.Testing
             val result = gitSyncRepo.testConnection()
             _connectionTestState.value =
                 when (result) {
-                    is GitSyncResult.Success -> SettingsGitConnectionTestState.Success(result.message)
-                    is GitSyncResult.Error ->
+                    is GitSyncResult.Success -> {
+                        SettingsGitConnectionTestState.Success(result.message)
+                    }
+
+                    is GitSyncResult.Error -> {
                         SettingsGitConnectionTestState.Error(
                             sanitizeUserFacingMessage(
                                 rawMessage = result.message,
                                 fallbackMessage = "Failed to test Git connection",
                             ),
                         )
-                    else -> SettingsGitConnectionTestState.Error("Unexpected result")
+                    }
+
+                    else -> {
+                        SettingsGitConnectionTestState.Error("Unexpected result")
+                    }
                 }
             null
         } catch (cancellation: CancellationException) {
@@ -278,7 +286,6 @@ class SettingsGitCoordinator(
             _connectionTestState.value = SettingsGitConnectionTestState.Error(message)
             message
         }
-    }
 
     fun resetConnectionTestState() {
         _connectionTestState.value = SettingsGitConnectionTestState.Idle
@@ -314,8 +321,8 @@ class SettingsGitCoordinator(
     private suspend fun runWithError(
         fallbackMessage: String,
         action: suspend () -> Unit,
-    ): String? {
-        return try {
+    ): String? =
+        try {
             action()
             null
         } catch (cancellation: CancellationException) {
@@ -326,7 +333,6 @@ class SettingsGitCoordinator(
                 fallbackMessage = fallbackMessage,
             )
         }
-    }
 
     private fun sanitizeUserFacingMessage(
         rawMessage: String?,

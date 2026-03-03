@@ -37,10 +37,9 @@ class SaveImageUseCase
             message = "Use saveWithCacheSyncStatus for explicit non-atomic save/cache-sync outcome.",
             replaceWith = ReplaceWith("saveWithCacheSyncStatus(com.lomo.domain.model.StorageLocation(sourceUri))"),
         )
-        suspend operator fun invoke(sourceUri: String): String {
-            return when (val result = saveWithCacheSyncStatus(StorageLocation(sourceUri))) {
+        suspend operator fun invoke(sourceUri: String): String =
+            when (val result = saveWithCacheSyncStatus(StorageLocation(sourceUri))) {
                 is SaveImageResult.SavedAndCacheSynced -> result.location.raw
                 is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
             }
-        }
     }

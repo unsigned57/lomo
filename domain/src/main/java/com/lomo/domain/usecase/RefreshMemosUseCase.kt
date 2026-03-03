@@ -1,6 +1,5 @@
 package com.lomo.domain.usecase
 
-
 class RefreshMemosUseCase
     constructor(
         private val memoMaintenanceUseCase: MemoMaintenanceUseCase,

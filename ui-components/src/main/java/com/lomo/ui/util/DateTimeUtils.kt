@@ -87,7 +87,10 @@ object DateTimeUtils {
         val diff = (System.currentTimeMillis() - timestamp).coerceAtLeast(0L)
 
         return when {
-            diff < 60_000L -> resources.getString(R.string.relative_time_just_now)
+            diff < 60_000L -> {
+                resources.getString(R.string.relative_time_just_now)
+            }
+
             diff < 3_600_000L -> {
                 val minutes = (diff / 60_000L).toInt().coerceAtLeast(1)
                 resources.getQuantityString(R.plurals.relative_time_minutes_ago, minutes, minutes)
@@ -103,7 +106,9 @@ object DateTimeUtils {
                 resources.getQuantityString(R.plurals.relative_time_days_ago, days, days)
             }
 
-            else -> formatLocalizedDate(timestamp, resources)
+            else -> {
+                formatLocalizedDate(timestamp, resources)
+            }
         }
     }
 

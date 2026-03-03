@@ -1,3 +1,5 @@
 package com.lomo.domain.repository
 
-interface AppConfigRepository : DirectorySettingsRepository, PreferencesRepository
+interface AppConfigRepository :
+    DirectorySettingsRepository,
+    PreferencesRepository

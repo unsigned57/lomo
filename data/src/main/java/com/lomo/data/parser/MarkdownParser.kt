@@ -20,7 +20,6 @@ class MarkdownParser
         private val textProcessor: MemoTextProcessor,
         private val memoIdentityPolicy: MemoIdentityPolicy,
     ) {
-
         fun parseFile(file: File): List<Memo> {
             if (!file.exists()) return emptyList()
             val filename = file.nameWithoutExtension
@@ -139,11 +138,9 @@ class MarkdownParser
                 0L
             }
 
-        private fun parseLocalDate(dateStr: String): LocalDate? =
-            StorageFilenameFormats.parseOrNull(dateStr)
+        private fun parseLocalDate(dateStr: String): LocalDate? = StorageFilenameFormats.parseOrNull(dateStr)
 
-        private fun parseLocalTime(timeStr: String): LocalTime? =
-            StorageTimestampFormats.parseOrNull(timeStr)
+        private fun parseLocalTime(timeStr: String): LocalTime? = StorageTimestampFormats.parseOrNull(timeStr)
 
         private fun extractTags(content: String): List<String> {
             // Delegate to shared utility class to avoid duplication

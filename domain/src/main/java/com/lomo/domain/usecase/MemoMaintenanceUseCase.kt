@@ -16,9 +16,9 @@ class MemoMaintenanceUseCase private constructor(
         repository: MemoRepository,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,
     ) : this(
-            deleteAction = { memo -> repository.deleteMemo(memo) },
-            refreshAction = { syncAndRebuildUseCase(forceSync = false) },
-        )
+        deleteAction = { memo -> repository.deleteMemo(memo) },
+        refreshAction = { syncAndRebuildUseCase(forceSync = false) },
+    )
 
     constructor(repository: MemoRepository) : this(
         deleteAction = { memo -> repository.deleteMemo(memo) },

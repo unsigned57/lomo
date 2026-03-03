@@ -1,9 +1,6 @@
 package com.lomo.data.git
 
 import com.lomo.domain.model.GitSyncResult
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.RebaseCommand
 import org.eclipse.jgit.lib.BranchTrackingStatus
@@ -16,6 +13,9 @@ import org.eclipse.jgit.transport.URIish
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import org.eclipse.jgit.treewalk.TreeWalk
 import timber.log.Timber
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @Singleton
 class GitRepositoryPrimitives
@@ -37,12 +37,14 @@ class GitRepositoryPrimitives
             val existingUrl = config.getString("remote", "origin", "url")
             if (existingUrl != remoteUrl) {
                 if (existingUrl != null) {
-                    git.remoteSetUrl()
+                    git
+                        .remoteSetUrl()
                         .setRemoteName("origin")
                         .setRemoteUri(URIish(remoteUrl))
                         .call()
                 } else {
-                    git.remoteAdd()
+                    git
+                        .remoteAdd()
                         .setName("origin")
                         .setUri(URIish(remoteUrl))
                         .call()
@@ -68,7 +70,12 @@ class GitRepositoryPrimitives
             git: Git,
             branch: String,
         ): Boolean {
-            val lastCommit = git.log().setMaxCount(1).call().firstOrNull() ?: return false
+            val lastCommit =
+                git
+                    .log()
+                    .setMaxCount(1)
+                    .call()
+                    .firstOrNull() ?: return false
             if (!lastCommit.fullMessage.contains("via Lomo")) return false
 
             return try {
@@ -81,7 +88,8 @@ class GitRepositoryPrimitives
 
         fun abortRebaseQuietly(git: Git) {
             try {
-                git.rebase()
+                git
+                    .rebase()
                     .setOperation(RebaseCommand.Operation.ABORT)
                     .call()
             } catch (_: Exception) {
@@ -98,40 +106,54 @@ class GitRepositoryPrimitives
             force: Boolean = false,
         ): GitSyncResult {
             return try {
-                val pushResults = credentialStrategy.runWithCredentialFallback(credentials, "Push") { provider ->
-                    git.push()
-                        .setRemote("origin")
-                        .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
-                        .setCredentialsProvider(provider)
-                        .setForce(force)
-                        .call()
-                }
+                val pushResults =
+                    credentialStrategy.runWithCredentialFallback(credentials, "Push") { provider ->
+                        git
+                            .push()
+                            .setRemote("origin")
+                            .setRefSpecs(RefSpec("refs/heads/$branch:refs/heads/$branch"))
+                            .setCredentialsProvider(provider)
+                            .setForce(force)
+                            .call()
+                    }
                 for (pushResult in pushResults) {
                     for (update in pushResult.remoteUpdates) {
                         when (update.status) {
                             RemoteRefUpdate.Status.OK,
                             RemoteRefUpdate.Status.UP_TO_DATE,
-                            -> Unit
-                            RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD ->
+                            -> {
+                                Unit
+                            }
+
+                            RemoteRefUpdate.Status.REJECTED_NONFASTFORWARD -> {
                                 return GitSyncResult.Error(
                                     "Push rejected: non-fast-forward. Remote has diverged.",
                                 )
-                            RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED ->
+                            }
+
+                            RemoteRefUpdate.Status.REJECTED_REMOTE_CHANGED -> {
                                 return GitSyncResult.Error(
                                     "Push rejected: remote ref was updated during push.",
                                 )
-                            RemoteRefUpdate.Status.REJECTED_NODELETE ->
+                            }
+
+                            RemoteRefUpdate.Status.REJECTED_NODELETE -> {
                                 return GitSyncResult.Error(
                                     "Push rejected: remote does not allow branch deletion.",
                                 )
-                            RemoteRefUpdate.Status.REJECTED_OTHER_REASON ->
+                            }
+
+                            RemoteRefUpdate.Status.REJECTED_OTHER_REASON -> {
                                 return GitSyncResult.Error(
                                     "Push rejected: ${update.message ?: "unknown reason"}",
                                 )
-                            else ->
+                            }
+
+                            else -> {
                                 return GitSyncResult.Error(
                                     "Push failed with status: ${update.status}",
                                 )
+                            }
                         }
                     }
                 }

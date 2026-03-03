@@ -3,14 +3,14 @@ package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
+import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.ShareCardStyle
+import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.model.StorageFilenameFormats
-import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -34,8 +34,7 @@ class SettingsRepositoryImpl
                 StorageArea.VOICE -> dataStore.voiceUri.first() ?: dataStore.voiceDirectory.first()
             }?.let(::StorageLocation)
 
-        override fun observeDisplayName(area: StorageArea): Flow<String?> =
-            dataSource.getRootDisplayNameFlow(area.toStorageRootType())
+        override fun observeDisplayName(area: StorageArea): Flow<String?> = dataSource.getRootDisplayNameFlow(area.toStorageRootType())
 
         override suspend fun applyLocation(update: StorageAreaUpdate) {
             dataSource.setRoot(

@@ -12,8 +12,8 @@ object ShareErrorPresenter {
     fun message(
         error: ShareTransferError,
         isTechnicalMessage: (String) -> Boolean,
-    ): String {
-        return when (error.code) {
+    ): String =
+        when (error.code) {
             ShareTransferErrorCode.PAIRING_REQUIRED -> {
                 stringResource(R.string.share_error_set_password_first)
             }
@@ -62,7 +62,6 @@ object ShareErrorPresenter {
                 }
             }
         }
-    }
 
     @Composable
     fun detail(

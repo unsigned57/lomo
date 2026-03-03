@@ -1,9 +1,9 @@
 package com.lomo.app.architecture
 
-import java.io.File
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class AppLayerBoundaryTest {
     private val kotlinFileExtension = "kt"

@@ -55,13 +55,19 @@ class GitSyncEngineConflictTest {
         runTest {
             val remoteBareDir = File(tempRoot, "remote.git").also { it.mkdirs() }
             val remoteUrl = remoteBareDir.toURI().toString()
-            Git.init().setBare(true).setDirectory(remoteBareDir).call().use { }
+            Git
+                .init()
+                .setBare(true)
+                .setDirectory(remoteBareDir)
+                .call()
+                .use { }
 
             val seedDir = File(tempRoot, "seed").also { it.mkdirs() }
             createBaseCommitAndPush(seedDir, remoteUrl)
 
             val localDir = File(tempRoot, "local")
-            Git.cloneRepository()
+            Git
+                .cloneRepository()
                 .setURI(seedDir.toURI().toString())
                 .setDirectory(localDir)
                 .setBranch("main")
@@ -71,12 +77,14 @@ class GitSyncEngineConflictTest {
             Git.open(seedDir).use { seedGit ->
                 File(seedDir, "memo.md").writeText("remote change\n")
                 seedGit.add().addFilepattern("memo.md").call()
-                seedGit.commit()
+                seedGit
+                    .commit()
                     .setMessage("remote: update memo")
                     .setAuthor("Remote", "remote@test.local")
                     .setCommitter("Remote", "remote@test.local")
                     .call()
-                seedGit.push()
+                seedGit
+                    .push()
                     .setRemote("origin")
                     .setRefSpecs(RefSpec("refs/heads/main:refs/heads/main"))
                     .call()
@@ -91,7 +99,8 @@ class GitSyncEngineConflictTest {
 
             Git.open(seedDir).use { seedGit ->
                 seedGit.fetch().setRemote("origin").call()
-                seedGit.reset()
+                seedGit
+                    .reset()
                     .setMode(ResetCommand.ResetType.HARD)
                     .setRef("origin/main")
                     .call()
@@ -106,7 +115,8 @@ class GitSyncEngineConflictTest {
         Git.init().setDirectory(seedDir).call().use { seedGit ->
             File(seedDir, "memo.md").writeText("base\n")
             seedGit.add().addFilepattern("memo.md").call()
-            seedGit.commit()
+            seedGit
+                .commit()
                 .setMessage("base: add memo")
                 .setAuthor("Seed", "seed@test.local")
                 .setCommitter("Seed", "seed@test.local")
@@ -114,14 +124,20 @@ class GitSyncEngineConflictTest {
 
             val currentBranch = seedGit.repository.branch
             if (currentBranch != "main") {
-                seedGit.branchRename().setOldName(currentBranch).setNewName("main").call()
+                seedGit
+                    .branchRename()
+                    .setOldName(currentBranch)
+                    .setNewName("main")
+                    .call()
             }
 
-            seedGit.remoteAdd()
+            seedGit
+                .remoteAdd()
                 .setName("origin")
                 .setUri(URIish(remoteUrl))
                 .call()
-            seedGit.push()
+            seedGit
+                .push()
                 .setRemote("origin")
                 .setRefSpecs(RefSpec("refs/heads/main:refs/heads/main"))
                 .call()

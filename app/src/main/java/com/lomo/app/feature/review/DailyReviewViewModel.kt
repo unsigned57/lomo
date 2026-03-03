@@ -100,9 +100,9 @@ class DailyReviewViewModel
                         }
 
                         combine(rootDirectory, imageDirectory, imageMapProvider.imageMap) {
-                                rootDir,
-                                imageDir,
-                                currentImageMap,
+                            rootDir,
+                            imageDir,
+                            currentImageMap,
                             ->
                             UiMemoMappingInput(
                                 memos = rawMemos,

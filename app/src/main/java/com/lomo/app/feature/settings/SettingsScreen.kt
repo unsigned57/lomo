@@ -44,10 +44,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.ShareCardStyle
-import com.lomo.domain.model.SyncEngineState
-import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
+import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.ThemeMode
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback

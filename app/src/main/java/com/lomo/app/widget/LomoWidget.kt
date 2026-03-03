@@ -97,10 +97,10 @@ class LomoWidget : GlanceAppWidget() {
                 ) {
                     // App Icon
                     Image(
-                provider = ImageProvider(R.mipmap.ic_launcher),
-                contentDescription = context.getString(R.string.app_name),
-                modifier = GlanceModifier.size(48.dp)
-            )
+                        provider = ImageProvider(R.mipmap.ic_launcher),
+                        contentDescription = context.getString(R.string.app_name),
+                        modifier = GlanceModifier.size(48.dp),
+                    )
                     Spacer(modifier = GlanceModifier.width(8.dp))
                     // App Name
                     Text(
@@ -234,7 +234,5 @@ class LomoWidget : GlanceAppWidget() {
         }
     }
 
-    private fun stripMarkdown(content: String): String {
-        return MarkdownCleanupFormatter.stripForPlainText(content)
-    }
+    private fun stripMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)
 }

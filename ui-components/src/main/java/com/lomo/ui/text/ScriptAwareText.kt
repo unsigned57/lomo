@@ -109,9 +109,7 @@ private fun Char.isKoreanScript(): Boolean {
     return block == Character.UnicodeBlock.HANGUL_SYLLABLES
 }
 
-private fun normalizeHalfWidthPunctuation(
-    char: Char,
-): Char {
+private fun normalizeHalfWidthPunctuation(char: Char): Char {
     val mapped = char.toFullWidthPunctuationOrNull() ?: return char
     return mapped
 }

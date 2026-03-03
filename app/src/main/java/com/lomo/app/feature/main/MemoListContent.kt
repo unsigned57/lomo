@@ -29,9 +29,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import com.lomo.app.R
 import coil3.imageLoader
 import coil3.request.ImageRequest
+import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState

@@ -2,8 +2,8 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.MemoConstraints
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ValidateMemoContentUseCaseTest {

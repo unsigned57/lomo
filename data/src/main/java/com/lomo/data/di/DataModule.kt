@@ -10,10 +10,9 @@ import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
-import timber.log.Timber
-import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
+import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRefreshDbApplier
@@ -21,10 +20,10 @@ import com.lomo.data.repository.MemoRefreshEngine
 import com.lomo.data.repository.MemoRefreshParserWorker
 import com.lomo.data.repository.MemoRefreshPlanner
 import com.lomo.data.repository.MemoRepositoryImpl
-import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
-import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
+import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
+import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
@@ -34,14 +33,15 @@ import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncPolicyRepository
+import com.lomo.domain.repository.WorkspaceTransitionRepository
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import timber.log.Timber
 import javax.inject.Singleton
 
 @Module
@@ -101,21 +101,18 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideWorkspaceConfigSource(
-        dataSource: com.lomo.data.source.FileDataSource,
-    ): com.lomo.data.source.WorkspaceConfigSource = dataSource
+    fun provideWorkspaceConfigSource(dataSource: com.lomo.data.source.FileDataSource): com.lomo.data.source.WorkspaceConfigSource =
+        dataSource
 
     @Provides
     @Singleton
-    fun provideMarkdownStorageDataSource(
-        dataSource: com.lomo.data.source.FileDataSource,
-    ): com.lomo.data.source.MarkdownStorageDataSource = dataSource
+    fun provideMarkdownStorageDataSource(dataSource: com.lomo.data.source.FileDataSource): com.lomo.data.source.MarkdownStorageDataSource =
+        dataSource
 
     @Provides
     @Singleton
-    fun provideMediaStorageDataSource(
-        dataSource: com.lomo.data.source.FileDataSource,
-    ): com.lomo.data.source.MediaStorageDataSource = dataSource
+    fun provideMediaStorageDataSource(dataSource: com.lomo.data.source.FileDataSource): com.lomo.data.source.MediaStorageDataSource =
+        dataSource
 
     @Provides
     @Singleton
@@ -143,9 +140,7 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideWorkspaceTransitionRepositoryImpl(
-        memoDao: MemoDao,
-    ): WorkspaceTransitionRepositoryImpl =
+    fun provideWorkspaceTransitionRepositoryImpl(memoDao: MemoDao): WorkspaceTransitionRepositoryImpl =
         WorkspaceTransitionRepositoryImpl(
             memoDao = memoDao,
         )
@@ -273,9 +268,8 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideVoiceRecorder(
-        audioRecorder: com.lomo.data.media.AudioRecorder,
-    ): com.lomo.domain.repository.VoiceRecordingRepository = audioRecorder
+    fun provideVoiceRecorder(audioRecorder: com.lomo.data.media.AudioRecorder): com.lomo.domain.repository.VoiceRecordingRepository =
+        audioRecorder
 
     @Provides
     @Singleton

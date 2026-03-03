@@ -185,12 +185,19 @@ class FileDataSourceImpl
         override fun getRootDisplayNameFlow(type: StorageRootType): Flow<String?> =
             getRootFlow(type).map { uriOrPath ->
                 when {
-                    uriOrPath == null -> null
-                    isContentUri(uriOrPath) ->
+                    uriOrPath == null -> {
+                        null
+                    }
+
+                    isContentUri(uriOrPath) -> {
                         withContext(Dispatchers.IO) {
                             getDisplayName(Uri.parse(uriOrPath))
                         }
-                    else -> uriOrPath
+                    }
+
+                    else -> {
+                        uriOrPath
+                    }
                 }
             }
 

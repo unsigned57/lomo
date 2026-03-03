@@ -43,11 +43,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownRenderer
-import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
+import com.lomo.ui.theme.AppShapes
+import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId

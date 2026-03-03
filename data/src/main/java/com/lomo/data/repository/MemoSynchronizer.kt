@@ -29,10 +29,11 @@ class MemoSynchronizer
         private val flushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val outboxDrainSignal = Channel<Unit>(Channel.CONFLATED)
 
-        private val _outboxDrainCompleted = MutableSharedFlow<Unit>(
-            extraBufferCapacity = 1,
-            onBufferOverflow = BufferOverflow.DROP_OLDEST,
-        )
+        private val _outboxDrainCompleted =
+            MutableSharedFlow<Unit>(
+                extraBufferCapacity = 1,
+                onBufferOverflow = BufferOverflow.DROP_OLDEST,
+            )
         val outboxDrainCompleted: SharedFlow<Unit> = _outboxDrainCompleted.asSharedFlow()
 
         // Sync state for UI observation - helps prevent writes during active sync

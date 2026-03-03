@@ -376,7 +376,11 @@ private fun calculateWeeksToCoverEarliestDate(
 ): Int {
     val normalizedEarliestDate = earliestDate.coerceAtMost(today)
     val todayOffsetInWeek = today.dayOfWeek.value % DAYS_PER_WEEK
-    val daysBetween = ChronoUnit.DAYS.between(normalizedEarliestDate, today).toInt().coerceAtLeast(0)
+    val daysBetween =
+        ChronoUnit.DAYS
+            .between(normalizedEarliestDate, today)
+            .toInt()
+            .coerceAtLeast(0)
     val daysOutsideCurrentWeek = (daysBetween - todayOffsetInWeek).coerceAtLeast(0)
     return (daysOutsideCurrentWeek + DAYS_PER_WEEK - 1) / DAYS_PER_WEEK + 1
 }

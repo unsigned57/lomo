@@ -34,8 +34,7 @@ class ShareScreenLocalState {
     var showDevicesSection by mutableStateOf(false)
     var isDeviceNameFieldFocused by mutableStateOf(false)
 
-    fun canSaveDeviceName(currentDeviceName: String): Boolean =
-        deviceNameInput.trim() != currentDeviceName.trim()
+    fun canSaveDeviceName(currentDeviceName: String): Boolean = deviceNameInput.trim() != currentDeviceName.trim()
 }
 
 @Composable
