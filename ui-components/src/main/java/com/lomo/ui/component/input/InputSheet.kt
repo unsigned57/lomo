@@ -175,6 +175,7 @@ fun InputSheet(
 
     val hintText = remember(hints) { hints.randomOrNull().orEmpty() }
     val currentInputValue by rememberUpdatedState(inputValue)
+    val initialInputText = remember { inputValue.text }
 
     val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
@@ -215,7 +216,8 @@ fun InputSheet(
     }
 
     val requestDismiss: () -> Unit = {
-        if (currentInputValue.text.isNotBlank()) {
+        val hasUnsavedChanges = currentInputValue.text != initialInputText
+        if (hasUnsavedChanges) {
             showDiscardDialog = true
         } else {
             dismissSheet()
