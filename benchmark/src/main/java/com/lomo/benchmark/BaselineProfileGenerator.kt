@@ -8,7 +8,6 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
-import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkSetupContract
 import com.lomo.app.benchmark.BenchmarkSetupReceiver
 import org.junit.Rule
@@ -42,7 +41,6 @@ class BaselineProfileGenerator {
         val device =
             androidx.test.uiautomator.UiDevice
                 .getInstance(instrumentation)
-        val targetContext = instrumentation.targetContext
 
         prepareBenchmarkStorage(device)
 
@@ -56,7 +54,7 @@ class BaselineProfileGenerator {
             startActivityAndWait()
             device.waitForIdle()
 
-            dismissOptionalUpdateDialog(targetContext.getString(R.string.action_cancel))
+            dismissOptionalUpdateDialog(CANCEL_TEXT_CANDIDATES.first())
 
             runLargeListScrollPath()
             val createdMarker = runCreateMemoPath()

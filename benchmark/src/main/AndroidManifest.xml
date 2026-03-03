@@ -1,3 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+        Remove InitializationProvider from the benchmark test APK.
+        When instrumentation runs, both the app and test APK manifests are merged.
+        The test APK's InitializationProvider has resource IDs from its own resource table,
+        which don't match the app's resource table, causing Resources$NotFoundException.
+    -->
+    <application>
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="remove" />
+    </application>
 </manifest>
