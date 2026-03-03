@@ -204,10 +204,13 @@
     <string name="trash_title">Trash Bin</string>
     <string name="trash_empty_title">Trash is empty</string>
     <string name="trash_empty_desc">Deleted memos will appear here</string>
+    <string name="trash_clear_confirm_title">Clear trash?</string>
+    <string name="trash_clear_confirm_message">This will permanently delete all memos in trash.</string>
     <string name="action_restore">Restore</string>
     <string name="cd_restore_memo">Restore memo</string>
     <string name="action_delete_permanently">Delete Permanently</string>
     <string name="cd_delete_permanently">Delete permanently</string>
+    <string name="cd_clear_trash">Clear trash</string>
     <string name="error_unknown">Unknown error</string>
 
     <!-- FAB -->

@@ -137,6 +137,21 @@ class TrashViewModel
             }
         }
 
+        fun clearTrash() {
+            viewModelScope.launch {
+                val trashSnapshot = trashMemos.value
+                if (trashSnapshot.isEmpty()) return@launch
+
+                runCatching {
+                    trashSnapshot.forEach { memo ->
+                        repository.deletePermanently(memo)
+                    }
+                }.exceptionOrNull()?.let { throwable ->
+                    _errorMessage.value = throwable.toUserMessage("Failed to clear trash")
+                }
+            }
+        }
+
         fun clearError() {
             _errorMessage.value = null
         }

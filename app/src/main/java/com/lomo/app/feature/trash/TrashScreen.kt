@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -29,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -68,6 +70,7 @@ fun TrashScreen(
     val timeFormat = appPreferences.timeFormat
 
     var selectedMemo by remember { mutableStateOf<Memo?>(null) }
+    var showClearTrashDialog by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val listState =
@@ -106,6 +109,22 @@ fun TrashScreen(
                             contentDescription =
                                 androidx.compose.ui.res
                                     .stringResource(R.string.back),
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        enabled = trashMemos.isNotEmpty(),
+                        onClick = {
+                            haptic.heavy()
+                            showClearTrashDialog = true
+                        },
+                    ) {
+                        Icon(
+                            Icons.Rounded.DeleteSweep,
+                            contentDescription =
+                                androidx.compose.ui.res
+                                    .stringResource(R.string.cd_clear_trash),
                         )
                     }
                 },
@@ -198,6 +217,46 @@ fun TrashScreen(
             onDismiss = { selectedMemo = null },
             onRestore = { viewModel.restoreMemo(memo) },
             onDeletePermanently = { viewModel.deletePermanently(memo) },
+        )
+    }
+
+    if (showClearTrashDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearTrashDialog = false },
+            title = {
+                Text(
+                    androidx.compose.ui.res
+                        .stringResource(R.string.trash_clear_confirm_title),
+                )
+            },
+            text = {
+                Text(
+                    androidx.compose.ui.res
+                        .stringResource(R.string.trash_clear_confirm_message),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        haptic.heavy()
+                        showClearTrashDialog = false
+                        viewModel.clearTrash()
+                    },
+                ) {
+                    Text(
+                        androidx.compose.ui.res
+                            .stringResource(R.string.action_clear),
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearTrashDialog = false }) {
+                    Text(
+                        androidx.compose.ui.res
+                            .stringResource(R.string.action_cancel),
+                    )
+                }
+            },
         )
     }
 }

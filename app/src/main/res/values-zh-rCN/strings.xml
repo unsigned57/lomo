@@ -205,10 +205,13 @@
     <string name="trash_title">回收站</string>
     <string name="trash_empty_title">回收站为空</string>
     <string name="trash_empty_desc">删除的备忘录会显示在这里</string>
+    <string name="trash_clear_confirm_title">清空回收站？</string>
+    <string name="trash_clear_confirm_message">此操作会永久删除回收站中的所有备忘录。</string>
     <string name="action_restore">恢复</string>
     <string name="cd_restore_memo">恢复备忘录</string>
     <string name="action_delete_permanently">永久删除</string>
     <string name="cd_delete_permanently">永久删除</string>
+    <string name="cd_clear_trash">清空回收站</string>
     <string name="error_unknown">未知错误</string>
 
     <!-- FAB -->
