@@ -20,8 +20,8 @@ import com.lomo.ui.R
 
 @Composable
 fun LoadingOverlay(
-    message: String? = null,
     modifier: Modifier = Modifier,
+    message: String? = null,
 ) {
     val resolvedMessage = message ?: stringResource(R.string.loading_message)
     Surface(

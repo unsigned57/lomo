@@ -11,18 +11,24 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
+import com.lomo.domain.usecase.RestoreMemoVersionUseCase
+import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -104,6 +110,7 @@ class MainViewModelTest {
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
         every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
+        every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
         every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
 
         coEvery { appVersionRepository.getLastAppVersionOnce() } returns ""
@@ -179,6 +186,95 @@ class MainViewModelTest {
 
             assertEquals("", viewModel.searchQuery.value)
             assertNull(viewModel.selectedTag.value)
+        }
+
+    @Test
+    fun `galleryUiMemos keeps only image memos and remains sorted by timestamp descending`() =
+        runTest {
+            val newerImageMemo =
+                Memo(
+                    id = "memo-image-new",
+                    timestamp = 200L,
+                    content = "![new](images/new.jpg)",
+                    rawContent = "- 10:00 ![new](images/new.jpg)",
+                    dateKey = "2026_03_08",
+                    imageUrls = listOf("images/new.jpg"),
+                )
+            val noImageMemo =
+                Memo(
+                    id = "memo-no-image",
+                    timestamp = 150L,
+                    content = "plain text",
+                    rawContent = "- 10:00 plain text",
+                    dateKey = "2026_03_08",
+                )
+            val olderImageMemo =
+                Memo(
+                    id = "memo-image-old",
+                    timestamp = 100L,
+                    content = "![old](images/old.jpg)",
+                    rawContent = "- 10:00 ![old](images/old.jpg)",
+                    dateKey = "2026_03_07",
+                    imageUrls = listOf("images/old.jpg"),
+                )
+            every { repository.getAllMemosList() } returns flowOf(listOf(newerImageMemo, noImageMemo, olderImageMemo))
+
+            val viewModel = createViewModel()
+            val galleryUiMemos = viewModel.galleryUiMemos.first { it.size == 2 }
+
+            assertEquals(
+                listOf("memo-image-new", "memo-image-old"),
+                galleryUiMemos.map { it.memo.id },
+            )
+            assertEquals(
+                listOf(
+                    persistentListOf("images/new.jpg"),
+                    persistentListOf("images/old.jpg"),
+                ),
+                galleryUiMemos.map { it.imageUrls },
+            )
+        }
+
+    @Test
+    fun `resolveMemoById falls back to repository single lookup without full refresh`() =
+        runTest {
+            val memoId = "memo-single"
+            val memo =
+                Memo(
+                    id = memoId,
+                    timestamp = 321L,
+                    content = "memo-content",
+                    rawContent = "- 10:00 memo-content",
+                    dateKey = "2026_03_08",
+                )
+            coEvery { repository.getMemoById(memoId) } returns memo
+
+            val viewModel = createViewModel()
+            val resolved = viewModel.resolveMemoById(memoId)
+
+            assertEquals(memo, resolved)
+            coVerify(exactly = 0) { repository.refreshMemos() }
+        }
+
+    @Test
+    fun `appLockEnabled is shared as nullable state flow for splash and compose`() =
+        runTest {
+            val appLockEnabledFlow = MutableStateFlow(true)
+            every { appConfigRepository.isAppLockEnabled() } returns appLockEnabledFlow
+
+            val viewModel = createViewModel()
+
+            assertNull(viewModel.appLockEnabled.value)
+
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertTrue(viewModel.appLockEnabled.value == true)
+
+            appLockEnabledFlow.value = false
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertFalse(viewModel.appLockEnabled.value == true)
+            assertTrue(viewModel.appLockEnabled.value == false)
         }
 
     @Test
@@ -328,7 +424,11 @@ class MainViewModelTest {
             repository = repository,
             appConfigRepository = appConfigRepository,
             sidebarStateHolder = sidebarStateHolder,
-            versionHistoryCoordinator = MainVersionHistoryCoordinator(repository, gitSyncRepo),
+            versionHistoryCoordinator =
+                MainVersionHistoryCoordinator(
+                    loadMemoVersionHistoryUseCase = LoadMemoVersionHistoryUseCase(gitSyncRepo),
+                    restoreMemoVersionUseCase = RestoreMemoVersionUseCase(repository),
+                ),
             memoUiMapper = memoUiMapper,
             imageMapProvider = imageMapProvider,
             mainMemoMutationUseCase =
@@ -347,12 +447,21 @@ class MainViewModelTest {
                 ),
             startupCoordinator =
                 MainStartupCoordinator(
-                    appConfigRepository = appConfigRepository,
-                    mediaRepository = mediaRepository,
-                    initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                    syncAndRebuildUseCase = SyncAndRebuildUseCase(repository, gitSyncRepo, webDavSyncRepository, syncPolicyRepository),
-                    appVersionRepository = appVersionRepository,
-                    audioPlayerController = audioPlayerController,
+                    startupMaintenanceUseCase =
+                        StartupMaintenanceUseCase(
+                            directorySettingsRepository = appConfigRepository,
+                            mediaRepository = mediaRepository,
+                            initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
+                            syncAndRebuildUseCase =
+                                SyncAndRebuildUseCase(
+                                    repository,
+                                    gitSyncRepo,
+                                    webDavSyncRepository,
+                                    syncPolicyRepository,
+                                ),
+                            appVersionRepository = appVersionRepository,
+                            audioPlaybackController = audioPlayerController,
+                        ),
                 ),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
         )

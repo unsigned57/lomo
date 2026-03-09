@@ -45,7 +45,7 @@
     <string name="memo_info_characters_value">Characters: %1$d</string>
     <string name="memo_info_created_value">Created: %1$s</string>
     <string name="clipboard_label_memo">memo</string>
-    <string name="loading_message">Loading...</string>
+    <string name="loading_message">Loading…</string>
 
     <!-- Input Sheet -->
     <string name="input_discard_title">Discard draft?</string>

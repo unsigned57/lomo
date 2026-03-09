@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.compose.runtime.Composable
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun MemoInteractionHost(
@@ -36,6 +37,9 @@ fun MemoInteractionHost(
     isRecording: Boolean = false,
     recordingDuration: Long = 0L,
     recordingAmplitude: Int = 0,
+    isRecordingFlow: StateFlow<Boolean>? = null,
+    recordingDurationFlow: StateFlow<Long>? = null,
+    recordingAmplitudeFlow: StateFlow<Int>? = null,
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
@@ -81,6 +85,9 @@ fun MemoInteractionHost(
             isRecording = isRecording,
             recordingDuration = recordingDuration,
             recordingAmplitude = recordingAmplitude,
+            isRecordingFlow = isRecordingFlow,
+            recordingDurationFlow = recordingDurationFlow,
+            recordingAmplitudeFlow = recordingAmplitudeFlow,
             onStartRecording = onStartRecording,
             onStopRecording = onStopRecording,
             onCancelRecording = onCancelRecording,

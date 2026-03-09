@@ -149,7 +149,6 @@ class MainViewModel
 
         private val _rootDirectory = MutableStateFlow<String?>(null)
         val rootDirectory: StateFlow<String?> = _rootDirectory
-        private val visibleMemoIds = MutableStateFlow<Set<String>>(emptySet())
 
         val imageDirectory: StateFlow<String?> =
             appConfigRepository
@@ -209,19 +208,18 @@ class MainViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<MemoUiModel>> =
             combine(
-                combine(memos, rootDirectory, imageDirectory, imageMap, visibleMemoIds) {
+                combine(memos, rootDirectory, imageDirectory, imageMap) {
                     currentMemos,
                     rootDir,
                     imageDir,
                     currentImageMap,
-                    prioritizeIds,
                     ->
                     currentMemos to
                         UiMemoMappingInput(
                             rootDirectory = rootDir,
                             imageDirectory = imageDir,
                             imageMap = currentImageMap,
-                            prioritizedMemoIds = prioritizeIds,
+                            prioritizedMemoIds = emptySet(),
                         )
                 }.distinctUntilChanged()
                     .mapLatest { (currentMemos, input) ->
@@ -249,7 +247,10 @@ class MainViewModel
                     imageDir,
                     currentImageMap,
                     ->
-                    currentMemos to
+                    currentMemos
+                        .asSequence()
+                        .filter { memo -> memo.imageUrls.isNotEmpty() }
+                        .toList() to
                         UiMemoMappingInput(
                             rootDirectory = rootDir,
                             imageDirectory = imageDir,
@@ -351,13 +352,9 @@ class MainViewModel
                 return memo
             }
 
-            withContext(Dispatchers.IO) {
-                runCatching { repository.refreshMemos() }
-                    .onFailure { error ->
-                        Timber.w(error, "Failed to refresh memos for id=%s", memoId)
-                    }
+            return withContext(Dispatchers.IO) {
+                repository.getMemoById(memoId)
             }
-            return allMemos.value.firstOrNull { it.id == memoId }
         }
 
         fun deleteMemo(memo: Memo) {
@@ -483,6 +480,12 @@ class MainViewModel
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigRepository.appPreferencesState(viewModelScope)
 
+        val appLockEnabled: StateFlow<Boolean?> =
+            appConfigRepository
+                .isAppLockEnabled()
+                .map<Boolean, Boolean?> { it }
+                .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
         val activeDayCount: StateFlow<Int> =
             repository.activeDayCountState(viewModelScope)
 
@@ -528,12 +531,6 @@ class MainViewModel
 
         fun clearError() {
             _errorMessage.value = null
-        }
-
-        fun updateVisibleMemoIds(ids: Set<String>) {
-            if (visibleMemoIds.value != ids) {
-                visibleMemoIds.value = ids
-            }
         }
 
         private fun resolveMemoFlow(
@@ -587,5 +584,7 @@ data class MemoUiModel(
     val markdownNode: com.lomo.ui.component.markdown.ImmutableNode?,
     val tags: ImmutableList<String>,
     val imageUrls: ImmutableList<String> = persistentListOf(),
+    val shouldShowExpand: Boolean = false,
+    val collapsedSummary: String = "",
     val isDeleting: Boolean = false,
 )

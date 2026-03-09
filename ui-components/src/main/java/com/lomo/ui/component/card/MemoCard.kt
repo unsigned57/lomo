@@ -60,10 +60,10 @@ import java.time.format.DateTimeFormatter
 fun MemoCard(
     content: String,
     processedContent: String,
-    precomputedNode: com.lomo.ui.component.markdown.ImmutableNode? = null,
     timestamp: Long,
     tags: ImmutableList<String>,
     modifier: Modifier = Modifier,
+    precomputedNode: com.lomo.ui.component.markdown.ImmutableNode? = null,
     dateFormat: String = "yyyy-MM-dd",
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
@@ -75,21 +75,13 @@ fun MemoCard(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: Map<Int, Boolean> = emptyMap(), // State overlay for checkboxes
     onImageClick: ((String) -> Unit)? = null,
+    shouldShowExpand: Boolean = shouldShowMemoCardExpand(content),
+    collapsedSummary: String = buildMemoCardCollapsedSummary(content),
     menuContent: (@Composable () -> Unit)? = null,
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
-    // Heuristic for long content: > 600 chars or > 15 lines
-    val shouldShowExpand =
-        remember(content) {
-            content.length > EXPAND_CHAR_THRESHOLD ||
-                content.lines().size > EXPAND_LINE_THRESHOLD
-        }
     val isCollapsedPreview = shouldShowExpand && !isExpanded
-    val collapsedSummary =
-        remember(content) {
-            buildCollapsedSummary(content)
-        }
     val useCollapsedSummary = isCollapsedPreview && precomputedNode == null && collapsedSummary.isNotBlank()
 
     // Note: toggleTodo logic is now handled by MarkdownRenderer via onTodoClick callback
@@ -369,7 +361,11 @@ private const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
 private const val COLLAPSED_SUMMARY_MAX_LINES = 8
 private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
 
-private fun buildCollapsedSummary(content: String): String {
+fun shouldShowMemoCardExpand(content: String): Boolean =
+    content.length > EXPAND_CHAR_THRESHOLD ||
+        content.lineSequence().count() > EXPAND_LINE_THRESHOLD
+
+fun buildMemoCardCollapsedSummary(content: String): String {
     if (content.isBlank()) return ""
 
     val lines = mutableListOf<String>()

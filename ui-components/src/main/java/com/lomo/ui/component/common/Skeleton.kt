@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 
 @Composable
-fun ShimmerBrush(
+fun shimmerBrush(
     showShimmer: Boolean = true,
     targetValue: Float = 1000f,
 ): Brush =
@@ -68,7 +68,7 @@ fun ShimmerBrush(
 
 @Composable
 fun SkeletonMemoItem(modifier: Modifier = Modifier) {
-    val brush = ShimmerBrush()
+    val brush = shimmerBrush()
 
     Card(
         modifier = modifier.fillMaxWidth(),

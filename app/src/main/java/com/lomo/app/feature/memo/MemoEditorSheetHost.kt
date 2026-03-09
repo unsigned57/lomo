@@ -15,10 +15,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
 import java.io.File
+import kotlinx.coroutines.flow.StateFlow
 
 @Stable
 class MemoEditorController
@@ -93,12 +95,19 @@ fun MemoEditorSheetHost(
     isRecording: Boolean = false,
     recordingDuration: Long = 0L,
     recordingAmplitude: Int = 0,
+    isRecordingFlow: StateFlow<Boolean>? = null,
+    recordingDurationFlow: StateFlow<Long>? = null,
+    recordingAmplitudeFlow: StateFlow<Int>? = null,
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
     hints: List<String> = emptyList(),
 ) {
     if (!controller.isVisible) return
+
+    val isRecordingValue = isRecordingFlow?.collectAsStateWithLifecycle()?.value ?: isRecording
+    val recordingDurationValue = recordingDurationFlow?.collectAsStateWithLifecycle()?.value ?: recordingDuration
+    val recordingAmplitudeValue = recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value ?: recordingAmplitude
 
     val context = LocalContext.current
     val settingsNotSetMessage = stringResource(R.string.settings_not_set)
@@ -147,9 +156,9 @@ fun MemoEditorSheetHost(
             com.lomo.ui.component.input.InputSheetState(
                 inputValue = controller.inputValue,
                 availableTags = availableTags,
-                isRecording = isRecording,
-                recordingDuration = recordingDuration,
-                recordingAmplitude = recordingAmplitude,
+                isRecording = isRecordingValue,
+                recordingDuration = recordingDurationValue,
+                recordingAmplitude = recordingAmplitudeValue,
                 hints = hints,
             ),
         callbacks =

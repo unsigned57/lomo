@@ -22,7 +22,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -34,13 +33,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.R
 import com.lomo.ui.media.LocalAudioPlayerManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.isActive
+import java.util.Locale
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
@@ -77,15 +74,6 @@ fun AudioPlayerCard(
 
     val isCurrentItem = playbackState.isCurrentItem
     val isPlaying = playbackState.isPlaying
-
-    LaunchedEffect(isCurrentItem, isPlaying) {
-        if (isCurrentItem && isPlaying) {
-            while (currentCoroutineContext().isActive) {
-                playerManager.updateProgress()
-                delay(100)
-            }
-        }
-    }
 
     val progress =
         if (isCurrentItem && playbackState.durationMs > 0) {
@@ -149,7 +137,7 @@ fun AudioPlayerCard(
             val seconds = (position / 1000) % 60
 
             Text(
-                text = String.format("%02d:%02d", minutes, seconds),
+                text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

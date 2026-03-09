@@ -2,6 +2,8 @@ package com.lomo.app.feature.main
 
 import android.net.Uri
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
+import com.lomo.ui.component.card.shouldShowMemoCardExpand
 import com.lomo.ui.component.markdown.ImmutableNode
 import com.lomo.ui.component.markdown.MarkdownParser
 import kotlinx.collections.immutable.ImmutableList
@@ -86,6 +88,8 @@ class MemoUiMapper
                     else -> null
                 }
             val imageUrls = extractImageUrls(processedContent)
+            val shouldShowExpand = shouldShowMemoCardExpand(memo.content)
+            val collapsedSummary = buildMemoCardCollapsedSummary(memo.content)
 
             return MemoUiModel(
                 memo = memo,
@@ -93,6 +97,8 @@ class MemoUiMapper
                 markdownNode = parsedNode,
                 tags = memo.tags.toImmutableList(),
                 imageUrls = imageUrls,
+                shouldShowExpand = shouldShowExpand,
+                collapsedSummary = collapsedSummary,
                 isDeleting = isDeleting,
             )
         }

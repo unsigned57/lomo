@@ -1,5 +1,6 @@
 package com.lomo.ui.util
 
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -63,7 +64,11 @@ fun ProvideAppHapticFeedback(
                     }
 
                     override fun error() {
-                        view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            view.performHapticFeedback(HapticFeedbackConstants.REJECT)
+                        } else {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        }
                     }
                 }
             } else {

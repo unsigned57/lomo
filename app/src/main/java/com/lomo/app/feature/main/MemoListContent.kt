@@ -32,12 +32,13 @@ import androidx.compose.ui.unit.dp
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import com.lomo.app.R
+import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
 
 private const val PRELOAD_LOOKAHEAD_COUNT = 5
-private const val PRELOAD_PRIORITIZE_EXTRA = 8
 private const val PRELOAD_EVENT_THROTTLE_MS = 150L
 private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
@@ -52,7 +53,6 @@ internal fun MemoListContent(
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
-    onVisibleMemoIdsChanged: (Set<String>) -> Unit,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -60,7 +60,7 @@ internal fun MemoListContent(
     doubleTapEditEnabled: Boolean = true,
     freeTextCopyEnabled: Boolean = false,
     onTagClick: (String) -> Unit,
-    onImageClick: (String) -> Unit,
+    onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
@@ -72,20 +72,6 @@ internal fun MemoListContent(
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.layoutInfo.visibleItemsInfo.size
         }.collect { (firstVisible, visibleCount) ->
-            if (memos.isNotEmpty()) {
-                val endExclusive =
-                    (firstVisible + visibleCount + PRELOAD_PRIORITIZE_EXTRA)
-                        .coerceAtMost(memos.size)
-                val prioritizedIds =
-                    (firstVisible until endExclusive)
-                        .asSequence()
-                        .map { index -> memos[index].memo.id }
-                        .toSet()
-                onVisibleMemoIdsChanged(prioritizedIds)
-            } else {
-                onVisibleMemoIdsChanged(emptySet())
-            }
-
             val preloadStart = firstVisible + visibleCount
             val preloadEnd = preloadStart + PRELOAD_LOOKAHEAD_COUNT
             val preloadCandidates =
@@ -154,6 +140,17 @@ internal fun MemoListContent(
                     remember(uiModel.memo, onTodoClick) {
                         { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
                     }
+                val stableImageClick =
+                    remember(uiModel.imageUrls, onImageClick) {
+                        { url: String ->
+                            onImageClick(
+                                createImageViewerRequest(
+                                    imageUrls = uiModel.imageUrls,
+                                    clickedUrl = url,
+                                ),
+                            )
+                        }
+                    }
 
                 MemoCardEntry(
                     uiModel = uiModel,
@@ -164,7 +161,7 @@ internal fun MemoListContent(
                     onMemoEdit = onMemoDoubleClick,
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
-                    onImageClick = onImageClick,
+                    onImageClick = stableImageClick,
                     onShowMenu = onShowMemoMenu,
                     modifier =
                         Modifier

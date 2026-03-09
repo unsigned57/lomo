@@ -80,6 +80,7 @@ fun SidebarDrawer(
     stats: SidebarStats,
     memoCountByDate: Map<LocalDate, Int>,
     tags: List<SidebarTag>,
+    modifier: Modifier = Modifier,
     currentDestination: SidebarDestination = SidebarDestination.Memo,
     onMemoClick: () -> Unit = {},
     onTrashClick: () -> Unit = {},
@@ -88,7 +89,6 @@ fun SidebarDrawer(
     onTagClick: (String) -> Unit = {},
     onHeatmapDateLongPress: (LocalDate) -> Unit = {},
     onSettingsClick: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val tagTree = remember(tags) { buildTagTree(tags) }

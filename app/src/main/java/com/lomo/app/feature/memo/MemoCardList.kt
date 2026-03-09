@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
@@ -39,7 +41,7 @@ fun MemoCardList(
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     modifier: Modifier = Modifier,
-    onImageClick: (String) -> Unit = {},
+    onImageClick: (ImageViewerRequest) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
 ) {
@@ -54,6 +56,17 @@ fun MemoCardList(
             contentType = { "memo" },
         ) { uiModel ->
             val memo = uiModel.memo
+            val stableImageClick =
+                remember(uiModel.imageUrls, onImageClick) {
+                    { url: String ->
+                        onImageClick(
+                            createImageViewerRequest(
+                                imageUrls = uiModel.imageUrls,
+                                clickedUrl = url,
+                            ),
+                        )
+                    }
+                }
 
             val itemModifier =
                 when (animation) {
@@ -99,7 +112,7 @@ fun MemoCardList(
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     onMemoEdit = onMemoEdit,
                     onShowMenu = onShowMenu,
-                    onImageClick = onImageClick,
+                    onImageClick = stableImageClick,
                 )
             }
         }

@@ -51,6 +51,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
+import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.rememberMemoEditorController
@@ -89,7 +90,7 @@ fun MainScreen(
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToTag: (String) -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
@@ -121,11 +122,6 @@ fun MainScreen(
     val sharedContentEvents by viewModel.sharedContentEvents.collectAsStateWithLifecycle()
     val pendingSharedImageEvents by viewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
     val appActionEvents by viewModel.appActionEvents.collectAsStateWithLifecycle()
-
-    // Recording State (from RecordingViewModel)
-    val isRecording by recordingViewModel.isRecording.collectAsStateWithLifecycle()
-    val recordingDuration by recordingViewModel.recordingDuration.collectAsStateWithLifecycle()
-    val recordingAmplitude by recordingViewModel.recordingAmplitude.collectAsStateWithLifecycle()
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val imageDir by viewModel.imageDirectory.collectAsStateWithLifecycle()
@@ -226,9 +222,9 @@ fun MainScreen(
             }
         },
         availableTags = allTags,
-        isRecording = isRecording,
-        recordingDuration = recordingDuration,
-        recordingAmplitude = recordingAmplitude,
+        isRecordingFlow = recordingViewModel.isRecording,
+        recordingDurationFlow = recordingViewModel.recordingDuration,
+        recordingAmplitudeFlow = recordingViewModel.recordingAmplitude,
         onStartRecording = {
             if (voiceDir == null) {
                 directoryGuideController.requestVoice()
@@ -327,7 +323,6 @@ fun MainScreen(
                 uiMemos = uiMemos,
                 listState = listState,
                 isRefreshing = isRefreshing,
-                onVisibleMemoIdsChanged = viewModel::updateVisibleMemoIds,
                 onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
@@ -406,7 +401,6 @@ private fun MainScreenRenderHost(
     uiMemos: List<MemoUiModel>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
-    onVisibleMemoIdsChanged: (Set<String>) -> Unit,
     onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -543,7 +537,6 @@ private fun MainScreenRenderHost(
                                             listState = listState,
                                             isRefreshing = isRefreshing,
                                             onRefresh = actions.onRefresh,
-                                            onVisibleMemoIdsChanged = onVisibleMemoIdsChanged,
                                             onTodoClick = onTodoClick,
                                             dateFormat = dateFormat,
                                             timeFormat = timeFormat,

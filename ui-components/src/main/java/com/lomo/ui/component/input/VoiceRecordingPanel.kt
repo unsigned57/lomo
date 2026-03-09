@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import java.util.Locale
 
 data class VoiceRecordingPanelState(
     val recordingDuration: Long = 0L,
@@ -63,7 +64,7 @@ fun VoiceRecordingPanel(
         Spacer(modifier = Modifier.height(AppSpacing.Medium))
 
         Text(
-            text = String.format("%02d:%02d", minutes, seconds),
+            text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
             style = MaterialTheme.typography.displayMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

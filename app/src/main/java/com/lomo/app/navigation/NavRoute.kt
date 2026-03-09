@@ -26,6 +26,8 @@ sealed interface NavRoute {
     @Serializable
     data class ImageViewer(
         val url: String,
+        val payloadKey: String,
+        val initialIndex: Int,
     ) : NavRoute
 
     @Serializable
@@ -71,6 +73,70 @@ object ShareRoutePayloadStore {
         val now = System.currentTimeMillis()
         pruneLocked(now)
         return store.remove(key)?.content
+    }
+
+    @Synchronized
+    fun clearForTest() {
+        store.clear()
+    }
+
+    private fun pruneLocked(now: Long) {
+        val iterator = store.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next().value
+            if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun trimLocked() {
+        while (store.size >= MAX_ENTRIES) {
+            val oldestKey = store.entries.firstOrNull()?.key ?: return
+            store.remove(oldestKey)
+        }
+    }
+}
+
+/**
+ * Keeps image viewer payload out of route args to avoid oversized navigation params.
+ * Entries are cached and pruned by age/size so viewer state survives recomposition/config changes.
+ */
+object ImageViewerRoutePayloadStore {
+    private data class Entry(
+        val imageUrls: List<String>,
+        val createdAtMillis: Long,
+    )
+
+    private const val MAX_ENTRIES = 64
+    private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
+    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, 0.75f, true)
+
+    @Synchronized
+    fun putImageUrls(imageUrls: List<String>): String {
+        val now = System.currentTimeMillis()
+        pruneLocked(now)
+        trimLocked()
+
+        val key = UUID.randomUUID().toString()
+        store[key] =
+            Entry(
+                imageUrls =
+                    imageUrls
+                        .asSequence()
+                        .map(String::trim)
+                        .filter(String::isNotEmpty)
+                        .toList(),
+                createdAtMillis = now,
+            )
+        return key
+    }
+
+    @Synchronized
+    fun getImageUrls(key: String): List<String>? {
+        val now = System.currentTimeMillis()
+        pruneLocked(now)
+        return store[key]?.imageUrls
     }
 
     @Synchronized

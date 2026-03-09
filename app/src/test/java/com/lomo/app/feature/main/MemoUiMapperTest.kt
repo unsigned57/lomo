@@ -154,6 +154,43 @@ class MemoUiMapperTest {
     }
 
     @Test
+    fun `mapToUiModel precomputes collapsed summary metadata`() {
+        val memo =
+            memo(
+                content =
+                    """
+                    # Title
+                    plain body line
+                    ![img](foo.png)
+                    [link](https://example.com)
+                    `code`
+                    extra line
+                    extra line 2
+                    extra line 3
+                    extra line 4
+                    extra line 5
+                    extra line 6
+                    extra line 7
+                    extra line 8
+                    extra line 9
+                    extra line 10
+                    extra line 11
+                    extra line 12
+                    """.trimIndent(),
+                tags = emptyList(),
+            )
+
+        val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
+
+        assertTrue(uiModel.shouldShowExpand)
+        assertFalse(uiModel.collapsedSummary.contains("![img](foo.png)"))
+        assertFalse(uiModel.collapsedSummary.contains("[link](https://example.com)"))
+        assertFalse(uiModel.collapsedSummary.contains("`code`"))
+        assertTrue(uiModel.collapsedSummary.contains("Title"))
+        assertTrue(uiModel.collapsedSummary.contains("plain body line"))
+    }
+
+    @Test
     fun `mapToUiModel reparses markdown when processed content changed`() {
         val memo =
             memo(

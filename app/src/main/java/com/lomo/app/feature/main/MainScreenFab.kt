@@ -15,9 +15,6 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.ui.theme.MotionTokens
 
-/**
- * P2-008 Refactor: Extracted FAB from MainScreen.kt
- */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun MainFab(

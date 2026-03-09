@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.compose.material3.DrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -18,7 +19,7 @@ fun MainScreenNavigationActionHost(
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToTag: (String) -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
     onClearSidebarFilters: () -> Unit,
@@ -65,7 +66,7 @@ fun rememberMainScreenActions(
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToTag: (String) -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
     onClearSidebarFilters: () -> Unit,
@@ -158,7 +159,7 @@ data class MainScreenActions(
     val onMenuOpen: () -> Unit,
     val onFabClick: () -> Unit,
     val onRefresh: () -> Unit,
-    val onNavigateToImage: (String) -> Unit,
+    val onNavigateToImage: (ImageViewerRequest) -> Unit,
     val onDailyReviewClick: () -> Unit,
     val onGalleryClick: () -> Unit,
 )

@@ -41,7 +41,7 @@
     <string name="memo_info_characters_value">字符数：%1$d</string>
     <string name="memo_info_created_value">创建时间：%1$s</string>
     <string name="clipboard_label_memo">备忘录</string>
-    <string name="loading_message">加载中...</string>
+    <string name="loading_message">加载中…</string>
 
     <!-- Input Sheet -->
     <string name="input_discard_title">放弃草稿？</string>

@@ -36,12 +36,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.lifecycleScope
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.app.util.ShareUtils
-import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.media.LocalAudioPlayerManager
@@ -49,8 +47,6 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.MotionTokens
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -61,8 +57,6 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var shareUtils: ShareUtils
 
     @Inject lateinit var shareServiceManager: LanShareService
-
-    @Inject lateinit var appConfigRepository: AppConfigRepository
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -76,14 +70,8 @@ class MainActivity : AppCompatActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        var isAppLockConfigResolved = false
-        lifecycleScope.launch {
-            runCatching { appConfigRepository.isAppLockEnabled().first() }
-            isAppLockConfigResolved = true
-        }
-
         splashScreen.setKeepOnScreenCondition {
-            viewModel.uiState.value is MainViewModel.MainScreenState.Loading || !isAppLockConfigResolved
+            viewModel.uiState.value is MainViewModel.MainScreenState.Loading || viewModel.appLockEnabled.value == null
         }
 
         enableEdgeToEdge()
@@ -98,11 +86,7 @@ class MainActivity : AppCompatActivity() {
                 applyAppNightMode(this@MainActivity, appPreferences.themeMode)
             }
 
-            val appLockEnabled by
-                appConfigRepository
-                    .isAppLockEnabled()
-                    .map<Boolean, Boolean?> { it }
-                    .collectAsStateWithLifecycle(initialValue = null)
+            val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
 
             var hasUnlockedThisLaunch by remember { mutableStateOf(false) }
             var hasRequestedAutoUnlock by remember { mutableStateOf(false) }

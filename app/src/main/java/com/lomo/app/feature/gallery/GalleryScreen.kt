@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
@@ -39,7 +40,7 @@ import com.lomo.ui.theme.AppSpacing
 @Composable
 fun GalleryScreen(
     onBackClick: () -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = hiltViewModel(),
 ) {

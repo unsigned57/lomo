@@ -45,6 +45,8 @@ fun MemoCardEntry(
         onTagClick = onTagClick,
         onTodoClick = onTodoClick,
         onImageClick = onImageClick,
+        shouldShowExpand = uiModel.shouldShowExpand,
+        collapsedSummary = uiModel.collapsedSummary,
         onMenuClick = {
             onShowMenu(
                 memoMenuState(

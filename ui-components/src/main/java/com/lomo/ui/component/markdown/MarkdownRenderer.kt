@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -42,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.BlockQuote
@@ -75,7 +78,23 @@ fun MarkdownRenderer(
     precomputedNode: ImmutableNode? = null,
     enableTextSelection: Boolean = false,
 ) {
-    val root = precomputedNode ?: remember(content) { MarkdownParser.parse(content) }
+    val root by
+        produceState<ImmutableNode?>(
+            initialValue = precomputedNode,
+            key1 = content,
+            key2 = precomputedNode,
+        ) {
+            value = precomputedNode ?: withContext(Dispatchers.Default) { MarkdownParser.parse(content) }
+        }
+
+    if (root == null) {
+        MarkdownRendererFallback(
+            content = content,
+            modifier = modifier,
+            enableTextSelection = enableTextSelection,
+        )
+        return
+    }
 
     val latestOnTotalBlocks by rememberUpdatedState(onTotalBlocks)
     val totalBlocks =
@@ -84,7 +103,7 @@ fun MarkdownRenderer(
                 null
             } else {
                 var count = 0
-                var blockNode = root.node.firstChild
+                var blockNode = root?.node?.firstChild
                 while (blockNode != null) {
                     count++
                     blockNode = blockNode.next
@@ -97,9 +116,9 @@ fun MarkdownRenderer(
         totalBlocks?.let { latestOnTotalBlocks?.invoke(it) }
     }
 
-    val content: @Composable () -> Unit = {
+    val renderedContent: @Composable () -> Unit = {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            var node = root.node.firstChild
+            var node = root?.node?.firstChild
             var childIndex = 0
             while (node != null && childIndex < maxVisibleBlocks) {
                 val firstImage = node.toImageOnlyParagraphOrNull()
@@ -134,10 +153,37 @@ fun MarkdownRenderer(
 
     if (enableTextSelection) {
         SelectionContainer {
-            content()
+            renderedContent()
         }
     } else {
-        content()
+        renderedContent()
+    }
+}
+
+@Composable
+private fun MarkdownRendererFallback(
+    content: String,
+    modifier: Modifier = Modifier,
+    enableTextSelection: Boolean = false,
+) {
+    val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
+    val textStyle = MaterialTheme.typography.bodyLarge.scriptAwareFor(normalizedContent)
+
+    val fallbackContent: @Composable () -> Unit = {
+        Text(
+            text = normalizedContent,
+            style = textStyle,
+            textAlign = normalizedContent.scriptAwareTextAlign(),
+            modifier = modifier,
+        )
+    }
+
+    if (enableTextSelection) {
+        SelectionContainer {
+            fallbackContent()
+        }
+    } else {
+        fallbackContent()
     }
 }
 

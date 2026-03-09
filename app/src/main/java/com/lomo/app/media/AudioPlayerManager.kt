@@ -15,9 +15,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,6 +33,7 @@ class AudioPlayerManager
     ) : AudioPlaybackController {
         private companion object {
             const val TAG = "AudioPlayerManager"
+            const val PROGRESS_UPDATE_INTERVAL_MS = 100L
         }
 
         private var player: ExoPlayer? = null
@@ -54,6 +57,7 @@ class AudioPlayerManager
 
         private var scopeJob = SupervisorJob()
         private var scope = createScope(scopeJob)
+        private var progressUpdateJob: Job? = null
 
         private fun createScope(job: Job): CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
 
@@ -72,10 +76,17 @@ class AudioPlayerManager
                             object : Player.Listener {
                                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                                     _isPlaying.value = isPlaying
+                                    if (isPlaying) {
+                                        startProgressUpdates()
+                                    } else {
+                                        updateProgress()
+                                        stopProgressUpdates()
+                                    }
                                 }
 
                                 override fun onPlaybackStateChanged(playbackState: Int) {
                                     if (playbackState == Player.STATE_ENDED) {
+                                        stopProgressUpdates()
                                         _currentPlayingUri.value = null
                                         _isPlaying.value = false
                                         _playbackPosition.value = 0
@@ -103,7 +114,32 @@ class AudioPlayerManager
         }
 
         fun cancelScope() {
+            stopProgressUpdates()
             scopeJob.cancel()
+        }
+
+        private fun startProgressUpdates() {
+            if (progressUpdateJob?.isActive == true) {
+                return
+            }
+
+            ensureActiveScope()
+            progressUpdateJob =
+                scope.launch {
+                    while (isActive) {
+                        val currentPlayer = player
+                        if (currentPlayer == null || !currentPlayer.isPlaying) {
+                            break
+                        }
+                        updateProgress()
+                        delay(PROGRESS_UPDATE_INTERVAL_MS)
+                    }
+                }
+        }
+
+        private fun stopProgressUpdates() {
+            progressUpdateJob?.cancel()
+            progressUpdateJob = null
         }
 
         override fun play(uri: String) {
@@ -125,7 +161,10 @@ class AudioPlayerManager
                     }
                 } else {
                     try {
+                        stopProgressUpdates()
                         currentPlayer.stop()
+                        _playbackPosition.value = 0
+                        _duration.value = 0
                         currentPlayer.setMediaItem(MediaItem.fromUri(resolvedUri))
                         currentPlayer.prepare()
                         currentPlayer.play()
@@ -140,6 +179,7 @@ class AudioPlayerManager
 
         override fun seekTo(positionMs: Long) {
             player?.seekTo(positionMs)
+            updateProgress()
         }
 
         override fun pause() {
@@ -147,6 +187,7 @@ class AudioPlayerManager
         }
 
         override fun stop() {
+            stopProgressUpdates()
             player?.stop()
             _currentPlayingUri.value = null
             _isPlaying.value = false
@@ -164,10 +205,8 @@ class AudioPlayerManager
 
         override fun updateProgress() {
             player?.let {
-                if (it.isPlaying) {
-                    _playbackPosition.value = it.currentPosition
-                    updateDuration()
-                }
+                _playbackPosition.value = it.currentPosition
+                updateDuration()
             }
         }
 

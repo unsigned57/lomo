@@ -12,7 +12,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -59,8 +58,8 @@ import java.util.Locale
 @Composable
 fun CalendarHeatmap(
     memoCountByDate: Map<LocalDate, Int>,
-    onDateLongPress: (LocalDate) -> Unit = {},
     modifier: Modifier = Modifier,
+    onDateLongPress: (LocalDate) -> Unit = {},
 ) {
     val today = LocalDate.now()
     val datePattern = stringResource(R.string.calendar_heatmap_date_format)
@@ -106,8 +105,7 @@ fun CalendarHeatmap(
     val latestOnDateLongPress by rememberUpdatedState(onDateLongPress)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val horizontalScrollState = rememberScrollState()
-
-    BoxWithConstraints(
+    Box(
         modifier =
             modifier
                 .padding(vertical = 4.dp),

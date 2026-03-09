@@ -31,6 +31,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
@@ -41,7 +42,7 @@ import com.lomo.ui.component.common.EmptyState
 fun TagFilterScreen(
     tagName: String,
     onBackClick: () -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {

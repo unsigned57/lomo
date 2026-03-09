@@ -14,7 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -40,7 +40,7 @@ class LomoApplication :
             Timber.plant(Timber.DebugTree())
         }
 
-        applyStartupNightMode()
+        applyStartupNightModeAsync()
 
         // Defer non-critical worker registration off the main thread.
         appScope.launch {
@@ -58,14 +58,18 @@ class LomoApplication :
         }
     }
 
-    private fun applyStartupNightMode() {
-        val themeMode =
-            runCatching {
-                runBlocking { appConfigRepository.getThemeMode().first() }
-            }.getOrElse { error ->
-                Timber.w(error, "Failed to load persisted theme mode, fallback to system")
-                ThemeMode.SYSTEM
+    private fun applyStartupNightModeAsync() {
+        appScope.launch {
+            val themeMode =
+                runCatching {
+                    appConfigRepository.getThemeMode().first()
+                }.getOrElse { error ->
+                    Timber.w(error, "Failed to load persisted theme mode, fallback to system")
+                    ThemeMode.SYSTEM
+                }
+            withContext(Dispatchers.Main.immediate) {
+                applyAppNightMode(this@LomoApplication, themeMode)
             }
-        applyAppNightMode(this, themeMode)
+        }
     }
 }

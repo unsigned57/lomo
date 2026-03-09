@@ -36,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -101,6 +103,25 @@ fun MemoActionSheet(
             onEdit = onEdit,
             onDelete = onDelete,
         )
+    val showSwipeAffordanceIndicator by
+        remember(actionsScrollState, useHorizontalScroll, showSwipeAffordance) {
+            derivedStateOf {
+                useHorizontalScroll && showSwipeAffordance && actionsScrollState.maxValue > 0
+            }
+        }
+    val swipeAffordanceProgress by
+        remember(actionsScrollState) {
+            derivedStateOf {
+                val maxValue = actionsScrollState.maxValue
+                if (maxValue > 0) {
+                    actionsScrollState.value.toFloat() / maxValue.toFloat()
+                } else {
+                    0f
+                }
+            }
+        }
+    val canScrollBackward by remember(actionsScrollState) { derivedStateOf { actionsScrollState.canScrollBackward } }
+    val canScrollForward by remember(actionsScrollState) { derivedStateOf { actionsScrollState.canScrollForward } }
 
     Column(
         modifier =
@@ -148,15 +169,15 @@ fun MemoActionSheet(
             }
         }
 
-        if (useHorizontalScroll && showSwipeAffordance && actionsScrollState.maxValue > 0) {
+        if (showSwipeAffordanceIndicator) {
             SwipeAffordanceIndicator(
                 modifier =
                     Modifier
                         .fillMaxWidth()
                         .padding(bottom = 8.dp),
-                progress = actionsScrollState.value.toFloat() / actionsScrollState.maxValue.toFloat(),
-                canScrollBackward = actionsScrollState.canScrollBackward,
-                canScrollForward = actionsScrollState.canScrollForward,
+                progress = swipeAffordanceProgress,
+                canScrollBackward = canScrollBackward,
+                canScrollForward = canScrollForward,
             )
         }
 
@@ -368,7 +389,7 @@ private fun SwipeAffordanceIndicator(
             Box(
                 modifier =
                     Modifier
-                        .offset(x = maxTravel * animatedProgress)
+                        .offset { IntOffset(x = (maxTravel * animatedProgress).roundToPx(), y = 0) }
                         .width(thumbWidth)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(999.dp))

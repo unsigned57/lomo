@@ -34,19 +34,21 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.common.UiState
+import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
-import com.lomo.ui.util.UiState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DailyReviewScreen(
     onBackClick: () -> Unit,
-    onNavigateToImage: (String) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     onNavigateToMemo: (String) -> Unit = {},
     viewModel: DailyReviewViewModel = hiltViewModel(),
@@ -168,6 +170,17 @@ fun DailyReviewScreen(
                                             .fillMaxWidth(),
                                 ) { page ->
                                     val memo = memos[page]
+                                    val onMemoImageClick =
+                                        remember(memo.imageUrls, onNavigateToImage) {
+                                            { url: String ->
+                                                onNavigateToImage(
+                                                    createImageViewerRequest(
+                                                        imageUrls = memo.imageUrls,
+                                                        clickedUrl = url,
+                                                    ),
+                                                )
+                                            }
+                                        }
                                     Box(
                                         modifier = Modifier.fillMaxSize(),
                                         contentAlignment = Alignment.Center,
@@ -187,7 +200,7 @@ fun DailyReviewScreen(
                                                 freeTextCopyEnabled = freeTextCopyEnabled,
                                                 onMemoEdit = openEditor,
                                                 onShowMenu = showMenu,
-                                                onImageClick = onNavigateToImage,
+                                                onImageClick = onMemoImageClick,
                                             )
 
                                             Text(

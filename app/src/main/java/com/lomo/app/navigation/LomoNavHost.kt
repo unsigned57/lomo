@@ -11,6 +11,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.lomo.app.feature.gallery.GalleryScreen
+import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.ImageViewerScreen
 import com.lomo.app.feature.main.MainScreen
 import com.lomo.app.feature.main.MainViewModel
@@ -53,6 +54,26 @@ fun LomoNavHost(
         )
     }
 
+    val navigateToImage: (ImageViewerRequest) -> Unit = { request ->
+        val imageUrls = request.imageUrls.ifEmpty { emptyList() }
+        val clampedIndex =
+            if (imageUrls.isEmpty()) {
+                0
+            } else {
+                request.initialIndex.coerceIn(0, imageUrls.lastIndex)
+            }
+        val fallbackUrl = imageUrls.getOrNull(clampedIndex).orEmpty()
+        val encodedFallbackUrl = URLEncoder.encode(fallbackUrl, StandardCharsets.UTF_8.toString())
+        val payloadKey = ImageViewerRoutePayloadStore.putImageUrls(imageUrls)
+        navController.navigate(
+            NavRoute.ImageViewer(
+                url = encodedFallbackUrl,
+                payloadKey = payloadKey,
+                initialIndex = clampedIndex,
+            ),
+        )
+    }
+
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     androidx.compose.animation.SharedTransitionLayout {
         androidx.compose.runtime.CompositionLocalProvider(
@@ -76,10 +97,7 @@ fun LomoNavHost(
                             onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
                             onNavigateToSearch = { navController.navigate(NavRoute.Search) },
                             onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
-                            onNavigateToImage = { url ->
-                                val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
-                                navController.navigate(NavRoute.ImageViewer(encoded))
-                            },
+                            onNavigateToImage = navigateToImage,
                             onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
                             onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
                             onNavigateToShare = navigateToShare,
@@ -114,10 +132,7 @@ fun LomoNavHost(
                         TagFilterScreen(
                             tagName = tag.tagName,
                             onBackClick = popBackStackSafely,
-                            onNavigateToImage = { url ->
-                                val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
-                                navController.navigate(NavRoute.ImageViewer(encoded))
-                            },
+                            onNavigateToImage = navigateToImage,
                             onNavigateToShare = navigateToShare,
                         )
                     }
@@ -129,10 +144,7 @@ fun LomoNavHost(
                     ) {
                         com.lomo.app.feature.review.DailyReviewScreen(
                             onBackClick = popBackStackSafely,
-                            onNavigateToImage = { url ->
-                                val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
-                                navController.navigate(NavRoute.ImageViewer(encoded))
-                            },
+                            onNavigateToImage = navigateToImage,
                             onNavigateToShare = navigateToShare,
                             onNavigateToMemo = { memoId ->
                                 viewModel.requestFocusMemo(memoId)
@@ -146,10 +158,7 @@ fun LomoNavHost(
                     GalleryScreen(
                         viewModel = viewModel,
                         onBackClick = popBackStackSafely,
-                        onNavigateToImage = { url ->
-                            val encoded = URLEncoder.encode(url, StandardCharsets.UTF_8.toString())
-                            navController.navigate(NavRoute.ImageViewer(encoded))
-                        },
+                        onNavigateToImage = navigateToImage,
                         onNavigateToShare = navigateToShare,
                     )
                 }
@@ -169,11 +178,18 @@ fun LomoNavHost(
                 ) { entry ->
                     val route = entry.toRoute<NavRoute.ImageViewer>()
                     val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
+                    val imageUrls =
+                        androidx.compose.runtime.remember(route.payloadKey, decodedUrl) {
+                            ImageViewerRoutePayloadStore.getImageUrls(route.payloadKey)
+                                ?.ifEmpty { null }
+                                ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
+                        }
                     androidx.compose.runtime.CompositionLocalProvider(
                         com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
                     ) {
                         ImageViewerScreen(
-                            url = decodedUrl,
+                            imageUrls = imageUrls,
+                            initialIndex = route.initialIndex,
                             onBackClick = popBackStackSafely,
                         )
                     }
