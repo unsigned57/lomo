@@ -29,7 +29,8 @@ class FileGitMediaSyncStateStore
                 val file = stateFile()
                 if (!file.exists()) return@withContext emptyMap()
                 runCatching {
-                    json.decodeFromString<GitMediaSyncMetadataSnapshot>(file.readText())
+                    json
+                        .decodeFromString<GitMediaSyncMetadataSnapshot>(file.readText())
                         .entries
                         .associateBy { it.relativePath }
                 }.getOrDefault(emptyMap())

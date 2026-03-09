@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.HorizontalDivider
@@ -739,7 +739,9 @@ private fun Node.toImageOnlyParagraphOrNull(): Image? {
 
             is SoftLineBreak,
             is HardLineBreak,
-            -> Unit
+            -> {
+                Unit
+            }
 
             is Text -> {
                 if (!child.literal.isNullOrBlank()) {
@@ -747,7 +749,9 @@ private fun Node.toImageOnlyParagraphOrNull(): Image? {
                 }
             }
 
-            else -> return null
+            else -> {
+                return null
+            }
         }
         child = child.next
     }

@@ -518,10 +518,11 @@ private fun MainScreenRenderHost(
                             MainReadyStateEnterContainer {
                                 Crossfade(
                                     targetState = hasItems,
-                                    animationSpec = tween(
-                                        durationMillis = MotionTokens.DurationMedium2,
-                                        easing = MotionTokens.EasingStandard,
-                                    ),
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = MotionTokens.DurationMedium2,
+                                            easing = MotionTokens.EasingStandard,
+                                        ),
                                     label = "ReadyContentCrossfade",
                                 ) { showList ->
                                     if (!showList) {

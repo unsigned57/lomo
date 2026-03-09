@@ -27,7 +27,10 @@ internal class KeystoreBackedPreferences(
             .getOrNull()
     }
 
-    fun putString(key: String, value: String?) {
+    fun putString(
+        key: String,
+        value: String?,
+    ) {
         prefs.edit().apply {
             if (value.isNullOrBlank()) {
                 remove(key)
@@ -64,11 +67,11 @@ internal class KeystoreBackedPreferences(
 
         val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         val spec =
-            KeyGenParameterSpec.Builder(
-                keyStoreAlias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            KeyGenParameterSpec
+                .Builder(
+                    keyStoreAlias,
+                    KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT,
+                ).setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(KEY_SIZE_BITS)
                 .build()
@@ -76,8 +79,7 @@ internal class KeystoreBackedPreferences(
         return keyGenerator.generateKey()
     }
 
-    private fun encode(bytes: ByteArray): String =
-        Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
+    private fun encode(bytes: ByteArray): String = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes)
 
     private fun decode(value: String): ByteArray = Base64.getUrlDecoder().decode(value)
 

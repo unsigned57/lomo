@@ -3,11 +3,11 @@ package com.lomo.app.feature.main
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
@@ -441,7 +441,10 @@ class MainViewModelTest {
                 MainWorkspaceCoordinator(
                     repository = repository,
                     initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
-                    refreshMemosUseCase = RefreshMemosUseCase(SyncAndRebuildUseCase(repository, gitSyncRepo, webDavSyncRepository, syncPolicyRepository)),
+                    refreshMemosUseCase =
+                        RefreshMemosUseCase(
+                            SyncAndRebuildUseCase(repository, gitSyncRepo, webDavSyncRepository, syncPolicyRepository),
+                        ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
                 ),

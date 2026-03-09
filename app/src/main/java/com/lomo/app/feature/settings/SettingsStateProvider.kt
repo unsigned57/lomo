@@ -95,7 +95,12 @@ class SettingsStateProvider(
         }.stateIn(
             scope = scope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = DisplaySectionState(appConfigCoordinator.dateFormat.value, appConfigCoordinator.timeFormat.value, appConfigCoordinator.themeMode.value),
+            initialValue =
+                DisplaySectionState(
+                    appConfigCoordinator.dateFormat.value,
+                    appConfigCoordinator.timeFormat.value,
+                    appConfigCoordinator.themeMode.value,
+                ),
         )
 
     private val lanShareState: StateFlow<LanShareSectionState> =
@@ -128,7 +133,12 @@ class SettingsStateProvider(
         }.stateIn(
             scope = scope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ShareCardSectionState(appConfigCoordinator.shareCardStyle.value, appConfigCoordinator.shareCardShowTime.value, appConfigCoordinator.shareCardShowBrand.value),
+            initialValue =
+                ShareCardSectionState(
+                    appConfigCoordinator.shareCardStyle.value,
+                    appConfigCoordinator.shareCardShowTime.value,
+                    appConfigCoordinator.shareCardShowBrand.value,
+                ),
         )
 
     private val gitIdentityState: StateFlow<GitIdentityState> =
@@ -226,7 +236,12 @@ class SettingsStateProvider(
         }.stateIn(
             scope = scope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = Triple(webDavCoordinator.webDavSyncEnabled.value, webDavCoordinator.webDavProvider.value, webDavCoordinator.webDavBaseUrl.value),
+            initialValue =
+                Triple(
+                    webDavCoordinator.webDavSyncEnabled.value,
+                    webDavCoordinator.webDavProvider.value,
+                    webDavCoordinator.webDavBaseUrl.value,
+                ),
         )
 
     private val webDavIdentityState: StateFlow<WebDavIdentityState> =
@@ -351,7 +366,8 @@ class SettingsStateProvider(
                 initialValue = SystemSectionState(appConfigCoordinator.checkUpdatesOnStartup.value),
             )
 
-    private val coreWithoutWebDav: StateFlow<Pair<StorageSectionState, Pair<DisplaySectionState, Pair<LanShareSectionState, Pair<ShareCardSectionState, GitSectionState>>>>> =
+    private val coreWithoutWebDav:
+        StateFlow<Pair<StorageSectionState, Pair<DisplaySectionState, Pair<LanShareSectionState, Pair<ShareCardSectionState, GitSectionState>>>>> =
         combine(storageState, displayState, lanShareState, shareCardState, gitState) { storage, display, lanShare, shareCard, git ->
             storage to (display to (lanShare to (shareCard to git)))
         }.stateIn(

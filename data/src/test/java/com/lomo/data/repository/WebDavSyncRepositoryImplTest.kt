@@ -6,9 +6,9 @@ import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
-import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.data.webdav.WebDavEndpointResolver
 import com.lomo.data.webdav.WebDavRemoteFile
@@ -75,7 +75,8 @@ class WebDavSyncRepositoryImplTest {
         every { dataStore.webDavAutoSyncEnabled } returns flowOf(false)
         every { dataStore.webDavAutoSyncInterval } returns flowOf("24h")
         every { dataStore.webDavSyncOnRefresh } returns flowOf(false)
-        every { endpointResolver.resolve(WebDavProvider.NUTSTORE, null, "https://dav.example.com/root/", "alice") } returns "https://dav.example.com/root/"
+        every { endpointResolver.resolve(WebDavProvider.NUTSTORE, null, "https://dav.example.com/root/", "alice") } returns
+            "https://dav.example.com/root/"
         every { credentialStore.getUsername() } returns null
         every { credentialStore.getPassword() } returns "secret"
         every { clientFactory.create("https://dav.example.com/root/", "alice", "secret") } returns client

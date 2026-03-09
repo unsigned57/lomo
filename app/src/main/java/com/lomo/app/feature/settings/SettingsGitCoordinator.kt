@@ -193,24 +193,30 @@ class SettingsGitCoordinator(
 
     suspend fun resolveGitConflictUsingRemote(): String? =
         when (val result = gitSyncSettingsUseCase.resolveConflictUsingRemote()) {
-            is GitSyncResult.Error ->
+            is GitSyncResult.Error -> {
                 sanitizeUserFacingMessage(
                     rawMessage = result.message,
                     fallbackMessage = "Failed to resolve conflict with remote history",
                 )
+            }
 
-            else -> null
+            else -> {
+                null
+            }
         }
 
     suspend fun resolveGitConflictUsingLocal(): String? =
         when (val result = gitSyncSettingsUseCase.resolveConflictUsingLocal()) {
-            is GitSyncResult.Error ->
+            is GitSyncResult.Error -> {
                 sanitizeUserFacingMessage(
                     rawMessage = result.message,
                     fallbackMessage = "Failed to keep local changes during conflict resolution",
                 )
+            }
 
-            else -> null
+            else -> {
+                null
+            }
         }
 
     suspend fun testGitConnection(): String? =
@@ -300,7 +306,12 @@ class SettingsGitCoordinator(
         rawMessage: String?,
         fallbackMessage: String,
     ): String {
-        val normalized = rawMessage?.lineSequence()?.firstOrNull()?.trim().orEmpty()
+        val normalized =
+            rawMessage
+                ?.lineSequence()
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
         return normalized.takeIf { it.isNotBlank() && !it.contains("Exception") } ?: fallbackMessage
     }
 }

@@ -78,7 +78,10 @@ class GitSyncSettingsUseCase
         suspend fun resolveConflictUsingRemote(): GitSyncResult =
             runGitOperation {
                 when (val result = gitSyncRepository.resetLocalBranchToRemote()) {
-                    is GitSyncResult.Error -> result
+                    is GitSyncResult.Error -> {
+                        result
+                    }
+
                     else -> {
                         syncAndRebuildUseCase(forceSync = false)
                         result
@@ -89,7 +92,10 @@ class GitSyncSettingsUseCase
         suspend fun resolveConflictUsingLocal(): GitSyncResult =
             runGitOperation {
                 when (val result = gitSyncRepository.forcePushLocalToRemote()) {
-                    is GitSyncResult.Error -> result
+                    is GitSyncResult.Error -> {
+                        result
+                    }
+
                     else -> {
                         syncAndRebuildUseCase(forceSync = false)
                         result

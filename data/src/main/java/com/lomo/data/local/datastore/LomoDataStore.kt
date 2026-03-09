@@ -523,7 +523,6 @@ class LomoDataStore
             dataStore.edit { prefs -> prefs[Keys.GIT_SYNC_ON_REFRESH] = enabled }
         }
 
-
         val syncBackendType: Flow<String> =
             dataStore.data
                 .map { prefs ->

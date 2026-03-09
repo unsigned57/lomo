@@ -10,7 +10,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DatabaseMigrationsTest {
-
     @Test
     fun `migration 26 to 27 creates webdav metadata table`() {
         val db = mockk<SupportSQLiteDatabase>(relaxed = true)
@@ -21,6 +20,7 @@ class DatabaseMigrationsTest {
             db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `webdav_sync_metadata`") })
         }
     }
+
     @Test
     fun `migration 22 to 23 drops legacy Lomo content index`() {
         val db = mockk<SupportSQLiteDatabase>(relaxed = true)
@@ -88,19 +88,26 @@ class DatabaseMigrationsTest {
                     mockCursor(tableName == "MemoFileOutbox")
                 }
 
-                sql.contains("PRAGMA table_info(`MemoFileOutbox`)") -> mockColumnsCursor(outboxColumns)
-                else -> mockCursor(false)
+                sql.contains("PRAGMA table_info(`MemoFileOutbox`)") -> {
+                    mockColumnsCursor(outboxColumns)
+                }
+
+                else -> {
+                    mockCursor(false)
+                }
             }
         }
 
         MIGRATION_24_25.migrate(db)
 
         verify {
-            db.execSQL(match {
-                it.contains("CREATE TABLE IF NOT EXISTS `MemoFileOutbox`") &&
-                    it.contains("`claimToken` TEXT") &&
-                    it.contains("`claimUpdatedAt` INTEGER")
-            })
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `MemoFileOutbox`") &&
+                        it.contains("`claimToken` TEXT") &&
+                        it.contains("`claimUpdatedAt` INTEGER")
+                },
+            )
         }
     }
 
@@ -111,11 +118,13 @@ class DatabaseMigrationsTest {
         MIGRATION_25_26.migrate(db)
 
         verify {
-            db.execSQL(match {
-                it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") &&
-                    it.contains("`memoId` TEXT NOT NULL") &&
-                    it.contains("`pinnedAt` INTEGER NOT NULL")
-            })
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") &&
+                        it.contains("`memoId` TEXT NOT NULL") &&
+                        it.contains("`pinnedAt` INTEGER NOT NULL")
+                },
+            )
         }
         verify(exactly = 1) {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoPin_pinnedAt` ON `MemoPin` (`pinnedAt`)")

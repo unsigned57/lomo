@@ -31,7 +31,9 @@ class WebDavSyncWorker
                     if (runAttemptCount < 3) Result.retry() else Result.failure()
                 }
 
-                WebDavSyncResult.NotConfigured -> Result.success()
+                WebDavSyncResult.NotConfigured -> {
+                    Result.success()
+                }
             }
         }
 

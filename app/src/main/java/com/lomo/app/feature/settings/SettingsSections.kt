@@ -423,8 +423,6 @@ fun GitSyncSettingsSection(
     }
 }
 
-
-
 @Composable
 fun WebDavSyncSettingsSection(
     state: WebDavSectionState,
@@ -616,7 +614,6 @@ fun WebDavSyncSettingsSection(
     }
 }
 
-
 @Composable
 fun InteractionSettingsSection(
     state: InteractionSectionState,
@@ -733,7 +730,6 @@ private fun SettingsDivider() {
         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
     )
 }
-
 
 @Composable
 fun connectionTestSubtitle(state: SettingsWebDavConnectionTestState): String =

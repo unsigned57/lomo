@@ -47,28 +47,32 @@ class LocalMediaSyncStore
                 initialValue = null,
             )
 
-        suspend fun configuredCategories(): Set<MediaSyncCategory> =
-            configuredRoots().mapTo(linkedSetOf()) { it.category }
+        suspend fun configuredCategories(): Set<MediaSyncCategory> = configuredRoots().mapTo(linkedSetOf()) { it.category }
 
         suspend fun listFiles(): Map<String, LocalMediaSyncFile> =
             withContext(Dispatchers.IO) {
-                configuredRoots().flatMap { root ->
-                    when (root) {
-                        is MediaRoot.Direct -> listDirectFiles(root)
-                        is MediaRoot.Saf -> listSafFiles(root)
-                    }
-                }.associateBy { it.relativePath }
+                configuredRoots()
+                    .flatMap { root ->
+                        when (root) {
+                            is MediaRoot.Direct -> listDirectFiles(root)
+                            is MediaRoot.Saf -> listSafFiles(root)
+                        }
+                    }.associateBy { it.relativePath }
             }
 
         suspend fun readBytes(relativePath: String): ByteArray =
             withContext(Dispatchers.IO) {
                 val located = locate(relativePath) ?: throw IOException("Media file not found: $relativePath")
                 when (val root = located.root) {
-                    is MediaRoot.Direct -> File(root.path, located.filename).readBytes()
+                    is MediaRoot.Direct -> {
+                        File(root.path, located.filename).readBytes()
+                    }
+
                     is MediaRoot.Saf -> {
-                        val document = requireNotNull(getSafRoot(root)?.findFile(located.filename)) {
-                            "Media file not found: $relativePath"
-                        }
+                        val document =
+                            requireNotNull(getSafRoot(root)?.findFile(located.filename)) {
+                                "Media file not found: $relativePath"
+                            }
                         context.contentResolver.openInputStream(document.uri)?.use { it.readBytes() }
                             ?: throw IOException("Cannot open media file: $relativePath")
                     }
@@ -226,7 +230,7 @@ class LocalMediaSyncStore
             category: MediaSyncCategory,
         ): String =
             when (category) {
-                MediaSyncCategory.IMAGE ->
+                MediaSyncCategory.IMAGE -> {
                     when (filename.substringAfterLast('.', "").lowercase()) {
                         "png" -> "image/png"
                         "gif" -> "image/gif"
@@ -237,8 +241,9 @@ class LocalMediaSyncStore
                         "avif" -> "image/avif"
                         else -> "image/jpeg"
                     }
+                }
 
-                MediaSyncCategory.VOICE ->
+                MediaSyncCategory.VOICE -> {
                     when (filename.substringAfterLast('.', "").lowercase()) {
                         "mp3" -> "audio/mpeg"
                         "aac" -> "audio/aac"
@@ -246,6 +251,7 @@ class LocalMediaSyncStore
                         "ogg" -> "audio/ogg"
                         else -> "audio/mp4"
                     }
+                }
             }
 
         private fun String.hasExtension(extensions: Set<String>): Boolean =

@@ -1,8 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.git.GitCredentialStore
-import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.GitMediaSyncBridge
+import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.GitSyncErrorMessages
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore

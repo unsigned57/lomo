@@ -389,8 +389,6 @@ fun SettingsScreen(
                     onOpenResetDialog = { dialogState.showGitResetConfirmDialog = true },
                 )
 
-
-
                 WebDavSyncSettingsSection(
                     state = uiState.webDav,
                     providerLabel = webDavProviderLabels[uiState.webDav.provider] ?: uiState.webDav.provider.name,

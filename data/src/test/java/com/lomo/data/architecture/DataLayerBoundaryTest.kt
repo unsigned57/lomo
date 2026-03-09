@@ -74,8 +74,10 @@ class DataLayerBoundaryTest {
     private companion object {
         val APP_IMPORT_PATTERN = Regex("""(?m)^\s*import\s+com\.lomo\.app(?:\.|$)""")
         val APP_FQCN_PATTERN = Regex("""\bcom\.lomo\.app\.[A-Za-z_]\w*""")
-        val UI_IMPORT_PATTERN = Regex("""(?m)^\s*import\s+(?:com\.lomo\.ui(?:\.|$)|androidx\.compose(?:\.|$)|androidx\.lifecycle\.ViewModel\b)""")
-        val UI_FQCN_PATTERN = Regex("""\b(?:com\.lomo\.ui\.[A-Za-z_]\w*|androidx\.compose\.[A-Za-z_]\w*|androidx\.lifecycle\.ViewModel\b)""")
+        val UI_IMPORT_PATTERN =
+            Regex("""(?m)^\s*import\s+(?:com\.lomo\.ui(?:\.|$)|androidx\.compose(?:\.|$)|androidx\.lifecycle\.ViewModel\b)""")
+        val UI_FQCN_PATTERN =
+            Regex("""\b(?:com\.lomo\.ui\.[A-Za-z_]\w*|androidx\.compose\.[A-Za-z_]\w*|androidx\.lifecycle\.ViewModel\b)""")
         val IMPORT_OR_PACKAGE_LINE_PATTERN = Regex("""^\s*(import|package)\s+""")
     }
 }

@@ -16,7 +16,6 @@ import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
-import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.MemoRefreshDbApplier
 import com.lomo.data.repository.MemoRefreshEngine
 import com.lomo.data.repository.MemoRefreshParserWorker
@@ -25,9 +24,9 @@ import com.lomo.data.repository.MemoRepositoryImpl
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
+import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.source.FileDataSourceImpl
-import com.lomo.domain.usecase.MemoIdentityPolicy
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
@@ -41,6 +40,7 @@ import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
+import com.lomo.domain.usecase.MemoIdentityPolicy
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -101,18 +101,15 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideWorkspaceConfigSource(dataSource: FileDataSourceImpl): com.lomo.data.source.WorkspaceConfigSource =
-        dataSource
+    fun provideWorkspaceConfigSource(dataSource: FileDataSourceImpl): com.lomo.data.source.WorkspaceConfigSource = dataSource
 
     @Provides
     @Singleton
-    fun provideMarkdownStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MarkdownStorageDataSource =
-        dataSource
+    fun provideMarkdownStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MarkdownStorageDataSource = dataSource
 
     @Provides
     @Singleton
-    fun provideMediaStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MediaStorageDataSource =
-        dataSource
+    fun provideMediaStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MediaStorageDataSource = dataSource
 
     @Provides
     @Singleton
@@ -243,17 +240,20 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideWebDavSyncPlanner(): com.lomo.data.repository.WebDavSyncPlanner = com.lomo.data.repository.WebDavSyncPlanner()
+    fun provideWebDavSyncPlanner(): com.lomo.data.repository.WebDavSyncPlanner =
+        com.lomo.data.repository
+            .WebDavSyncPlanner()
 
     @Provides
     @Singleton
-    fun provideGitMediaSyncPlanner(): com.lomo.data.git.GitMediaSyncPlanner = com.lomo.data.git.GitMediaSyncPlanner()
+    fun provideGitMediaSyncPlanner(): com.lomo.data.git.GitMediaSyncPlanner =
+        com.lomo.data.git
+            .GitMediaSyncPlanner()
 
     @Provides
     @Singleton
-    fun provideWebDavClientFactory(
-        factory: com.lomo.data.webdav.Dav4jvmWebDavClientFactory,
-    ): com.lomo.data.webdav.WebDavClientFactory = factory
+    fun provideWebDavClientFactory(factory: com.lomo.data.webdav.Dav4jvmWebDavClientFactory): com.lomo.data.webdav.WebDavClientFactory =
+        factory
 
     @Provides
     @Singleton
@@ -263,9 +263,7 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideGitMediaSyncStateStore(
-        impl: com.lomo.data.git.FileGitMediaSyncStateStore,
-    ): com.lomo.data.git.GitMediaSyncStateStore = impl
+    fun provideGitMediaSyncStateStore(impl: com.lomo.data.git.FileGitMediaSyncStateStore): com.lomo.data.git.GitMediaSyncStateStore = impl
 
     @Provides
     @Singleton

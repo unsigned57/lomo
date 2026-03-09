@@ -37,7 +37,9 @@ class DefaultWebDavEndpointResolver
                     )
                 }
 
-                WebDavProvider.CUSTOM -> normalize(endpointUrl)
+                WebDavProvider.CUSTOM -> {
+                    normalize(endpointUrl)
+                }
             }
 
         private fun normalize(value: String?): String? {
@@ -50,7 +52,13 @@ class DefaultWebDavEndpointResolver
             val normalized = normalize(endpointUrl) ?: return NUTSTORE_DEFAULT_ENDPOINT
             val parsed = normalized.toHttpUrlOrNull() ?: return normalized
             val normalizedPath = parsed.encodedPath.trimEnd('/')
-            val normalizedBase = parsed.newBuilder().encodedPath("/").build().toString().trimEnd('/')
+            val normalizedBase =
+                parsed
+                    .newBuilder()
+                    .encodedPath("/")
+                    .build()
+                    .toString()
+                    .trimEnd('/')
             return when {
                 parsed.host == NUTSTORE_HOST && (normalizedPath.isEmpty() || normalizedPath == "/") -> NUTSTORE_DEFAULT_ENDPOINT
                 parsed.host == NUTSTORE_HOST && normalizedPath == "/dav" -> "$normalizedBase/dav/Lomo/"

@@ -5,8 +5,8 @@ import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.parser.MarkdownParser
-import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.FileMetadataWithId
+import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async

@@ -180,7 +180,8 @@ fun LomoNavHost(
                     val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
                     val imageUrls =
                         androidx.compose.runtime.remember(route.payloadKey, decodedUrl) {
-                            ImageViewerRoutePayloadStore.getImageUrls(route.payloadKey)
+                            ImageViewerRoutePayloadStore
+                                .getImageUrls(route.payloadKey)
                                 ?.ifEmpty { null }
                                 ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
                         }

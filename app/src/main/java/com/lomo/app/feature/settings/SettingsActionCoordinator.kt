@@ -85,7 +85,8 @@ class SettingsActionCoordinator(
 
     fun updateWebDavAutoSyncEnabled(enabled: Boolean) = launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncEnabled(enabled) }
 
-    fun updateWebDavAutoSyncInterval(interval: String) = launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncInterval(interval) }
+    fun updateWebDavAutoSyncInterval(interval: String) =
+        launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncInterval(interval) }
 
     fun updateWebDavSyncOnRefresh(enabled: Boolean) = launchWithOperationResult { webDavCoordinator.updateWebDavSyncOnRefresh(enabled) }
 

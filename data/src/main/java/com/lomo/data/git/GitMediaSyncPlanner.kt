@@ -96,9 +96,14 @@ class GitMediaSyncPlanner(
         metadata: GitMediaSyncMetadataEntry?,
     ): GitMediaSyncAction =
         when {
-            metadata == null -> GitMediaSyncAction(path, GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY)
-            !changed(local.lastModified, metadata.localLastModified) ->
+            metadata == null -> {
+                GitMediaSyncAction(path, GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY)
+            }
+
+            !changed(local.lastModified, metadata.localLastModified) -> {
                 GitMediaSyncAction(path, GitMediaSyncDirection.DELETE_LOCAL, GitMediaSyncReason.REPO_DELETED)
+            }
+
             else -> {
                 val repoReference = metadata.repoLastModified ?: metadata.lastSyncedAt
                 if (local.lastModified >= repoReference) {
@@ -115,9 +120,14 @@ class GitMediaSyncPlanner(
         metadata: GitMediaSyncMetadataEntry?,
     ): GitMediaSyncAction =
         when {
-            metadata == null -> GitMediaSyncAction(path, GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY)
-            !changed(repo.lastModified, metadata.repoLastModified) ->
+            metadata == null -> {
+                GitMediaSyncAction(path, GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY)
+            }
+
+            !changed(repo.lastModified, metadata.repoLastModified) -> {
                 GitMediaSyncAction(path, GitMediaSyncDirection.DELETE_REPO, GitMediaSyncReason.LOCAL_DELETED)
+            }
+
             else -> {
                 val localReference = metadata.localLastModified ?: metadata.lastSyncedAt
                 if (repo.lastModified >= localReference) {

@@ -43,7 +43,9 @@ class SyncAndRebuildUseCase
                     }
                 }
 
-                SyncBackendType.NONE -> Unit
+                SyncBackendType.NONE -> {
+                    Unit
+                }
             }
 
             memoRepository.refreshMemos()

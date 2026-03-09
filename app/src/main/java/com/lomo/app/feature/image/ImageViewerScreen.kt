@@ -26,9 +26,9 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
+import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 import me.saket.telephoto.zoomable.rememberZoomableImageState
 import me.saket.telephoto.zoomable.rememberZoomableState
-import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
 
 @Composable
 fun ImageViewerScreen(

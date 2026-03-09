@@ -96,9 +96,14 @@ class WebDavSyncPlanner(
         metadata: WebDavSyncMetadataEntity?,
     ): WebDavSyncAction =
         when {
-            metadata == null -> WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)
-            !changed(local.lastModified, metadata.localLastModified) ->
+            metadata == null -> {
+                WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)
+            }
+
+            !changed(local.lastModified, metadata.localLastModified) -> {
                 WebDavSyncAction(path, WebDavSyncDirection.DELETE_LOCAL, WebDavSyncReason.REMOTE_DELETED)
+            }
+
             else -> {
                 val remoteReference = metadata.remoteLastModified ?: metadata.lastSyncedAt
                 if (local.lastModified >= remoteReference) {
@@ -115,9 +120,14 @@ class WebDavSyncPlanner(
         metadata: WebDavSyncMetadataEntity?,
     ): WebDavSyncAction =
         when {
-            metadata == null -> WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_ONLY)
-            !changed(remote.lastModified, metadata.remoteLastModified) && remote.etag == metadata.etag ->
+            metadata == null -> {
+                WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_ONLY)
+            }
+
+            !changed(remote.lastModified, metadata.remoteLastModified) && remote.etag == metadata.etag -> {
                 WebDavSyncAction(path, WebDavSyncDirection.DELETE_REMOTE, WebDavSyncReason.LOCAL_DELETED)
+            }
+
             else -> {
                 val localReference = metadata.localLastModified ?: metadata.lastSyncedAt
                 if ((remote.lastModified ?: 0L) >= localReference) {

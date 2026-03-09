@@ -18,7 +18,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response as OkHttpResponse
 import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -26,6 +25,7 @@ import java.util.concurrent.TimeUnit
 import java.util.logging.Logger
 import javax.inject.Inject
 import javax.inject.Singleton
+import okhttp3.Response as OkHttpResponse
 
 @Singleton
 class Dav4jvmWebDavClientFactory
@@ -47,7 +47,8 @@ class Dav4jvmWebDavClient(
     private val rootPathSegments = rootUrl.pathSegments.filter { it.isNotEmpty() }
     private val logger = Logger.getLogger(TAG)
     private val httpClient =
-        OkHttpClient.Builder()
+        OkHttpClient
+            .Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
@@ -55,7 +56,9 @@ class Dav4jvmWebDavClient(
             .followSslRedirects(false)
             .addInterceptor { chain ->
                 val request =
-                    chain.request().newBuilder()
+                    chain
+                        .request()
+                        .newBuilder()
                         .header("Authorization", Credentials.basic(username, password))
                         .build()
                 chain.proceed(request)
@@ -83,24 +86,25 @@ class Dav4jvmWebDavClient(
                 ResourceType.NAME,
                 GetETag.NAME,
                 GetLastModified.NAME,
-                callback = object : MultiResponseCallback {
-                    override fun onResponse(
-                        response: Response,
-                        relation: Response.HrefRelation,
-                    ) {
-                        if (!response.isSuccess() || relation == Response.HrefRelation.SELF) {
-                            return
+                callback =
+                    object : MultiResponseCallback {
+                        override fun onResponse(
+                            response: Response,
+                            relation: Response.HrefRelation,
+                        ) {
+                            if (!response.isSuccess() || relation == Response.HrefRelation.SELF) {
+                                return
+                            }
+                            val relativePath = relativeToRoot(response.href.toString()) ?: return
+                            resources +=
+                                WebDavRemoteResource(
+                                    path = relativePath,
+                                    isDirectory = response.href.toString().endsWith("/"),
+                                    etag = response.get(GetETag::class.java)?.eTag,
+                                    lastModified = response.get(GetLastModified::class.java)?.lastModified,
+                                )
                         }
-                        val relativePath = relativeToRoot(response.href.toString()) ?: return
-                        resources +=
-                            WebDavRemoteResource(
-                                path = relativePath,
-                                isDirectory = response.href.toString().endsWith("/"),
-                                etag = response.get(GetETag::class.java)?.eTag,
-                                lastModified = response.get(GetLastModified::class.java)?.lastModified,
-                            )
-                    }
-                },
+                    },
             )
         } catch (error: HttpException) {
             if (error.code != 404) throw error

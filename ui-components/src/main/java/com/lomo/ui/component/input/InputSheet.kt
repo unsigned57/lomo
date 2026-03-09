@@ -29,9 +29,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -432,8 +432,7 @@ private fun InputSheetScaffold(
                                 topStart = 28.dp,
                                 topEnd = 28.dp,
                             ),
-                        )
-                        .background(MaterialTheme.colorScheme.surface)
+                        ).background(MaterialTheme.colorScheme.surface)
                         .pointerInput(Unit) {
                             detectTapGestures(onTap = { /* consume */ })
                         },

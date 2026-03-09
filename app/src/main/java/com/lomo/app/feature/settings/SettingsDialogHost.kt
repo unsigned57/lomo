@@ -508,7 +508,6 @@ fun SettingsDialogHost(
         )
     }
 
-
     if (dialogState.showWebDavProviderDialog) {
         SelectionDialog(
             title = stringResource(R.string.settings_webdav_select_provider),
@@ -693,5 +692,4 @@ fun SettingsDialogHost(
             labelProvider = { options.gitSyncIntervalLabels[it] ?: it },
         )
     }
-
 }

@@ -21,7 +21,6 @@ class DefaultWebDavEndpointResolverTest {
         assertEquals("https://dav.jianguoyun.com/dav/Lomo/", endpoint)
     }
 
-
     @Test
     fun `nutstore ignores stale base url and prefers explicit endpoint or default`() {
         val endpoint =

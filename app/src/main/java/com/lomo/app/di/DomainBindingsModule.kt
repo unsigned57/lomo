@@ -5,11 +5,11 @@ import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.SyncPolicyRepository
+import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.CreateMemoUseCase

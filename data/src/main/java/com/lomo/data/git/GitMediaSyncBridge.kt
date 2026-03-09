@@ -108,7 +108,8 @@ class GitMediaSyncBridge
                             repoLastModified = repo.lastModified,
                             localLastModified = local.lastModified,
                             lastSyncedAt = now,
-                            lastResolvedDirection = action?.direction?.name ?: previous?.lastResolvedDirection ?: GitMediaSyncMetadataEntry.NONE,
+                            lastResolvedDirection =
+                                action?.direction?.name ?: previous?.lastResolvedDirection ?: GitMediaSyncMetadataEntry.NONE,
                             lastResolvedReason = action?.reason?.name ?: previous?.lastResolvedReason ?: GitMediaSyncMetadataEntry.UNCHANGED,
                         )
                     }

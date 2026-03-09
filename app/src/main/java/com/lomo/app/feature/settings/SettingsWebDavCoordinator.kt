@@ -170,9 +170,19 @@ class SettingsWebDavCoordinator(
             val result = webDavSyncSettingsUseCase.testConnection()
             _connectionTestState.value =
                 when (result) {
-                    is WebDavSyncResult.Success -> SettingsWebDavConnectionTestState.Success(result.message)
-                    is WebDavSyncResult.Error -> SettingsWebDavConnectionTestState.Error(sanitizeMessage(result.message, "Failed to test WebDAV connection"))
-                    WebDavSyncResult.NotConfigured -> SettingsWebDavConnectionTestState.Error("WebDAV sync is not configured")
+                    is WebDavSyncResult.Success -> {
+                        SettingsWebDavConnectionTestState.Success(result.message)
+                    }
+
+                    is WebDavSyncResult.Error -> {
+                        SettingsWebDavConnectionTestState.Error(
+                            sanitizeMessage(result.message, "Failed to test WebDAV connection"),
+                        )
+                    }
+
+                    WebDavSyncResult.NotConfigured -> {
+                        SettingsWebDavConnectionTestState.Error("WebDAV sync is not configured")
+                    }
                 }
             null
         } catch (cancellation: CancellationException) {
@@ -210,7 +220,12 @@ class SettingsWebDavCoordinator(
         rawMessage: String?,
         fallbackMessage: String,
     ): String {
-        val normalized = rawMessage?.lineSequence()?.firstOrNull()?.trim().orEmpty()
+        val normalized =
+            rawMessage
+                ?.lineSequence()
+                ?.firstOrNull()
+                ?.trim()
+                .orEmpty()
         return normalized.takeIf { it.isNotBlank() && !it.contains("Exception") } ?: fallbackMessage
     }
 }
