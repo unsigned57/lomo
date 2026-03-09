@@ -68,7 +68,6 @@ dependencies {
     // Git sync
     implementation(libs.jgit)
     implementation(libs.bitfire.dav4jvm)
-    implementation("androidx.security:security-crypto:1.1.0")
 
     // Logging
     implementation(libs.timber)

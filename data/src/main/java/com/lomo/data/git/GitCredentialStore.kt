@@ -1,11 +1,7 @@
-@file:Suppress("DEPRECATION")
-
 package com.lomo.data.git
 
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import com.lomo.data.security.KeystoreBackedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,34 +12,18 @@ class GitCredentialStore
     constructor(
         @ApplicationContext private val context: Context,
     ) {
-        private val masterKey: MasterKey by lazy {
-            MasterKey
-                .Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-        }
-
-        private val prefs: SharedPreferences by lazy {
-            EncryptedSharedPreferences.create(
-                context,
-                "git_credentials",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        private val prefs: KeystoreBackedPreferences by lazy {
+            KeystoreBackedPreferences(
+                context = context,
+                preferenceFileName = "git_credentials",
+                keyAlias = "git_credentials",
             )
         }
 
-        fun getToken(): String? = prefs.getString(KEY_GITHUB_PAT, null)
+        fun getToken(): String? = prefs.getString(KEY_GITHUB_PAT)
 
         fun setToken(token: String?) {
-            prefs.edit().apply {
-                if (token.isNullOrBlank()) {
-                    remove(KEY_GITHUB_PAT)
-                } else {
-                    putString(KEY_GITHUB_PAT, token)
-                }
-                apply()
-            }
+            prefs.putString(KEY_GITHUB_PAT, token)
         }
 
         companion object {

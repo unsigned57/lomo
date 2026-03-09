@@ -1,11 +1,7 @@
-@file:Suppress("DEPRECATION")
-
 package com.lomo.data.webdav
 
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import com.lomo.data.security.KeystoreBackedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -16,47 +12,24 @@ class WebDavCredentialStore
     constructor(
         @ApplicationContext private val context: Context,
     ) {
-        private val masterKey: MasterKey by lazy {
-            MasterKey
-                .Builder(context)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
-        }
-
-        private val prefs: SharedPreferences by lazy {
-            EncryptedSharedPreferences.create(
-                context,
-                "webdav_credentials",
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+        private val prefs: KeystoreBackedPreferences by lazy {
+            KeystoreBackedPreferences(
+                context = context,
+                preferenceFileName = "webdav_credentials",
+                keyAlias = "webdav_credentials",
             )
         }
 
-        fun getUsername(): String? = prefs.getString(KEY_USERNAME, null)
+        fun getUsername(): String? = prefs.getString(KEY_USERNAME)
 
         fun setUsername(username: String?) {
-            prefs.edit().apply {
-                if (username.isNullOrBlank()) {
-                    remove(KEY_USERNAME)
-                } else {
-                    putString(KEY_USERNAME, username)
-                }
-                apply()
-            }
+            prefs.putString(KEY_USERNAME, username)
         }
 
-        fun getPassword(): String? = prefs.getString(KEY_PASSWORD, null)
+        fun getPassword(): String? = prefs.getString(KEY_PASSWORD)
 
         fun setPassword(password: String?) {
-            prefs.edit().apply {
-                if (password.isNullOrBlank()) {
-                    remove(KEY_PASSWORD)
-                } else {
-                    putString(KEY_PASSWORD, password)
-                }
-                apply()
-            }
+            prefs.putString(KEY_PASSWORD, password)
         }
 
         companion object {
