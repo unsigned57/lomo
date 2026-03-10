@@ -75,6 +75,13 @@ class WebDavSyncRepositoryImplTest {
         every { dataStore.webDavAutoSyncEnabled } returns flowOf(false)
         every { dataStore.webDavAutoSyncInterval } returns flowOf("24h")
         every { dataStore.webDavSyncOnRefresh } returns flowOf(false)
+        // Directory settings for SyncDirectoryLayout
+        every { dataStore.rootDirectory } returns flowOf("/memos")
+        every { dataStore.rootUri } returns flowOf(null)
+        every { dataStore.imageDirectory } returns flowOf("/images")
+        every { dataStore.imageUri } returns flowOf(null)
+        every { dataStore.voiceDirectory } returns flowOf("/voice")
+        every { dataStore.voiceUri } returns flowOf(null)
         every { endpointResolver.resolve(WebDavProvider.NUTSTORE, null, "https://dav.example.com/root/", "alice") } returns
             "https://dav.example.com/root/"
         every { credentialStore.getUsername() } returns null
@@ -121,11 +128,12 @@ class WebDavSyncRepositoryImplTest {
         runTest {
             coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
             coEvery { fileDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") } returns "# note"
-            coEvery { localMediaSyncStore.listFiles() } returns emptyMap()
+            coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
             coEvery { metadataDao.getAll() } returns emptyList()
-            every { client.list("") } returnsMany listOf(emptyList(), listOf(remoteMemo("note.md", "etag-2", 100L)))
-            every { client.list("images") } returnsMany listOf(emptyList(), emptyList())
-            every { client.list("voice") } returnsMany listOf(emptyList(), emptyList())
+            every { client.list("lomo/memos") } returnsMany
+                listOf(emptyList(), listOf(remoteMemo("lomo/memos/note.md", "etag-2", 100L)))
+            every { client.list("lomo/images") } returnsMany listOf(emptyList(), emptyList())
+            every { client.list("lomo/voice") } returnsMany listOf(emptyList(), emptyList())
 
             val captured = slot<List<WebDavSyncMetadataEntity>>()
 
@@ -133,13 +141,13 @@ class WebDavSyncRepositoryImplTest {
 
             assertTrue(result is WebDavSyncResult.Success)
             coVerify(exactly = 1) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
-            coVerify(exactly = 1) { localMediaSyncStore.listFiles() }
-            verify(exactly = 2) { client.list("") }
-            verify(exactly = 2) { client.list("images") }
-            verify(exactly = 2) { client.list("voice") }
-            verify(exactly = 1) { client.put("note.md", any(), any(), 100L) }
+            coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
+            verify(exactly = 2) { client.list("lomo/memos") }
+            verify(exactly = 2) { client.list("lomo/images") }
+            verify(exactly = 2) { client.list("lomo/voice") }
+            verify(exactly = 1) { client.put("lomo/memos/note.md", any(), any(), 100L) }
             coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            assertEquals(listOf("note.md"), captured.captured.map { it.relativePath })
+            assertEquals(listOf("lomo/memos/note.md"), captured.captured.map { it.relativePath })
             assertEquals("etag-2", captured.captured.single().etag)
         }
 
@@ -158,14 +166,14 @@ class WebDavSyncRepositoryImplTest {
                     any(),
                 )
             } returns null
-            coEvery { localMediaSyncStore.listFiles() } returns emptyMap()
+            coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
             coEvery { metadataDao.getAll() } returns emptyList()
-            every { client.list("") } returns listOf(remoteMemo("note.md", "etag-1", 100L))
-            every { client.list("images") } returns emptyList()
-            every { client.list("voice") } returns emptyList()
+            every { client.list("lomo/memos") } returns listOf(remoteMemo("lomo/memos/note.md", "etag-1", 100L))
+            every { client.list("lomo/images") } returns emptyList()
+            every { client.list("lomo/voice") } returns emptyList()
             every {
-                client.get("note.md")
-            } returns WebDavRemoteFile("note.md", "# note".toByteArray(), "etag-1", 100L)
+                client.get("lomo/memos/note.md")
+            } returns WebDavRemoteFile("lomo/memos/note.md", "# note".toByteArray(), "etag-1", 100L)
 
             val captured = slot<List<WebDavSyncMetadataEntity>>()
 
@@ -173,13 +181,13 @@ class WebDavSyncRepositoryImplTest {
 
             assertTrue(result is WebDavSyncResult.Success)
             coVerify(exactly = 2) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
-            coVerify(exactly = 2) { localMediaSyncStore.listFiles() }
-            verify(exactly = 1) { client.list("") }
-            verify(exactly = 1) { client.list("images") }
-            verify(exactly = 1) { client.list("voice") }
-            verify(exactly = 1) { client.get("note.md") }
+            coVerify(exactly = 2) { localMediaSyncStore.listFiles(any()) }
+            verify(exactly = 1) { client.list("lomo/memos") }
+            verify(exactly = 1) { client.list("lomo/images") }
+            verify(exactly = 1) { client.list("lomo/voice") }
+            verify(exactly = 1) { client.get("lomo/memos/note.md") }
             coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            assertEquals(listOf("note.md"), captured.captured.map { it.relativePath })
+            assertEquals(listOf("lomo/memos/note.md"), captured.captured.map { it.relativePath })
             assertEquals(100L, captured.captured.single().localLastModified)
         }
 
@@ -187,11 +195,11 @@ class WebDavSyncRepositoryImplTest {
     fun `sync with no changes reuses initial listings`() =
         runTest {
             coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
-            coEvery { localMediaSyncStore.listFiles() } returns emptyMap()
+            coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
             coEvery { metadataDao.getAll() } returns emptyList()
-            every { client.list("") } returns listOf(remoteMemo("note.md", "etag-1", 100L))
-            every { client.list("images") } returns emptyList()
-            every { client.list("voice") } returns emptyList()
+            every { client.list("lomo/memos") } returns listOf(remoteMemo("lomo/memos/note.md", "etag-1", 100L))
+            every { client.list("lomo/images") } returns emptyList()
+            every { client.list("lomo/voice") } returns emptyList()
 
             val captured = slot<List<WebDavSyncMetadataEntity>>()
 
@@ -199,15 +207,15 @@ class WebDavSyncRepositoryImplTest {
 
             assertTrue(result is WebDavSyncResult.Success)
             coVerify(exactly = 1) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
-            coVerify(exactly = 1) { localMediaSyncStore.listFiles() }
-            verify(exactly = 1) { client.list("") }
-            verify(exactly = 1) { client.list("images") }
-            verify(exactly = 1) { client.list("voice") }
+            coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
+            verify(exactly = 1) { client.list("lomo/memos") }
+            verify(exactly = 1) { client.list("lomo/images") }
+            verify(exactly = 1) { client.list("lomo/voice") }
             verify(exactly = 0) { client.put(any(), any(), any(), any()) }
             verify(exactly = 0) { client.get(any()) }
             verify(exactly = 0) { client.delete(any()) }
             coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            assertEquals(listOf("note.md"), captured.captured.map { it.relativePath })
+            assertEquals(listOf("lomo/memos/note.md"), captured.captured.map { it.relativePath })
             assertEquals("etag-1", captured.captured.single().etag)
         }
 

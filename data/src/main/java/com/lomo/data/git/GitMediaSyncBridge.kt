@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.MediaSyncCategory
 import kotlinx.coroutines.Dispatchers
@@ -17,13 +18,16 @@ class GitMediaSyncBridge
         private val stateStore: GitMediaSyncStateStore,
         private val planner: GitMediaSyncPlanner,
     ) {
-        suspend fun reconcile(repoRootDir: File): GitMediaSyncSummary =
+        suspend fun reconcile(
+            repoRootDir: File,
+            layout: SyncDirectoryLayout,
+        ): GitMediaSyncSummary =
             withContext(Dispatchers.IO) {
                 val categories = localMediaSyncStore.configuredCategories()
                 if (categories.isEmpty()) return@withContext GitMediaSyncSummary()
 
-                val localFiles = listLocalFiles()
-                val repoFiles = listRepoFiles(repoRootDir, categories)
+                val localFiles = listLocalFiles(layout)
+                val repoFiles = listRepoFiles(repoRootDir, categories, layout)
                 val metadata = stateStore.read()
                 val actions = planner.plan(localFiles, repoFiles, metadata)
                 val actionsByPath = actions.associateBy { it.path }
@@ -33,13 +37,13 @@ class GitMediaSyncBridge
                 actions.forEach { action ->
                     when (action.direction) {
                         GitMediaSyncDirection.PUSH_TO_REPO -> {
-                            if (pushToRepo(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path])) {
+                            if (pushToRepo(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path], layout)) {
                                 repoChanged = true
                             }
                         }
 
                         GitMediaSyncDirection.PULL_TO_LOCAL -> {
-                            if (pullToLocal(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path])) {
+                            if (pullToLocal(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path], layout)) {
                                 localChanged = true
                             }
                         }
@@ -51,7 +55,7 @@ class GitMediaSyncBridge
                         }
 
                         GitMediaSyncDirection.DELETE_LOCAL -> {
-                            if (deleteLocalFile(action.path, localFiles[action.path])) {
+                            if (deleteLocalFile(action.path, localFiles[action.path], layout)) {
                                 localChanged = true
                             }
                         }
@@ -61,6 +65,7 @@ class GitMediaSyncBridge
                 persistState(
                     repoRootDir = repoRootDir,
                     categories = categories,
+                    layout = layout,
                     previousMetadata = metadata,
                     localFiles = localFiles,
                     repoFiles = repoFiles,
@@ -75,6 +80,7 @@ class GitMediaSyncBridge
         private suspend fun persistState(
             repoRootDir: File,
             categories: Set<MediaSyncCategory>,
+            layout: SyncDirectoryLayout,
             previousMetadata: Map<String, GitMediaSyncMetadataEntry>,
             localFiles: Map<String, LocalGitMediaFile>,
             repoFiles: Map<String, RepoGitMediaFile>,
@@ -84,13 +90,13 @@ class GitMediaSyncBridge
         ) {
             val refreshedLocalFiles =
                 if (localChanged) {
-                    listLocalFiles()
+                    listLocalFiles(layout)
                 } else {
                     localFiles
                 }
             val refreshedRepoFiles =
                 if (repoChanged) {
-                    listRepoFiles(repoRootDir, categories)
+                    listRepoFiles(repoRootDir, categories, layout)
                 } else {
                     repoFiles
                 }
@@ -116,9 +122,9 @@ class GitMediaSyncBridge
             stateStore.write(entries)
         }
 
-        private suspend fun listLocalFiles(): Map<String, LocalGitMediaFile> =
+        private suspend fun listLocalFiles(layout: SyncDirectoryLayout): Map<String, LocalGitMediaFile> =
             localMediaSyncStore
-                .listFiles()
+                .listFiles(layout)
                 .mapValues { (path, file) ->
                     LocalGitMediaFile(
                         path = path,
@@ -129,21 +135,29 @@ class GitMediaSyncBridge
         private fun listRepoFiles(
             repoRootDir: File,
             categories: Set<MediaSyncCategory>,
+            layout: SyncDirectoryLayout,
         ): Map<String, RepoGitMediaFile> =
             buildMap {
-                categories.forEach { category ->
-                    val directory = File(repoRootDir, category.remoteFolder)
-                    if (!directory.exists() || !directory.isDirectory) return@forEach
-                    directory.listFiles()?.forEach { file ->
-                        if (!file.isFile || !accepts(category, file.name)) return@forEach
-                        val path = "${category.remoteFolder}/${file.name}"
-                        put(
-                            path,
-                            RepoGitMediaFile(
-                                path = path,
-                                lastModified = file.lastModified(),
-                            ),
-                        )
+                if (layout.allSameDirectory) {
+                    // When all directories are the same, media files live directly in the repo root.
+                    categories.forEach { category ->
+                        val folder = category.remoteFolder(layout)
+                        repoRootDir.listFiles()?.forEach { file ->
+                            if (!file.isFile || !accepts(category, file.name)) return@forEach
+                            val path = "$folder/${file.name}"
+                            put(path, RepoGitMediaFile(path = path, lastModified = file.lastModified()))
+                        }
+                    }
+                } else {
+                    categories.forEach { category ->
+                        val folder = category.remoteFolder(layout)
+                        val directory = File(repoRootDir, folder)
+                        if (!directory.exists() || !directory.isDirectory) return@forEach
+                        directory.listFiles()?.forEach { file ->
+                            if (!file.isFile || !accepts(category, file.name)) return@forEach
+                            val path = "$folder/${file.name}"
+                            put(path, RepoGitMediaFile(path = path, lastModified = file.lastModified()))
+                        }
                     }
                 }
             }
@@ -153,10 +167,12 @@ class GitMediaSyncBridge
             path: String,
             local: LocalGitMediaFile?,
             repo: RepoGitMediaFile?,
+            layout: SyncDirectoryLayout,
         ): Boolean {
             val localFile = local ?: return false
-            val localBytes = localMediaSyncStore.readBytes(path)
-            val target = File(repoRootDir, path)
+            val localBytes = localMediaSyncStore.readBytes(path, layout)
+            val repoPath = repoRelativePath(path, layout)
+            val target = File(repoRootDir, repoPath)
             if (repo != null && target.exists()) {
                 val repoBytes = target.readBytes()
                 if (repoBytes.contentEquals(localBytes)) {
@@ -166,7 +182,7 @@ class GitMediaSyncBridge
                     return false
                 }
             }
-            writeRepoFile(repoRootDir, path, localBytes, localFile.lastModified)
+            writeRepoFile(repoRootDir, repoPath, localBytes, localFile.lastModified)
             return true
         }
 
@@ -175,27 +191,30 @@ class GitMediaSyncBridge
             path: String,
             local: LocalGitMediaFile?,
             repo: RepoGitMediaFile?,
+            layout: SyncDirectoryLayout,
         ): Boolean {
             val repoFile = repo ?: return false
-            val source = File(repoRootDir, repoFile.path)
+            val repoPath = repoRelativePath(repoFile.path, layout)
+            val source = File(repoRootDir, repoPath)
             if (!source.exists()) return false
             val repoBytes = source.readBytes()
             if (local != null) {
-                val localBytes = localMediaSyncStore.readBytes(path)
+                val localBytes = localMediaSyncStore.readBytes(path, layout)
                 if (localBytes.contentEquals(repoBytes)) {
                     return false
                 }
             }
-            localMediaSyncStore.writeBytes(path, repoBytes)
+            localMediaSyncStore.writeBytes(path, repoBytes, layout)
             return true
         }
 
         private suspend fun deleteLocalFile(
             path: String,
             local: LocalGitMediaFile?,
+            layout: SyncDirectoryLayout,
         ): Boolean {
             if (local == null) return false
-            localMediaSyncStore.delete(path)
+            localMediaSyncStore.delete(path, layout)
             return true
         }
 
@@ -220,6 +239,22 @@ class GitMediaSyncBridge
                 target.setLastModified(lastModified)
             }
         }
+
+        /**
+         * When [SyncDirectoryLayout.allSameDirectory] is true, media files live directly
+         * in the repo root so we strip the folder prefix. Otherwise, the path already
+         * contains the correct subdirectory.
+         */
+        private fun repoRelativePath(
+            syncPath: String,
+            layout: SyncDirectoryLayout,
+        ): String =
+            if (layout.allSameDirectory) {
+                // "images/photo.jpg" → "photo.jpg" (flat in repo root)
+                syncPath.substringAfter('/')
+            } else {
+                syncPath
+            }
 
         private fun accepts(
             category: MediaSyncCategory,

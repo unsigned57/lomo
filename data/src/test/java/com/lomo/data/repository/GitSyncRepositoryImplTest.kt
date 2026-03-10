@@ -1,11 +1,13 @@
 package com.lomo.data.repository
 
+import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitSyncEngine
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncResult
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -28,6 +30,9 @@ import java.nio.file.Files
 
 class GitSyncRepositoryImplTest {
     @MockK(relaxed = true)
+    private lateinit var context: Context
+
+    @MockK(relaxed = true)
     private lateinit var gitSyncEngine: GitSyncEngine
 
     @MockK(relaxed = true)
@@ -48,14 +53,20 @@ class GitSyncRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var markdownParser: MarkdownParser
 
+    @MockK(relaxed = true)
+    private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
+
     private lateinit var repository: GitSyncRepositoryImpl
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
+        val tempFilesDir = Files.createTempDirectory("lomo-context-files").toFile()
+        every { context.filesDir } returns tempFilesDir
         everyCommonConfig()
         repository =
             GitSyncRepositoryImpl(
+                context = context,
                 gitSyncEngine = gitSyncEngine,
                 credentialStore = credentialStore,
                 dataStore = dataStore,
@@ -63,6 +74,7 @@ class GitSyncRepositoryImplTest {
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
                 markdownParser = markdownParser,
+                markdownStorageDataSource = markdownStorageDataSource,
             )
     }
 
@@ -73,7 +85,7 @@ class GitSyncRepositoryImplTest {
             every { dataStore.rootDirectory } returns flowOf(rootDir.absolutePath)
             coEvery { credentialStore.getToken() } returns "token"
             coEvery {
-                gitSyncEngine.sync(File(rootDir.absolutePath), REMOTE_URL)
+                gitSyncEngine.sync(any(), REMOTE_URL)
             } returns GitSyncResult.Success("git sync done")
             coEvery { memoSynchronizer.refresh() } throws IllegalStateException("refresh failed")
 
@@ -92,7 +104,7 @@ class GitSyncRepositoryImplTest {
             assertTrue(markedErrorSlot.captured.contains("refresh failed"))
             coVerifyOrder {
                 credentialStore.getToken()
-                gitSyncEngine.sync(File(rootDir.absolutePath), REMOTE_URL)
+                gitSyncEngine.sync(any(), REMOTE_URL)
                 memoSynchronizer.refresh()
             }
         }
@@ -105,7 +117,7 @@ class GitSyncRepositoryImplTest {
             val cancellation = CancellationException("cancelled")
             coEvery { credentialStore.getToken() } returns "token"
             coEvery {
-                gitSyncEngine.sync(File(rootDir.absolutePath), REMOTE_URL)
+                gitSyncEngine.sync(any(), REMOTE_URL)
             } returns GitSyncResult.Success("git sync done")
             coEvery { memoSynchronizer.refresh() } throws cancellation
 
@@ -118,7 +130,7 @@ class GitSyncRepositoryImplTest {
 
             coVerifyOrder {
                 credentialStore.getToken()
-                gitSyncEngine.sync(File(rootDir.absolutePath), REMOTE_URL)
+                gitSyncEngine.sync(any(), REMOTE_URL)
                 memoSynchronizer.refresh()
             }
             verify(exactly = 0) { gitSyncEngine.markError(any()) }
@@ -129,6 +141,10 @@ class GitSyncRepositoryImplTest {
         every { dataStore.gitSyncEnabled } returns flowOf(true)
         every { dataStore.gitRemoteUrl } returns flowOf(REMOTE_URL)
         every { dataStore.rootUri } returns flowOf(null)
+        every { dataStore.imageDirectory } returns flowOf(null)
+        every { dataStore.imageUri } returns flowOf(null)
+        every { dataStore.voiceDirectory } returns flowOf(null)
+        every { dataStore.voiceUri } returns flowOf(null)
     }
 
     private fun createRepoRootWithGitDir(): File {

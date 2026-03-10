@@ -5,6 +5,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.data.sync.SyncLayoutMigration
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
@@ -118,12 +120,14 @@ class WebDavSyncRepositoryImpl
 
         override suspend fun getStatus(): WebDavSyncStatus {
             val config = resolveConfig() ?: return WebDavSyncStatus(0, 0, 0, null)
+            val layout = SyncDirectoryLayout.resolve(dataStore)
             return runWebDavIo {
                 syncState.value = WebDavSyncState.Listing
                 val client = clientFactory.create(config.endpointUrl, config.username, config.password)
                 client.ensureDirectory("")
-                val localFiles = localFiles()
-                val remoteFiles = remoteFiles(client)
+                ensureRemoteDirectories(client, layout)
+                val localFiles = localFiles(layout)
+                val remoteFiles = remoteFiles(client, layout)
                 val metadata = metadataDao.getAll().associateBy { it.relativePath }
                 val plan = planner.plan(localFiles, remoteFiles, metadata)
                 WebDavSyncStatus(
@@ -149,18 +153,21 @@ class WebDavSyncRepositoryImpl
 
         private suspend fun performSync(): WebDavSyncResult {
             val config = resolveConfig() ?: return notConfiguredResult()
+            val layout = SyncDirectoryLayout.resolve(dataStore)
             return try {
                 val result =
                     runWebDavIo {
                         syncState.value = WebDavSyncState.Initializing
                         val client = clientFactory.create(config.endpointUrl, config.username, config.password)
                         client.ensureDirectory("")
+                        ensureRemoteDirectories(client, layout)
+                        SyncLayoutMigration.migrateWebDavRemote(client, layout)
 
                         syncState.value = WebDavSyncState.Listing
-                        val localFiles = localFiles()
+                        val localFiles = localFiles(layout)
                         val remoteFiles =
                             try {
-                                remoteFiles(client)
+                                remoteFiles(client, layout)
                             } catch (error: Exception) {
                                 throw IllegalStateException(
                                     "Failed to list remote WebDAV files: ${error.message ?: "unknown error"}",
@@ -180,22 +187,23 @@ class WebDavSyncRepositoryImpl
                                     WebDavSyncDirection.UPLOAD -> {
                                         syncState.value = WebDavSyncState.Uploading
                                         val bytes =
-                                            if (isMemoPath(action.path)) {
+                                            if (isMemoPath(action.path, layout)) {
+                                                val memoFilename = extractMemoFilename(action.path, layout)
                                                 val content =
-                                                    markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, action.path)
+                                                    markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, memoFilename)
                                                 if (content == null) {
                                                     Timber.w("Local memo missing during upload: %s, skipping", action.path)
                                                     return@forEach
                                                 }
                                                 content.toByteArray(StandardCharsets.UTF_8)
                                             } else {
-                                                localMediaSyncStore.readBytes(action.path)
+                                                localMediaSyncStore.readBytes(action.path, layout)
                                             }
                                         remoteChanged = true
                                         client.put(
                                             path = action.path,
                                             bytes = bytes,
-                                            contentType = contentTypeForPath(action.path),
+                                            contentType = contentTypeForPath(action.path, layout),
                                             lastModifiedHint = localFiles[action.path]?.lastModified,
                                         )
                                     }
@@ -204,24 +212,26 @@ class WebDavSyncRepositoryImpl
                                         syncState.value = WebDavSyncState.Downloading
                                         val remoteFile = client.get(action.path)
                                         localChanged = true
-                                        if (isMemoPath(action.path)) {
+                                        if (isMemoPath(action.path, layout)) {
+                                            val memoFilename = extractMemoFilename(action.path, layout)
                                             markdownStorageDataSource.saveFileIn(
                                                 directory = MemoDirectoryType.MAIN,
-                                                filename = action.path,
+                                                filename = memoFilename,
                                                 content = String(remoteFile.bytes, StandardCharsets.UTF_8),
                                             )
                                         } else {
-                                            localMediaSyncStore.writeBytes(action.path, remoteFile.bytes)
+                                            localMediaSyncStore.writeBytes(action.path, remoteFile.bytes, layout)
                                         }
                                     }
 
                                     WebDavSyncDirection.DELETE_LOCAL -> {
                                         syncState.value = WebDavSyncState.Deleting
                                         localChanged = true
-                                        if (isMemoPath(action.path)) {
-                                            markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, action.path)
+                                        if (isMemoPath(action.path, layout)) {
+                                            val memoFilename = extractMemoFilename(action.path, layout)
+                                            markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, memoFilename)
                                         } else {
-                                            localMediaSyncStore.delete(action.path)
+                                            localMediaSyncStore.delete(action.path, layout)
                                         }
                                     }
 
@@ -255,6 +265,7 @@ class WebDavSyncRepositoryImpl
 
                         persistMetadata(
                             client = client,
+                            layout = layout,
                             localFiles = localFiles,
                             remoteFiles = remoteFiles,
                             actionOutcomes = actionOutcomes,
@@ -322,8 +333,19 @@ class WebDavSyncRepositoryImpl
             }
         }
 
+        private fun ensureRemoteDirectories(
+            client: com.lomo.data.webdav.WebDavClient,
+            layout: SyncDirectoryLayout,
+        ) {
+            client.ensureDirectory(WEBDAV_ROOT)
+            for (folder in layout.distinctFolders) {
+                client.ensureDirectory("$WEBDAV_ROOT/$folder")
+            }
+        }
+
         private suspend fun persistMetadata(
             client: com.lomo.data.webdav.WebDavClient,
+            layout: SyncDirectoryLayout,
             localFiles: Map<String, LocalWebDavFile>,
             remoteFiles: Map<String, RemoteWebDavFile>,
             actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
@@ -332,14 +354,14 @@ class WebDavSyncRepositoryImpl
         ) {
             val syncedLocalFiles =
                 if (localChanged) {
-                    localFiles()
+                    localFiles(layout)
                 } else {
                     localFiles
                 }
             val syncedRemoteFiles =
                 if (remoteChanged) {
                     try {
-                        remoteFiles(client)
+                        remoteFiles(client, layout)
                     } catch (error: Exception) {
                         throw IllegalStateException(
                             "Failed to reload remote WebDAV files after sync: ${error.message ?: "unknown error"}",
@@ -372,29 +394,40 @@ class WebDavSyncRepositoryImpl
             metadataDao.replaceAll(entities)
         }
 
-        private suspend fun localFiles(): Map<String, LocalWebDavFile> {
+        private suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalWebDavFile> {
+            val memoPrefix = "$WEBDAV_ROOT/${layout.memoFolder}/"
             val memoFiles =
                 markdownStorageDataSource
                     .listMetadataIn(MemoDirectoryType.MAIN)
                     .filter { it.filename.endsWith(MEMO_SUFFIX) }
                     .associate { metadata ->
-                        metadata.filename to LocalWebDavFile(metadata.filename, metadata.lastModified)
+                        val remotePath = "$memoPrefix${metadata.filename}"
+                        remotePath to LocalWebDavFile(remotePath, metadata.lastModified)
                     }
             val mediaFiles =
                 localMediaSyncStore
-                    .listFiles()
+                    .listFiles(layout)
+                    .mapKeys { (path, _) -> "$WEBDAV_ROOT/$path" }
                     .mapValues { (path, metadata) ->
                         LocalWebDavFile(path, metadata.lastModified)
                     }
             return memoFiles + mediaFiles
         }
 
-        private fun remoteFiles(client: com.lomo.data.webdav.WebDavClient): Map<String, RemoteWebDavFile> =
-            buildList {
-                addAll(client.list("").filter { !it.isDirectory && it.path.endsWith(MEMO_SUFFIX) })
-                addAll(client.list("images").filter { !it.isDirectory })
-                addAll(client.list("voice").filter { !it.isDirectory })
-            }.associate(::toRemoteEntry)
+        private fun remoteFiles(
+            client: com.lomo.data.webdav.WebDavClient,
+            layout: SyncDirectoryLayout,
+        ): Map<String, RemoteWebDavFile> {
+            val listed = mutableListOf<WebDavRemoteResource>()
+            val visitedFolders = mutableSetOf<String>()
+            for (folder in layout.distinctFolders) {
+                val remotePath = "$WEBDAV_ROOT/$folder"
+                if (visitedFolders.add(remotePath)) {
+                    listed.addAll(client.list(remotePath).filter { !it.isDirectory })
+                }
+            }
+            return listed.associate(::toRemoteEntry)
+        }
 
         private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWebDavFile> =
             resource.path to
@@ -459,13 +492,34 @@ class WebDavSyncRepositoryImpl
             return WebDavSyncResult.Error(message, error)
         }
 
-        private fun isMemoPath(path: String): Boolean = path.endsWith(MEMO_SUFFIX)
+        private fun isMemoPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): Boolean {
+            val memoPrefix = "$WEBDAV_ROOT/${layout.memoFolder}/"
+            return path.startsWith(memoPrefix) && path.endsWith(MEMO_SUFFIX)
+        }
 
-        private fun contentTypeForPath(path: String): String =
-            if (isMemoPath(path)) {
+        /**
+         * Extracts the bare memo filename (e.g. `2025-01-01.md`) from the full
+         * WebDAV remote path (e.g. `lomo/memos/2025-01-01.md`).
+         */
+        private fun extractMemoFilename(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): String {
+            val memoPrefix = "$WEBDAV_ROOT/${layout.memoFolder}/"
+            return path.removePrefix(memoPrefix)
+        }
+
+        private fun contentTypeForPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): String =
+            if (isMemoPath(path, layout)) {
                 MARKDOWN_CONTENT_TYPE
             } else {
-                localMediaSyncStore.contentTypeForPath(path)
+                localMediaSyncStore.contentTypeForPath(path, layout)
             }
 
         private suspend fun <T> runWebDavIo(block: suspend () -> T): T = withContext(Dispatchers.IO) { block() }
@@ -480,6 +534,7 @@ class WebDavSyncRepositoryImpl
         private companion object {
             private const val MEMO_SUFFIX = ".md"
             private const val MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8"
+            private const val WEBDAV_ROOT = "lomo"
         }
     }
 

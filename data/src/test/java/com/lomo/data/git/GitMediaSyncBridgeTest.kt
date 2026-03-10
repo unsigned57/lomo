@@ -2,6 +2,7 @@ package com.lomo.data.git
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import io.mockk.every
 import io.mockk.mockk
@@ -18,6 +19,14 @@ class GitMediaSyncBridgeTest {
     private val context = mockk<Context>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
 
+    private val defaultLayout =
+        SyncDirectoryLayout(
+            memoFolder = "memo",
+            imageFolder = "images",
+            voiceFolder = "voice",
+            allSameDirectory = false,
+        )
+
     @Test
     fun `reconcile copies local independent image into repo images folder`() =
         runTest {
@@ -31,7 +40,7 @@ class GitMediaSyncBridgeTest {
             val stateStore = InMemoryGitMediaSyncStateStore()
             val bridge = createBridge(stateStore)
 
-            val result = bridge.reconcile(repoRoot)
+            val result = bridge.reconcile(repoRoot, defaultLayout)
 
             val repoFile = File(repoRoot, "images/img_1.jpg")
             assertTrue(repoFile.exists())
@@ -54,7 +63,7 @@ class GitMediaSyncBridgeTest {
             val stateStore = InMemoryGitMediaSyncStateStore()
             val bridge = createBridge(stateStore)
 
-            val result = bridge.reconcile(repoRoot)
+            val result = bridge.reconcile(repoRoot, defaultLayout)
 
             val localFile = File(voiceRoot, "voice_1.m4a")
             assertTrue(localFile.exists())
@@ -90,7 +99,7 @@ class GitMediaSyncBridgeTest {
                 )
             val bridge = createBridge(stateStore)
 
-            val result = bridge.reconcile(repoRoot)
+            val result = bridge.reconcile(repoRoot, defaultLayout)
 
             assertTrue(result.repoChanged)
             assertFalse(result.localChanged)
@@ -123,7 +132,7 @@ class GitMediaSyncBridgeTest {
                 )
             val bridge = createBridge(stateStore)
 
-            val result = bridge.reconcile(repoRoot)
+            val result = bridge.reconcile(repoRoot, defaultLayout)
 
             assertFalse(result.repoChanged)
             assertTrue(result.localChanged)

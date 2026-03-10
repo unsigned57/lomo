@@ -216,6 +216,7 @@ object DataModule {
     @Provides
     @Singleton
     fun provideGitSyncRepositoryImpl(
+        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
         gitSyncEngine: com.lomo.data.git.GitSyncEngine,
         credentialStore: com.lomo.data.git.GitCredentialStore,
         dataStore: com.lomo.data.local.datastore.LomoDataStore,
@@ -223,8 +224,10 @@ object DataModule {
         safGitMirrorBridge: com.lomo.data.git.SafGitMirrorBridge,
         gitMediaSyncBridge: com.lomo.data.git.GitMediaSyncBridge,
         markdownParser: com.lomo.data.parser.MarkdownParser,
+        markdownStorageDataSource: com.lomo.data.source.MarkdownStorageDataSource,
     ): GitSyncRepositoryImpl =
         GitSyncRepositoryImpl(
+            context,
             gitSyncEngine,
             credentialStore,
             dataStore,
@@ -232,6 +235,7 @@ object DataModule {
             safGitMirrorBridge,
             gitMediaSyncBridge,
             markdownParser,
+            markdownStorageDataSource,
         )
 
     @Provides

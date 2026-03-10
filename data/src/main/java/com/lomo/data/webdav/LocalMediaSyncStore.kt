@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.sync.SyncDirectoryLayout
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,20 +50,23 @@ class LocalMediaSyncStore
 
         suspend fun configuredCategories(): Set<MediaSyncCategory> = configuredRoots().mapTo(linkedSetOf()) { it.category }
 
-        suspend fun listFiles(): Map<String, LocalMediaSyncFile> =
+        suspend fun listFiles(layout: SyncDirectoryLayout): Map<String, LocalMediaSyncFile> =
             withContext(Dispatchers.IO) {
                 configuredRoots()
                     .flatMap { root ->
                         when (root) {
-                            is MediaRoot.Direct -> listDirectFiles(root)
-                            is MediaRoot.Saf -> listSafFiles(root)
+                            is MediaRoot.Direct -> listDirectFiles(root, layout)
+                            is MediaRoot.Saf -> listSafFiles(root, layout)
                         }
                     }.associateBy { it.relativePath }
             }
 
-        suspend fun readBytes(relativePath: String): ByteArray =
+        suspend fun readBytes(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+        ): ByteArray =
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath) ?: throw IOException("Media file not found: $relativePath")
+                val located = locate(relativePath, layout) ?: throw IOException("Media file not found: $relativePath")
                 when (val root = located.root) {
                     is MediaRoot.Direct -> {
                         File(root.path, located.filename).readBytes()
@@ -82,9 +86,10 @@ class LocalMediaSyncStore
         suspend fun writeBytes(
             relativePath: String,
             bytes: ByteArray,
+            layout: SyncDirectoryLayout,
         ) {
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath) ?: throw IOException("Media root not configured for: $relativePath")
+                val located = locate(relativePath, layout) ?: throw IOException("Media root not configured for: $relativePath")
                 when (val root = located.root) {
                     is MediaRoot.Direct -> {
                         val directory = File(root.path)
@@ -108,9 +113,12 @@ class LocalMediaSyncStore
             }
         }
 
-        suspend fun delete(relativePath: String) {
+        suspend fun delete(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+        ) {
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath) ?: return@withContext
+                val located = locate(relativePath, layout) ?: return@withContext
                 when (val root = located.root) {
                     is MediaRoot.Direct -> File(root.path, located.filename).delete()
                     is MediaRoot.Saf -> getSafRoot(root)?.findFile(located.filename)?.delete()
@@ -118,18 +126,27 @@ class LocalMediaSyncStore
             }
         }
 
-        fun isMediaPath(path: String): Boolean =
-            path.startsWith("${MediaSyncCategory.IMAGE.remoteFolder}/") ||
-                path.startsWith("${MediaSyncCategory.VOICE.remoteFolder}/")
+        fun isMediaPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): Boolean {
+            val stripped = stripSyncPrefix(path)
+            return stripped.startsWith("${layout.imageFolder}/") ||
+                stripped.startsWith("${layout.voiceFolder}/")
+        }
 
-        fun contentTypeForPath(path: String): String {
+        fun contentTypeForPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): String {
+            val stripped = stripSyncPrefix(path)
             val category =
                 when {
-                    path.startsWith("${MediaSyncCategory.IMAGE.remoteFolder}/") -> MediaSyncCategory.IMAGE
-                    path.startsWith("${MediaSyncCategory.VOICE.remoteFolder}/") -> MediaSyncCategory.VOICE
+                    stripped.startsWith("${layout.imageFolder}/") -> MediaSyncCategory.IMAGE
+                    stripped.startsWith("${layout.voiceFolder}/") -> MediaSyncCategory.VOICE
                     else -> return OCTET_STREAM
                 }
-            return contentTypeFor(path.substringAfterLast('/'), category)
+            return contentTypeFor(stripped.substringAfterLast('/'), category)
         }
 
         private suspend fun configuredRoots(): List<MediaRoot> {
@@ -166,43 +183,54 @@ class LocalMediaSyncStore
                 else -> null
             }
 
-        private fun listDirectFiles(root: MediaRoot.Direct): List<LocalMediaSyncFile> {
+        private fun listDirectFiles(
+            root: MediaRoot.Direct,
+            layout: SyncDirectoryLayout,
+        ): List<LocalMediaSyncFile> {
             val directory = File(root.path)
             if (!directory.exists() || !directory.isDirectory) return emptyList()
+            val folder = root.category.remoteFolder(layout)
             return directory
                 .listFiles()
                 ?.asSequence()
                 ?.filter { file -> file.isFile && accepts(root.category, file.name) }
                 ?.map { file ->
                     LocalMediaSyncFile(
-                        relativePath = "${root.category.remoteFolder}/${file.name}",
+                        relativePath = "$folder/${file.name}",
                         lastModified = file.lastModified(),
                     )
                 }?.toList()
                 ?: emptyList()
         }
 
-        private fun listSafFiles(root: MediaRoot.Saf): List<LocalMediaSyncFile> {
+        private fun listSafFiles(
+            root: MediaRoot.Saf,
+            layout: SyncDirectoryLayout,
+        ): List<LocalMediaSyncFile> {
             val directory = getSafRoot(root) ?: return emptyList()
+            val folder = root.category.remoteFolder(layout)
             return directory.listFiles().mapNotNull { document ->
                 val name = document.name ?: return@mapNotNull null
                 if (!document.isFile || !accepts(root.category, name, document.type)) return@mapNotNull null
                 LocalMediaSyncFile(
-                    relativePath = "${root.category.remoteFolder}/$name",
+                    relativePath = "$folder/$name",
                     lastModified = document.lastModified(),
                 )
             }
         }
 
-        private suspend fun locate(relativePath: String): LocatedMediaFile? {
-            val normalized = relativePath.trim().trimStart('/')
+        private suspend fun locate(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+        ): LocatedMediaFile? {
+            val stripped = stripSyncPrefix(relativePath.trim().trimStart('/'))
             val category =
                 when {
-                    normalized.startsWith("${MediaSyncCategory.IMAGE.remoteFolder}/") -> MediaSyncCategory.IMAGE
-                    normalized.startsWith("${MediaSyncCategory.VOICE.remoteFolder}/") -> MediaSyncCategory.VOICE
+                    stripped.startsWith("${layout.imageFolder}/") -> MediaSyncCategory.IMAGE
+                    stripped.startsWith("${layout.voiceFolder}/") -> MediaSyncCategory.VOICE
                     else -> return null
                 }
-            val filename = normalized.substringAfter('/')
+            val filename = stripped.substringAfter('/')
             if (filename.isBlank()) return null
             val root = configuredRoots().firstOrNull { it.category == category } ?: return null
             return LocatedMediaFile(root = root, filename = filename)
@@ -280,14 +308,27 @@ class LocalMediaSyncStore
             private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
             private val VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")
             private const val OCTET_STREAM = "application/octet-stream"
+            private const val WEBDAV_PREFIX = "lomo/"
+
+            /**
+             * Strips the WebDAV `lomo/` prefix from a path if present, so that
+             * category-folder matching works uniformly for both Git and WebDAV paths.
+             */
+            fun stripSyncPrefix(path: String): String =
+                if (path.startsWith(WEBDAV_PREFIX)) path.removePrefix(WEBDAV_PREFIX) else path
         }
     }
 
-enum class MediaSyncCategory(
-    val remoteFolder: String,
-) {
-    IMAGE("images"),
-    VOICE("voice"),
+enum class MediaSyncCategory {
+    IMAGE,
+    VOICE,
+    ;
+
+    fun remoteFolder(layout: SyncDirectoryLayout): String =
+        when (this) {
+            IMAGE -> layout.imageFolder
+            VOICE -> layout.voiceFolder
+        }
 }
 
 data class LocalMediaSyncFile(
