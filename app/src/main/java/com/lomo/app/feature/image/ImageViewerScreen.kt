@@ -12,7 +12,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -52,7 +51,6 @@ fun ImageViewerScreen(
             initialIndex.coerceIn(0, effectiveUrls.lastIndex)
         }
     val zoomFractions = remember(effectiveUrls) { mutableStateMapOf<Int, Float>() }
-    val currentZoomFraction = zoomFractions[effectiveInitialIndex] ?: 0f
 
     Box(
         modifier =
@@ -82,10 +80,11 @@ fun ImageViewerScreen(
                     initialPage = effectiveInitialIndex,
                     pageCount = { effectiveUrls.size },
                 )
-            val activeZoomFraction = zoomFractions[pagerState.currentPage] ?: currentZoomFraction
+            val activeZoomFraction = zoomFractions[pagerState.currentPage] ?: 0f
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 1,
                 userScrollEnabled = effectiveUrls.size > 1 && activeZoomFraction <= 0.01f,
             ) { page ->
                 val imageUrl = effectiveUrls[page]
@@ -96,11 +95,6 @@ fun ImageViewerScreen(
 
                 LaunchedEffect(page, zoomFraction) {
                     zoomFractions[page] = zoomFraction
-                }
-                DisposableEffect(page) {
-                    onDispose {
-                        zoomFractions.remove(page)
-                    }
                 }
 
                 ZoomableAsyncImage(

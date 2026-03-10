@@ -194,7 +194,6 @@ internal fun MarkdownImagePager(
                 MarkdownImageBlock(
                     image = current,
                     onImageClick = onImageClick,
-                    sharedElementKey = "${current.destination}#$page",
                 )
             }
         }
