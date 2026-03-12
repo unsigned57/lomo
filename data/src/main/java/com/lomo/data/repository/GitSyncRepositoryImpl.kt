@@ -141,7 +141,7 @@ class GitSyncRepositoryImpl
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
                 val repoDir = resolveGitRepoDir(directRootDir, layout)
-                mirrorMemoToRepo(directRootDir, repoDir, layout)
+                mirrorMemoToRepo(repoDir, layout)
                 return runGitIo {
                     gitSyncEngine.initOrClone(repoDir, remoteUrl)
                 }
@@ -149,6 +149,13 @@ class GitSyncRepositoryImpl
 
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
+                if (!layout.allSameDirectory) {
+                    val repoDir = resolveGitRepoDirForUri(safRootUri)
+                    mirrorMemoToRepo(repoDir, layout)
+                    return runGitIo {
+                        gitSyncEngine.initOrClone(repoDir, remoteUrl)
+                    }
+                }
                 return runGitIo {
                     runCatching {
                         val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
@@ -179,16 +186,24 @@ class GitSyncRepositoryImpl
                 val enabled = dataStore.gitSyncEnabled.first()
                 if (!enabled) return GitSyncResult.NotConfigured
 
-                val directRootDir =
-                    resolveRootDir()
-                        ?: return GitSyncResult.Success("SAF mode, skipping local commit")
-
                 val layout = SyncDirectoryLayout.resolve(dataStore)
-                val repoDir = resolveGitRepoDir(directRootDir, layout)
+                val directRootDir = resolveRootDir()
+                val repoDir: File =
+                    if (directRootDir != null) {
+                        resolveGitRepoDir(directRootDir, layout)
+                    } else if (!layout.allSameDirectory) {
+                        val safRootUri =
+                            resolveSafRootUri()
+                                ?: return GitSyncResult.Success("Not configured")
+                        resolveGitRepoDirForUri(safRootUri)
+                    } else {
+                        return GitSyncResult.Success("SAF mode, skipping local commit")
+                    }
+
                 val gitDir = File(repoDir, ".git")
                 if (!gitDir.exists()) return GitSyncResult.Success("Not initialized yet")
 
-                mirrorMemoToRepo(directRootDir, repoDir, layout)
+                mirrorMemoToRepo(repoDir, layout)
                 return runGitIo {
                     gitSyncEngine.commitLocal(repoDir)
                 }
@@ -234,9 +249,19 @@ class GitSyncRepositoryImpl
             }
 
             val rootDir: File
+            val useSafMirror: Boolean
             if (directRootDir != null) {
                 rootDir = resolveGitRepoDir(directRootDir, layout)
-                mirrorMemoToRepo(directRootDir, rootDir, layout)
+                mirrorMemoToRepo(rootDir, layout)
+                useSafMirror = false
+            } else if (!layout.allSameDirectory) {
+                // SAF + separate directories: use internal repo dir.
+                // Memos are mirrored via MarkdownStorageDataSource, media via GitMediaSyncBridge.
+                // SafGitMirrorBridge is NOT used, which avoids the nesting bug where
+                // pushToSaf would copy subdirectories (e.g. memo/) back into the SAF root.
+                rootDir = resolveGitRepoDirForUri(safRootUri!!)
+                mirrorMemoToRepo(rootDir, layout)
+                useSafMirror = false
             } else {
                 rootDir =
                     try {
@@ -252,6 +277,7 @@ class GitSyncRepositoryImpl
                         gitSyncEngine.markError(message)
                         return GitSyncResult.Error(message, e)
                     }
+                useSafMirror = true
             }
 
             // Initialize if needed
@@ -287,15 +313,16 @@ class GitSyncRepositoryImpl
                 }
             }
 
-            // Mirror changed memos back from the repo to the local directory
-            if (result is GitSyncResult.Success && directRootDir != null) {
-                mirrorMemoFromRepo(directRootDir, rootDir, layout)
+            // Mirror changed memos back from the repo to the local directory.
+            // mirrorMemoFromRepo is a no-op when allSameDirectory is true.
+            if (result is GitSyncResult.Success) {
+                mirrorMemoFromRepo(rootDir, layout)
             }
 
-            if (result is GitSyncResult.Success && !safRootUri.isNullOrBlank()) {
+            if (result is GitSyncResult.Success && useSafMirror) {
                 try {
                     runGitIo {
-                        safGitMirrorBridge.pushToSaf(safRootUri, rootDir)
+                        safGitMirrorBridge.pushToSaf(safRootUri!!, rootDir)
                     }
                 } catch (e: CancellationException) {
                     throw e
@@ -328,18 +355,25 @@ class GitSyncRepositoryImpl
         }
 
         override suspend fun getStatus(): GitSyncStatus {
-            val rootDir =
-                resolveRootDir()
-                    ?: run {
-                        val safRootUri = resolveSafRootUri()
-                        if (safRootUri.isNullOrBlank()) {
-                            return GitSyncStatus(
-                                hasLocalChanges = false,
-                                aheadCount = 0,
-                                behindCount = 0,
-                                lastSyncTime = null,
-                            )
-                        }
+            val layout = SyncDirectoryLayout.resolve(dataStore)
+            val emptyStatus =
+                GitSyncStatus(
+                    hasLocalChanges = false,
+                    aheadCount = 0,
+                    behindCount = 0,
+                    lastSyncTime = null,
+                )
+
+            val directRootDir = resolveRootDir()
+            val repoDir: File =
+                if (directRootDir != null) {
+                    resolveGitRepoDir(directRootDir, layout)
+                } else {
+                    val safRootUri = resolveSafRootUri()
+                    if (safRootUri.isNullOrBlank()) return emptyStatus
+                    if (!layout.allSameDirectory) {
+                        resolveGitRepoDirForUri(safRootUri)
+                    } else {
                         try {
                             runGitIo {
                                 val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
@@ -347,17 +381,11 @@ class GitSyncRepositoryImpl
                                 mirrorDir
                             }
                         } catch (_: Exception) {
-                            return GitSyncStatus(
-                                hasLocalChanges = false,
-                                aheadCount = 0,
-                                behindCount = 0,
-                                lastSyncTime = null,
-                            )
+                            return emptyStatus
                         }
                     }
+                }
 
-            val layout = SyncDirectoryLayout.resolve(dataStore)
-            val repoDir = resolveGitRepoDir(rootDir, layout)
             val status =
                 runGitIo {
                     gitSyncEngine.getStatus(repoDir)
@@ -392,10 +420,15 @@ class GitSyncRepositoryImpl
             }
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
+                val repoDir =
+                    if (!layout.allSameDirectory) {
+                        resolveGitRepoDirForUri(safRootUri)
+                    } else {
+                        runGitIo { safGitMirrorBridge.mirrorDirectoryFor(safRootUri) }
+                    }
                 return try {
                     runGitIo {
-                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                        gitSyncEngine.resetRepository(mirrorDir)
+                        gitSyncEngine.resetRepository(repoDir)
                     }
                 } catch (e: Exception) {
                     GitSyncResult.Error("Reset failed: ${e.message}", e)
@@ -425,14 +458,23 @@ class GitSyncRepositoryImpl
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
                 return try {
-                    runGitIo {
-                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                        val result = gitSyncEngine.resetLocalBranchToRemote(mirrorDir, remoteUrl)
+                    if (!layout.allSameDirectory) {
+                        val repoDir = resolveGitRepoDirForUri(safRootUri)
+                        val result = runGitIo { gitSyncEngine.resetLocalBranchToRemote(repoDir, remoteUrl) }
                         if (result is GitSyncResult.Success) {
-                            safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                            mirrorMemoFromRepo(repoDir, layout)
                         }
                         result
+                    } else {
+                        runGitIo {
+                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                            val result = gitSyncEngine.resetLocalBranchToRemote(mirrorDir, remoteUrl)
+                            if (result is GitSyncResult.Success) {
+                                safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                            }
+                            result
+                        }
                     }
                 } catch (e: Exception) {
                     GitSyncResult.Error("Reset to remote failed: ${e.message}", e)
@@ -455,7 +497,7 @@ class GitSyncRepositoryImpl
             val directRootDir = resolveRootDir()
             if (directRootDir != null) {
                 val repoDir = resolveGitRepoDir(directRootDir, layout)
-                mirrorMemoToRepo(directRootDir, repoDir, layout)
+                mirrorMemoToRepo(repoDir, layout)
                 return runGitIo {
                     gitSyncEngine.forcePushLocalToRemote(repoDir, remoteUrl)
                 }
@@ -464,14 +506,22 @@ class GitSyncRepositoryImpl
             val safRootUri = resolveSafRootUri()
             if (!safRootUri.isNullOrBlank()) {
                 return try {
-                    runGitIo {
-                        val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                        safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                        val result = gitSyncEngine.forcePushLocalToRemote(mirrorDir, remoteUrl)
-                        if (result is GitSyncResult.Success) {
-                            safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                    if (!layout.allSameDirectory) {
+                        val repoDir = resolveGitRepoDirForUri(safRootUri)
+                        mirrorMemoToRepo(repoDir, layout)
+                        runGitIo {
+                            gitSyncEngine.forcePushLocalToRemote(repoDir, remoteUrl)
                         }
-                        result
+                    } else {
+                        runGitIo {
+                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                            val result = gitSyncEngine.forcePushLocalToRemote(mirrorDir, remoteUrl)
+                            if (result is GitSyncResult.Success) {
+                                safGitMirrorBridge.pushToSaf(safRootUri, mirrorDir)
+                            }
+                            result
+                        }
                     }
                 } catch (e: Exception) {
                     GitSyncResult.Error("Force push failed: ${e.message}", e)
@@ -490,10 +540,14 @@ class GitSyncRepositoryImpl
                 resolveRootDir()?.let { resolveGitRepoDir(it, layout) } ?: run {
                     val safRootUri = resolveSafRootUri() ?: return emptyList()
                     try {
-                        runGitIo {
-                            val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
-                            safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
-                            mirrorDir
+                        if (!layout.allSameDirectory) {
+                            resolveGitRepoDirForUri(safRootUri)
+                        } else {
+                            runGitIo {
+                                val mirrorDir = safGitMirrorBridge.mirrorDirectoryFor(safRootUri)
+                                safGitMirrorBridge.pullFromSaf(safRootUri, mirrorDir)
+                                mirrorDir
+                            }
                         }
                     } catch (e: Exception) {
                         Timber.w(e, "Failed to resolve SAF mirror for version history")
@@ -593,9 +647,24 @@ class GitSyncRepositoryImpl
             layout: SyncDirectoryLayout,
         ): File {
             if (layout.allSameDirectory) return userMemoDir
+            return internalRepoDir(sha256(userMemoDir.absolutePath))
+        }
+
+        /**
+         * Returns an internal Git repo directory keyed by [uri].
+         *
+         * Used when the storage root is a SAF content URI and
+         * [SyncDirectoryLayout.allSameDirectory] is `false`.
+         * In this mode the SAF mirror bridge is NOT used – memo files are mirrored
+         * through [MarkdownStorageDataSource] instead, avoiding the directory-nesting
+         * bug that occurs when `pushToSaf` copies subdirectories back into the SAF root.
+         */
+        private fun resolveGitRepoDirForUri(uri: String): File =
+            internalRepoDir(sha256(uri))
+
+        private fun internalRepoDir(hash: String): File {
             val baseDir = File(context.filesDir, "git_sync_repo")
             if (!baseDir.exists()) baseDir.mkdirs()
-            val hash = sha256(userMemoDir.absolutePath)
             val repoDir = File(baseDir, hash)
             if (!repoDir.exists()) repoDir.mkdirs()
             return repoDir
@@ -607,9 +676,11 @@ class GitSyncRepositoryImpl
          * Copies memo `.md` files from the user's memo directory into the repo's
          * memo subdirectory. Only relevant when [SyncDirectoryLayout.allSameDirectory]
          * is `false`, because otherwise the repo root IS the memo directory.
+         *
+         * File I/O uses [MarkdownStorageDataSource] which works with both direct paths
+         * and SAF URIs, so this method is storage-backend agnostic.
          */
         private suspend fun mirrorMemoToRepo(
-            userMemoDir: File,
             repoDir: File,
             layout: SyncDirectoryLayout,
         ) {
@@ -646,9 +717,11 @@ class GitSyncRepositoryImpl
         /**
          * Copies changed memo `.md` files from the repo back to the user's memo
          * directory. Only relevant in multi-directory mode.
+         *
+         * File I/O uses [MarkdownStorageDataSource] which works with both direct paths
+         * and SAF URIs, so this method is storage-backend agnostic.
          */
         private suspend fun mirrorMemoFromRepo(
-            userMemoDir: File,
             repoDir: File,
             layout: SyncDirectoryLayout,
         ) {
