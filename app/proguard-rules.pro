@@ -63,3 +63,7 @@
 -dontwarn java.lang.ProcessHandle
 -dontwarn javax.management.**
 -dontwarn org.ietf.jgss.**
+
+# R8 fix: org.xmlpull conflict with platform
+-dontwarn org.xmlpull.v1.**
+-keep class org.xmlpull.v1.** { *; }

@@ -67,7 +67,9 @@ dependencies {
 
     // Git sync
     implementation(libs.jgit)
-    implementation(libs.bitfire.dav4jvm)
+    implementation(libs.bitfire.dav4jvm) {
+        exclude(group = "org.ogce", module = "xpp3")
+    }
 
     // Logging
     implementation(libs.timber)
