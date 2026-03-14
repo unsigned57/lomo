@@ -342,8 +342,16 @@ class SettingsStateProvider(
             appConfigCoordinator.doubleTapEditEnabled,
             appConfigCoordinator.freeTextCopyEnabled,
             appConfigCoordinator.appLockEnabled,
-        ) { hapticEnabled, showInputHints, doubleTapEditEnabled, freeTextCopyEnabled, appLockEnabled ->
-            InteractionSectionState(hapticEnabled, showInputHints, doubleTapEditEnabled, freeTextCopyEnabled, appLockEnabled)
+            appConfigCoordinator.quickSaveOnBackEnabled,
+        ) { values ->
+            InteractionSectionState(
+                hapticEnabled = values[0],
+                showInputHints = values[1],
+                doubleTapEditEnabled = values[2],
+                freeTextCopyEnabled = values[3],
+                appLockEnabled = values[4],
+                quickSaveOnBackEnabled = values[5],
+            )
         }.stateIn(
             scope = scope,
             started = SharingStarted.WhileSubscribed(5000),
@@ -354,6 +362,7 @@ class SettingsStateProvider(
                     doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
                     freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
+                    quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
                 ),
         )
 

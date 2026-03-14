@@ -78,6 +78,7 @@ class LomoDataStore
             val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
             val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
             val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
+            val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
             val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
             val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
             val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
@@ -104,6 +105,7 @@ class LomoDataStore
             val WEBDAV_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.WEBDAV_AUTO_SYNC_INTERVAL)
             val WEBDAV_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.WEBDAV_LAST_SYNC_TIME)
             val WEBDAV_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.WEBDAV_SYNC_ON_REFRESH)
+            val DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
         }
 
         // Storage Settings
@@ -214,6 +216,13 @@ class LomoDataStore
                     prefs[Keys.FREE_TEXT_COPY_ENABLED]
                         ?: PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED
                 }.catchOnlyIOException("freeTextCopyEnabled", PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED)
+
+        val quickSaveOnBackEnabled: Flow<Boolean> =
+            dataStore.data
+                .map { prefs ->
+                    prefs[Keys.QUICK_SAVE_ON_BACK_ENABLED]
+                        ?: PreferenceKeys.Defaults.QUICK_SAVE_ON_BACK_ENABLED
+                }.catchOnlyIOException("quickSaveOnBackEnabled", PreferenceKeys.Defaults.QUICK_SAVE_ON_BACK_ENABLED)
 
         val appLockEnabled: Flow<Boolean> =
             dataStore.data
@@ -366,6 +375,10 @@ class LomoDataStore
 
         suspend fun updateFreeTextCopyEnabled(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.FREE_TEXT_COPY_ENABLED] = enabled }
+        }
+
+        suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
+            dataStore.edit { prefs -> prefs[Keys.QUICK_SAVE_ON_BACK_ENABLED] = enabled }
         }
 
         suspend fun updateAppLockEnabled(enabled: Boolean) {
@@ -641,5 +654,21 @@ class LomoDataStore
 
         suspend fun updateWebDavSyncOnRefresh(enabled: Boolean) {
             dataStore.edit { prefs -> prefs[Keys.WEBDAV_SYNC_ON_REFRESH] = enabled }
+        }
+
+        // Draft
+        val draftText: Flow<String> =
+            dataStore.data
+                .map { prefs -> prefs[Keys.DRAFT_TEXT] ?: "" }
+                .catchOnlyIOException("draftText", "")
+
+        suspend fun updateDraftText(text: String?) {
+            dataStore.edit { prefs ->
+                if (text.isNullOrEmpty()) {
+                    prefs.remove(Keys.DRAFT_TEXT)
+                } else {
+                    prefs[Keys.DRAFT_TEXT] = text
+                }
+            }
         }
     }

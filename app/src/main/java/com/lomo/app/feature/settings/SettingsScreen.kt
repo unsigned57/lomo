@@ -60,6 +60,7 @@ import kotlinx.coroutines.launch
 fun SettingsScreen(
     onBackClick: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
+    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val storageFeature = viewModel.storageFeature
@@ -203,7 +204,13 @@ fun SettingsScreen(
     }
 
     LaunchedEffect(uiState.git.syncState) {
-        val errorState = uiState.git.syncState as? SyncEngineState.Error ?: return@LaunchedEffect
+        val errorState = uiState.git.syncState as? SyncEngineState.Error ?: run {
+            val conflictState = uiState.git.syncState as? SyncEngineState.ConflictDetected
+            if (conflictState != null) {
+                conflictViewModel.showConflictDialog(conflictState.conflicts)
+            }
+            return@LaunchedEffect
+        }
         if (gitFeature.shouldShowGitConflictDialog(errorState.message) && !dialogState.showGitConflictResolutionDialog) {
             dialogState.gitConflictMessage = errorState.message
             dialogState.showGitConflictResolutionDialog = true
@@ -445,6 +452,7 @@ fun SettingsScreen(
                     onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
                     onToggleFreeTextCopy = interactionFeature::updateFreeTextCopyEnabled,
                     onToggleAppLock = interactionFeature::updateAppLockEnabled,
+                    onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
                 )
 
                 SystemSettingsSection(
@@ -458,6 +466,8 @@ fun SettingsScreen(
             }
         }
     }
+
+    com.lomo.app.feature.conflict.SyncConflictDialogHost(conflictViewModel = conflictViewModel)
 
     SettingsDialogHost(
         uiState = uiState,

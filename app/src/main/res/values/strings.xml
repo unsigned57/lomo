@@ -31,6 +31,8 @@
     <string name="settings_double_tap_edit_subtitle">Double-tap memo cards to enter edit mode quickly</string>
     <string name="settings_free_text_copy">Free text copy</string>
     <string name="settings_free_text_copy_subtitle">Allow selecting and copying text directly from memo cards</string>
+    <string name="settings_quick_save_on_back">Quick save on back</string>
+    <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
     <string name="settings_check_updates">Check updates on startup</string>
     <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
     <string name="settings_lan_share_pairing_code">LAN Share Pairing Code</string>
@@ -362,5 +364,17 @@
     <string name="memo_version_restore">Restore</string>
     <string name="memo_version_current">Current</string>
     <string name="memo_version_loading">Loading version history…</string>
+
+    <!-- Sync Conflict Resolution -->
+    <string name="sync_conflict_dialog_title">Resolve Sync Conflicts</string>
+    <string name="sync_conflict_keep_all_local">Keep All Local</string>
+    <string name="sync_conflict_keep_all_remote">Keep All Remote</string>
+    <string name="sync_conflict_keep_local">Local</string>
+    <string name="sync_conflict_keep_remote">Remote</string>
+    <string name="sync_conflict_apply">Apply</string>
+    <string name="sync_conflict_file_binary">Binary file</string>
+    <string name="sync_conflict_file_count">%d file(s) in conflict</string>
+    <string name="sync_conflict_backup_notice">Files backed up before resolution</string>
+    <string name="sync_conflict_resolved">Conflicts resolved</string>
 
 </resources>

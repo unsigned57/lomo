@@ -103,6 +103,12 @@ class SettingsRepositoryImpl
             dataStore.updateFreeTextCopyEnabled(enabled)
         }
 
+        override fun isQuickSaveOnBackEnabled(): Flow<Boolean> = dataStore.quickSaveOnBackEnabled
+
+        override suspend fun setQuickSaveOnBackEnabled(enabled: Boolean) {
+            dataStore.updateQuickSaveOnBackEnabled(enabled)
+        }
+
         override fun isAppLockEnabled(): Flow<Boolean> = dataStore.appLockEnabled
 
         override suspend fun setAppLockEnabled(enabled: Boolean) {
@@ -125,6 +131,12 @@ class SettingsRepositoryImpl
 
         override suspend fun setShareCardShowBrand(enabled: Boolean) {
             dataStore.updateShareCardShowBrand(enabled)
+        }
+
+        override fun getDraftText(): Flow<String> = dataStore.draftText
+
+        override suspend fun setDraftText(text: String?) {
+            dataStore.updateDraftText(text)
         }
 
         private fun StorageArea.toStorageRootType(): StorageRootType =

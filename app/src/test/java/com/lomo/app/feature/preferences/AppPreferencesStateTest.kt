@@ -23,6 +23,7 @@ class AppPreferencesStateTest {
             every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
             every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
             every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
+            every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
             every { preferencesRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
@@ -38,6 +39,7 @@ class AppPreferencesStateTest {
                     showInputHints = true,
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
+                    quickSaveOnBackEnabled = false,
                     shareCardStyle = ShareCardStyle.CLEAN,
                     shareCardShowTime = true,
                     shareCardShowBrand = false,

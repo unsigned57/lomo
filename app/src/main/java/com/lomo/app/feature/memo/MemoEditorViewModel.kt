@@ -11,11 +11,14 @@ import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import com.lomo.domain.repository.PreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 @HiltViewModel
@@ -27,11 +30,31 @@ class MemoEditorViewModel
         private val saveImageUseCase: SaveImageUseCase,
         private val discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase,
         private val appWidgetRepository: AppWidgetRepository,
+        private val preferencesRepository: PreferencesRepository,
     ) : ViewModel() {
         private val trackedImageFilenames = mutableSetOf<String>()
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
+
+        private val _draftText = MutableStateFlow(
+            runBlocking { preferencesRepository.getDraftText().first() },
+        )
+        val draftText: StateFlow<String> = _draftText
+
+        fun saveDraft(text: String) {
+            _draftText.value = text
+            viewModelScope.launch {
+                preferencesRepository.setDraftText(text)
+            }
+        }
+
+        fun clearDraft() {
+            _draftText.value = ""
+            viewModelScope.launch {
+                preferencesRepository.setDraftText(null)
+            }
+        }
 
         fun createMemo(
             content: String,
@@ -42,6 +65,7 @@ class MemoEditorViewModel
                     createMemoUseCase(content = content, timestampMillis = System.currentTimeMillis())
                     onSuccess?.invoke()
                     clearTrackedImages()
+                    clearDraft()
                     viewModelScope.launch(Dispatchers.IO) {
                         runCatching { appWidgetRepository.updateAllWidgets() }
                     }

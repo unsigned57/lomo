@@ -79,6 +79,7 @@ fun rememberMemoEditorController(): MemoEditorController = remember { MemoEditor
 fun MemoEditorSheetHost(
     controller: MemoEditorController,
     imageDirectory: String?,
+    quickSaveOnBackEnabled: Boolean = false,
     onSaveImage: (
         uri: Uri,
         onResult: (String) -> Unit,
@@ -172,6 +173,7 @@ fun MemoEditorSheetHost(
                     onSubmit(controller.editingMemo, content)
                     controller.close()
                 },
+                autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
                 onImageClick = {
                     if (imageDirectory == null) {
                         if (onImageDirectoryMissing != null) {

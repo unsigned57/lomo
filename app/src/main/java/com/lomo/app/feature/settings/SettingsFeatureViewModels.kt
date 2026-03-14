@@ -97,6 +97,10 @@ class SettingsInteractionFeatureViewModel(
         scope.launch { appConfigCoordinator.updateFreeTextCopyEnabled(enabled) }
     }
 
+    fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateQuickSaveOnBackEnabled(enabled) }
+    }
+
     fun updateAppLockEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateAppLockEnabled(enabled) }
     }

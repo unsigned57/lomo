@@ -30,6 +30,7 @@ object PreferenceKeys {
     const val SHOW_INPUT_HINTS = "show_input_hints"
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
+    const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
     const val LAN_SHARE_E2E_ENABLED = "lan_share_e2e_enabled"
@@ -59,6 +60,9 @@ object PreferenceKeys {
     const val WEBDAV_LAST_SYNC_TIME = "webdav_last_sync_time"
     const val WEBDAV_SYNC_ON_REFRESH = "webdav_sync_on_refresh"
 
+    // Draft
+    const val DRAFT_TEXT = "draft_text"
+
     // Default values
     object Defaults {
         const val DATE_FORMAT = PreferenceDefaults.DATE_FORMAT
@@ -68,6 +72,7 @@ object PreferenceKeys {
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
+        const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
         const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE

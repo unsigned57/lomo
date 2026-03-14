@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
@@ -98,6 +99,7 @@ fun MainScreen(
     sidebarViewModel: SidebarViewModel = hiltViewModel(),
     editorViewModel: MemoEditorViewModel = hiltViewModel(),
     recordingViewModel: RecordingViewModel = hiltViewModel(),
+    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = hiltViewModel(),
 ) {
     // Collect Flow state safely with Lifecycle awareness using collectAsStateWithLifecycle
     // to ensure flows are paused when the app is in the background.
@@ -114,6 +116,7 @@ fun MainScreen(
     val showInputHints = appPreferences.showInputHints
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
+    val quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled
     val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
@@ -142,6 +145,18 @@ fun MainScreen(
                 .LazyListState()
         }
     val editorController = rememberMemoEditorController()
+    val draftText by editorViewModel.draftText.collectAsStateWithLifecycle()
+
+    // Debounced draft save: when in create mode, save input text to DataStore
+    LaunchedEffect(editorController) {
+        snapshotFlow { editorController.editingMemo to editorController.inputValue.text }
+            .collect { (editingMemo, text) ->
+                if (editingMemo == null && editorController.isVisible) {
+                    kotlinx.coroutines.delay(500)
+                    editorViewModel.saveDraft(text)
+                }
+            }
+    }
 
     // Local UI State
     var isRefreshing by remember { mutableStateOf(false) }
@@ -174,7 +189,7 @@ fun MainScreen(
         onAppendMarkdown = editorController::appendMarkdownBlock,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
-        onOpenCreateMemo = editorController::openForCreate,
+        onOpenCreateMemo = { editorController.openForCreate(draftText) },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
             val index = uiMemos.indexOfFirst { it.memo.id == memoId }
@@ -197,12 +212,21 @@ fun MainScreen(
 
     val allTags = remember(sidebarUiState.tags) { sidebarUiState.tags.map { it.name }.sorted() }
 
+    com.lomo.app.feature.conflict.SyncConflictDialogHost(conflictViewModel = conflictViewModel)
+
+    LaunchedEffect(Unit) {
+        viewModel.syncConflictEvent.collect { conflictSet ->
+            conflictViewModel.showConflictDialog(conflictSet)
+        }
+    }
+
     MemoInteractionHost(
         shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         imageDirectory = imageDir,
         controller = editorController,
+        quickSaveOnBackEnabled = quickSaveOnBackEnabled,
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = editorViewModel::updateMemo,
         onCreateMemo = { content ->
@@ -302,7 +326,7 @@ fun MainScreen(
                 viewModel.clearMemoDateRange()
             },
             onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
-            onOpenCreateMemo = editorController::openForCreate,
+            onOpenCreateMemo = { editorController.openForCreate(draftText) },
             onRefreshMemos = viewModel::refresh,
             onRefreshingChange = { isRefreshing = it },
         ) { actions ->

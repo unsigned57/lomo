@@ -41,6 +41,10 @@ interface PreferencesRepository {
 
     suspend fun setFreeTextCopyEnabled(enabled: Boolean)
 
+    fun isQuickSaveOnBackEnabled(): Flow<Boolean>
+
+    suspend fun setQuickSaveOnBackEnabled(enabled: Boolean)
+
     fun isAppLockEnabled(): Flow<Boolean>
 
     suspend fun setAppLockEnabled(enabled: Boolean)
@@ -60,4 +64,8 @@ interface PreferencesRepository {
     fun isShareCardShowBrandEnabled(): Flow<Boolean>
 
     suspend fun setShareCardShowBrand(enabled: Boolean)
+
+    fun getDraftText(): Flow<String>
+
+    suspend fun setDraftText(text: String?)
 }

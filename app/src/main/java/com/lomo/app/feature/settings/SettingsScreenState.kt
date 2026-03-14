@@ -69,6 +69,7 @@ data class InteractionSectionState(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val appLockEnabled: Boolean,
+    val quickSaveOnBackEnabled: Boolean,
 )
 
 data class SystemSectionState(

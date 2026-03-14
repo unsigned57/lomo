@@ -622,6 +622,7 @@ fun InteractionSettingsSection(
     onToggleDoubleTapEdit: (Boolean) -> Unit,
     onToggleFreeTextCopy: (Boolean) -> Unit,
     onToggleAppLock: (Boolean) -> Unit,
+    onToggleQuickSaveOnBack: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
         SwitchPreferenceItem(
@@ -662,6 +663,14 @@ fun InteractionSettingsSection(
             icon = Icons.Outlined.ContentCopy,
             checked = state.freeTextCopyEnabled,
             onCheckedChange = onToggleFreeTextCopy,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_quick_save_on_back),
+            subtitle = stringResource(R.string.settings_quick_save_on_back_subtitle),
+            icon = Icons.Outlined.Info,
+            checked = state.quickSaveOnBackEnabled,
+            onCheckedChange = onToggleQuickSaveOnBack,
         )
     }
 }

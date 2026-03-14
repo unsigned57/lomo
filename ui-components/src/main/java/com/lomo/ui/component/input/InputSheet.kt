@@ -133,6 +133,7 @@ data class InputSheetCallbacks(
     val onStopRecording: () -> Unit = {},
     val onCancelRecording: () -> Unit = {},
     val inputInterceptor: InputInterceptor = TripleEnterSubmitInterceptor,
+    val autoSubmitOnDismiss: Boolean = false,
 )
 
 data class InputSheetSlots(
@@ -168,6 +169,7 @@ fun InputSheet(
     val onStopRecording = callbacks.onStopRecording
     val onCancelRecording = callbacks.onCancelRecording
     val inputInterceptor = callbacks.inputInterceptor
+    val autoSubmitOnDismiss = callbacks.autoSubmitOnDismiss
 
     var showTagSelector by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -216,19 +218,6 @@ fun InputSheet(
         keyboardController?.show()
     }
 
-    val requestDismiss: () -> Unit = {
-        val hasUnsavedChanges = currentInputValue.text != initialInputText
-        if (hasUnsavedChanges) {
-            showDiscardDialog = true
-        } else {
-            dismissSheet()
-        }
-    }
-
-    BackHandler(enabled = true) {
-        requestDismiss()
-    }
-
     val clearSubmissionLock = {
         isSubmitting = false
         pendingSubmissionTriggerText = null
@@ -243,6 +232,25 @@ fun InputSheet(
         pendingSubmissionTriggerText = triggerText
         submissionLockSourceText = sourceText
         onSubmit(content)
+    }
+
+    val requestDismiss: () -> Unit = {
+        val hasUnsavedChanges = currentInputValue.text != initialInputText
+        if (autoSubmitOnDismiss && currentInputValue.text.isNotBlank()) {
+            submitWithLock(
+                currentInputValue.text.trim(),
+                currentInputValue.text,
+                currentInputValue.text,
+            )
+        } else if (hasUnsavedChanges && !autoSubmitOnDismiss) {
+            showDiscardDialog = true
+        } else {
+            dismissSheet()
+        }
+    }
+
+    BackHandler(enabled = true) {
+        requestDismiss()
     }
 
     LaunchedEffect(inputValue.text, isSubmitting, submissionLockSourceText) {

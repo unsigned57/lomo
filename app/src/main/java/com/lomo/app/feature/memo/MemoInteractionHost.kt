@@ -13,6 +13,7 @@ fun MemoInteractionHost(
     activeDayCount: Int,
     imageDirectory: String?,
     controller: MemoEditorController = rememberMemoEditorController(),
+    quickSaveOnBackEnabled: Boolean = false,
     onDeleteMemo: (Memo) -> Unit,
     onUpdateMemo: (
         memo: Memo,
@@ -70,6 +71,7 @@ fun MemoInteractionHost(
         MemoEditorSheetHost(
             controller = controller,
             imageDirectory = imageDirectory,
+            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
             onSaveImage = onSaveImage,
             onSubmit = { memo, content ->
                 if (memo != null) {

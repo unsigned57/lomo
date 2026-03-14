@@ -8,6 +8,7 @@ object PreferenceDefaults {
     const val SHOW_INPUT_HINTS = true
     const val DOUBLE_TAP_EDIT_ENABLED = true
     const val FREE_TEXT_COPY_ENABLED = false
+    const val QUICK_SAVE_ON_BACK_ENABLED = false
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"

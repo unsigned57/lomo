@@ -60,6 +60,9 @@ class MainViewModel
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
+        private val _syncConflictEvent = kotlinx.coroutines.flow.MutableSharedFlow<com.lomo.domain.model.SyncConflictSet>(extraBufferCapacity = 1)
+        val syncConflictEvent: kotlinx.coroutines.flow.SharedFlow<com.lomo.domain.model.SyncConflictSet> = _syncConflictEvent
+
         val isSyncing: StateFlow<Boolean> =
             repository
                 .isSyncing()
@@ -341,6 +344,8 @@ class MainViewModel
                     workspaceCoordinator.refreshMemos()
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
+                } catch (e: com.lomo.domain.usecase.SyncConflictException) {
+                    _syncConflictEvent.tryEmit(e.conflicts)
                 } catch (e: Exception) {
                     _errorMessage.value = e.toUserMessage("Failed to refresh memos")
                 }
