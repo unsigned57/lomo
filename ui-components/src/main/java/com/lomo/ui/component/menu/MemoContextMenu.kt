@@ -47,6 +47,7 @@ data class MemoMenuState(
     val content: String = "",
     val isPinned: Boolean = false,
     val reference: MemoMenuReference = MemoMenuReference.None,
+    val imageUrls: List<String> = emptyList(),
 ) {
     constructor(
         wordCount: Int = 0,
@@ -54,6 +55,7 @@ data class MemoMenuState(
         content: String = "",
         isPinned: Boolean = false,
         memo: Any?,
+        imageUrls: List<String> = emptyList(),
     ) : this(
         wordCount = wordCount,
         createdTime = createdTime,
@@ -65,6 +67,7 @@ data class MemoMenuState(
             } else {
                 MemoMenuReference.None
             },
+        imageUrls = imageUrls,
     )
 
     // Legacy accessor kept for source compatibility. Prefer `memoAs<T>()` in new code.

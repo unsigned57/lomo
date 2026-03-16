@@ -41,6 +41,7 @@ class ShareUtils
             val timestampMillis: Long?,
             val tags: List<String>,
             val activeDayCount: Int?,
+            val resolvedImagePaths: List<String>,
         )
 
         suspend fun shareMemoAsImage(
@@ -53,6 +54,7 @@ class ShareUtils
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
             activeDayCount: Int? = null,
+            resolvedImagePaths: List<String> = emptyList(),
         ) {
             try {
                 val imageUri =
@@ -68,6 +70,7 @@ class ShareUtils
                                 timestampMillis = timestamp,
                                 tags = tags,
                                 activeDayCount = activeDayCount,
+                                resolvedImagePaths = resolvedImagePaths,
                             ),
                     )
                 withContext(Dispatchers.Main.immediate) {
@@ -154,6 +157,7 @@ class ShareUtils
                         timestampMillis = config.timestampMillis,
                         tags = config.tags,
                         activeDayCount = config.activeDayCount,
+                        resolvedImagePaths = config.resolvedImagePaths,
                     )
                 }
             val filePath =

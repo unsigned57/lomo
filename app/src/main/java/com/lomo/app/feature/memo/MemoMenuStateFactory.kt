@@ -8,6 +8,7 @@ fun memoMenuState(
     memo: Memo,
     dateFormat: String,
     timeFormat: String,
+    imageUrls: List<String> = emptyList(),
 ): MemoMenuState =
     MemoMenuState(
         wordCount = memo.content.length,
@@ -15,4 +16,5 @@ fun memoMenuState(
         content = memo.content,
         isPinned = memo.isPinned,
         memo = memo,
+        imageUrls = imageUrls,
     )

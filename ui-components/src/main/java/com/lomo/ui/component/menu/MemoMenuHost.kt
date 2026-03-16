@@ -54,13 +54,16 @@ fun MemoMenuHost(
             sheetState = sheetState,
             onDismissRequest = { activeState = null },
             onCopy = {
-                val clipboard =
-                    androidx.core.content.ContextCompat.getSystemService(
-                        context,
-                        android.content.ClipboardManager::class.java,
-                    )
-                val clip = android.content.ClipData.newPlainText("memo", current.content)
-                clipboard?.setPrimaryClip(clip)
+                val text = current.content
+                scope.launch {
+                    val clipboard =
+                        androidx.core.content.ContextCompat.getSystemService(
+                            context,
+                            android.content.ClipboardManager::class.java,
+                        )
+                    val clip = android.content.ClipData.newPlainText("memo", text)
+                    clipboard?.setPrimaryClip(clip)
+                }
             },
             onShareImage = {
                 activeState = null

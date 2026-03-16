@@ -58,6 +58,7 @@ fun MemoMenuBinder(
                     timestamp = memo?.timestamp,
                     tags = memo?.tags.orEmpty(),
                     activeDayCount = activeDayCount,
+                    resolvedImagePaths = state.imageUrls,
                 )
             }
         },

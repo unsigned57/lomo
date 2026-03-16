@@ -158,22 +158,68 @@ class MemoUiMapper
                 return normalizedImageUrl
             }
 
-            val basePath = if (isWikiStyle) (imagePath ?: rootPath) else rootPath
-            if (basePath != null) {
+            val relativePath = stripLeadingCurrentDir(normalizedImageUrl)
+            val candidateBasePaths = buildCandidateBasePaths(isWikiStyle, rootPath, imagePath, relativePath)
+            candidateBasePaths.forEach { basePath ->
                 if (basePath.startsWith("content://")) {
                     return normalizedImageUrl
                 }
 
-                val relativePath = stripLeadingCurrentDir(normalizedImageUrl)
                 val normalizedBasePath =
                     if (basePath.startsWith("file://")) {
                         parseUriPath(basePath) ?: basePath
                     } else {
                         basePath
                     }
-                return resolveRelativeFile(normalizedBasePath, relativePath)
+                val resolvedFile = resolveRelativeFile(normalizedBasePath, relativePath)
+                if (resolvedFile.exists()) {
+                    return resolvedFile
+                }
+            }
+
+            candidateBasePaths.firstOrNull()?.let { basePath ->
+                if (!basePath.startsWith("content://")) {
+                    val normalizedBasePath =
+                        if (basePath.startsWith("file://")) {
+                            parseUriPath(basePath) ?: basePath
+                        } else {
+                            basePath
+                        }
+                    return resolveRelativeFile(normalizedBasePath, relativePath)
+                }
             }
             return normalizedImageUrl
+        }
+
+        private fun buildCandidateBasePaths(
+            isWikiStyle: Boolean,
+            rootPath: String?,
+            imagePath: String?,
+            relativePath: String,
+        ): List<String> {
+            val candidates = LinkedHashSet<String>()
+
+            fun addBasePath(path: String?) {
+                val value = path?.trim().orEmpty()
+                if (value.isNotEmpty()) {
+                    candidates += value
+                }
+            }
+
+            if (isWikiStyle) {
+                addBasePath(imagePath)
+                addBasePath(rootPath)
+                return candidates.toList()
+            }
+
+            if (looksLikeManagedImageFilename(relativePath)) {
+                addBasePath(imagePath)
+                addBasePath(rootPath)
+            } else {
+                addBasePath(rootPath)
+                addBasePath(imagePath)
+            }
+            return candidates.toList()
         }
 
         private fun findCachedImageUri(
@@ -281,6 +327,11 @@ class MemoUiMapper
             parseUriPath(value)
                 ?.substringAfterLast('/')
                 ?.takeIf { it.isNotBlank() }
+
+        private fun looksLikeManagedImageFilename(path: String): Boolean {
+            val candidate = path.substringAfterLast('/').lowercase()
+            return candidate.matches(Regex("img_\\d+\\.(png|jpg|jpeg|gif|webp)"))
+        }
 
         private fun extractImageUrls(content: String): ImmutableList<String> {
             val imageUrls = mutableListOf<String>()

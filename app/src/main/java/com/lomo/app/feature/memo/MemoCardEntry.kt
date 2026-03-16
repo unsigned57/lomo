@@ -53,6 +53,7 @@ fun MemoCardEntry(
                     memo = memo,
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
+                    imageUrls = uiModel.imageUrls,
                 ),
             )
         },
