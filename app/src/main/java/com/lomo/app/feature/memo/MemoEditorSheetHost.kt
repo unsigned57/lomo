@@ -174,6 +174,7 @@ fun MemoEditorSheetHost(
                     controller.close()
                 },
                 autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
+                hasDraftPersistence = controller.editingMemo == null,
                 onImageClick = {
                     if (imageDirectory == null) {
                         if (onImageDirectoryMissing != null) {

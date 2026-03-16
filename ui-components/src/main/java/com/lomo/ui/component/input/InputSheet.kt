@@ -134,6 +134,7 @@ data class InputSheetCallbacks(
     val onCancelRecording: () -> Unit = {},
     val inputInterceptor: InputInterceptor = TripleEnterSubmitInterceptor,
     val autoSubmitOnDismiss: Boolean = false,
+    val hasDraftPersistence: Boolean = false,
 )
 
 data class InputSheetSlots(
@@ -170,6 +171,7 @@ fun InputSheet(
     val onCancelRecording = callbacks.onCancelRecording
     val inputInterceptor = callbacks.inputInterceptor
     val autoSubmitOnDismiss = callbacks.autoSubmitOnDismiss
+    val hasDraftPersistence = callbacks.hasDraftPersistence
 
     var showTagSelector by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
@@ -242,7 +244,9 @@ fun InputSheet(
                 currentInputValue.text,
                 currentInputValue.text,
             )
-        } else if (hasUnsavedChanges && !autoSubmitOnDismiss) {
+        } else if (hasDraftPersistence) {
+            dismissSheet()
+        } else if (hasUnsavedChanges) {
             showDiscardDialog = true
         } else {
             dismissSheet()
