@@ -14,7 +14,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.ui.component.dialog.SelectionDialog
@@ -23,7 +22,6 @@ data class SettingsDialogOptions(
     val dateFormats: List<String>,
     val timeFormats: List<String>,
     val themeModes: List<ThemeMode>,
-    val shareCardStyles: List<ShareCardStyle>,
     val filenameFormats: List<String>,
     val timestampFormats: List<String>,
     val gitSyncIntervals: List<String>,
@@ -31,7 +29,6 @@ data class SettingsDialogOptions(
     val languageTag: String,
     val languageLabels: Map<String, String>,
     val themeModeLabels: Map<ThemeMode, String>,
-    val shareCardStyleLabels: Map<ShareCardStyle, String>,
     val gitSyncIntervalLabels: Map<String, String>,
     val webDavProviderLabels: Map<WebDavProvider, String>,
 )
@@ -41,7 +38,6 @@ fun SettingsDialogHost(
     uiState: SettingsScreenUiState,
     storageFeature: SettingsStorageFeatureViewModel,
     displayFeature: SettingsDisplayFeatureViewModel,
-    shareCardFeature: SettingsShareCardFeatureViewModel,
     lanShareFeature: SettingsLanShareFeatureViewModel,
     gitFeature: SettingsGitFeatureViewModel,
     webDavFeature: SettingsWebDavFeatureViewModel,
@@ -129,20 +125,6 @@ fun SettingsDialogHost(
                 storageFeature.updateStorageTimestampFormat(it)
                 dialogState.showTimestampDialog = false
             },
-        )
-    }
-
-    if (dialogState.showShareCardStyleDialog) {
-        SelectionDialog(
-            title = stringResource(R.string.settings_select_share_card_style),
-            options = options.shareCardStyles,
-            currentSelection = uiState.shareCard.style,
-            onDismiss = { dialogState.showShareCardStyleDialog = false },
-            onSelect = {
-                shareCardFeature.updateShareCardStyle(it)
-                dialogState.showShareCardStyleDialog = false
-            },
-            labelProvider = { options.shareCardStyleLabels[it] ?: it.value },
         )
     }
 

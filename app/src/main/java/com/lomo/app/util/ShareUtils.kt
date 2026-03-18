@@ -36,7 +36,6 @@ class ShareUtils
         private val shareCardBitmapRenderer: ShareCardBitmapRenderer,
     ) {
         private data class ShareImageConfig(
-            val style: String,
             val showTime: Boolean,
             val timestampMillis: Long?,
             val tags: List<String>,
@@ -49,7 +48,6 @@ class ShareUtils
             content: String,
             title: String? = null,
             hostView: View? = null,
-            style: String = "warm",
             showTime: Boolean = true,
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
@@ -65,7 +63,6 @@ class ShareUtils
                         hostView = hostView,
                         config =
                             ShareImageConfig(
-                                style = style,
                                 showTime = showTime,
                                 timestampMillis = timestamp,
                                 tags = tags,
@@ -152,7 +149,6 @@ class ShareUtils
                         context = context,
                         content = content,
                         title = title,
-                        style = config.style,
                         showTime = config.showTime,
                         timestampMillis = config.timestampMillis,
                         tags = config.tags,

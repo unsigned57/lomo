@@ -4,7 +4,6 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoSortOption
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
@@ -106,7 +105,6 @@ class MainViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
-        every { appConfigRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
         every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)

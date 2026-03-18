@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
@@ -230,9 +230,8 @@ private fun ImageLoadingPlaceholder(modifier: Modifier = Modifier) {
                 ),
         contentAlignment = Alignment.Center,
     ) {
-        CircularProgressIndicator(
+        ExpressiveLoadingIndicator(
             modifier = Modifier.size(24.dp),
-            strokeWidth = 2.dp,
             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
         )
     }

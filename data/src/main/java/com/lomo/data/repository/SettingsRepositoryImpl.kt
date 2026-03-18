@@ -3,7 +3,6 @@ package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageFilenameFormats
@@ -113,12 +112,6 @@ class SettingsRepositoryImpl
 
         override suspend fun setAppLockEnabled(enabled: Boolean) {
             dataStore.updateAppLockEnabled(enabled)
-        }
-
-        override fun getShareCardStyle(): Flow<ShareCardStyle> = dataStore.shareCardStyle.map { ShareCardStyle.fromValue(it) }
-
-        override suspend fun setShareCardStyle(style: ShareCardStyle) {
-            dataStore.updateShareCardStyle(style.value)
         }
 
         override fun isShareCardShowTimeEnabled(): Flow<Boolean> = dataStore.shareCardShowTime

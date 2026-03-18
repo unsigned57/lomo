@@ -1,6 +1,5 @@
 package com.lomo.domain.repository
 
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 
@@ -52,10 +51,6 @@ interface PreferencesRepository {
     fun isCheckUpdatesOnStartupEnabled(): Flow<Boolean>
 
     suspend fun setCheckUpdatesOnStartup(enabled: Boolean)
-
-    fun getShareCardStyle(): Flow<ShareCardStyle>
-
-    suspend fun setShareCardStyle(style: ShareCardStyle)
 
     fun isShareCardShowTimeEnabled(): Flow<Boolean>
 

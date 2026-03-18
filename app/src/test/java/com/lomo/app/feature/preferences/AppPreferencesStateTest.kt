@@ -1,6 +1,5 @@
 package com.lomo.app.feature.preferences
 
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.PreferencesRepository
 import io.mockk.every
@@ -24,7 +23,6 @@ class AppPreferencesStateTest {
             every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
             every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
             every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-            every { preferencesRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
 
@@ -40,7 +38,6 @@ class AppPreferencesStateTest {
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
                     quickSaveOnBackEnabled = false,
-                    shareCardStyle = ShareCardStyle.CLEAN,
                     shareCardShowTime = true,
                     shareCardShowBrand = false,
                 ),

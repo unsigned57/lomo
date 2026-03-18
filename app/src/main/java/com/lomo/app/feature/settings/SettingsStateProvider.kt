@@ -125,17 +125,15 @@ class SettingsStateProvider(
 
     private val shareCardState: StateFlow<ShareCardSectionState> =
         combine(
-            appConfigCoordinator.shareCardStyle,
             appConfigCoordinator.shareCardShowTime,
             appConfigCoordinator.shareCardShowBrand,
-        ) { style, showTime, showBrand ->
-            ShareCardSectionState(style, showTime, showBrand)
+        ) { showTime, showBrand ->
+            ShareCardSectionState(showTime, showBrand)
         }.stateIn(
             scope = scope,
             started = SharingStarted.WhileSubscribed(5000),
             initialValue =
                 ShareCardSectionState(
-                    appConfigCoordinator.shareCardStyle.value,
                     appConfigCoordinator.shareCardShowTime.value,
                     appConfigCoordinator.shareCardShowBrand.value,
                 ),

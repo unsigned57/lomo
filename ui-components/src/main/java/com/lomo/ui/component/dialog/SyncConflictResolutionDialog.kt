@@ -24,7 +24,6 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -38,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.lomo.domain.model.SyncConflictFile
@@ -370,9 +370,7 @@ private fun ResolvingOverlay() {
             modifier = Modifier.fillMaxSize(),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                ExpressiveContainedLoadingIndicator()
                 Spacer(modifier = Modifier.height(AppSpacing.Medium))
                 Text(
                     text = "Resolving conflicts...",

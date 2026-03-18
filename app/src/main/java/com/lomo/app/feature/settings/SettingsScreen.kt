@@ -43,7 +43,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.SyncEngineState
@@ -85,7 +84,6 @@ fun SettingsScreen(
     val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
     val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
     val themeModes = ThemeMode.entries
-    val shareCardStyles = ShareCardStyle.entries
     val filenameFormats = StorageFilenameFormats.supportedPatterns
     val timestampFormats = StorageTimestampFormats.supportedPatterns
     val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
@@ -96,12 +94,6 @@ fun SettingsScreen(
             ThemeMode.SYSTEM to stringResource(R.string.settings_system),
             ThemeMode.LIGHT to stringResource(R.string.settings_light_mode),
             ThemeMode.DARK to stringResource(R.string.settings_dark_mode),
-        )
-    val shareCardStyleLabels =
-        mapOf(
-            ShareCardStyle.WARM to stringResource(R.string.share_card_style_warm),
-            ShareCardStyle.CLEAN to stringResource(R.string.share_card_style_clean),
-            ShareCardStyle.DARK to stringResource(R.string.share_card_style_dark),
         )
     val languageLabels =
         mapOf(
@@ -338,8 +330,6 @@ fun SettingsScreen(
 
                 ShareCardSettingsSection(
                     state = uiState.shareCard,
-                    styleLabel = shareCardStyleLabels[uiState.shareCard.style] ?: uiState.shareCard.style.value,
-                    onOpenStyleDialog = { dialogState.showShareCardStyleDialog = true },
                     onToggleShowTime = shareCardFeature::updateShareCardShowTime,
                     onToggleShowBrand = shareCardFeature::updateShareCardShowBrand,
                 )
@@ -473,7 +463,6 @@ fun SettingsScreen(
         uiState = uiState,
         storageFeature = storageFeature,
         displayFeature = displayFeature,
-        shareCardFeature = shareCardFeature,
         lanShareFeature = lanShareFeature,
         gitFeature = gitFeature,
         webDavFeature = webDavFeature,
@@ -483,7 +472,6 @@ fun SettingsScreen(
                 dateFormats = dateFormats,
                 timeFormats = timeFormats,
                 themeModes = themeModes,
-                shareCardStyles = shareCardStyles,
                 filenameFormats = filenameFormats,
                 timestampFormats = timestampFormats,
                 gitSyncIntervals = gitSyncIntervals,
@@ -491,7 +479,6 @@ fun SettingsScreen(
                 languageTag = currentLanguageTag,
                 languageLabels = languageLabels,
                 themeModeLabels = themeModeLabels,
-                shareCardStyleLabels = shareCardStyleLabels,
                 gitSyncIntervalLabels = gitSyncIntervalLabels,
                 webDavProviderLabels = webDavProviderLabels,
             ),

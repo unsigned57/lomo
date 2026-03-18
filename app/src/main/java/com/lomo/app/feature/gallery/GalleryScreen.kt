@@ -50,7 +50,6 @@ fun GalleryScreen(
 
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
@@ -70,7 +69,6 @@ fun GalleryScreen(
     }
 
     MemoMenuBinder(
-        shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         onEditMemo = { memo ->

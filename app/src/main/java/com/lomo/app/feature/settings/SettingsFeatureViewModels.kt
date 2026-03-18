@@ -1,6 +1,4 @@
 package com.lomo.app.feature.settings
-
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.coroutines.CoroutineScope
@@ -64,10 +62,6 @@ class SettingsShareCardFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
 ) {
-    fun updateShareCardStyle(style: ShareCardStyle) {
-        scope.launch { appConfigCoordinator.updateShareCardStyle(style) }
-    }
-
     fun updateShareCardShowTime(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateShareCardShowTime(enabled) }
     }

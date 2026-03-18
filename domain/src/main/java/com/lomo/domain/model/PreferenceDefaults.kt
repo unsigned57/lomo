@@ -12,7 +12,6 @@ object PreferenceDefaults {
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
-    const val SHARE_CARD_STYLE = "clean"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true
     const val STORAGE_FILENAME_FORMAT = StorageFilenameFormats.DEFAULT_PATTERN

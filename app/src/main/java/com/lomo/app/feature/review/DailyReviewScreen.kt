@@ -41,6 +41,7 @@ import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 
@@ -57,7 +58,6 @@ fun DailyReviewScreen(
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
-    val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
@@ -76,7 +76,6 @@ fun DailyReviewScreen(
     }
 
     MemoInteractionHost(
-        shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         onDeleteMemo = viewModel::deleteMemo,
@@ -133,7 +132,7 @@ fun DailyReviewScreen(
             ) {
                 when (val state = uiState) {
                     is UiState.Loading -> {
-                        androidx.compose.material3.CircularProgressIndicator()
+                        ExpressiveContainedLoadingIndicator()
                     }
 
                     is UiState.Error -> {

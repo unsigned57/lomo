@@ -1,5 +1,6 @@
 package com.lomo.app.util
 
+import android.content.res.Configuration
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -15,7 +16,15 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
+import android.os.Build
 import android.util.TypedValue
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.expressiveLightColorScheme
+import androidx.compose.ui.graphics.toArgb
 import com.lomo.app.R
 import com.lomo.app.presentation.sharecard.ShareCardDisplayFormatter
 import com.lomo.domain.model.ShareCardTextInput
@@ -48,7 +57,6 @@ class ShareCardBitmapRenderer
             context: Context,
             content: String,
             title: String?,
-            style: String,
             showTime: Boolean,
             timestampMillis: Long?,
             tags: List<String>,
@@ -101,7 +109,7 @@ class ShareCardBitmapRenderer
                     ).ifBlank {
                         context.getString(R.string.app_name)
                     }
-            val palette = resolvePalette(style)
+            val palette = resolvePalette(context)
             val createdAtMillis = timestampMillis ?: System.currentTimeMillis()
             val createdAtText = formatShareCardTime(createdAtMillis)
             val activeDayCountText =
@@ -744,50 +752,35 @@ class ShareCardBitmapRenderer
             return lines
         }
 
-        private fun resolvePalette(style: String): ShareCardPalette =
-            when (style) {
-                "clean" -> {
-                    ShareCardPalette(
-                        bgStart = 0xFFF6F8FF.toInt(),
-                        bgEnd = 0xFFE7EEFF.toInt(),
-                        card = 0xFFFFFFFF.toInt(),
-                        cardBorder = 0x2E5F86CB,
-                        bodyText = 0xFF1D2A43.toInt(),
-                        secondaryText = 0xFF687897.toInt(),
-                        tagBg = 0x1F4E7ECB,
-                        tagText = 0xFF385EAA.toInt(),
-                        divider = 0x334F79C4,
-                    )
-                }
+        private fun resolvePalette(context: Context): ShareCardPalette =
+            buildShareCardColorScheme(context).toShareCardPalette()
 
-                "dark" -> {
-                    ShareCardPalette(
-                        bgStart = 0xFF111722.toInt(),
-                        bgEnd = 0xFF0B1118.toInt(),
-                        card = 0xFF1C2530.toInt(),
-                        cardBorder = 0x3F86A2C8,
-                        bodyText = 0xFFEAF2FB.toInt(),
-                        secondaryText = 0xFF93A7BF.toInt(),
-                        tagBg = 0x326786B0,
-                        tagText = 0xFFD7E7FF.toInt(),
-                        divider = 0x336E8EB6,
-                    )
-                }
+        private fun Context.isDarkTheme(): Boolean =
+            (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
 
-                else -> {
-                    ShareCardPalette(
-                        bgStart = 0xFFFFF6E5.toInt(),
-                        bgEnd = 0xFFF9E5C1.toInt(),
-                        card = 0xFFFFFEFA.toInt(),
-                        cardBorder = 0x33BE9350,
-                        bodyText = 0xFF2F2414.toInt(),
-                        secondaryText = 0xFF8A7962.toInt(),
-                        tagBg = 0x24C89A4B,
-                        tagText = 0xFF6A4E1E.toInt(),
-                        divider = 0x33B18847,
-                    )
-                }
+        @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+        private fun buildShareCardColorScheme(context: Context): ColorScheme {
+            val darkTheme = context.isDarkTheme()
+            return when {
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context)
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !darkTheme -> dynamicLightColorScheme(context)
+                darkTheme -> darkColorScheme()
+                else -> expressiveLightColorScheme()
             }
+        }
+
+        private fun ColorScheme.toShareCardPalette(): ShareCardPalette =
+            ShareCardPalette(
+                bgStart = surfaceContainerLowest.toArgb(),
+                bgEnd = surface.toArgb(),
+                card = surfaceContainerLow.toArgb(),
+                cardBorder = outlineVariant.toArgb(),
+                bodyText = onSurface.toArgb(),
+                secondaryText = onSurfaceVariant.toArgb(),
+                tagBg = secondaryContainer.toArgb(),
+                tagText = onSecondaryContainer.toArgb(),
+                divider = outlineVariant.toArgb(),
+            )
 
         private companion object {
             const val MAX_SHARE_BITMAP_HEIGHT_PX = 4096

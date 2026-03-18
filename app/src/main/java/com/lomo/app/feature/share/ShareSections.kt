@@ -42,10 +42,8 @@ import androidx.compose.material.icons.outlined.WifiFind
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -72,6 +70,8 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 
@@ -113,9 +113,8 @@ fun DeviceDiscoverySection(
                 )
                 if (devices.isEmpty()) {
                     Spacer(modifier = Modifier.width(AppSpacing.Small))
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
                         color = MaterialTheme.colorScheme.primary,
                     )
                 }
@@ -483,9 +482,8 @@ fun TransferStateBanner(
                     )
                     Spacer(modifier = Modifier.width(AppSpacing.Small))
                 } else {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
                         color = bannerState.contentColor,
                     )
                     Spacer(modifier = Modifier.width(AppSpacing.Small))
@@ -500,14 +498,15 @@ fun TransferStateBanner(
 
             if (state is ShareTransferState.Transferring) {
                 Spacer(modifier = Modifier.height(AppSpacing.Small))
-                LinearProgressIndicator(
+                ExpressiveContainedLoadingIndicator(
                     progress = { state.progress },
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .clip(AppShapes.ExtraSmall),
-                    color = bannerState.contentColor,
-                    trackColor = bannerState.contentColor.copy(alpha = 0.2f),
+                            .height(24.dp),
+                    indicatorColor = bannerState.contentColor,
+                    containerColor = bannerState.contentColor.copy(alpha = 0.2f),
+                    shape = AppShapes.ExtraSmall,
                 )
             }
         }

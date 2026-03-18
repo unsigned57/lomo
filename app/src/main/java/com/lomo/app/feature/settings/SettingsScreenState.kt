@@ -1,6 +1,4 @@
 package com.lomo.app.feature.settings
-
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
@@ -28,7 +26,6 @@ data class LanShareSectionState(
 )
 
 data class ShareCardSectionState(
-    val style: ShareCardStyle,
     val showTime: Boolean,
     val showBrand: Boolean,
 )

@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -16,7 +17,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,6 +56,7 @@ private const val PRELOAD_TRACKED_URL_LIMIT = 512
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
 )
 @Composable
 internal fun MemoListContent(
@@ -108,6 +114,12 @@ internal fun MemoListContent(
         state = pullState,
         onRefresh = onRefresh,
         modifier = Modifier.fillMaxSize(),
+        indicator = {
+            MemoListPullToRefreshIndicator(
+                state = pullState,
+                isRefreshing = isRefreshing,
+            )
+        },
     ) {
         if (memos.isEmpty()) {
             com.lomo.ui.component.common.EmptyState(
@@ -201,6 +213,21 @@ internal fun MemoListContent(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun BoxScope.MemoListPullToRefreshIndicator(
+    state: PullToRefreshState,
+    isRefreshing: Boolean,
+) {
+    PullToRefreshDefaults.LoadingIndicator(
+        state = state,
+        isRefreshing = isRefreshing,
+        modifier = Modifier.align(androidx.compose.ui.Alignment.TopCenter),
+        containerColor = MaterialTheme.colorScheme.primaryContainer,
+        color = MaterialTheme.colorScheme.onPrimaryContainer,
+    )
 }
 
 internal class ImagePreloadGate(

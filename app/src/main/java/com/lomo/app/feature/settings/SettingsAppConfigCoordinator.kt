@@ -1,7 +1,6 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
@@ -96,11 +95,6 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .isCheckUpdatesOnStartupEnabled()
             .stateIn(scope, SharingStarted.WhileSubscribed(5000), PreferenceDefaults.CHECK_UPDATES_ON_STARTUP)
-
-    val shareCardStyle: StateFlow<ShareCardStyle> =
-        appConfigRepository
-            .getShareCardStyle()
-            .stateIn(scope, SharingStarted.WhileSubscribed(5000), ShareCardStyle.CLEAN)
 
     val shareCardShowTime: StateFlow<Boolean> =
         appConfigRepository
@@ -208,10 +202,6 @@ class SettingsAppConfigCoordinator(
 
     suspend fun updateCheckUpdatesOnStartup(enabled: Boolean) {
         appConfigRepository.setCheckUpdatesOnStartup(enabled)
-    }
-
-    suspend fun updateShareCardStyle(style: ShareCardStyle) {
-        appConfigRepository.setShareCardStyle(style)
     }
 
     suspend fun updateShareCardShowTime(enabled: Boolean) {

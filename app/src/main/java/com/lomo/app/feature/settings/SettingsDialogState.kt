@@ -15,7 +15,6 @@ class SettingsDialogState {
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)
     var showLanguageDialog by mutableStateOf(false)
-    var showShareCardStyleDialog by mutableStateOf(false)
 
     var showLanPairingDialog by mutableStateOf(false)
     var lanPairingCodeInput by mutableStateOf("")

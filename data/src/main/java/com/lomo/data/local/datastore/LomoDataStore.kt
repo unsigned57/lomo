@@ -83,7 +83,6 @@ class LomoDataStore
             val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
             val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
             val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
-            val SHARE_CARD_STYLE = stringPreferencesKey(PreferenceKeys.SHARE_CARD_STYLE)
             val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
             val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
             val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
@@ -248,13 +247,6 @@ class LomoDataStore
                 .map { prefs -> prefs[Keys.LAN_SHARE_DEVICE_NAME] }
                 .catchOnlyIOException("lanShareDeviceName", null)
 
-        val shareCardStyle: Flow<String> =
-            dataStore.data
-                .map { prefs ->
-                    prefs[Keys.SHARE_CARD_STYLE]
-                        ?: PreferenceKeys.Defaults.SHARE_CARD_STYLE
-                }.catchOnlyIOException("shareCardStyle", PreferenceKeys.Defaults.SHARE_CARD_STYLE)
-
         val shareCardShowTime: Flow<Boolean> =
             dataStore.data
                 .map { prefs ->
@@ -408,12 +400,6 @@ class LomoDataStore
                 } else {
                     prefs[Keys.LAN_SHARE_DEVICE_NAME] = name
                 }
-            }
-        }
-
-        suspend fun updateShareCardStyle(style: String) {
-            dataStore.edit { prefs ->
-                prefs[Keys.SHARE_CARD_STYLE] = style
             }
         }
 

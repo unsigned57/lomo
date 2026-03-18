@@ -120,7 +120,6 @@ fun MainScreen(
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
     val quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled
-    val shareCardStyle = appPreferences.shareCardStyle.value
     val shareCardShowTime = appPreferences.shareCardShowTime
 
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -208,7 +207,6 @@ fun MainScreen(
         scope = scope,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
-        shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
         availableTags = allTags,
@@ -413,7 +411,6 @@ private fun MainScreenInteractionBindings(
     scope: kotlinx.coroutines.CoroutineScope,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
-    shareCardStyle: String,
     shareCardShowTime: Boolean,
     quickSaveOnBackEnabled: Boolean,
     availableTags: List<String>,
@@ -430,7 +427,6 @@ private fun MainScreenInteractionBindings(
     val inputHints = rememberInputHints(showInputHints = showInputHints)
 
     MemoInteractionHost(
-        shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         imageDirectory = imageDirectory,

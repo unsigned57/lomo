@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,6 +41,7 @@ import com.lomo.app.util.LocalShareUtils
 import com.lomo.app.util.ShareUtils
 import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
@@ -407,7 +407,7 @@ private fun AppLockGate(
                     )
 
                     if (isConfigLoading || isUnlockInProgress) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                        ExpressiveContainedLoadingIndicator()
                     }
 
                     Text(

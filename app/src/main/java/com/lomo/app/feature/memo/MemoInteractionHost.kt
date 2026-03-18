@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun MemoInteractionHost(
-    shareCardStyle: String,
     shareCardShowTime: Boolean,
     activeDayCount: Int,
     imageDirectory: String?,
@@ -54,7 +53,6 @@ fun MemoInteractionHost(
     ) -> Unit,
 ) {
     MemoMenuBinder(
-        shareCardStyle = shareCardStyle,
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         onEditMemo = controller::openForEdit,

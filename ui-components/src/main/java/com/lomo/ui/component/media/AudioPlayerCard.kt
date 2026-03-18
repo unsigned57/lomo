@@ -17,7 +17,6 @@ import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -31,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.R
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.media.LocalAudioPlayerManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.combine
@@ -122,11 +122,12 @@ fun AudioPlayerCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.Center,
             ) {
-                LinearProgressIndicator(
+                ExpressiveContainedLoadingIndicator(
                     progress = { progress },
-                    modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
-                    color = MaterialTheme.colorScheme.secondary,
-                    trackColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f),
+                    modifier = Modifier.fillMaxWidth().height(16.dp),
+                    indicatorColor = MaterialTheme.colorScheme.secondary,
+                    containerColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(2.dp),
                 )
             }
 

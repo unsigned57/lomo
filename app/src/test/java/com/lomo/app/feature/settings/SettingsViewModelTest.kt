@@ -1,7 +1,6 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
@@ -67,7 +66,6 @@ class SettingsViewModelTest {
         every { appConfigRepository.getStorageFilenameFormat() } returns flowOf("default")
         every { appConfigRepository.getStorageTimestampFormat() } returns flowOf("HHmm")
         every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
-        every { appConfigRepository.getShareCardStyle() } returns flowOf(ShareCardStyle.CLEAN)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
 

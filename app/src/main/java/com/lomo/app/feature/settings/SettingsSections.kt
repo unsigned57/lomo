@@ -210,19 +210,10 @@ fun LanShareSettingsSection(
 @Composable
 fun ShareCardSettingsSection(
     state: ShareCardSectionState,
-    styleLabel: String,
-    onOpenStyleDialog: () -> Unit,
     onToggleShowTime: (Boolean) -> Unit,
     onToggleShowBrand: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_share_card)) {
-        PreferenceItem(
-            title = stringResource(R.string.settings_share_card_style),
-            subtitle = styleLabel,
-            icon = Icons.Outlined.Description,
-            onClick = onOpenStyleDialog,
-        )
-        SettingsDivider()
         SwitchPreferenceItem(
             title = stringResource(R.string.settings_share_card_show_time),
             subtitle = stringResource(R.string.settings_share_card_show_time_subtitle),

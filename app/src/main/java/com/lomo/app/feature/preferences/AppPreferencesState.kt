@@ -1,7 +1,6 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.ShareCardStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
@@ -24,7 +23,6 @@ data class AppPreferencesState(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
-    val shareCardStyle: ShareCardStyle,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
 ) {
@@ -39,7 +37,6 @@ data class AppPreferencesState(
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
-                shareCardStyle = ShareCardStyle.CLEAN,
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
             )
@@ -67,14 +64,12 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             isDoubleTapEditEnabled(),
             isFreeTextCopyEnabled(),
             isQuickSaveOnBackEnabled(),
-            getShareCardStyle(),
             isShareCardShowTimeEnabled(),
-        ) { doubleTapEditEnabled, freeTextCopyEnabled, quickSaveOnBackEnabled, shareCardStyle, shareCardShowTime ->
+        ) { doubleTapEditEnabled, freeTextCopyEnabled, quickSaveOnBackEnabled, shareCardShowTime ->
             SharePreferences(
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-                shareCardStyle = shareCardStyle,
                 shareCardShowTime = shareCardShowTime,
             )
         },
@@ -89,7 +84,6 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             doubleTapEditEnabled = share.doubleTapEditEnabled,
             freeTextCopyEnabled = share.freeTextCopyEnabled,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
-            shareCardStyle = share.shareCardStyle,
             shareCardShowTime = share.shareCardShowTime,
             shareCardShowBrand = shareCardShowBrand,
         )
@@ -115,6 +109,5 @@ private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
-    val shareCardStyle: ShareCardStyle,
     val shareCardShowTime: Boolean,
 )

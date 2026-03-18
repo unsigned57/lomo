@@ -12,7 +12,6 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun MemoMenuBinder(
-    shareCardStyle: String,
     shareCardShowTime: Boolean,
     activeDayCount: Int,
     onEditMemo: (Memo) -> Unit,
@@ -53,7 +52,6 @@ fun MemoMenuBinder(
                     context = context,
                     content = state.content,
                     hostView = hostView,
-                    style = shareCardStyle,
                     showTime = shareCardShowTime,
                     timestamp = memo?.timestamp,
                     tags = memo?.tags.orEmpty(),
