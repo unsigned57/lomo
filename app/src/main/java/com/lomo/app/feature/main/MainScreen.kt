@@ -148,11 +148,11 @@ fun MainScreen(
                 text = editorController.inputValue.text,
                 isVisible = editorController.isVisible,
             )
-        }.filter { state ->
-            state.editingMemoId == null && state.isVisible
-        }.map { state -> state.text }
-            .debounce(500)
+        }.debounce(500)
             .distinctUntilChanged()
+            .filter { state ->
+                state.editingMemoId == null && state.isVisible
+            }.map { state -> state.text }
             .collect { text ->
                 editorViewModel.saveDraft(text)
             }
