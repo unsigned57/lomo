@@ -3,6 +3,7 @@ package com.lomo.ui.component.menu
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -36,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -131,41 +133,43 @@ fun MemoActionSheet(
                 .padding(bottom = 32.dp),
     ) {
         // Quick Action Buttons Row (MD3 style chips)
-        Row(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .let { base ->
-                        if (useHorizontalScroll) {
-                            base.horizontalScroll(actionsScrollState)
-                        } else {
-                            base
-                        }
-                    }.padding(vertical = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            sheetActions.forEach { action ->
-                ActionChip(
-                    icon = action.icon,
-                    label = action.label,
-                    isDestructive = action.isDestructive,
-                    isHighlighted = action.isHighlighted,
-                    modifier =
-                        if (equalWidthActions) {
-                            Modifier.weight(1f)
-                        } else {
-                            Modifier.width(92.dp)
+        CompositionLocalProvider(LocalOverscrollFactory provides null) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .let { base ->
+                            if (useHorizontalScroll) {
+                                base.horizontalScroll(actionsScrollState)
+                            } else {
+                                base
+                            }
+                        }.padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                sheetActions.forEach { action ->
+                    ActionChip(
+                        icon = action.icon,
+                        label = action.label,
+                        isDestructive = action.isDestructive,
+                        isHighlighted = action.isHighlighted,
+                        modifier =
+                            if (equalWidthActions) {
+                                Modifier.weight(1f)
+                            } else {
+                                Modifier.width(92.dp)
+                            },
+                        onClick = {
+                            when (action.haptic) {
+                                MemoActionHaptic.NONE -> Unit
+                                MemoActionHaptic.MEDIUM -> haptic.medium()
+                                MemoActionHaptic.HEAVY -> haptic.heavy()
+                            }
+                            action.onClick()
+                            if (action.dismissAfterClick) onDismiss()
                         },
-                    onClick = {
-                        when (action.haptic) {
-                            MemoActionHaptic.NONE -> Unit
-                            MemoActionHaptic.MEDIUM -> haptic.medium()
-                            MemoActionHaptic.HEAVY -> haptic.heavy()
-                        }
-                        action.onClick()
-                        if (action.dismissAfterClick) onDismiss()
-                    },
-                )
+                    )
+                }
             }
         }
 
@@ -364,7 +368,7 @@ private fun SwipeAffordanceIndicator(
     canScrollForward: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val animatedProgress by animateFloatAsState(targetValue = progress.coerceIn(0f, 1f), label = "menu_swipe_progress")
+    val clampedProgress = progress.coerceIn(0f, 1f)
 
     Row(
         modifier = modifier,
@@ -389,7 +393,9 @@ private fun SwipeAffordanceIndicator(
             Box(
                 modifier =
                     Modifier
-                        .offset { IntOffset(x = (maxTravel * animatedProgress).roundToPx(), y = 0) }
+                        // Follow the real scroll position directly so the thumb does not replay
+                        // a second catch-up animation when the row settles at either edge.
+                        .offset { IntOffset(x = (maxTravel * clampedProgress).roundToPx(), y = 0) }
                         .width(thumbWidth)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(999.dp))
