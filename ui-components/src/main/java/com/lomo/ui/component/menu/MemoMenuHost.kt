@@ -36,7 +36,7 @@ fun MemoMenuHost(
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
-    val sheetState = rememberModalBottomSheetState()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 

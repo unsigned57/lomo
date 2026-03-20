@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -67,6 +68,7 @@ fun SearchScreen(
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -205,7 +207,11 @@ fun SearchScreen(
                             doubleTapEditEnabled = doubleTapEditEnabled,
                             freeTextCopyEnabled = freeTextCopyEnabled,
                             onMemoEdit = openEditor,
-                            onShowMenu = showMenu,
+                            onShowMenu = { menuState ->
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                showMenu(menuState)
+                            },
                             animation = MemoCardListAnimation.None,
                             contentPadding =
                                 PaddingValues(
