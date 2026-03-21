@@ -52,6 +52,7 @@ import com.lomo.app.R
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.ProvideExpressiveMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.Instant
 import java.time.LocalDate
@@ -74,80 +75,82 @@ internal fun MainMemoFilterSheet(
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
     val hasDateFilter = filter.startDate != null || filter.endDate != null
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        tonalElevation = AppSpacing.ExtraSmall,
-        dragHandle = { MainMemoFilterDragHandle() },
-    ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
-                    .padding(bottom = AppSpacing.ExtraLarge)
-                    .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+    ProvideExpressiveMotion {
+        ModalBottomSheet(
+            onDismissRequest = onDismiss,
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            tonalElevation = AppSpacing.ExtraSmall,
+            dragHandle = { MainMemoFilterDragHandle() },
         ) {
-            MainMemoFilterHeader()
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
+                        .padding(bottom = AppSpacing.ExtraLarge)
+                        .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+            ) {
+                MainMemoFilterHeader()
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-            ) {
-                MemoSortOption.entries.forEach { option ->
-                    val icon =
-                        when (option) {
-                            MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
-                            MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
-                        }
-                    MainMemoSortButton(
-                        modifier = Modifier.weight(1f),
-                        text = sortOptionLabel(option),
-                        icon = icon,
-                        selected = filter.sortOption == option,
-                        onClick = { onSortOptionSelected(option) },
-                    )
-                }
-            }
-            MainMemoFilterSectionCard(
-                icon = Icons.Rounded.CalendarMonth,
-                title = stringResource(R.string.main_filter_section_time_range),
-                isActive = hasDateFilter,
-            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
                 ) {
-                    MainMemoDateField(
-                        modifier = Modifier.weight(1f),
-                        label = stringResource(R.string.main_filter_start_date),
-                        value = filter.startDate.formatOrDefault(),
-                        hasValue = filter.startDate != null,
-                        onPick = {
-                            haptic.medium()
-                            datePickerTarget = DatePickerTarget.START
-                        },
-                        onClear = {
-                            haptic.medium()
-                            onStartDateSelected(null)
-                        },
-                    )
-                    MainMemoDateField(
-                        modifier = Modifier.weight(1f),
-                        label = stringResource(R.string.main_filter_end_date),
-                        value = filter.endDate.formatOrDefault(),
-                        hasValue = filter.endDate != null,
-                        onPick = {
-                            haptic.medium()
-                            datePickerTarget = DatePickerTarget.END
-                        },
-                        onClear = {
-                            haptic.medium()
-                            onEndDateSelected(null)
-                        },
-                    )
+                    MemoSortOption.entries.forEach { option ->
+                        val icon =
+                            when (option) {
+                                MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
+                                MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
+                            }
+                        MainMemoSortButton(
+                            modifier = Modifier.weight(1f),
+                            text = sortOptionLabel(option),
+                            icon = icon,
+                            selected = filter.sortOption == option,
+                            onClick = { onSortOptionSelected(option) },
+                        )
+                    }
+                }
+                MainMemoFilterSectionCard(
+                    icon = Icons.Rounded.CalendarMonth,
+                    title = stringResource(R.string.main_filter_section_time_range),
+                    isActive = hasDateFilter,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+                    ) {
+                        MainMemoDateField(
+                            modifier = Modifier.weight(1f),
+                            label = stringResource(R.string.main_filter_start_date),
+                            value = filter.startDate.formatOrDefault(),
+                            hasValue = filter.startDate != null,
+                            onPick = {
+                                haptic.medium()
+                                datePickerTarget = DatePickerTarget.START
+                            },
+                            onClear = {
+                                haptic.medium()
+                                onStartDateSelected(null)
+                            },
+                        )
+                        MainMemoDateField(
+                            modifier = Modifier.weight(1f),
+                            label = stringResource(R.string.main_filter_end_date),
+                            value = filter.endDate.formatOrDefault(),
+                            hasValue = filter.endDate != null,
+                            onPick = {
+                                haptic.medium()
+                                datePickerTarget = DatePickerTarget.END
+                            },
+                            onClear = {
+                                haptic.medium()
+                                onEndDateSelected(null)
+                            },
+                        )
+                    }
                 }
             }
         }

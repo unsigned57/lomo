@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.theme.ProvideExpressiveMotion
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,36 +34,38 @@ fun MemoMenuBottomSheet(
     showHistory: Boolean = false,
     showJump: Boolean = false,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismissRequest,
-        sheetState = sheetState,
-        dragHandle = {
-            // Custom Drag Handle to remove standard ripple/rectangular mask
-            Box(
-                modifier =
-                    Modifier
-                        .padding(vertical = 22.dp)
-                        .width(32.dp)
-                        .size(32.dp, 4.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+    ProvideExpressiveMotion {
+        ModalBottomSheet(
+            onDismissRequest = onDismissRequest,
+            sheetState = sheetState,
+            dragHandle = {
+                // Custom Drag Handle to remove standard ripple/rectangular mask
+                Box(
+                    modifier =
+                        Modifier
+                            .padding(vertical = 22.dp)
+                            .width(32.dp)
+                            .size(32.dp, 4.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                )
+            },
+        ) {
+            MemoActionSheet(
+                state = state,
+                onCopy = onCopy,
+                onShareImage = onShareImage,
+                onShareText = onShareText,
+                onLanShare = onLanShare,
+                onTogglePin = onTogglePin,
+                onJump = onJump,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onDismiss = onDismissRequest,
+                onHistory = onHistory,
+                showHistory = showHistory,
+                showJump = showJump,
             )
-        },
-    ) {
-        MemoActionSheet(
-            state = state,
-            onCopy = onCopy,
-            onShareImage = onShareImage,
-            onShareText = onShareText,
-            onLanShare = onLanShare,
-            onTogglePin = onTogglePin,
-            onJump = onJump,
-            onEdit = onEdit,
-            onDelete = onDelete,
-            onDismiss = onDismissRequest,
-            onHistory = onHistory,
-            showHistory = showHistory,
-            showJump = showJump,
-        )
+        }
     }
 }
