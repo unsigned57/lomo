@@ -20,6 +20,26 @@ fi
 
 hook_gradle_user_home="$repo_root/.gradle/pre-commit-user-home"
 mkdir -p "$hook_gradle_user_home"
+wrapper_dists_dir="$hook_gradle_user_home/wrapper/dists"
+
+clear_stale_wrapper_locks() {
+  local lock_file
+  local removed_count=0
+
+  while IFS= read -r -d '' lock_file; do
+    local ok_file="${lock_file%.lck}.ok"
+    if [ -f "$ok_file" ]; then
+      rm -f "$lock_file"
+      removed_count=$((removed_count + 1))
+    fi
+  done < <(find "$wrapper_dists_dir" -type f -name '*.zip.lck' -print0 2>/dev/null)
+
+  if [ "$removed_count" -gt 0 ]; then
+    echo "pre-commit: removed $removed_count stale Gradle wrapper lock(s)"
+  fi
+}
+
+clear_stale_wrapper_locks
 
 printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
 unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-ktlint-git-hook-$$.diff")"
@@ -37,16 +57,18 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
-git -C "$repo_root" diff --binary --color=never > "$unstaged_diff"
+git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" > "$unstaged_diff"
 if [ -s "$unstaged_diff" ]; then
   git -C "$repo_root" apply -R "$unstaged_diff"
   unstaged_diff_reversed=1
 fi
 
 echo "pre-commit: running $gradlew ktlintFormat on staged Kotlin files..."
+echo "pre-commit: using repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
 GRADLE_USER_HOME="$hook_gradle_user_home" \
   "$gradlew" --project-dir "$repo_root" --no-daemon --quiet \
   ktlintFormat "-PinternalKtlintGitFilter=$staged_kotlin_git_filter"
+echo "pre-commit: ktlintFormat finished"
 
 # Re-stage files that were modified by formatter.
 for file in "${staged_kotlin_files[@]}"; do
