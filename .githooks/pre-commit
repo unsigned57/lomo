@@ -18,28 +18,8 @@ if [ ! -x "$gradlew" ]; then
   exit 1
 fi
 
-preferred_gradle_user_home=""
-if [ -n "${GRADLE_USER_HOME:-}" ]; then
-  preferred_gradle_user_home="$GRADLE_USER_HOME"
-elif [ -n "${HOME:-}" ]; then
-  preferred_gradle_user_home="$HOME/.gradle"
-fi
-
-hook_gradle_user_home="$preferred_gradle_user_home"
-if [ -n "$hook_gradle_user_home" ]; then
-  probe_file="$hook_gradle_user_home/.pre-commit-write-test-$$"
-  if ! mkdir -p "$hook_gradle_user_home" 2>/dev/null || ! ( : > "$probe_file" ) 2>/dev/null; then
-    hook_gradle_user_home=""
-  else
-    rm -f "$probe_file"
-  fi
-fi
-
-if [ -z "$hook_gradle_user_home" ]; then
-  hook_gradle_user_home="$repo_root/.gradle/pre-commit-user-home"
-  mkdir -p "$hook_gradle_user_home"
-  echo "pre-commit: falling back to repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
-fi
+hook_gradle_user_home="$repo_root/.gradle/pre-commit-user-home"
+mkdir -p "$hook_gradle_user_home"
 
 printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
 unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-ktlint-git-hook-$$.diff")"
