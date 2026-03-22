@@ -8,7 +8,6 @@ import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
-import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -25,7 +24,7 @@ import javax.inject.Inject
 class ShareViewModel
     @Inject
     constructor(
-        private val shareServiceManager: LanShareService,
+        private val lanShareUiCoordinator: LanShareUiCoordinator,
         private val extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase,
         private val shareErrorPolicy: ShareErrorPolicy,
         savedStateHandle: SavedStateHandle,
@@ -43,27 +42,27 @@ class ShareViewModel
         val memoTimestamp: Long = savedStateHandle.get<Long>("memoTimestamp") ?: 0L
 
         val discoveredDevices =
-            shareServiceManager.discoveredDevices
+            lanShareUiCoordinator.discoveredDevices
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         val transferState =
-            shareServiceManager.transferState
+            lanShareUiCoordinator.transferState
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ShareTransferState.Idle)
 
         val lanShareE2eEnabled =
-            shareServiceManager.lanShareE2eEnabled
+            lanShareUiCoordinator.lanShareE2eEnabled
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
         val lanSharePairingConfigured =
-            shareServiceManager.lanSharePairingConfigured
+            lanShareUiCoordinator.lanSharePairingConfigured
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
         val lanSharePairingCode =
-            shareServiceManager.lanSharePairingCode
+            lanShareUiCoordinator.lanSharePairingCode
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         val lanShareDeviceName =
-            shareServiceManager.lanShareDeviceName
+            lanShareUiCoordinator.lanShareDeviceName
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
         private val _pairingCodeError = MutableStateFlow<String?>(null)
@@ -76,7 +75,7 @@ class ShareViewModel
         init {
             // Discovery starts when entering the share screen; server lifecycle is managed by MainActivity.
             runCatching {
-                shareServiceManager.startDiscovery()
+                lanShareUiCoordinator.startDiscovery()
                 Timber.d("ShareViewModel init: discovery started")
             }.onFailure { throwable ->
                 reportOperationError(throwable, "Failed to start device discovery")
@@ -96,13 +95,13 @@ class ShareViewModel
                         return@launch
                     }
 
-                    if (shareServiceManager.requiresPairingBeforeSend()) {
+                    if (lanShareUiCoordinator.requiresPairingBeforeSend()) {
                         _pairingRequiredEvent.value += 1
                         return@launch
                     }
                     val attachmentResult = extractShareAttachmentsUseCase(currentContent)
                     val result =
-                        shareServiceManager.sendMemo(
+                        lanShareUiCoordinator.sendMemo(
                             device = device,
                             content = currentContent,
                             timestamp = memoTimestamp,
@@ -122,7 +121,7 @@ class ShareViewModel
         fun updateLanShareE2eEnabled(enabled: Boolean) {
             viewModelScope.launch {
                 try {
-                    shareServiceManager.setLanShareE2eEnabled(enabled)
+                    lanShareUiCoordinator.setLanShareE2eEnabled(enabled)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (throwable: Throwable) {
@@ -134,7 +133,7 @@ class ShareViewModel
         fun updateLanSharePairingCode(pairingCode: String) {
             viewModelScope.launch {
                 try {
-                    shareServiceManager.setLanSharePairingCode(pairingCode)
+                    lanShareUiCoordinator.setLanSharePairingCode(pairingCode)
                     _pairingCodeError.value = null
                 } catch (cancellation: CancellationException) {
                     throw cancellation
@@ -147,7 +146,7 @@ class ShareViewModel
         fun clearLanSharePairingCode() {
             viewModelScope.launch {
                 try {
-                    shareServiceManager.clearLanSharePairingCode()
+                    lanShareUiCoordinator.clearLanSharePairingCode()
                     _pairingCodeError.value = null
                 } catch (cancellation: CancellationException) {
                     throw cancellation
@@ -170,7 +169,7 @@ class ShareViewModel
         fun updateLanShareDeviceName(deviceName: String) {
             viewModelScope.launch {
                 try {
-                    shareServiceManager.setLanShareDeviceName(deviceName)
+                    lanShareUiCoordinator.setLanShareDeviceName(deviceName)
                 } catch (cancellation: CancellationException) {
                     throw cancellation
                 } catch (throwable: Throwable) {
@@ -181,7 +180,7 @@ class ShareViewModel
 
         fun resetTransferState() {
             runCatching {
-                shareServiceManager.resetTransferState()
+                lanShareUiCoordinator.resetTransferState()
             }.onFailure { throwable ->
                 reportOperationError(throwable, "Failed to reset transfer state")
             }
@@ -190,7 +189,7 @@ class ShareViewModel
         override fun onCleared() {
             super.onCleared()
             runCatching {
-                shareServiceManager.stopDiscovery()
+                lanShareUiCoordinator.stopDiscovery()
                 Timber.d("ShareViewModel cleared: discovery stopped")
             }.onFailure { throwable ->
                 reportOperationError(throwable, "Failed to stop device discovery")

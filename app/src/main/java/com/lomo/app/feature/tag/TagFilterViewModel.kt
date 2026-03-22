@@ -3,17 +3,14 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.feature.preferences.activeDayCountState
-import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -36,8 +33,8 @@ class TagFilterViewModel
     @Inject
     constructor(
         savedStateHandle: SavedStateHandle,
-        private val memoRepository: MemoRepository,
-        private val appConfigRepository: AppConfigRepository,
+        private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
@@ -49,30 +46,32 @@ class TagFilterViewModel
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
         private val rootDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.ROOT)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .rootDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private val imageDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.IMAGE)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .imageDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigRepository.appPreferencesState(viewModelScope)
+            appConfigUiCoordinator
+                .appPreferences()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
 
         val activeDayCount: StateFlow<Int> =
-            memoRepository.activeDayCountState(viewModelScope)
+            memoUiCoordinator
+                .activeDayCount()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
         val rootDir: StateFlow<String?> = rootDirectory
         val imageDir: StateFlow<String?> = imageDirectory
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val memos: StateFlow<List<Memo>> =
-            memoRepository
-                .getMemosByTagList(tag = tagName)
+            memoUiCoordinator
+                .memosByTag(tagName)
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)

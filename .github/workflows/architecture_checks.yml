@@ -1,0 +1,30 @@
+name: Architecture Checks
+
+on:
+  pull_request:
+  push:
+    tags-ignore:
+      - 'v*'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '25'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run architecture checks and unit tests
+        run: ./gradlew architectureCheck testDebugUnitTest

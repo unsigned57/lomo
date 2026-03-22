@@ -2,6 +2,7 @@ package com.lomo.data.sync
 
 import android.content.Context
 import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.repository.SyncConflictBackupRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.text.SimpleDateFormat
@@ -13,14 +14,14 @@ import javax.inject.Singleton
 @Singleton
 class SyncConflictBackupManager @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : SyncConflictBackupRepository {
     private val backupRoot: File
         get() = File(context.filesDir, "sync_conflict_backups")
 
-    suspend fun backupFiles(
+    override suspend fun backupFiles(
         files: List<SyncConflictFile>,
         localFileReader: suspend (String) -> ByteArray?,
-    ): File {
+    ) {
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val sessionDir = File(backupRoot, timestamp)
         sessionDir.mkdirs()
@@ -34,7 +35,6 @@ class SyncConflictBackupManager @Inject constructor(
             }
         }
         cleanupOldBackups()
-        return sessionDir
     }
 
     fun cleanupOldBackups(keepLast: Int = 5) {

@@ -1,0 +1,18 @@
+config:
+  validation: true
+  excludes:
+    - "lomo-architecture.*"
+    - "lomo-architecture>.*>.*"
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - com.lomo.data.*
+      - com.lomo.app.*
+      - com.lomo.domain.repository.*
+      - com.lomo.domain.usecase.*
+lomo-architecture:
+  AppSourceBoundary:
+    active: true
+  UiComponentsLayerBoundary:
+    active: true

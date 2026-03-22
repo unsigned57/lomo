@@ -4,33 +4,33 @@ adaptive = "1.2.0"
 agp = "9.1.0"
 appcompat = "1.7.1"
 androidNdk = "29.0.14206865"
-benchmarkMacro = "1.5.0-alpha01"
-biometric = "1.2.0-alpha05"
+benchmarkMacro = "1.5.0-alpha04"
+biometric = "1.4.0-alpha05"
 coil = "3.4.0"
 commonmark = "0.27.1"
-composeBom = "2026.02.01"
+composeBom = "2026.03.00"
 coreKtx = "1.18.0"
 coroutines = "1.10.2"
 datastore = "1.2.1"
 dav4jvm = "2.2.1"
+detekt = "2.0.0-alpha.2"
 documentfile = "1.1.0"
 espressoCore = "3.7.0"
 glance = "1.1.1"
 hilt = "2.59.2"
-jgit = "7.2.0.202503040940-r"
 hiltWork = "1.3.0"
 immutableCollections = "0.4.0"
 javaxInject = "1"
+jgit = "7.6.0.202603022253-r"
 junit = "4.13.2"
 junitVersion = "1.3.0"
-kotlin = "2.3.10"
+kotlin = "2.3.20"
 ksp = "2.3.6"
-ktlint = "14.0.1"
 ktor = "3.4.1"
 lifecycleRuntimeCompose = "2.10.0"
 lifecycleRuntimeKtx = "2.10.0"
-media3 = "1.9.2"
 material3 = "1.5.0-alpha15"
+media3 = "1.9.3"
 navigationCompose = "2.9.7"
 profileinstaller = "1.4.1"
 room = "2.8.4"
@@ -49,7 +49,6 @@ androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = 
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
 androidx-core-splashscreen = "androidx.core:core-splashscreen:1.2.0"
 androidx-datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
-bitfire-dav4jvm = { module = "com.github.bitfireAT:dav4jvm", version.ref = "dav4jvm" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentfile" }
 androidx-espresso-core = { module = "androidx.test.espresso:espresso-core", version.ref = "espressoCore" }
 # Glance (App Widget)
@@ -75,6 +74,7 @@ androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstall
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 androidx-ui = { module = "androidx.compose.ui:ui" }
 androidx-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }
 androidx-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
@@ -82,7 +82,7 @@ androidx-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
 androidx-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
-androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
+bitfire-dav4jvm = { module = "com.github.bitfireAT:dav4jvm", version.ref = "dav4jvm" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
@@ -115,12 +115,12 @@ zoomable-image-coil = { module = "me.saket.telephoto:zoomable-image-coil", versi
 androidApplication = { id = "com.android.application", version.ref = "agp" }
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
 androidTest = { id = "com.android.test", version.ref = "agp" }
-androidxBaselineProfile = "androidx.baselineprofile:1.5.0-alpha01"
+androidxBaselineProfile = "androidx.baselineprofile:1.5.0-alpha04"
 composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+detekt = { id = "dev.detekt", version.ref = "detekt" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
 jetbrainsKotlinAndroid = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 jetbrainsKotlinJvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlinSerialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
-ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlint" }
 versionCatalogUpdate = "nl.littlerobots.version-catalog-update:1.1.0"

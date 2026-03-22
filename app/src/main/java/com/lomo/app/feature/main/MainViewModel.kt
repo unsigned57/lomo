@@ -2,19 +2,16 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.feature.preferences.activeDayCountState
-import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoVersion
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -46,18 +43,18 @@ import javax.inject.Inject
 class MainViewModel
     @Inject
     constructor(
-        private val repository: MemoRepository,
-        private val appConfigRepository: AppConfigRepository,
+        private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val sidebarStateHolder: MainSidebarStateHolder,
         private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
         private val memoUiMapper: MemoUiMapper,
         private val imageMapProvider: ImageMapProvider,
-        private val mainMemoMutationUseCase: MainMemoMutationUseCase,
+        private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
         private val workspaceCoordinator: MainWorkspaceCoordinator,
         private val startupCoordinator: MainStartupCoordinator,
+        private val applyMainMemoFilterUseCase: ApplyMainMemoFilterUseCase,
         private val resolveMainMemoQueryUseCase: ResolveMainMemoQueryUseCase,
     ) : ViewModel() {
-        private val applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase()
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
@@ -65,7 +62,7 @@ class MainViewModel
         val syncConflictEvent: kotlinx.coroutines.flow.SharedFlow<com.lomo.domain.model.SyncConflictSet> = _syncConflictEvent
 
         val isSyncing: StateFlow<Boolean> =
-            repository
+            memoUiCoordinator
                 .isSyncing()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -156,22 +153,20 @@ class MainViewModel
         val rootDirectory: StateFlow<String?> = _rootDirectory
 
         val imageDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.IMAGE)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .imageDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val voiceDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.VOICE)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .voiceDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         val allMemos: StateFlow<List<Memo>> =
-            repository
-                .getAllMemosList()
+            memoUiCoordinator
+                .allMemos()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         fun createDefaultDirectories(
@@ -345,7 +340,7 @@ class MainViewModel
             }
 
             return withContext(Dispatchers.IO) {
-                repository.getMemoById(memoId)
+                memoUiCoordinator.getMemoById(memoId)
             }
         }
 
@@ -356,7 +351,7 @@ class MainViewModel
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
                     ) {
-                        mainMemoMutationUseCase.deleteMemo(memo)
+                        mainMemoMutationCoordinator.deleteMemo(memo)
                     }
                 result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage()
@@ -370,7 +365,7 @@ class MainViewModel
         ) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
-                    repository.setMemoPinned(memo.id, pinned)
+                    memoUiCoordinator.setMemoPinned(memo.id, pinned)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -386,7 +381,7 @@ class MainViewModel
         ) {
             viewModelScope.launch {
                 try {
-                    mainMemoMutationUseCase.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
+                    mainMemoMutationCoordinator.toggleCheckboxLineAndUpdate(memo, lineIndex, checked)
                 } catch (e: kotlinx.coroutines.CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -470,16 +465,19 @@ class MainViewModel
         }
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigRepository.appPreferencesState(viewModelScope)
+            appConfigUiCoordinator
+                .appPreferences()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
 
         val appLockEnabled: StateFlow<Boolean?> =
-            appConfigRepository
-                .isAppLockEnabled()
-                .map<Boolean, Boolean?> { it }
+            appConfigUiCoordinator
+                .appLockEnabled()
                 .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
         val activeDayCount: StateFlow<Int> =
-            repository.activeDayCountState(viewModelScope)
+            memoUiCoordinator
+                .activeDayCount()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
         val gitSyncEnabled: StateFlow<Boolean> =
             versionHistoryCoordinator
@@ -530,8 +528,8 @@ class MainViewModel
             tag: String?,
         ): Flow<List<Memo>> =
             when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query, selectedTag = tag)) {
-                is ResolveMainMemoQueryUseCase.ResolvedQuery.ByTag -> repository.getMemosByTagList(resolvedQuery.tag)
-                is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText -> repository.searchMemosList(resolvedQuery.query)
+                is ResolveMainMemoQueryUseCase.ResolvedQuery.ByTag -> memoUiCoordinator.memosByTag(resolvedQuery.tag)
+                is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText -> memoUiCoordinator.searchMemos(resolvedQuery.query)
                 ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos -> allMemos
             }
 

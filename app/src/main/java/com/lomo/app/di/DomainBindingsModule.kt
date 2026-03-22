@@ -8,9 +8,12 @@ import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
+import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
+import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
@@ -22,6 +25,7 @@ import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
+import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
@@ -29,6 +33,7 @@ import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.RestoreMemoVersionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
@@ -46,6 +51,16 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DomainBindingsModule {
+    @Provides
+    @Singleton
+    fun provideApplyMainMemoFilterUseCase(): ApplyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase()
+
+    @Provides
+    @Singleton
+    fun provideBackupSyncConflictFilesUseCase(
+        repository: SyncConflictBackupRepository,
+    ): BackupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(repository)
+
     @Provides
     @Singleton
     fun provideValidateMemoContentUseCase(): ValidateMemoContentUseCase = ValidateMemoContentUseCase()
@@ -166,6 +181,18 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
+    fun provideObserveDraftTextUseCase(
+        preferencesRepository: PreferencesRepository,
+    ): ObserveDraftTextUseCase = ObserveDraftTextUseCase(preferencesRepository)
+
+    @Provides
+    @Singleton
+    fun provideSetDraftTextUseCase(
+        preferencesRepository: PreferencesRepository,
+    ): SetDraftTextUseCase = SetDraftTextUseCase(preferencesRepository)
+
+    @Provides
+    @Singleton
     fun provideResolveMainMemoQueryUseCase(): ResolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase()
 
     @Provides
@@ -199,20 +226,16 @@ object DomainBindingsModule {
     @Provides
     @Singleton
     fun provideStartupMaintenanceUseCase(
-        directorySettingsRepository: DirectorySettingsRepository,
         mediaRepository: MediaRepository,
         initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,
         appVersionRepository: com.lomo.domain.repository.AppVersionRepository,
-        audioPlaybackController: com.lomo.domain.repository.AudioPlaybackController,
     ): StartupMaintenanceUseCase =
         StartupMaintenanceUseCase(
-            directorySettingsRepository = directorySettingsRepository,
             mediaRepository = mediaRepository,
             initializeWorkspaceUseCase = initializeWorkspaceUseCase,
             syncAndRebuildUseCase = syncAndRebuildUseCase,
             appVersionRepository = appVersionRepository,
-            audioPlaybackController = audioPlaybackController,
         )
 
     @Provides

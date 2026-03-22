@@ -218,11 +218,14 @@ class SettingsViewModelTest {
 
     private fun createViewModel(): SettingsViewModel =
         SettingsViewModel(
-            appConfigRepository = appConfigRepository,
-            shareServiceManager = shareServiceManager,
-            gitSyncSettingsUseCase = gitSyncSettingsUseCase,
-            webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
-            switchRootStorageUseCase = switchRootStorageUseCase,
-            gitSyncErrorUseCase = gitSyncErrorUseCase,
+            coordinatorFactory =
+                SettingsCoordinatorFactory(
+                    appConfigRepository = appConfigRepository,
+                    lanShareService = shareServiceManager,
+                    gitSyncSettingsUseCase = gitSyncSettingsUseCase,
+                    webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
+                    switchRootStorageUseCase = switchRootStorageUseCase,
+                    gitSyncErrorUseCase = gitSyncErrorUseCase,
+                ),
         )
 }

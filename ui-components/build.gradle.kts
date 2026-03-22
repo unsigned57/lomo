@@ -25,7 +25,10 @@ dependencies {
     implementation(project(":domain"))
 
     implementation(libs.androidx.core.ktx)
-    implementation(platform(libs.androidx.compose.bom))
+    implementation(platform(libs.androidx.compose.bom)) {
+        exclude(group = "androidx.compose.material3", module = "material3")
+        exclude(group = "androidx.compose.material3", module = "material3-android")
+    }
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)

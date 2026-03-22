@@ -36,7 +36,7 @@ class WebDavSyncPlannerTest {
     }
 
     @Test
-    fun `both changed chooses newer local timestamp`() {
+    fun `both changed reports conflict`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -56,8 +56,8 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.UPLOAD, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.LOCAL_NEWER, plan.actions.single().reason)
+        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
+        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
     }
 
     @Test

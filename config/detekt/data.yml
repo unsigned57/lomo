@@ -1,0 +1,26 @@
+config:
+  validation: true
+  excludes:
+    - "lomo-architecture.*"
+    - "lomo-architecture>.*>.*"
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - com.lomo.app.*
+      - com.lomo.ui.*
+      - androidx.lifecycle.ViewModel
+      - androidx.compose.*
+lomo-architecture:
+  RepositoryImplLocation:
+    active: true
+  DaoLocation:
+    active: true
+  EntityLocation:
+    active: true
+  ComposableLayer:
+    active: true
+  DataRepositoryContract:
+    active: true
+  DataLayerUiDependency:
+    active: true

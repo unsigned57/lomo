@@ -2,18 +2,15 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.feature.preferences.activeDayCountState
-import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
@@ -36,8 +33,8 @@ import javax.inject.Inject
 class DailyReviewViewModel
     @Inject
     constructor(
-        private val repository: MemoRepository,
-        private val appConfigRepository: AppConfigRepository,
+        private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
@@ -52,15 +49,18 @@ class DailyReviewViewModel
         private var loadJob: Job? = null
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigRepository.appPreferencesState(viewModelScope)
+            appConfigUiCoordinator
+                .appPreferences()
+                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
 
         val activeDayCount: StateFlow<Int> =
-            repository.activeDayCountState(viewModelScope)
+            memoUiCoordinator
+                .activeDayCount()
+                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0)
 
         val rootDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.ROOT)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .rootDirectory()
                 .stateIn(
                     scope = viewModelScope,
                     started =
@@ -70,9 +70,8 @@ class DailyReviewViewModel
                 )
 
         val imageDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.IMAGE)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .imageDirectory()
                 .stateIn(
                     scope = viewModelScope,
                     started =

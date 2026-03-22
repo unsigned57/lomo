@@ -6,7 +6,7 @@ import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import javax.inject.Inject
 
-class MainMemoMutationUseCase
+class MainMemoMutationCoordinator
     @Inject
     constructor(
         private val deleteMemoUseCase: DeleteMemoUseCase,

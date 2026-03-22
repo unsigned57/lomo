@@ -25,6 +25,8 @@ This file helps future AI agents build project context quickly and avoid repeati
   - Main DI entrypoint: `data/src/main/java/com/lomo/data/di/DataModule.kt`
 - `:ui-components`
   - Reusable UI components and theme system (Markdown renderers, cards, menus, navigation UI, theming)
+- `:detekt-rules`
+  - Repo-level Detekt custom rules enforcing MVVM + Clean Architecture guardrails
 - `:benchmark`
   - Baseline Profile generation and benchmark module (Macrobenchmark)
 
@@ -47,8 +49,8 @@ This file helps future AI agents build project context quickly and avoid repeati
 
 ## 4. Versioning and Build Facts
 
-- AGP: `9.0.1`
-- Kotlin: `2.3.10`
+- AGP: `9.1.0`
+- Kotlin: `2.3.20`
 - JDK toolchain: `25`
 - `compileSdk/targetSdk`: `36`
 - `minSdk`: `26` (authoritative source: `app/build.gradle.kts`)
@@ -73,6 +75,8 @@ This file helps future AI agents build project context quickly and avoid repeati
 
 - Debug build: `./gradlew assembleDebug`
 - Unit tests: `./gradlew testDebugUnitTest`
+- Architecture checks: `./gradlew architectureCheck`
+- Format Kotlin: `./gradlew detektFormat`
 - Release Kotlin compile only: `./gradlew :app:compileReleaseKotlin`
 - Release build: `./gradlew :app:assembleRelease`
 - Generate baseline profile: `./gradlew :app:generateBaselineProfile`
@@ -80,11 +84,13 @@ This file helps future AI agents build project context quickly and avoid repeati
 ## 7. Commit and CI Constraints
 
 - Git hook exists at `.githooks/pre-commit`
-  - Runs `ktlintFormat` on staged `*.kt` / `*.kts`
+  - Runs `detektFormatStaged` on staged `*.kt` / `*.kts`
   - Re-stages files modified by formatting
 - GitHub release workflow: `.github/workflows/android_release.yml`
   - Release build is triggered on `v*` tags
   - Includes baseline file checks and APK embedded-profile checks
+- GitHub architecture workflow: `.github/workflows/architecture_checks.yml`
+  - Runs `architectureCheck` and `testDebugUnitTest` on push / pull request
 
 ## 8. AI Coding Guidelines for This Repo
 
@@ -123,12 +129,34 @@ This file helps future AI agents build project context quickly and avoid repeati
   - New data sources must be exposed upward through Repository interfaces; DataSource must not be exposed directly to upper layers.
   - Code review must check God Classes, business-logic placement, cross-layer dependencies, and responsibility boundaries; any violation blocks merge.
 
-## 10. Quick Navigation Index
+## 10. AI Architecture Guardrails (Mandatory)
+
+- AI must classify every change before editing:
+  - UI orchestration -> `app`
+  - domain rule or business policy -> `domain`
+  - persistence / sync / file / network / platform integration -> `data`
+- `app` must not import `com.lomo.data.*`.
+- `ui-components` must not import `com.lomo.data.*`.
+- `domain` must not import Android, Compose runtime/UI, Lifecycle, Room, Hilt/Dagger, Ktor, JGit, or any `com.lomo.data.*` type.
+- `ViewModel` classes must not depend on `Dao`, `DataSource`, `RepositoryImpl`, `RoomDatabase`, `GitSyncEngine`, `WebDavClient`, `DocumentFile`, or direct file-system helpers.
+- New business behavior must be exposed through `domain.usecase` or `domain.repository` before `app` consumes it.
+- New `*UseCase` classes may only live under `domain/usecase`.
+- New `*RepositoryImpl` classes may only live under `data/repository`.
+- New `*Dao` classes may only live under `data/local/dao`.
+- New `*Entity` classes may only live under `data/local/entity`.
+- AI must not treat existing violations as precedent. If legacy code is already cross-layer, contain it or refactor it; do not spread the pattern.
+- Any PR that changes architecture-sensitive code must include an `Architecture Impact` note covering:
+  - which layer owns the new logic
+  - which domain interface or use case exposes it
+  - whether any layer boundary exception was introduced
+
+## 11. Quick Navigation Index
 
 - App entry: `app/src/main/java/com/lomo/app/LomoApplication.kt`
 - Navigation host: `app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
 - Main VM: `app/src/main/java/com/lomo/app/feature/main/MainViewModel.kt`
 - Data DI: `data/src/main/java/com/lomo/data/di/DataModule.kt`
+- Detekt rules module: `detekt-rules/src/main/kotlin/com/lomo/detektrules/LomoArchitectureRuleSetProvider.kt`
 - Memo repository impl: `data/src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt`
 - Git sync engine: `data/src/main/java/com/lomo/data/git/GitSyncEngine.kt`
 - Baseline generator: `benchmark/src/main/java/com/lomo/benchmark/BaselineProfileGenerator.kt`

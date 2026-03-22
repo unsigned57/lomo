@@ -39,9 +39,9 @@ import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.app.util.ShareUtils
-import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
@@ -52,7 +52,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
-    @Inject lateinit var audioPlayerController: AudioPlaybackController
+    @Inject lateinit var audioPlayerController: AudioPlayerController
 
     @Inject lateinit var shareUtils: ShareUtils
 

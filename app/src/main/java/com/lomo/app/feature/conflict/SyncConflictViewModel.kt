@@ -2,10 +2,10 @@ package com.lomo.app.feature.conflict
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +20,7 @@ class SyncConflictViewModel
     @Inject
     constructor(
         private val syncConflictResolutionUseCase: SyncConflictResolutionUseCase,
-        private val backupManager: SyncConflictBackupManager,
+        private val backupSyncConflictFilesUseCase: BackupSyncConflictFilesUseCase,
     ) : ViewModel() {
         private val _state = MutableStateFlow<SyncConflictDialogState>(SyncConflictDialogState.Hidden)
         val state: StateFlow<SyncConflictDialogState> = _state.asStateFlow()
@@ -83,7 +83,7 @@ class SyncConflictViewModel
 
             viewModelScope.launch {
                 try {
-                    backupManager.backupFiles(
+                    backupSyncConflictFilesUseCase(
                         files = current.conflictSet.files,
                         localFileReader = { null },
                     )

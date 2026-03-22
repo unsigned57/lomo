@@ -26,6 +26,7 @@ import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
 import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
+import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
@@ -37,6 +38,7 @@ import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
@@ -320,4 +322,8 @@ object DataModule {
     @Provides
     @Singleton
     fun provideSyncPolicyRepository(impl: SyncPolicyRepositoryImpl): SyncPolicyRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSyncConflictBackupRepository(impl: SyncConflictBackupManager): SyncConflictBackupRepository = impl
 }

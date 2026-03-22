@@ -75,7 +75,7 @@ class ShareViewModelTest {
 
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
@@ -109,7 +109,7 @@ class ShareViewModelTest {
 
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
@@ -152,7 +152,7 @@ class ShareViewModelTest {
 
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
@@ -183,7 +183,7 @@ class ShareViewModelTest {
         runTest {
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle = SavedStateHandle(),
@@ -202,7 +202,7 @@ class ShareViewModelTest {
             coEvery { shareService.setLanSharePairingCode(any()) } throws IllegalArgumentException("invalid code")
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =
@@ -227,7 +227,7 @@ class ShareViewModelTest {
             coEvery { shareService.setLanSharePairingCode(any()) } throws CancellationException("cancelled")
             val viewModel =
                 ShareViewModel(
-                    shareServiceManager = shareService,
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
                     extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
                     shareErrorPolicy = shareErrorPolicy,
                     savedStateHandle =

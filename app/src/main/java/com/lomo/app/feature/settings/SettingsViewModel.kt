@@ -2,12 +2,6 @@ package com.lomo.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.LanShareService
-import com.lomo.domain.usecase.GitSyncErrorUseCase
-import com.lomo.domain.usecase.GitSyncSettingsUseCase
-import com.lomo.domain.usecase.SwitchRootStorageUseCase
-import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,42 +12,23 @@ import javax.inject.Inject
 class SettingsViewModel
     @Inject
     constructor(
-        appConfigRepository: AppConfigRepository,
-        shareServiceManager: LanShareService,
-        gitSyncSettingsUseCase: GitSyncSettingsUseCase,
-        webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
-        switchRootStorageUseCase: SwitchRootStorageUseCase,
-        gitSyncErrorUseCase: GitSyncErrorUseCase,
+        coordinatorFactory: SettingsCoordinatorFactory,
     ) : ViewModel() {
         private val appConfigCoordinator =
-            SettingsAppConfigCoordinator(
-                appConfigRepository = appConfigRepository,
-                switchRootStorageUseCase = switchRootStorageUseCase,
-                scope = viewModelScope,
-            )
+            coordinatorFactory.createAppConfigCoordinator(viewModelScope)
 
         private val lanShareCoordinator =
-            SettingsLanShareCoordinator(
-                shareServiceManager = shareServiceManager,
-                scope = viewModelScope,
-            )
+            coordinatorFactory.createLanShareCoordinator(viewModelScope)
 
         private val gitCoordinator =
-            SettingsGitCoordinator(
-                gitSyncSettingsUseCase = gitSyncSettingsUseCase,
-                gitSyncErrorUseCase = gitSyncErrorUseCase,
-                scope = viewModelScope,
-            )
+            coordinatorFactory.createGitCoordinator(viewModelScope)
 
         private val webDavCoordinator =
-            SettingsWebDavCoordinator(
-                webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
-                scope = viewModelScope,
-            )
+            coordinatorFactory.createWebDavCoordinator(viewModelScope)
 
         private val _operationError = MutableStateFlow<String?>(null)
         private val operationErrorFlow = _operationError.asStateFlow()
-        private val errorMapper = SettingsOperationErrorMapper(gitSyncErrorUseCase)
+        private val errorMapper = coordinatorFactory.createErrorMapper()
         private val actionCoordinator =
             SettingsActionCoordinator(
                 scope = viewModelScope,

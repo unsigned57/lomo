@@ -1,0 +1,21 @@
+config:
+  validation: true
+  excludes:
+    - "lomo-architecture.*"
+    - "lomo-architecture>.*>.*"
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - com.lomo.data.*
+lomo-architecture:
+  AppSourceBoundary:
+    active: true
+  AppBuildDependencyBoundary:
+    active: true
+  ViewModelBoundary:
+    active: true
+  UseCaseLocation:
+    active: true
+  P0HotspotRepositoryBoundary:
+    active: true

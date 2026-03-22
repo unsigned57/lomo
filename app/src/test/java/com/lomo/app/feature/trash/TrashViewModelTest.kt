@@ -1,5 +1,7 @@
 package com.lomo.app.feature.trash
 
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -90,8 +92,8 @@ class TrashViewModelTest {
 
     private fun createViewModel(): TrashViewModel =
         TrashViewModel(
-            repository = repository,
-            appConfigRepository = appConfigRepository,
+            memoUiCoordinator = MemoUiCoordinator(repository),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
             memoUiMapper = memoUiMapper,
         )

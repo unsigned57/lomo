@@ -24,7 +24,7 @@ class AppLayerBoundaryTest {
     }
 
     @Test
-    fun `app module does not declare forbidden project data dependencies`() {
+    fun `app module does not expose data dependency outside implementation`() {
         val content = gradleFile.readText()
         val offenders =
             FORBIDDEN_DATA_DEPENDENCY_PATTERNS
@@ -32,7 +32,7 @@ class AppLayerBoundaryTest {
                 .map { it.description }
 
         assertFalse(
-            "app/build.gradle.kts must not declare compile dependency on data. Offenders: ${offenders.joinToString()}",
+            "app/build.gradle.kts must not expose :data outside implementation. Offenders: ${offenders.joinToString()}",
             offenders.isNotEmpty(),
         )
     }
@@ -83,31 +83,31 @@ class AppLayerBoundaryTest {
         val FORBIDDEN_DATA_DEPENDENCY_PATTERNS =
             listOf(
                 ForbiddenDependencyPattern(
-                    description = "config(project(\":data\")) / config(project(path = \":data\"))",
+                    description = "api(project(\":data\")) / compileOnly(project(\":data\")) / ksp(project(\":data\"))",
                     pattern =
                         Regex(
-                            """(?s)\b(?:implementation|api|compileOnly|ksp)\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)""",
+                            """(?s)\b(?:api|compileOnly|ksp)\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)""",
                         ),
                 ),
                 ForbiddenDependencyPattern(
-                    description = "config(projects.data)",
+                    description = "api(projects.data) / compileOnly(projects.data) / ksp(projects.data)",
                     pattern =
                         Regex(
-                            """(?s)\b(?:implementation|api|compileOnly|ksp)\s*\(\s*projects\.data\s*\)""",
+                            """(?s)\b(?:api|compileOnly|ksp)\s*\(\s*projects\.data\s*\)""",
                         ),
                 ),
                 ForbiddenDependencyPattern(
-                    description = "add(\"config\", project(\":data\")) / add(\"config\", project(path = \":data\"))",
+                    description = "add(\"api|compileOnly|ksp\", project(\":data\"))",
                     pattern =
                         Regex(
-                            """(?s)\badd\s*\(\s*['"](?:implementation|api|compileOnly|ksp)['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)""",
+                            """(?s)\badd\s*\(\s*['"](?:api|compileOnly|ksp)['"]\s*,\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)""",
                         ),
                 ),
                 ForbiddenDependencyPattern(
-                    description = "add(\"config\", projects.data)",
+                    description = "add(\"api|compileOnly|ksp\", projects.data)",
                     pattern =
                         Regex(
-                            """(?s)\badd\s*\(\s*['"](?:implementation|api|compileOnly|ksp)['"]\s*,\s*projects\.data\s*\)""",
+                            """(?s)\badd\s*\(\s*['"](?:api|compileOnly|ksp)['"]\s*,\s*projects\.data\s*\)""",
                         ),
                 ),
             )

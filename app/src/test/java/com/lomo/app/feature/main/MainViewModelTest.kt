@@ -1,7 +1,10 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
+import com.lomo.app.media.AudioPlayerManager
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.StorageArea
@@ -11,6 +14,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
+import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.RestoreMemoVersionUseCase
@@ -59,7 +63,7 @@ class MainViewModelTest {
     private lateinit var appWidgetRepository: AppWidgetRepository
     private lateinit var memoUiMapper: MemoUiMapper
     private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var audioPlayerController: com.lomo.domain.repository.AudioPlaybackController
+    private lateinit var audioPlayerManager: AudioPlayerManager
     private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
 
     @Before
@@ -77,7 +81,7 @@ class MainViewModelTest {
         appWidgetRepository = mockk(relaxed = true)
         memoUiMapper = MemoUiMapper()
         imageMapProvider = mockk(relaxed = true)
-        audioPlayerController = mockk(relaxed = true)
+        audioPlayerManager = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
 
         every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
@@ -437,8 +441,8 @@ class MainViewModelTest {
 
     private fun createViewModel(): MainViewModel =
         MainViewModel(
-            repository = repository,
-            appConfigRepository = appConfigRepository,
+            memoUiCoordinator = MemoUiCoordinator(repository),
+            appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             sidebarStateHolder = sidebarStateHolder,
             versionHistoryCoordinator =
                 MainVersionHistoryCoordinator(
@@ -447,8 +451,8 @@ class MainViewModelTest {
                 ),
             memoUiMapper = memoUiMapper,
             imageMapProvider = imageMapProvider,
-            mainMemoMutationUseCase =
-                MainMemoMutationUseCase(
+            mainMemoMutationCoordinator =
+                MainMemoMutationCoordinator(
                     deleteMemoUseCase = DeleteMemoUseCase(repository),
                     toggleMemoCheckboxUseCase = ToggleMemoCheckboxUseCase(repository, ValidateMemoContentUseCase()),
                     appWidgetRepository = appWidgetRepository,
@@ -468,7 +472,6 @@ class MainViewModelTest {
                 MainStartupCoordinator(
                     startupMaintenanceUseCase =
                         StartupMaintenanceUseCase(
-                            directorySettingsRepository = appConfigRepository,
                             mediaRepository = mediaRepository,
                             initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                             syncAndRebuildUseCase =
@@ -479,9 +482,11 @@ class MainViewModelTest {
                                     syncPolicyRepository,
                                 ),
                             appVersionRepository = appVersionRepository,
-                            audioPlaybackController = audioPlayerController,
                         ),
+                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                    audioPlayerManager = audioPlayerManager,
                 ),
+            applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase(),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
         )
 

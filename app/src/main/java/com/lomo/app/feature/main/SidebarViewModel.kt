@@ -2,9 +2,9 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.StorageFilenameFormats
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,7 +21,7 @@ import javax.inject.Inject
 class SidebarViewModel
     @Inject
     constructor(
-        private val repository: MemoRepository,
+        private val memoUiCoordinator: MemoUiCoordinator,
         private val stateHolder: MainSidebarStateHolder,
     ) : ViewModel() {
         data class SidebarUiState(
@@ -35,9 +35,9 @@ class SidebarViewModel
 
         val sidebarUiState: StateFlow<SidebarUiState> =
             combine(
-                repository.getMemoCountFlow(),
-                repository.getMemoCountByDateFlow(),
-                repository.getTagCountsFlow(),
+                memoUiCoordinator.memoCount(),
+                memoUiCoordinator.memoCountByDate(),
+                memoUiCoordinator.tagCounts(),
             ) { memoCount, memoCountByDateRaw, tagCounts ->
                 val memoCountByDate =
                     memoCountByDateRaw

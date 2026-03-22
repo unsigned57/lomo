@@ -1,0 +1,25 @@
+config:
+  validation: true
+  excludes:
+    - "lomo-architecture.*"
+    - "lomo-architecture>.*>.*"
+style:
+  ForbiddenImport:
+    active: true
+    forbiddenImports:
+      - android.*
+      - androidx.compose.*
+      - androidx.lifecycle.*
+      - androidx.room.*
+      - dagger.*
+      - javax.inject.*
+      - io.ktor.*
+      - org.eclipse.jgit.*
+      - com.lomo.data.*
+lomo-architecture:
+  DomainLayerIsolation:
+    active: true
+  DomainPackageShape:
+    active: true
+  UseCaseLocation:
+    active: true

@@ -8,10 +8,11 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
+import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
-import com.lomo.domain.repository.PreferencesRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,7 +31,8 @@ class MemoEditorViewModel
         private val saveImageUseCase: SaveImageUseCase,
         private val discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase,
         private val appWidgetRepository: AppWidgetRepository,
-        private val preferencesRepository: PreferencesRepository,
+        private val observeDraftTextUseCase: ObserveDraftTextUseCase,
+        private val setDraftTextUseCase: SetDraftTextUseCase,
     ) : ViewModel() {
         private val trackedImageFilenames = mutableSetOf<String>()
 
@@ -38,21 +40,21 @@ class MemoEditorViewModel
         val errorMessage: StateFlow<String?> = _errorMessage
 
         private val _draftText = MutableStateFlow(
-            runBlocking { preferencesRepository.getDraftText().first() },
+            runBlocking { observeDraftTextUseCase().first() },
         )
         val draftText: StateFlow<String> = _draftText
 
         fun saveDraft(text: String) {
             _draftText.value = text
             viewModelScope.launch {
-                preferencesRepository.setDraftText(text)
+                setDraftTextUseCase(text)
             }
         }
 
         fun clearDraft() {
             _draftText.value = ""
             viewModelScope.launch {
-                preferencesRepository.setDraftText(null)
+                setDraftTextUseCase(null)
             }
         }
 

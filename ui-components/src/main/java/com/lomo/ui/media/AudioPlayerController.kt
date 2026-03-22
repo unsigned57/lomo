@@ -1,17 +1,12 @@
-package com.lomo.domain.repository
+package com.lomo.ui.media
 
-import com.lomo.domain.model.StorageLocation
 import kotlinx.coroutines.flow.StateFlow
 
-interface AudioPlaybackController {
+interface AudioPlayerController {
     val currentPlayingUri: StateFlow<String?>
     val isPlaying: StateFlow<Boolean>
     val playbackPosition: StateFlow<Long>
     val duration: StateFlow<Long>
-
-    fun setRootLocation(location: StorageLocation?)
-
-    fun setVoiceLocation(location: StorageLocation?)
 
     fun play(uri: String)
 

@@ -42,19 +42,7 @@ class MemoSynchronizerTest {
     private lateinit var memoIdentityPolicy: MemoIdentityPolicy
     private lateinit var synchronizer: MemoSynchronizer
 
-    @Before
-    fun setup() {
-        MockKAnnotations.init(this, relaxed = true)
-        processor = MemoTextProcessor()
-        memoIdentityPolicy = MemoIdentityPolicy()
-        parser = MarkdownParser(processor, memoIdentityPolicy)
-
-        // Mock default formats
-        coEvery { dataStore.storageFilenameFormat } returns
-            kotlinx.coroutines.flow.flowOf("yyyy_MM_dd")
-        coEvery { dataStore.storageTimestampFormat } returns
-            kotlinx.coroutines.flow.flowOf("HH:mm:ss")
-
+    private fun createSynchronizer(): MemoSynchronizer {
         val mutationHandler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
@@ -85,11 +73,25 @@ class MemoSynchronizerTest {
                 refreshDbApplier = MemoRefreshDbApplier(memoDao, localFileStateDao) { block -> block() },
             )
 
-        synchronizer =
-            MemoSynchronizer(
-                refreshEngine,
-                mutationHandler,
-            )
+        return MemoSynchronizer(
+            refreshEngine,
+            mutationHandler,
+        )
+    }
+
+    @Before
+    fun setup() {
+        MockKAnnotations.init(this, relaxed = true)
+        processor = MemoTextProcessor()
+        memoIdentityPolicy = MemoIdentityPolicy()
+        parser = MarkdownParser(processor, memoIdentityPolicy)
+
+        // Mock default formats
+        coEvery { dataStore.storageFilenameFormat } returns
+            kotlinx.coroutines.flow.flowOf("yyyy_MM_dd")
+        coEvery { dataStore.storageTimestampFormat } returns
+            kotlinx.coroutines.flow.flowOf("HH:mm:ss")
+        synchronizer = createSynchronizer()
     }
 
     @Test
@@ -255,6 +257,7 @@ class MemoSynchronizerTest {
 
             coEvery { dataStore.storageFilenameFormat } returns kotlinx.coroutines.flow.flowOf("yyyy_MM_dd")
             coEvery { dataStore.storageTimestampFormat } returns kotlinx.coroutines.flow.flowOf("HH:mm")
+            synchronizer = createSynchronizer()
             coEvery { memoDao.getMemo(any()) } returns null
             coEvery { fileDataSource.readFileIn(MemoDirectoryType.MAIN, "2024_01_15.md") } returns null
             coEvery {

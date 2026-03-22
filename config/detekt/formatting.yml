@@ -1,0 +1,9 @@
+config:
+  validation: true
+  excludes:
+    - "ktlint.*"
+    - "ktlint>.*>.*"
+ktlint:
+  active: true
+  code_style: intellij_idea
+  autoCorrect: true

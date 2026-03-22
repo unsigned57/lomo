@@ -2,22 +2,14 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.domain.model.MediaEntryId
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
@@ -36,9 +28,7 @@ import javax.inject.Inject
 class RecordingViewModel
     @Inject
     constructor(
-        private val settingsRepository: DirectorySettingsRepository,
-        private val mediaRepository: MediaRepository,
-        private val voiceRecorder: VoiceRecordingRepository,
+        private val recordingCoordinator: RecordingCoordinator,
     ) : ViewModel() {
         companion object {
             private val VOICE_FILE_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
@@ -57,9 +47,8 @@ class RecordingViewModel
         val errorMessage: StateFlow<String?> = _errorMessage
 
         val voiceDirectory: StateFlow<String?> =
-            settingsRepository
-                .observeLocation(StorageArea.VOICE)
-                .map { it?.raw }
+            recordingCoordinator
+                .voiceDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         private var recordingJob: kotlinx.coroutines.Job? = null
@@ -71,20 +60,9 @@ class RecordingViewModel
                 try {
                     val timestamp = VOICE_FILE_TIMESTAMP_FORMATTER.format(LocalDateTime.now())
                     val filename = "voice_$timestamp.m4a"
-
-                    // 1. Create file via repository (handles Voice Backend logic)
-                    val target =
-                        withContext(Dispatchers.IO) {
-                            mediaRepository.allocateVoiceCaptureTarget(MediaEntryId(filename)).raw
-                        }
-
+                    val target = recordingCoordinator.startRecording(filename)
                     currentRecordingTarget = target
                     currentRecordingFilename = filename
-
-                    // 2. Start recording to the file URI
-                    withContext(Dispatchers.IO) {
-                        voiceRecorder.start(StorageLocation(target))
-                    }
                     _isRecording.value = true
                     _recordingDuration.value = 0
 
@@ -106,7 +84,7 @@ class RecordingViewModel
                     val startTime = System.currentTimeMillis()
                     while (isActive) {
                         _recordingDuration.value = System.currentTimeMillis() - startTime
-                        _recordingAmplitude.value = voiceRecorder.getAmplitude()
+                        _recordingAmplitude.value = recordingCoordinator.currentAmplitude()
                         kotlinx.coroutines.delay(50) // Update every 50ms for smooth visualizer
                     }
                 }
@@ -119,9 +97,7 @@ class RecordingViewModel
             resetRecordingState()
             viewModelScope.launch {
                 try {
-                    withContext(Dispatchers.IO) {
-                        voiceRecorder.stop()
-                    }
+                    recordingCoordinator.stopRecording()
                     if (!filename.isNullOrBlank()) {
                         // Use just the filename - voice directory is resolved by AudioPlayerManager
                         val markdown = "![voice]($filename)"
@@ -142,18 +118,11 @@ class RecordingViewModel
         fun cancelRecording() {
             val filename = currentRecordingFilename
             resetRecordingState()
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch {
                 try {
-                    voiceRecorder.stop()
+                    recordingCoordinator.discardRecording(filename)
                 } catch (e: Exception) {
-                    Timber.w(e, "Failed to stop recorder during cancel")
-                }
-                if (!filename.isNullOrBlank()) {
-                    try {
-                        mediaRepository.removeVoiceCapture(MediaEntryId(filename))
-                    } catch (e: Exception) {
-                        Timber.w(e, "Failed to delete canceled recording file: %s", filename)
-                    }
+                    Timber.w(e, "Failed to discard canceled recording: %s", filename)
                 }
             }
             currentRecordingTarget = null
@@ -174,11 +143,7 @@ class RecordingViewModel
         override fun onCleared() {
             super.onCleared()
             recordingJob?.cancel()
-            try {
-                voiceRecorder.stop()
-            } catch (_: Exception) {
-                // Best-effort shutdown.
-            }
+            recordingCoordinator.stopSilently()
             currentRecordingTarget = null
             currentRecordingFilename = null
         }

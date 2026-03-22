@@ -44,6 +44,9 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Run Architecture Checks
+        run: ./gradlew architectureCheck
+
       - name: Build Release APK
         env:
           KEYSTORE_FILE: release.keystore

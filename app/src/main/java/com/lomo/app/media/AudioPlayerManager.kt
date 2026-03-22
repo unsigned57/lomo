@@ -6,8 +6,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.AudioPlaybackController
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
+import com.lomo.ui.media.AudioPlayerController
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineExceptionHandler
@@ -30,7 +30,7 @@ class AudioPlayerManager
     constructor(
         @ApplicationContext private val context: Context,
         private val uriResolver: AudioPlaybackResolverRepository,
-    ) : AudioPlaybackController {
+    ) : AudioPlayerController {
         private companion object {
             const val TAG = "AudioPlayerManager"
             const val PROGRESS_UPDATE_INTERVAL_MS = 100L
@@ -105,12 +105,12 @@ class AudioPlayerManager
             }
         }
 
-        override fun setRootLocation(location: StorageLocation?) {
-            uriResolver.setRootLocation(location)
+        fun setRootLocation(location: String?) {
+            uriResolver.setRootLocation(location?.let(::StorageLocation))
         }
 
-        override fun setVoiceLocation(location: StorageLocation?) {
-            uriResolver.setVoiceLocation(location)
+        fun setVoiceLocation(location: String?) {
+            uriResolver.setVoiceLocation(location?.let(::StorageLocation))
         }
 
         fun cancelScope() {

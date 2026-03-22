@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Lomo"
-include(":app", ":domain", ":data", ":ui-components", ":benchmark")
+include(":app", ":domain", ":data", ":ui-components", ":benchmark", ":detekt-rules")

@@ -2,16 +2,14 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
-import com.lomo.app.feature.preferences.appPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -32,8 +30,8 @@ import javax.inject.Inject
 class TrashViewModel
     @Inject
     constructor(
-        private val repository: MemoRepository,
-        private val appConfigRepository: AppConfigRepository,
+        private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
     ) : ViewModel() {
@@ -45,9 +43,8 @@ class TrashViewModel
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
         val imageDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.IMAGE)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .imageDirectory()
                 .stateIn(
                     viewModelScope,
                     SharingStarted.WhileSubscribed(5000),
@@ -55,8 +52,8 @@ class TrashViewModel
                 )
 
         val trashMemos: StateFlow<List<Memo>> =
-            repository
-                .getDeletedMemosList()
+            memoUiCoordinator
+                .deletedMemos()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         init {
@@ -70,12 +67,13 @@ class TrashViewModel
         }
 
         val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigRepository.appPreferencesState(viewModelScope)
+            appConfigUiCoordinator
+                .appPreferences()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
 
         val rootDirectory: StateFlow<String?> =
-            appConfigRepository
-                .observeLocation(StorageArea.ROOT)
-                .map { it?.raw }
+            appConfigUiCoordinator
+                .rootDirectory()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -110,7 +108,7 @@ class TrashViewModel
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
                     ) {
-                        repository.restoreMemo(memo)
+                        memoUiCoordinator.restoreMemo(memo)
                     }
                 result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage("Failed to restore memo")
@@ -125,7 +123,7 @@ class TrashViewModel
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
                     ) {
-                        repository.deletePermanently(memo)
+                        memoUiCoordinator.deletePermanently(memo)
                     }
                 result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
@@ -143,10 +141,10 @@ class TrashViewModel
                         itemIds = trashSnapshot.asSequence().map { it.id }.toSet(),
                         deletingIds = _deletingMemoIds,
                     ) {
-                    trashSnapshot.forEach { memo ->
-                        repository.deletePermanently(memo)
+                        trashSnapshot.forEach { memo ->
+                            memoUiCoordinator.deletePermanently(memo)
+                        }
                     }
-                }
                 result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage("Failed to clear trash")
                 }

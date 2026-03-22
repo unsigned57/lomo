@@ -51,7 +51,7 @@ class GitSyncEngineConflictTest {
     }
 
     @Test
-    fun `sync returns error on rebase conflict and preserves remote content`() =
+    fun `sync returns conflict on rebase conflict and preserves remote content`() =
         runTest {
             val remoteBareDir = File(tempRoot, "remote.git").also { it.mkdirs() }
             val remoteUrl = remoteBareDir.toURI().toString()
@@ -93,9 +93,10 @@ class GitSyncEngineConflictTest {
             File(localDir, "memo.md").writeText("local change\n")
 
             val result = engine.sync(localDir, remoteUrl)
-            assertTrue(result is GitSyncResult.Error)
-            val error = result as GitSyncResult.Error
-            assertTrue(error.message.contains("rebase", ignoreCase = true))
+            assertTrue(result is GitSyncResult.Conflict)
+            val conflict = result as GitSyncResult.Conflict
+            assertTrue(conflict.message.contains("conflict", ignoreCase = true))
+            assertEquals(listOf("memo.md"), conflict.conflicts.files.map { it.relativePath })
 
             Git.open(seedDir).use { seedGit ->
                 seedGit.fetch().setRemote("origin").call()

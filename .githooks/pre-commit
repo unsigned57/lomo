@@ -42,7 +42,7 @@ clear_stale_wrapper_locks() {
 clear_stale_wrapper_locks
 
 printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
-unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-ktlint-git-hook-$$.diff")"
+unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-detekt-git-hook-$$.diff")"
 unstaged_diff_reversed=0
 
 cleanup() {
@@ -63,12 +63,12 @@ if [ -s "$unstaged_diff" ]; then
   unstaged_diff_reversed=1
 fi
 
-echo "pre-commit: running $gradlew ktlintFormat on staged Kotlin files..."
+echo "pre-commit: running $gradlew detektFormatStaged on staged Kotlin files..."
 echo "pre-commit: using repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
 GRADLE_USER_HOME="$hook_gradle_user_home" \
-  "$gradlew" --project-dir "$repo_root" --no-daemon --quiet \
-  ktlintFormat "-PinternalKtlintGitFilter=$staged_kotlin_git_filter"
-echo "pre-commit: ktlintFormat finished"
+  "$gradlew" --project-dir "$repo_root" --no-daemon --no-configuration-cache --quiet \
+  detektFormatStaged "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
+echo "pre-commit: detektFormatStaged finished"
 
 # Re-stage files that were modified by formatter.
 for file in "${staged_kotlin_files[@]}"; do
