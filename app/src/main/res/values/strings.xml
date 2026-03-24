@@ -291,6 +291,11 @@
     <string name="settings_git_sync_status_not_configured">Not configured</string>
     <string name="settings_git_sync_status_initializing">Initializing...</string>
     <string name="settings_git_sync_direct_path_required">Git sync requires direct path mode. Please set memo directory using a file path instead of SAF.</string>
+    <string name="settings_git_not_configured_message">Git sync is not configured.</string>
+    <string name="settings_git_pat_required_message">Personal Access Token is not configured.</string>
+    <string name="settings_git_repository_url_not_configured">Git repository URL is not configured.</string>
+    <string name="settings_git_memo_directory_not_configured">Memo directory is not configured.</string>
+    <string name="settings_git_repository_not_initialized">Git repository is not initialized.</string>
     <string name="settings_git_sync_interval_30min">30 minutes</string>
     <string name="settings_git_sync_interval_1h">1 hour</string>
     <string name="settings_git_sync_interval_6h">6 hours</string>
@@ -353,6 +358,7 @@
     <string name="settings_webdav_sync_status_deleting">Deleting...</string>
     <string name="settings_webdav_sync_status_error">Error: %1$s</string>
     <string name="settings_webdav_sync_status_not_configured">Not configured</string>
+    <string name="settings_webdav_not_configured_message">WebDAV sync is not configured.</string>
     <string name="settings_webdav_test_connection">Test Connection</string>
     <string name="settings_webdav_test_connection_testing">Testing...</string>
     <string name="settings_webdav_test_connection_success">Connection successful</string>

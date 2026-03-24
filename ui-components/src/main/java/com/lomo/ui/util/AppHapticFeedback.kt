@@ -22,20 +22,21 @@ interface AppHapticFeedback {
     fun error()
 }
 
-val LocalAppHapticFeedback =
-    compositionLocalOf<AppHapticFeedback> {
-        object : AppHapticFeedback {
-            override fun light() {}
+private val NoOpAppHapticFeedback =
+    object : AppHapticFeedback {
+        override fun light() = Unit
 
-            override fun medium() {}
+        override fun medium() = Unit
 
-            override fun heavy() {}
+        override fun heavy() = Unit
 
-            override fun longPress() {}
+        override fun longPress() = Unit
 
-            override fun error() {}
-        }
+        override fun error() = Unit
     }
+
+val LocalAppHapticFeedback =
+    compositionLocalOf<AppHapticFeedback> { NoOpAppHapticFeedback }
 
 @Composable
 fun ProvideAppHapticFeedback(
@@ -72,17 +73,7 @@ fun ProvideAppHapticFeedback(
                     }
                 }
             } else {
-                object : AppHapticFeedback {
-                    override fun light() {}
-
-                    override fun medium() {}
-
-                    override fun heavy() {}
-
-                    override fun longPress() {}
-
-                    override fun error() {}
-                }
+                NoOpAppHapticFeedback
             }
         }
 

@@ -2,10 +2,10 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.appWhileSubscribed
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -14,6 +14,8 @@ import timber.log.Timber
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
+
+private const val RECORDING_VISUALIZER_UPDATE_INTERVAL_MILLIS = 50L
 
 /**
  * Manages voice recording state and lifecycle, extracted from MainViewModel
@@ -30,10 +32,6 @@ class RecordingViewModel
     constructor(
         private val recordingCoordinator: RecordingCoordinator,
     ) : ViewModel() {
-        companion object {
-            private val VOICE_FILE_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
-        }
-
         private val _isRecording = MutableStateFlow(false)
         val isRecording: StateFlow<Boolean> = _isRecording
 
@@ -49,7 +47,7 @@ class RecordingViewModel
         val voiceDirectory: StateFlow<String?> =
             recordingCoordinator
                 .voiceDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         private var recordingJob: kotlinx.coroutines.Job? = null
         private var currentRecordingTarget: String? = null
@@ -57,7 +55,7 @@ class RecordingViewModel
 
         fun startRecording() {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val timestamp = VOICE_FILE_TIMESTAMP_FORMATTER.format(LocalDateTime.now())
                     val filename = "voice_$timestamp.m4a"
                     val target = recordingCoordinator.startRecording(filename)
@@ -67,11 +65,12 @@ class RecordingViewModel
                     _recordingDuration.value = 0
 
                     startRecordingTimer()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to start recording")
-                    _errorMessage.value = "Failed to start recording: ${e.message}"
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    Timber.e(throwable, "Failed to start recording")
+                    _errorMessage.value = "Failed to start recording: ${throwable.message}"
                     cancelRecording()
                 }
             }
@@ -85,7 +84,7 @@ class RecordingViewModel
                     while (isActive) {
                         _recordingDuration.value = System.currentTimeMillis() - startTime
                         _recordingAmplitude.value = recordingCoordinator.currentAmplitude()
-                        kotlinx.coroutines.delay(50) // Update every 50ms for smooth visualizer
+                        kotlinx.coroutines.delay(RECORDING_VISUALIZER_UPDATE_INTERVAL_MILLIS)
                     }
                 }
         }
@@ -96,22 +95,22 @@ class RecordingViewModel
             val filename = currentRecordingFilename
             resetRecordingState()
             viewModelScope.launch {
-                try {
+                runCatching {
                     recordingCoordinator.stopRecording()
                     if (!filename.isNullOrBlank()) {
                         // Use just the filename - voice directory is resolved by AudioPlayerManager
                         val markdown = "![voice]($filename)"
                         onResult(markdown)
                     }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to stop recording")
-                    _errorMessage.value = "Failed to stop recording: ${e.message}"
-                } finally {
-                    currentRecordingTarget = null
-                    currentRecordingFilename = null
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    Timber.e(throwable, "Failed to stop recording")
+                    _errorMessage.value = "Failed to stop recording: ${throwable.message}"
                 }
+                currentRecordingTarget = null
+                currentRecordingFilename = null
             }
         }
 
@@ -119,10 +118,13 @@ class RecordingViewModel
             val filename = currentRecordingFilename
             resetRecordingState()
             viewModelScope.launch {
-                try {
+                runCatching {
                     recordingCoordinator.discardRecording(filename)
-                } catch (e: Exception) {
-                    Timber.w(e, "Failed to discard canceled recording: %s", filename)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    Timber.w(throwable, "Failed to discard canceled recording: %s", filename)
                 }
             }
             currentRecordingTarget = null
@@ -146,5 +148,9 @@ class RecordingViewModel
             recordingCoordinator.stopSilently()
             currentRecordingTarget = null
             currentRecordingFilename = null
+        }
+
+        companion object {
+            private val VOICE_FILE_TIMESTAMP_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
         }
     }

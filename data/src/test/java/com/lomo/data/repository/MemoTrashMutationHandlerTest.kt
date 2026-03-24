@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
@@ -19,7 +18,7 @@ class MemoTrashMutationHandlerTest {
     private lateinit var fileDataSource: FileDataSource
 
     @MockK(relaxed = true)
-    private lateinit var memoDao: MemoDao
+    private lateinit var memoDao: TestMemoDaoSuite
 
     @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
@@ -33,7 +32,11 @@ class MemoTrashMutationHandlerTest {
             MemoTrashMutationHandler(
                 markdownStorageDataSource = fileDataSource,
                 mediaStorageDataSource = fileDataSource,
-                dao = memoDao,
+                memoWriteDao = memoDao,
+                memoTagDao = memoDao,
+                memoFtsDao = memoDao,
+                memoTrashDao = memoDao,
+                memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 textProcessor = MemoTextProcessor(),
             )

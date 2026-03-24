@@ -16,12 +16,14 @@ import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.RestoreMemoVersionUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
+import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -447,7 +449,15 @@ class MainViewModelTest {
             versionHistoryCoordinator =
                 MainVersionHistoryCoordinator(
                     loadMemoVersionHistoryUseCase = LoadMemoVersionHistoryUseCase(gitSyncRepo),
-                    restoreMemoVersionUseCase = RestoreMemoVersionUseCase(repository),
+                    restoreMemoVersionUseCase =
+                        RestoreMemoVersionUseCase(
+                            UpdateMemoContentUseCase(
+                                repository = repository,
+                                validator = ValidateMemoContentUseCase(),
+                                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
+                                deleteMemoUseCase = DeleteMemoUseCase(repository),
+                            ),
+                        ),
                 ),
             memoUiMapper = memoUiMapper,
             imageMapProvider = imageMapProvider,

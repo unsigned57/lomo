@@ -3,7 +3,19 @@ config:
   excludes:
     - "lomo-architecture.*"
     - "lomo-architecture>.*>.*"
+empty-blocks:
+  EmptyDefaultConstructor:
+    active: true
 style:
+  ForbiddenComment:
+    active: true
+    comments:
+      - reason: "Resolve backlog markers before merge."
+        value: "TODO:"
+      - reason: "Resolve broken-behavior markers before merge."
+        value: "FIXME:"
+      - reason: "Release blockers must not stay in committed code."
+        value: "STOPSHIP:"
   ForbiddenImport:
     active: true
     forbiddenImports:
@@ -11,6 +23,8 @@ style:
       - com.lomo.ui.*
       - androidx.lifecycle.ViewModel
       - androidx.compose.*
+  UnusedParameter:
+    active: true
 lomo-architecture:
   RepositoryImplLocation:
     active: true
@@ -23,4 +37,8 @@ lomo-architecture:
   DataRepositoryContract:
     active: true
   DataLayerUiDependency:
+    active: true
+  NoSourceSuppressions:
+    active: true
+  NoPlaceholderImplementation:
     active: true

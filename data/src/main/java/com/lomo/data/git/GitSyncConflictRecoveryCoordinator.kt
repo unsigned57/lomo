@@ -1,6 +1,7 @@
 package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
@@ -31,15 +32,15 @@ internal class GitSyncConflictRecoveryCoordinator
 
         suspend fun resetRepository(rootDir: File): GitSyncResult =
             withContext(Dispatchers.IO) {
-                try {
+                runNonFatalCatching {
                     val gitDir = File(rootDir, ".git")
                     if (gitDir.exists()) {
                         gitDir.deleteRecursively()
                     }
                     GitSyncResult.Success("Repository reset")
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to reset repository")
-                    GitSyncResult.Error("Reset failed: ${e.message}", e)
+                }.getOrElse { error ->
+                    Timber.e(error, "Failed to reset repository")
+                    GitSyncResult.Error("Reset failed: ${error.message}", error)
                 }
             }
 
@@ -54,12 +55,12 @@ internal class GitSyncConflictRecoveryCoordinator
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
-                    return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
+                    return@withContext GitSyncResult.Error(NOT_GIT_REPOSITORY_MESSAGE)
                 }
 
                 primitives.cleanStaleLockFiles(rootDir)
 
-                try {
+                runNonFatalCatching {
                     Git.open(rootDir).use { git ->
                         primitives.ensureRemote(git, remoteUrl)
 
@@ -94,11 +95,11 @@ internal class GitSyncConflictRecoveryCoordinator
                     }
 
                     GitSyncResult.Success("Local branch reset to remote.")
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to reset local branch to remote")
+                }.getOrElse { error ->
+                    Timber.e(error, "Failed to reset local branch to remote")
                     GitSyncResult.Error(
-                        "Failed to reset local branch to remote: ${e.message}",
-                        e,
+                        "Failed to reset local branch to remote: ${error.message}",
+                        error,
                     )
                 }
             }
@@ -119,14 +120,14 @@ internal class GitSyncConflictRecoveryCoordinator
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
                     return@withContext ForcePushOutcome(
-                        result = GitSyncResult.Error("Not a git repository. Please initialize first."),
+                        result = GitSyncResult.Error(NOT_GIT_REPOSITORY_MESSAGE),
                         syncedAtMs = null,
                     )
                 }
 
                 primitives.cleanStaleLockFiles(rootDir)
 
-                try {
+                runNonFatalCatching {
                     val commitResult = workflow.commitLocal(rootDir)
                     if (commitResult is GitSyncResult.Error) {
                         return@withContext ForcePushOutcome(result = commitResult, syncedAtMs = null)
@@ -154,10 +155,10 @@ internal class GitSyncConflictRecoveryCoordinator
                         }
                         return@withContext ForcePushOutcome(result = pushResult, syncedAtMs = null)
                     }
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to force push local branch")
+                }.getOrElse { error ->
+                    Timber.e(error, "Failed to force push local branch")
                     ForcePushOutcome(
-                        result = GitSyncResult.Error("Failed to force push local branch: ${e.message}", e),
+                        result = GitSyncResult.Error("Failed to force push local branch: ${error.message}", error),
                         syncedAtMs = null,
                     )
                 }
@@ -176,12 +177,12 @@ internal class GitSyncConflictRecoveryCoordinator
 
                 val gitDir = File(rootDir, ".git")
                 if (!gitDir.exists()) {
-                    return@withContext GitSyncResult.Error("Not a git repository. Please initialize first.")
+                    return@withContext GitSyncResult.Error(NOT_GIT_REPOSITORY_MESSAGE)
                 }
 
                 primitives.cleanStaleLockFiles(rootDir)
 
-                try {
+                runNonFatalCatching {
                     Git.open(rootDir).use { g ->
                         primitives.ensureRemote(g, remoteUrl)
 
@@ -215,9 +216,11 @@ internal class GitSyncConflictRecoveryCoordinator
                             successMessage = "Conflicts resolved and pushed",
                         )
                     }
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to apply conflict resolution")
-                    GitSyncResult.Error("Failed to apply conflict resolution: ${e.message}", e)
+                }.getOrElse { error ->
+                    Timber.e(error, "Failed to apply conflict resolution")
+                    GitSyncResult.Error("Failed to apply conflict resolution: ${error.message}", error)
                 }
             }
     }
+
+private const val NOT_GIT_REPOSITORY_MESSAGE = "Not a git repository. Please initialize first."

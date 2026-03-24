@@ -1,8 +1,8 @@
 package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncEngineState
@@ -24,11 +24,9 @@ class GitSyncEngine
         primitives: GitRepositoryPrimitives,
     ) {
         private val workflow = GitSyncWorkflow(dataStore, credentialStrategy, primitives)
-        private val fileHistoryReader = GitFileHistoryReader(primitives)
 
         private val initCoordinator = GitSyncInitCoordinator(workflow)
         private val commitSyncCoordinator = GitSyncCommitSyncCoordinator(workflow, dataStore)
-        private val queryTestCoordinator = GitSyncQueryTestCoordinator(credentialStrategy, fileHistoryReader)
         private val conflictRecoveryCoordinator =
             GitSyncConflictRecoveryCoordinator(workflow, dataStore, credentialStrategy, primitives)
 
@@ -50,23 +48,23 @@ class GitSyncEngine
         ): GitSyncResult =
             mutex.withLock {
                 _syncState.value = SyncEngineState.Initializing
-                try {
+                runNonFatalCatching {
                     initCoordinator.initOrClone(rootDir, remoteUrl).also(::publishResultState)
-                } catch (e: Exception) {
-                    Timber.e(e, "Git init/clone failed")
-                    val message = e.message ?: "Unknown error"
+                }.getOrElse { error ->
+                    Timber.e(error, "Git init/clone failed")
+                    val message = error.message ?: UNKNOWN_ERROR_MESSAGE
                     _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
-                    GitSyncResult.Error(message, e)
+                    GitSyncResult.Error(message, error)
                 }
             }
 
         suspend fun commitLocal(rootDir: File): GitSyncResult =
             mutex.withLock {
-                try {
+                runNonFatalCatching {
                     commitSyncCoordinator.commitLocal(rootDir)
-                } catch (e: Exception) {
-                    Timber.e(e, "Local commit failed")
-                    GitSyncResult.Error("Local commit failed: ${e.message}", e)
+                }.getOrElse { error ->
+                    Timber.e(error, "Local commit failed")
+                    GitSyncResult.Error("Local commit failed: ${error.message}", error)
                 }
             }
 
@@ -76,7 +74,7 @@ class GitSyncEngine
         ): GitSyncResult =
             mutex.withLock {
                 _syncState.value = SyncEngineState.Syncing.Committing
-                try {
+                runNonFatalCatching {
                     val outcome =
                         commitSyncCoordinator.sync(rootDir, remoteUrl) { phase ->
                             _syncState.value = phase
@@ -105,40 +103,13 @@ class GitSyncEngine
                         }
                     }
                     result
-                } catch (e: Exception) {
-                    Timber.e(e, "Git sync failed")
-                    val message = e.message ?: "Unknown error"
+                }.getOrElse { error ->
+                    Timber.e(error, "Git sync failed")
+                    val message = error.message ?: UNKNOWN_ERROR_MESSAGE
                     _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
-                    GitSyncResult.Error(message, e)
+                    GitSyncResult.Error(message, error)
                 }
             }
-
-        data class FileHistoryEntry(
-            val commitHash: String,
-            val commitTime: Long,
-            val commitMessage: String,
-            val fileContent: String,
-        )
-
-        fun getFileHistory(
-            rootDir: File,
-            filename: String,
-            maxCount: Int = 50,
-        ): List<FileHistoryEntry> =
-            queryTestCoordinator
-                .getFileHistory(rootDir = rootDir, filename = filename, maxCount = maxCount)
-                .map { entry ->
-                    FileHistoryEntry(
-                        commitHash = entry.commitHash,
-                        commitTime = entry.commitTime,
-                        commitMessage = entry.commitMessage,
-                        fileContent = entry.fileContent,
-                    )
-                }
-
-        fun getStatus(rootDir: File): GitSyncStatus = queryTestCoordinator.getStatus(rootDir)
-
-        fun testConnection(remoteUrl: String): GitSyncResult = queryTestCoordinator.testConnection(remoteUrl)
 
         suspend fun resetRepository(rootDir: File): GitSyncResult =
             mutex.withLock {
@@ -187,7 +158,7 @@ class GitSyncEngine
         ): GitSyncResult =
             mutex.withLock {
                 _syncState.value = SyncEngineState.Syncing.Pushing
-                try {
+                runNonFatalCatching {
                     val result =
                         conflictRecoveryCoordinator.applyConflictResolution(
                             rootDir = rootDir,
@@ -197,11 +168,11 @@ class GitSyncEngine
                         )
                     publishResultState(result)
                     result
-                } catch (e: Exception) {
-                    Timber.e(e, "Git conflict resolution failed")
-                    val message = e.message ?: "Unknown error"
+                }.getOrElse { error ->
+                    Timber.e(error, "Git conflict resolution failed")
+                    val message = error.message ?: UNKNOWN_ERROR_MESSAGE
                     _syncState.value = SyncEngineState.Error(message, System.currentTimeMillis())
-                    GitSyncResult.Error(message, e)
+                    GitSyncResult.Error(message, error)
                 }
             }
 
@@ -223,5 +194,9 @@ class GitSyncEngine
                     _syncState.value = SyncEngineState.Idle
                 }
             }
+        }
+
+        companion object {
+            private const val UNKNOWN_ERROR_MESSAGE = "Unknown error"
         }
     }

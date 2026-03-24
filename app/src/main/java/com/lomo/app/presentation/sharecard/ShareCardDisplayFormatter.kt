@@ -26,11 +26,11 @@ class ShareCardDisplayFormatter
         ): String {
             var str = bodyText.replace("\r\n", "\n")
 
-            str = str.replace(Regex("(?m)^\\s*#{1,2}\\s+"), "✦ ")
-            str = str.replace(Regex("(?m)^\\s*#{3,6}\\s+"), "• ")
+            str = str.replace(Regex("""(?m)^\s*#{1,2}\s+"""), "✦ ")
+            str = str.replace(Regex("""(?m)^\s*#{3,6}\s+"""), "• ")
 
             str =
-                str.replace(Regex("```[\\w-]*\\n([\\s\\S]*?)```")) { match ->
+                str.replace(Regex("""```[\w-]*\n([\s\S]*?)```""")) { match ->
                     val code = match.groupValues[1].trim('\n')
                     if (code.isBlank()) {
                         ""
@@ -45,18 +45,18 @@ class ShareCardDisplayFormatter
             str = MarkdownCleanupFormatter.stripForPlainText(str)
             str = str.replace("[Image]", imagePlaceholder)
             str =
-                str.replace(Regex("\\[Image:\\s*(.*?)]")) { match ->
+                str.replace(Regex("""\[Image:\s*(.*?)]""")) { match ->
                     formatImageNamedPlaceholder(
                         pattern = imageNamedPlaceholderPattern,
                         name = match.groupValues[1],
                     )
                 }
-            str = str.replace(Regex("`([^`]+)`"), "「$1」")
-            str = str.replace(Regex("~~(.*?)~~"), "$1")
-            str = str.replace(Regex("(?m)^>\\s?"), "│ ")
-            str = str.replace(Regex("(?m)^\\s*\\d+\\.\\s+"), "• ")
-            str = str.replace(Regex("(?m)^\\s*[-+*]\\s+"), "• ")
-            str = str.replace(Regex("(?m)^\\s*[-*_]{3,}\\s*$"), "")
+            str = str.replace(Regex("""`([^`]+)`"""), "「$1」")
+            str = str.replace(Regex("""~~(.*?)~~"""), "$1")
+            str = str.replace(Regex("""(?m)^>\s?"""), "│ ")
+            str = str.replace(Regex("""(?m)^\s*\d+\.\s+"""), "• ")
+            str = str.replace(Regex("""(?m)^\s*[-+*]\s+"""), "• ")
+            str = str.replace(Regex("""(?m)^\s*[-*_]{3,}\s*$"""), "")
 
             str =
                 str
@@ -86,6 +86,10 @@ class ShareCardDisplayFormatter
             const val MAX_TAG_LENGTH = 18
             const val MAX_TAG_COUNT = 6
 
-            val audioAttachmentPattern = Regex("!\\[[^\\]]*\\]\\(([^)]+\\.(?:m4a|mp3|aac|wav))\\)", RegexOption.IGNORE_CASE)
+            val audioAttachmentPattern =
+                Regex(
+                    """!\[[^\]]*]\(([^)]+\.(?:m4a|mp3|aac|wav))\)""",
+                    RegexOption.IGNORE_CASE,
+                )
         }
     }

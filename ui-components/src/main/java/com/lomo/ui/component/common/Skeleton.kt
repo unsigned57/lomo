@@ -28,17 +28,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 
+private const val DEFAULT_SHIMMER_TARGET = 1000f
+private const val SHIMMER_HIGHLIGHT_ALPHA = 0.6f
+private const val SHIMMER_DURATION_MILLIS = 800
+private const val PRIMARY_CONTENT_WIDTH_FRACTION = 0.9f
+private const val SECONDARY_CONTENT_WIDTH_FRACTION = 0.6f
+private const val SKELETON_ITEM_COUNT = 5
+
 @Composable
 fun shimmerBrush(
     showShimmer: Boolean = true,
-    targetValue: Float = 1000f,
+    targetValue: Float = DEFAULT_SHIMMER_TARGET,
 ): Brush =
     if (showShimmer) {
         val shimmerColors =
             listOf(
-                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = SHIMMER_HIGHLIGHT_ALPHA),
                 MaterialTheme.colorScheme.surfaceContainerHighest,
-                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.6f),
+                MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = SHIMMER_HIGHLIGHT_ALPHA),
             )
 
         val transition = rememberInfiniteTransition(label = "shimmer")
@@ -48,7 +55,7 @@ fun shimmerBrush(
                 targetValue = targetValue,
                 animationSpec =
                     infiniteRepeatable(
-                        animation = tween(800),
+                        animation = tween(SHIMMER_DURATION_MILLIS),
                         repeatMode = RepeatMode.Restart,
                     ),
                 label = "shimmer",
@@ -95,7 +102,7 @@ fun SkeletonMemoItem(
             Box(
                 modifier =
                     Modifier
-                        .fillMaxWidth(0.9f)
+                        .fillMaxWidth(PRIMARY_CONTENT_WIDTH_FRACTION)
                         .height(16.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(brush),
@@ -103,7 +110,7 @@ fun SkeletonMemoItem(
             Box(
                 modifier =
                     Modifier
-                        .fillMaxWidth(0.6f)
+                        .fillMaxWidth(SECONDARY_CONTENT_WIDTH_FRACTION)
                         .height(16.dp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(brush),
@@ -137,6 +144,6 @@ fun SkeletonMemoItem(
 fun MemoListSkeleton(modifier: Modifier = Modifier) {
     val brush = shimmerBrush()
     Column(modifier = modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        repeat(5) { SkeletonMemoItem(brush = brush) }
+        repeat(SKELETON_ITEM_COUNT) { SkeletonMemoItem(brush = brush) }
     }
 }

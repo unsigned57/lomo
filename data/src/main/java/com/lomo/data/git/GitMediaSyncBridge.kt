@@ -24,43 +24,23 @@ class GitMediaSyncBridge
         ): GitMediaSyncSummary =
             withContext(Dispatchers.IO) {
                 val categories = localMediaSyncStore.configuredCategories()
-                if (categories.isEmpty()) return@withContext GitMediaSyncSummary()
+                if (categories.isEmpty()) {
+                    return@withContext GitMediaSyncSummary()
+                }
 
                 val localFiles = listLocalFiles(layout)
                 val repoFiles = listRepoFiles(repoRootDir, categories, layout)
                 val metadata = stateStore.read()
                 val actions = planner.plan(localFiles, repoFiles, metadata)
-                val actionsByPath = actions.associateBy { it.path }
-                var repoChanged = false
-                var localChanged = false
-
-                actions.forEach { action ->
-                    when (action.direction) {
-                        GitMediaSyncDirection.PUSH_TO_REPO -> {
-                            if (pushToRepo(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path], layout)) {
-                                repoChanged = true
-                            }
-                        }
-
-                        GitMediaSyncDirection.PULL_TO_LOCAL -> {
-                            if (pullToLocal(repoRootDir, action.path, localFiles[action.path], repoFiles[action.path], layout)) {
-                                localChanged = true
-                            }
-                        }
-
-                        GitMediaSyncDirection.DELETE_REPO -> {
-                            if (deleteRepoFile(repoRootDir, action.path)) {
-                                repoChanged = true
-                            }
-                        }
-
-                        GitMediaSyncDirection.DELETE_LOCAL -> {
-                            if (deleteLocalFile(action.path, localFiles[action.path], layout)) {
-                                localChanged = true
-                            }
-                        }
-                    }
-                }
+                val actionsByPath = actions.associateBy(GitMediaSyncAction::path)
+                val summary =
+                    applyActions(
+                        repoRootDir = repoRootDir,
+                        layout = layout,
+                        localFiles = localFiles,
+                        repoFiles = repoFiles,
+                        actions = actions,
+                    )
 
                 persistState(
                     repoRootDir = repoRootDir,
@@ -69,13 +49,68 @@ class GitMediaSyncBridge
                     previousMetadata = metadata,
                     localFiles = localFiles,
                     repoFiles = repoFiles,
-                    localChanged = localChanged,
-                    repoChanged = repoChanged,
+                    localChanged = summary.localChanged,
+                    repoChanged = summary.repoChanged,
                     actionsByPath = actionsByPath,
                 )
 
-                GitMediaSyncSummary(repoChanged = repoChanged, localChanged = localChanged)
+                summary
             }
+
+        private suspend fun applyActions(
+            repoRootDir: File,
+            layout: SyncDirectoryLayout,
+            localFiles: Map<String, LocalGitMediaFile>,
+            repoFiles: Map<String, RepoGitMediaFile>,
+            actions: List<GitMediaSyncAction>,
+        ): GitMediaSyncSummary {
+            var repoChanged = false
+            var localChanged = false
+
+            actions.forEach { action ->
+                when (action.direction) {
+                    GitMediaSyncDirection.PUSH_TO_REPO -> {
+                        repoChanged =
+                            repoChanged ||
+                                pushToRepo(
+                                    repoRootDir = repoRootDir,
+                                    path = action.path,
+                                    local = localFiles[action.path],
+                                    repo = repoFiles[action.path],
+                                    layout = layout,
+                                )
+                    }
+
+                    GitMediaSyncDirection.PULL_TO_LOCAL -> {
+                        localChanged =
+                            localChanged ||
+                                pullToLocal(
+                                    repoRootDir = repoRootDir,
+                                    path = action.path,
+                                    local = localFiles[action.path],
+                                    repo = repoFiles[action.path],
+                                    layout = layout,
+                                )
+                    }
+
+                    GitMediaSyncDirection.DELETE_REPO -> {
+                        repoChanged = repoChanged || deleteRepoFile(repoRootDir, action.path)
+                    }
+
+                    GitMediaSyncDirection.DELETE_LOCAL -> {
+                        localChanged =
+                            localChanged ||
+                                deleteLocalFile(
+                                    path = action.path,
+                                    local = localFiles[action.path],
+                                    layout = layout,
+                                )
+                    }
+                }
+            }
+
+            return GitMediaSyncSummary(repoChanged = repoChanged, localChanged = localChanged)
+        }
 
         private suspend fun persistState(
             repoRootDir: File,
@@ -115,8 +150,13 @@ class GitMediaSyncBridge
                             localLastModified = local.lastModified,
                             lastSyncedAt = now,
                             lastResolvedDirection =
-                                action?.direction?.name ?: previous?.lastResolvedDirection ?: GitMediaSyncMetadataEntry.NONE,
-                            lastResolvedReason = action?.reason?.name ?: previous?.lastResolvedReason ?: GitMediaSyncMetadataEntry.UNCHANGED,
+                                action?.direction?.name
+                                    ?: previous?.lastResolvedDirection
+                                    ?: GitMediaSyncMetadataEntry.NONE,
+                            lastResolvedReason =
+                                action?.reason?.name
+                                    ?: previous?.lastResolvedReason
+                                    ?: GitMediaSyncMetadataEntry.UNCHANGED,
                         )
                     }
             stateStore.write(entries)
@@ -137,30 +177,9 @@ class GitMediaSyncBridge
             categories: Set<MediaSyncCategory>,
             layout: SyncDirectoryLayout,
         ): Map<String, RepoGitMediaFile> =
-            buildMap {
-                if (layout.allSameDirectory) {
-                    // When all directories are the same, media files live directly in the repo root.
-                    categories.forEach { category ->
-                        val folder = category.remoteFolder(layout)
-                        repoRootDir.listFiles()?.forEach { file ->
-                            if (!file.isFile || !accepts(category, file.name)) return@forEach
-                            val path = "$folder/${file.name}"
-                            put(path, RepoGitMediaFile(path = path, lastModified = file.lastModified()))
-                        }
-                    }
-                } else {
-                    categories.forEach { category ->
-                        val folder = category.remoteFolder(layout)
-                        val directory = File(repoRootDir, folder)
-                        if (!directory.exists() || !directory.isDirectory) return@forEach
-                        directory.listFiles()?.forEach { file ->
-                            if (!file.isFile || !accepts(category, file.name)) return@forEach
-                            val path = "$folder/${file.name}"
-                            put(path, RepoGitMediaFile(path = path, lastModified = file.lastModified()))
-                        }
-                    }
-                }
-            }
+            categories
+                .flatMap { category -> listRepoFilesForCategory(repoRootDir, category, layout) }
+                .associateBy(RepoGitMediaFile::path)
 
         private suspend fun pushToRepo(
             repoRootDir: File,
@@ -173,17 +192,24 @@ class GitMediaSyncBridge
             val localBytes = localMediaSyncStore.readBytes(path, layout)
             val repoPath = repoRelativePath(path, layout)
             val target = File(repoRootDir, repoPath)
-            if (repo != null && target.exists()) {
-                val repoBytes = target.readBytes()
-                if (repoBytes.contentEquals(localBytes)) {
-                    if (localFile.lastModified > 0L && abs(target.lastModified() - localFile.lastModified) > TIMESTAMP_TOLERANCE_MS) {
-                        target.setLastModified(localFile.lastModified)
-                    }
-                    return false
-                }
+            val shouldWrite =
+                !(repo != null && target.exists() && target.readBytes().contentEquals(localBytes))
+
+            if (shouldWrite) {
+                writeRepoFile(
+                    repoRootDir = repoRootDir,
+                    relativePath = repoPath,
+                    bytes = localBytes,
+                    lastModified = localFile.lastModified,
+                )
+            } else if (
+                localFile.lastModified > 0L &&
+                abs(target.lastModified() - localFile.lastModified) > TIMESTAMP_TOLERANCE_MS
+            ) {
+                target.setLastModified(localFile.lastModified)
             }
-            writeRepoFile(repoRootDir, repoPath, localBytes, localFile.lastModified)
-            return true
+
+            return shouldWrite
         }
 
         private suspend fun pullToLocal(
@@ -193,19 +219,29 @@ class GitMediaSyncBridge
             repo: RepoGitMediaFile?,
             layout: SyncDirectoryLayout,
         ): Boolean {
-            val repoFile = repo ?: return false
-            val repoPath = repoRelativePath(repoFile.path, layout)
-            val source = File(repoRootDir, repoPath)
-            if (!source.exists()) return false
-            val repoBytes = source.readBytes()
-            if (local != null) {
-                val localBytes = localMediaSyncStore.readBytes(path, layout)
-                if (localBytes.contentEquals(repoBytes)) {
-                    return false
+            val repoBytes =
+                repo
+                    ?.let { repoFile -> File(repoRootDir, repoRelativePath(repoFile.path, layout)) }
+                    ?.takeIf(File::exists)
+                    ?.readBytes()
+            val shouldWrite =
+                if (repoBytes == null) {
+                    false
+                } else {
+                    local
+                        ?.let { current ->
+                            !localMediaSyncStore
+                                .readBytes(current.path, layout)
+                                .contentEquals(repoBytes)
+                        }
+                        ?: true
                 }
+
+            if (shouldWrite && repoBytes != null) {
+                localMediaSyncStore.writeBytes(path, repoBytes, layout)
             }
-            localMediaSyncStore.writeBytes(path, repoBytes, layout)
-            return true
+
+            return shouldWrite
         }
 
         private suspend fun deleteLocalFile(
@@ -213,7 +249,9 @@ class GitMediaSyncBridge
             local: LocalGitMediaFile?,
             layout: SyncDirectoryLayout,
         ): Boolean {
-            if (local == null) return false
+            if (local == null) {
+                return false
+            }
             localMediaSyncStore.delete(path, layout)
             return true
         }
@@ -226,52 +264,8 @@ class GitMediaSyncBridge
             return target.exists() && target.delete()
         }
 
-        private fun writeRepoFile(
-            repoRootDir: File,
-            relativePath: String,
-            bytes: ByteArray,
-            lastModified: Long,
-        ) {
-            val target = File(repoRootDir, relativePath)
-            target.parentFile?.mkdirs()
-            target.writeBytes(bytes)
-            if (lastModified > 0L) {
-                target.setLastModified(lastModified)
-            }
-        }
-
-        /**
-         * When [SyncDirectoryLayout.allSameDirectory] is true, media files live directly
-         * in the repo root so we strip the folder prefix. Otherwise, the path already
-         * contains the correct subdirectory.
-         */
-        private fun repoRelativePath(
-            syncPath: String,
-            layout: SyncDirectoryLayout,
-        ): String =
-            if (layout.allSameDirectory) {
-                // "images/photo.jpg" → "photo.jpg" (flat in repo root)
-                syncPath.substringAfter('/')
-            } else {
-                syncPath
-            }
-
-        private fun accepts(
-            category: MediaSyncCategory,
-            filename: String,
-        ): Boolean =
-            when (category) {
-                MediaSyncCategory.IMAGE -> filename.hasExtension(IMAGE_EXTENSIONS)
-                MediaSyncCategory.VOICE -> filename.hasExtension(VOICE_EXTENSIONS)
-            }
-
-        private fun String.hasExtension(extensions: Set<String>): Boolean =
-            substringAfterLast('.', "").lowercase().let { it.isNotBlank() && it in extensions }
-
         companion object {
             private const val TIMESTAMP_TOLERANCE_MS = 1000L
-            private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
-            private val VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")
         }
     }
 
@@ -279,3 +273,69 @@ data class GitMediaSyncSummary(
     val repoChanged: Boolean = false,
     val localChanged: Boolean = false,
 )
+
+private fun listRepoFilesForCategory(
+    repoRootDir: File,
+    category: MediaSyncCategory,
+    layout: SyncDirectoryLayout,
+): List<RepoGitMediaFile> {
+    val folder = category.remoteFolder(layout)
+    val directory =
+        if (layout.allSameDirectory) {
+            repoRootDir
+        } else {
+            File(repoRootDir, folder).takeIf(File::isDirectory) ?: return emptyList()
+        }
+
+    return directory
+        .listFiles()
+        .orEmpty()
+        .filter { file -> file.isFile && accepts(category, file.name) }
+        .map { file ->
+            val path = "$folder/${file.name}"
+            RepoGitMediaFile(path = path, lastModified = file.lastModified())
+        }
+}
+
+private fun writeRepoFile(
+    repoRootDir: File,
+    relativePath: String,
+    bytes: ByteArray,
+    lastModified: Long,
+) {
+    val target = File(repoRootDir, relativePath)
+    target.parentFile?.mkdirs()
+    target.writeBytes(bytes)
+    if (lastModified > 0L) {
+        target.setLastModified(lastModified)
+    }
+}
+
+private fun repoRelativePath(
+    syncPath: String,
+    layout: SyncDirectoryLayout,
+): String =
+    if (layout.allSameDirectory) {
+        syncPath.substringAfter('/')
+    } else {
+        syncPath
+    }
+
+private fun accepts(
+    category: MediaSyncCategory,
+    filename: String,
+): Boolean =
+    when (category) {
+        MediaSyncCategory.IMAGE -> filename.hasExtension(IMAGE_EXTENSIONS)
+        MediaSyncCategory.VOICE -> filename.hasExtension(VOICE_EXTENSIONS)
+    }
+
+private fun String.hasExtension(extensions: Set<String>): Boolean =
+    substringAfterLast('.', "").lowercase().let { extension ->
+        extension.isNotBlank() && extension in extensions
+    }
+
+private val IMAGE_EXTENSIONS =
+    setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
+
+private val VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")

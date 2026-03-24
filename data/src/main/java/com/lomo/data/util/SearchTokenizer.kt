@@ -44,48 +44,69 @@ object SearchTokenizer {
      */
     fun tokenizeQueryTerms(text: String): List<String> {
         val tokens = mutableListOf<String>()
-        val length = text.length
         var i = 0
 
-        while (i < length) {
-            val c = text[i]
-            if (isCJK(c)) {
-                var j = i + 1
-                while (j < length && isCJK(text[j])) {
-                    j++
+        while (i < text.length) {
+            i =
+                when {
+                    isCJK(text[i]) -> collectCjkQueryTerms(text, i, tokens)
+                    Character.isLetterOrDigit(text[i]) -> collectWordQueryTerm(text, i, tokens)
+                    else -> i + 1
                 }
-
-                val runLength = j - i
-                if (runLength == 1) {
-                    tokens.add(c.toString())
-                } else {
-                    var k = i
-                    while (k < j - 1) {
-                        tokens.add(text.substring(k, k + 2))
-                        k++
-                    }
-                }
-                i = j
-                continue
-            }
-
-            if (Character.isLetterOrDigit(c)) {
-                var j = i + 1
-                while (j < length && Character.isLetterOrDigit(text[j]) && !isCJK(text[j])) {
-                    j++
-                }
-                tokens.add(text.substring(i, j))
-                i = j
-                continue
-            }
-
-            i++
         }
 
         return tokens.distinct()
     }
 
     fun containsCjk(text: String): Boolean = text.any(::isCJK)
+
+    private fun collectCjkQueryTerms(
+        text: String,
+        startIndex: Int,
+        tokens: MutableList<String>,
+    ): Int {
+        val endIndex = findCjkRunEnd(text, startIndex)
+        if (endIndex - startIndex == 1) {
+            tokens.add(text[startIndex].toString())
+        } else {
+            for (index in startIndex until endIndex - 1) {
+                tokens.add(text.substring(index, index + 2))
+            }
+        }
+        return endIndex
+    }
+
+    private fun collectWordQueryTerm(
+        text: String,
+        startIndex: Int,
+        tokens: MutableList<String>,
+    ): Int {
+        val endIndex = findWordEnd(text, startIndex)
+        tokens.add(text.substring(startIndex, endIndex))
+        return endIndex
+    }
+
+    private fun findCjkRunEnd(
+        text: String,
+        startIndex: Int,
+    ): Int {
+        var endIndex = startIndex + 1
+        while (endIndex < text.length && isCJK(text[endIndex])) {
+            endIndex++
+        }
+        return endIndex
+    }
+
+    private fun findWordEnd(
+        text: String,
+        startIndex: Int,
+    ): Int {
+        var endIndex = startIndex + 1
+        while (endIndex < text.length && Character.isLetterOrDigit(text[endIndex]) && !isCJK(text[endIndex])) {
+            endIndex++
+        }
+        return endIndex
+    }
 
     private fun isCJK(c: Char): Boolean {
         val block = UnicodeBlock.of(c)

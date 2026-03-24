@@ -11,38 +11,30 @@ class MemoUiCoordinator
     constructor(
         private val memoRepository: MemoRepository,
     ) {
-        fun allMemos(): Flow<List<Memo>> = memoRepository.getAllMemosList()
+        val allMemos: () -> Flow<List<Memo>> = { memoRepository.getAllMemosList() }
 
-        fun deletedMemos(): Flow<List<Memo>> = memoRepository.getDeletedMemosList()
+        val deletedMemos: () -> Flow<List<Memo>> = { memoRepository.getDeletedMemosList() }
 
-        fun isSyncing(): Flow<Boolean> = memoRepository.isSyncing()
+        val isSyncing: () -> Flow<Boolean> = { memoRepository.isSyncing() }
 
-        fun searchMemos(query: String): Flow<List<Memo>> = memoRepository.searchMemosList(query)
+        val searchMemos: (String) -> Flow<List<Memo>> = { query -> memoRepository.searchMemosList(query) }
 
-        fun memosByTag(tag: String): Flow<List<Memo>> = memoRepository.getMemosByTagList(tag)
+        val memosByTag: (String) -> Flow<List<Memo>> = { tag -> memoRepository.getMemosByTagList(tag) }
 
-        fun activeDayCount(): Flow<Int> = memoRepository.getActiveDayCount()
+        val activeDayCount: () -> Flow<Int> = { memoRepository.getActiveDayCount() }
 
-        fun memoCount(): Flow<Int> = memoRepository.getMemoCountFlow()
+        val memoCount: () -> Flow<Int> = { memoRepository.getMemoCountFlow() }
 
-        fun memoCountByDate(): Flow<Map<String, Int>> = memoRepository.getMemoCountByDateFlow()
+        val memoCountByDate: () -> Flow<Map<String, Int>> = { memoRepository.getMemoCountByDateFlow() }
 
-        fun tagCounts(): Flow<List<MemoTagCount>> = memoRepository.getTagCountsFlow()
+        val tagCounts: () -> Flow<List<MemoTagCount>> = { memoRepository.getTagCountsFlow() }
 
-        suspend fun getMemoById(memoId: String): Memo? = memoRepository.getMemoById(memoId)
+        val getMemoById: suspend (String) -> Memo? = { memoId -> memoRepository.getMemoById(memoId) }
 
-        suspend fun setMemoPinned(
-            memoId: String,
-            pinned: Boolean,
-        ) {
-            memoRepository.setMemoPinned(memoId, pinned)
-        }
+        val setMemoPinned: suspend (String, Boolean) -> Unit =
+            { memoId, pinned -> memoRepository.setMemoPinned(memoId, pinned) }
 
-        suspend fun restoreMemo(memo: Memo) {
-            memoRepository.restoreMemo(memo)
-        }
+        val restoreMemo: suspend (Memo) -> Unit = { memo -> memoRepository.restoreMemo(memo) }
 
-        suspend fun deletePermanently(memo: Memo) {
-            memoRepository.deletePermanently(memo)
-        }
+        val deletePermanently: suspend (Memo) -> Unit = { memo -> memoRepository.deletePermanently(memo) }
     }

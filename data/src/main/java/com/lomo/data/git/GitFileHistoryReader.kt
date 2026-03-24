@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.util.runNonFatalCatching
 import org.eclipse.jgit.api.Git
 import timber.log.Timber
 import java.io.File
@@ -27,7 +28,7 @@ class GitFileHistoryReader
             val gitDir = File(rootDir, ".git")
             if (!gitDir.exists()) return emptyList()
 
-            return try {
+            return runNonFatalCatching {
                 val git = Git.open(rootDir)
                 git.use { g ->
                     val commits =
@@ -51,8 +52,8 @@ class GitFileHistoryReader
                     }
                     result
                 }
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to get file history for %s", filename)
+            }.getOrElse { error ->
+                Timber.w(error, "Failed to get file history for %s", filename)
                 emptyList()
             }
         }

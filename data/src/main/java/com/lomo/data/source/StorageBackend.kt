@@ -33,18 +33,6 @@ interface MarkdownStorageBackend {
         documentId: String,
     ): String?
 
-    suspend fun readHeadIn(
-        directory: MemoDirectoryType,
-        filename: String,
-        maxChars: Int = 256,
-    ): String?
-
-    suspend fun readHeadByDocumentIdIn(
-        directory: MemoDirectoryType,
-        documentId: String,
-        maxChars: Int = 256,
-    ): String?
-
     suspend fun saveFileIn(
         directory: MemoDirectoryType,
         filename: String,
@@ -58,11 +46,6 @@ interface MarkdownStorageBackend {
         filename: String,
         uri: Uri? = null,
     )
-
-    suspend fun existsIn(
-        directory: MemoDirectoryType,
-        filename: String,
-    ): Boolean
 }
 
 interface MediaStorageBackend :

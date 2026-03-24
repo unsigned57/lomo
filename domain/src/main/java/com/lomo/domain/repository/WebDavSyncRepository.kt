@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 
-interface WebDavSyncRepository {
+interface WebDavSyncConfigurationRepository {
     fun isWebDavSyncEnabled(): Flow<Boolean>
 
     fun getProvider(): Flow<WebDavProvider>
@@ -29,8 +29,13 @@ interface WebDavSyncRepository {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeLastSyncInstant(): Flow<Instant?> = observeLastSyncTimeMillis().map { value -> value?.let(Instant::ofEpochMilli) }
+    fun observeLastSyncInstant(): Flow<Instant?> =
+        observeLastSyncTimeMillis().map { value ->
+            value?.let(Instant::ofEpochMilli)
+        }
+}
 
+interface WebDavSyncConfigurationMutationRepository {
     suspend fun setWebDavSyncEnabled(enabled: Boolean)
 
     suspend fun setProvider(provider: WebDavProvider)
@@ -50,17 +55,30 @@ interface WebDavSyncRepository {
     suspend fun setAutoSyncInterval(interval: String)
 
     suspend fun setSyncOnRefreshEnabled(enabled: Boolean)
+}
 
+interface WebDavSyncOperationRepository {
     suspend fun sync(): WebDavSyncResult
 
     suspend fun getStatus(): WebDavSyncStatus
 
     suspend fun testConnection(): WebDavSyncResult
+}
 
+interface WebDavSyncConflictRepository {
     suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
     ): WebDavSyncResult
+}
 
+interface WebDavSyncStateRepository {
     fun syncState(): Flow<WebDavSyncState>
 }
+
+interface WebDavSyncRepository :
+    WebDavSyncConfigurationRepository,
+    WebDavSyncConfigurationMutationRepository,
+    WebDavSyncOperationRepository,
+    WebDavSyncConflictRepository,
+    WebDavSyncStateRepository

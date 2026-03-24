@@ -49,24 +49,29 @@ class DefaultWebDavEndpointResolver
         }
 
         private fun normalizeNutstoreEndpoint(endpointUrl: String?): String {
-            val normalized = normalize(endpointUrl) ?: return NUTSTORE_DEFAULT_ENDPOINT
-            val parsed = normalized.toHttpUrlOrNull() ?: return normalized
-            val normalizedPath = parsed.encodedPath.trimEnd('/')
-            val normalizedBase =
-                parsed
-                    .newBuilder()
-                    .encodedPath("/")
-                    .build()
-                    .toString()
-                    .trimEnd('/')
+            val normalized = normalize(endpointUrl)
+            val parsed = normalized?.toHttpUrlOrNull()
+            val normalizedPath = parsed?.encodedPath?.trimEnd('/').orEmpty()
+            val normalizedBase = parsed?.normalizedBaseUrl()
             return when {
-                parsed.host == NUTSTORE_HOST && (normalizedPath.isEmpty() || normalizedPath == "/") -> NUTSTORE_DEFAULT_ENDPOINT
-                parsed.host == NUTSTORE_HOST && normalizedPath == "/dav" -> "$normalizedBase/dav/Lomo/"
+                normalized == null -> NUTSTORE_DEFAULT_ENDPOINT
+                parsed == null -> normalized
+                parsed.host == NUTSTORE_HOST && (normalizedPath.isEmpty() || normalizedPath == "/") ->
+                    NUTSTORE_DEFAULT_ENDPOINT
+                parsed.host == NUTSTORE_HOST && normalizedPath == "/dav" && normalizedBase != null ->
+                    "$normalizedBase/dav/Lomo/"
                 else -> normalized
             }
         }
 
         private fun withTrailingSlash(value: String): String = value.trimEnd('/') + "/"
+
+        private fun okhttp3.HttpUrl.normalizedBaseUrl(): String =
+            newBuilder()
+                .encodedPath("/")
+                .build()
+                .toString()
+                .trimEnd('/')
 
         private companion object {
             private const val NUTSTORE_HOST = "dav.jianguoyun.com"

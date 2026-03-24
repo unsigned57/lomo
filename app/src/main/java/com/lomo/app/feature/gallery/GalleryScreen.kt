@@ -34,6 +34,7 @@ import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -44,10 +45,6 @@ fun GalleryScreen(
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = hiltViewModel(),
 ) {
-    LaunchedEffect(Unit) {
-        viewModel.syncImageCacheNow()
-    }
-
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val shareCardShowTime = appPreferences.shareCardShowTime
@@ -61,12 +58,12 @@ fun GalleryScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
 
-    LaunchedEffect(errorMessage) {
-        errorMessage?.let { message ->
-            snackbarHostState.showSnackbar(message)
-            viewModel.clearError()
-        }
-    }
+    GalleryScreenEffects(
+        onSyncImageCacheNow = viewModel.syncImageCacheNow,
+        errorMessage = errorMessage,
+        snackbarHostState = snackbarHostState,
+        onClearError = viewModel.clearError,
+    )
 
     MemoMenuBinder(
         shareCardShowTime = shareCardShowTime,
@@ -75,7 +72,7 @@ fun GalleryScreen(
             viewModel.requestOpenMemo(memo.id)
             onBackClick()
         },
-        onDeleteMemo = viewModel::deleteMemo,
+        onDeleteMemo = viewModel.deleteMemo,
         onLanShare = onNavigateToShare,
         onJump = { state ->
             state.memoAs<Memo>()?.let { memo ->
@@ -85,70 +82,132 @@ fun GalleryScreen(
         },
         showJump = true,
     ) { showMenu ->
-        Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.gallery_title)) },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                haptic.medium()
-                                onBackClick()
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.back),
-                            )
-                        }
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
+        GalleryScreenScaffold(
+            onBackClick = onBackClick,
+            haptic = haptic,
+            scrollBehavior = scrollBehavior,
+            snackbarHostState = snackbarHostState,
         ) { padding ->
-            if (memos.isEmpty()) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .padding(padding),
-                ) {
-                    EmptyState(
-                        icon = Icons.Outlined.PhotoLibrary,
-                        title = stringResource(R.string.gallery_empty_title),
-                        description = stringResource(R.string.gallery_empty_desc),
-                    )
-                }
-            } else {
-                MemoCardList(
-                    memos = memos,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                    doubleTapEditEnabled = doubleTapEditEnabled,
-                    freeTextCopyEnabled = freeTextCopyEnabled,
-                    onMemoEdit = { memo ->
-                        viewModel.requestOpenMemo(memo.id)
-                        onBackClick()
-                    },
-                    onShowMenu = showMenu,
-                    onImageClick = onNavigateToImage,
-                    animation = MemoCardListAnimation.Placement,
-                    contentPadding =
-                        PaddingValues(
-                            top = padding.calculateTopPadding() + AppSpacing.Medium,
-                            start = AppSpacing.Medium,
-                            end = AppSpacing.Medium,
-                            bottom = AppSpacing.Medium,
-                        ),
-                )
-            }
+            GalleryScreenContent(
+                memos = memos,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                padding = padding,
+                onEditMemo = { memo ->
+                    viewModel.requestOpenMemo(memo.id)
+                    onBackClick()
+                },
+                onShowMenu = showMenu,
+                onNavigateToImage = onNavigateToImage,
+            )
         }
     }
+}
+
+@Composable
+private fun GalleryScreenEffects(
+    onSyncImageCacheNow: () -> Unit,
+    errorMessage: String?,
+    snackbarHostState: SnackbarHostState,
+    onClearError: () -> Unit,
+) {
+    LaunchedEffect(Unit) {
+        onSyncImageCacheNow()
+    }
+    LaunchedEffect(errorMessage) {
+        errorMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            onClearError()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun GalleryScreenScaffold(
+    onBackClick: () -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    snackbarHostState: SnackbarHostState,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.gallery_title)) },
+                navigationIcon = {
+                    IconButton(
+                        onClick = {
+                            haptic.medium()
+                            onBackClick()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.back),
+                        )
+                    }
+                },
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                scrollBehavior = scrollBehavior,
+            )
+        },
+        content = content,
+    )
+}
+
+@Composable
+private fun GalleryScreenContent(
+    memos: List<com.lomo.app.feature.main.MemoUiModel>,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    padding: PaddingValues,
+    onEditMemo: (Memo) -> Unit,
+    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    if (memos.isEmpty()) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+        ) {
+            EmptyState(
+                icon = Icons.Outlined.PhotoLibrary,
+                title = stringResource(R.string.gallery_empty_title),
+                description = stringResource(R.string.gallery_empty_desc),
+            )
+        }
+        return
+    }
+
+    MemoCardList(
+        memos = memos,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+        doubleTapEditEnabled = doubleTapEditEnabled,
+        freeTextCopyEnabled = freeTextCopyEnabled,
+        onMemoEdit = onEditMemo,
+        onShowMenu = onShowMenu,
+        onImageClick = onNavigateToImage,
+        animation = MemoCardListAnimation.Placement,
+        contentPadding =
+            PaddingValues(
+                top = padding.calculateTopPadding() + AppSpacing.Medium,
+                start = AppSpacing.Medium,
+                end = AppSpacing.Medium,
+                bottom = AppSpacing.Medium,
+            ),
+    )
 }

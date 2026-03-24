@@ -2,7 +2,6 @@ package com.lomo.app.feature.settings
 
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.LanShareService
-import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
@@ -17,7 +16,6 @@ class SettingsCoordinatorFactory
         private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
         private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
         private val switchRootStorageUseCase: SwitchRootStorageUseCase,
-        private val gitSyncErrorUseCase: GitSyncErrorUseCase,
     ) {
         fun createAppConfigCoordinator(scope: CoroutineScope): SettingsAppConfigCoordinator =
             SettingsAppConfigCoordinator(
@@ -35,7 +33,6 @@ class SettingsCoordinatorFactory
         fun createGitCoordinator(scope: CoroutineScope): SettingsGitCoordinator =
             SettingsGitCoordinator(
                 gitSyncSettingsUseCase = gitSyncSettingsUseCase,
-                gitSyncErrorUseCase = gitSyncErrorUseCase,
                 scope = scope,
             )
 
@@ -45,5 +42,5 @@ class SettingsCoordinatorFactory
                 scope = scope,
             )
 
-        fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper(gitSyncErrorUseCase)
+        fun createErrorMapper(): SettingsOperationErrorMapper = SettingsOperationErrorMapper()
     }

@@ -8,6 +8,7 @@ import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,7 +83,7 @@ class SyncConflictViewModel
             _state.value = current.copy(isResolving = true)
 
             viewModelScope.launch {
-                try {
+                runCatching {
                     backupSyncConflictFilesUseCase(
                         files = current.conflictSet.files,
                         localFileReader = { null },
@@ -92,12 +93,15 @@ class SyncConflictViewModel
                         resolution = SyncConflictResolution(current.perFileChoices),
                     )
                     _state.value = SyncConflictDialogState.Hidden
-                } catch (e: Exception) {
-                    _state.update { s ->
-                        if (s is SyncConflictDialogState.Showing) {
-                            s.copy(isResolving = false)
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
+                    _state.update { state ->
+                        if (state is SyncConflictDialogState.Showing) {
+                            state.copy(isResolving = false)
                         } else {
-                            s
+                            state
                         }
                     }
                 }

@@ -46,6 +46,19 @@ import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.theme.AppSpacing
 
+private data class SearchScreenUiSnapshot(
+    val query: String,
+    val searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
+    val dateFormat: String,
+    val timeFormat: String,
+    val shareCardShowTime: Boolean,
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val activeDayCount: Int,
+    val imageDirectory: String?,
+    val errorMessage: String?,
+)
+
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SearchScreen(
@@ -53,18 +66,7 @@ fun SearchScreen(
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
-    val query: String by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
-    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val dateFormat = appPreferences.dateFormat
-    val timeFormat = appPreferences.timeFormat
-    val shareCardShowTime = appPreferences.shareCardShowTime
-    val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
-    val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
-    val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-
+    val uiState = collectSearchScreenUiSnapshot(viewModel)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
@@ -72,157 +74,287 @@ fun SearchScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
 
+    SearchScreenEffects(
+        errorMessage = uiState.errorMessage,
+        focusRequester = focusRequester,
+        snackbarHostState = snackbarHostState,
+        onClearError = viewModel::clearError,
+    )
+
+    MemoInteractionHost(
+        shareCardShowTime = uiState.shareCardShowTime,
+        activeDayCount = uiState.activeDayCount,
+        onDeleteMemo = viewModel::deleteMemo,
+        onUpdateMemo = viewModel::updateMemo,
+        onSaveImage = viewModel::saveImage,
+        imageDirectory = uiState.imageDirectory,
+        onLanShare = onNavigateToShare,
+    ) { showMenu, openEditor ->
+        val onShowSearchMenu =
+            rememberSearchMenuHandler(
+                focusManager = focusManager,
+                keyboardController = keyboardController,
+                showMenu = showMenu,
+            )
+        SearchScreenScaffold(
+            query = uiState.query,
+            onBackClick = onBackClick,
+            onQueryChange = viewModel::onSearchQueryChanged,
+            haptic = haptic,
+            scrollBehavior = scrollBehavior,
+            focusRequester = focusRequester,
+            keyboardController = keyboardController,
+            snackbarHostState = snackbarHostState,
+        ) { padding ->
+            SearchScreenContent(
+                query = uiState.query,
+                searchResults = uiState.searchResults,
+                dateFormat = uiState.dateFormat,
+                timeFormat = uiState.timeFormat,
+                doubleTapEditEnabled = uiState.doubleTapEditEnabled,
+                freeTextCopyEnabled = uiState.freeTextCopyEnabled,
+                padding = padding,
+                onOpenEditor = openEditor,
+                onShowMenu = onShowSearchMenu,
+            )
+        }
+    }
+}
+
+@Composable
+private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScreenUiSnapshot {
+    val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
+    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
+    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
+    val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
+    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+
+    return SearchScreenUiSnapshot(
+        query = query,
+        searchResults = searchResults,
+        dateFormat = appPreferences.dateFormat,
+        timeFormat = appPreferences.timeFormat,
+        shareCardShowTime = appPreferences.shareCardShowTime,
+        doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
+        freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+        activeDayCount = activeDayCount,
+        imageDirectory = imageDirectory,
+        errorMessage = errorMessage,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchScreenScaffold(
+    query: String,
+    onBackClick: () -> Unit,
+    onQueryChange: (String) -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    snackbarHostState: SnackbarHostState,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            SearchTopBar(
+                query = query,
+                onQueryChange = onQueryChange,
+                onBackClick = onBackClick,
+                haptic = haptic,
+                scrollBehavior = scrollBehavior,
+                focusRequester = focusRequester,
+                keyboardController = keyboardController,
+            )
+        },
+        content = content,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SearchTopBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onBackClick: () -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+) {
+    TopAppBar(
+        title = {
+            SearchQueryField(
+                query = query,
+                onQueryChange = onQueryChange,
+                focusRequester = focusRequester,
+                keyboardController = keyboardController,
+            )
+        },
+        navigationIcon = {
+            IconButton(
+                onClick = {
+                    haptic.medium()
+                    onBackClick()
+                },
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
+                )
+            }
+        },
+        actions = {
+            if (query.isNotEmpty()) {
+                IconButton(
+                    onClick = {
+                        haptic.medium()
+                        onQueryChange("")
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
+                    )
+                }
+            }
+        },
+        colors =
+            TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface,
+                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+            ),
+        scrollBehavior = scrollBehavior,
+    )
+}
+
+@Composable
+private fun SearchScreenEffects(
+    errorMessage: String?,
+    focusRequester: FocusRequester,
+    snackbarHostState: SnackbarHostState,
+    onClearError: () -> Unit,
+) {
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
     LaunchedEffect(errorMessage) {
         errorMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
-            viewModel.clearError()
+            onClearError()
+        }
+    }
+}
+
+@Composable
+private fun rememberSearchMenuHandler(
+    focusManager: androidx.compose.ui.focus.FocusManager,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    showMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+): (com.lomo.ui.component.menu.MemoMenuState) -> Unit =
+    remember(focusManager, keyboardController, showMenu) {
+        { menuState ->
+            focusManager.clearFocus(force = true)
+            keyboardController?.hide()
+            showMenu(menuState)
         }
     }
 
-    MemoInteractionHost(
-        shareCardShowTime = shareCardShowTime,
-        activeDayCount = activeDayCount,
-        onDeleteMemo = viewModel::deleteMemo,
-        onUpdateMemo = viewModel::updateMemo,
-        onSaveImage = viewModel::saveImage,
-        imageDirectory = imageDirectory,
-        onLanShare = onNavigateToShare,
-    ) { showMenu, openEditor ->
-        Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = {
-                        val interactionSource = remember { MutableInteractionSource() }
-                        BasicTextField(
-                            value = query,
-                            onValueChange = { viewModel.onSearchQueryChanged(it) },
-                            modifier =
-                                Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focusRequester),
-                            textStyle =
-                                MaterialTheme.typography.bodyLarge.copy(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                ),
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                            keyboardActions =
-                                KeyboardActions(
-                                    onSearch = { keyboardController?.hide() },
-                                ),
-                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                            interactionSource = interactionSource,
-                            decorationBox = { innerTextField ->
-                                if (query.isEmpty()) {
-                                    Text(
-                                        text =
-                                            androidx.compose.ui.res
-                                                .stringResource(R.string.search_hint),
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    )
-                                }
-                                innerTextField()
-                            },
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            haptic.medium()
-                            onBackClick()
-                        }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription =
-                                    androidx.compose.ui.res
-                                        .stringResource(R.string.back),
-                            )
-                        }
-                    },
-                    actions = {
-                        if (query.isNotEmpty()) {
-                            IconButton(onClick = {
-                                haptic.medium()
-                                viewModel.onSearchQueryChanged("")
-                            }) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription =
-                                        androidx.compose.ui.res
-                                            .stringResource(R.string.cd_clear_search),
-                                )
-                            }
-                        }
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                    scrollBehavior = scrollBehavior,
+@Composable
+private fun SearchQueryField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+
+    BasicTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+        textStyle =
+            MaterialTheme.typography.bodyLarge.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        interactionSource = interactionSource,
+        decorationBox = { innerTextField ->
+            if (query.isEmpty()) {
+                Text(
+                    text = androidx.compose.ui.res.stringResource(R.string.search_hint),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 )
-            },
-        ) { padding ->
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-            ) {
-                when {
-                    query.isEmpty() -> {
-                        EmptyState(
-                            icon = Icons.Default.Search,
-                            title =
-                                androidx.compose.ui.res
-                                    .stringResource(R.string.search_empty_initial_title),
-                            description =
-                                androidx.compose.ui.res
-                                    .stringResource(R.string.search_empty_initial_desc),
-                        )
-                    }
+            }
+            innerTextField()
+        },
+    )
+}
 
-                    searchResults.isEmpty() -> {
-                        EmptyState(
-                            icon = Icons.Default.Search,
-                            title =
-                                androidx.compose.ui.res
-                                    .stringResource(R.string.search_no_results_title),
-                            description =
-                                androidx.compose.ui.res
-                                    .stringResource(R.string.search_no_results_desc),
-                        )
-                    }
+@Composable
+private fun SearchScreenContent(
+    query: String,
+    searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    padding: PaddingValues,
+    onOpenEditor: (com.lomo.domain.model.Memo) -> Unit,
+    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+    ) {
+        when {
+            query.isEmpty() -> {
+                EmptyState(
+                    icon = Icons.Default.Search,
+                    title = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_title),
+                    description = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_desc),
+                )
+            }
 
-                    else -> {
-                        MemoCardList(
-                            memos = searchResults,
-                            dateFormat = dateFormat,
-                            timeFormat = timeFormat,
-                            doubleTapEditEnabled = doubleTapEditEnabled,
-                            freeTextCopyEnabled = freeTextCopyEnabled,
-                            onMemoEdit = openEditor,
-                            onShowMenu = { menuState ->
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                showMenu(menuState)
-                            },
-                            animation = MemoCardListAnimation.None,
-                            contentPadding =
-                                PaddingValues(
-                                    top = AppSpacing.Medium,
-                                    start = AppSpacing.Medium,
-                                    end = AppSpacing.Medium,
-                                    bottom = AppSpacing.Medium,
-                                ),
-                        )
-                    }
-                }
+            searchResults.isEmpty() -> {
+                EmptyState(
+                    icon = Icons.Default.Search,
+                    title = androidx.compose.ui.res.stringResource(R.string.search_no_results_title),
+                    description = androidx.compose.ui.res.stringResource(R.string.search_no_results_desc),
+                )
+            }
+
+            else -> {
+                MemoCardList(
+                    memos = searchResults,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    freeTextCopyEnabled = freeTextCopyEnabled,
+                    onMemoEdit = onOpenEditor,
+                    onShowMenu = onShowMenu,
+                    animation = MemoCardListAnimation.None,
+                    contentPadding =
+                        PaddingValues(
+                            top = AppSpacing.Medium,
+                            start = AppSpacing.Medium,
+                            end = AppSpacing.Medium,
+                            bottom = AppSpacing.Medium,
+                        ),
+                )
             }
         }
     }

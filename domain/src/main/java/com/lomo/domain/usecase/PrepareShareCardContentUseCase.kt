@@ -9,8 +9,7 @@ import com.lomo.domain.model.ShareCardTextInput
  * It intentionally avoids any UI formatting concerns (placeholder text, typography symbols,
  * markdown presentation style). Those belong to presentation-layer formatters.
  */
-class PrepareShareCardContentUseCase
-    constructor() {
+class PrepareShareCardContentUseCase {
         operator fun invoke(input: ShareCardTextInput): ShareCardContent {
             val tags = buildShareTags(input.sourceTags, input.content)
             val bodyTextWithoutTags = removeInlineTags(input.content, tags)
@@ -77,7 +76,7 @@ class PrepareShareCardContentUseCase
         }
 
         private companion object {
-            val inlineTagPattern = Regex("(?:^|\\s)#([\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*)")
-            val genericInlineTagPattern = Regex("(^|\\s)#[\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*")
+            val inlineTagPattern = Regex("""(?:^|\s)#([\p{L}\p{N}_][\p{L}\p{N}_/]*)""")
+            val genericInlineTagPattern = Regex("""(^|\s)#[\p{L}\p{N}_][\p{L}\p{N}_/]*""")
         }
-    }
+}

@@ -17,114 +17,110 @@ internal class ShareAuthenticationValidator {
     suspend fun validatePrepareAuthentication(
         request: PrepareRequest,
         resolvePairingKeyHex: suspend () -> String?,
-    ): ShareAuthValidation {
-        if (!request.e2eEnabled) {
-            return ShareAuthValidation(ok = true, keyHex = null)
-        }
-
-        val pairingKeyHex = resolvePairingKeyHex()?.trim()
-        if (!ShareAuthUtils.isValidKeyHex(pairingKeyHex)) {
-            return ShareAuthValidation(
-                ok = false,
-                status = HttpStatusCode.PreconditionFailed,
-                message = "LAN share pairing code is not configured on receiver",
-            )
-        }
-        val keyCandidates = ShareAuthUtils.resolveCandidateKeyHexes(pairingKeyHex)
-        if (keyCandidates.isEmpty()) {
-            return ShareAuthValidation(
-                ok = false,
-                status = HttpStatusCode.PreconditionFailed,
-                message = "LAN share pairing code is not configured on receiver",
-            )
-        }
-        if (!ShareAuthUtils.isTimestampWithinWindow(request.authTimestampMs)) {
-            return ShareAuthValidation(false, HttpStatusCode.Unauthorized, "Expired auth timestamp")
-        }
-        if (!registerNonce(request.authNonce)) {
-            return ShareAuthValidation(false, HttpStatusCode.Forbidden, "Replay detected")
-        }
-
-        val payload =
-            ShareAuthUtils.buildPreparePayloadToSign(
-                senderName = request.senderName,
-                encryptedContent = request.encryptedContent,
-                contentNonce = request.contentNonce,
-                timestamp = request.timestamp,
-                attachmentNames = request.attachments.map { it.name.trim() },
-                authTimestampMs = request.authTimestampMs,
-                authNonce = request.authNonce,
-            )
-        val verified =
-            keyCandidates.firstOrNull { candidate ->
-                ShareAuthUtils.verifySignature(
-                    keyHex = candidate,
-                    payload = payload,
-                    providedSignatureHex = request.authSignature,
+    ): ShareAuthValidation =
+        validateAuthentication(
+            e2eEnabled = request.e2eEnabled,
+            authTimestampMs = request.authTimestampMs,
+            authNonce = request.authNonce,
+            providedSignatureHex = request.authSignature,
+            resolvePairingKeyHex = resolvePairingKeyHex,
+            payloadBuilder = {
+                ShareAuthUtils.buildPreparePayloadToSign(
+                    senderName = request.senderName,
+                    encryptedContent = request.encryptedContent,
+                    contentNonce = request.contentNonce,
+                    timestamp = request.timestamp,
+                    attachmentNames = request.attachments.map { it.name.trim() },
+                    authTimestampMs = request.authTimestampMs,
+                    authNonce = request.authNonce,
                 )
-            }
-        return if (verified != null) {
-            ShareAuthValidation(true, keyHex = verified)
-        } else {
-            ShareAuthValidation(false, HttpStatusCode.Unauthorized, "Invalid auth signature")
-        }
-    }
+            },
+        )
 
     suspend fun validateTransferAuthentication(
         metadata: TransferMetadata,
         resolvePairingKeyHex: suspend () -> String?,
-    ): ShareAuthValidation {
-        if (!metadata.e2eEnabled) {
-            return ShareAuthValidation(ok = true, keyHex = null)
-        }
-
-        val pairingKeyHex = resolvePairingKeyHex()?.trim()
-        if (!ShareAuthUtils.isValidKeyHex(pairingKeyHex)) {
-            return ShareAuthValidation(
-                ok = false,
-                status = HttpStatusCode.PreconditionFailed,
-                message = "LAN share pairing code is not configured on receiver",
-            )
-        }
-        val keyCandidates = ShareAuthUtils.resolveCandidateKeyHexes(pairingKeyHex)
-        if (keyCandidates.isEmpty()) {
-            return ShareAuthValidation(
-                ok = false,
-                status = HttpStatusCode.PreconditionFailed,
-                message = "LAN share pairing code is not configured on receiver",
-            )
-        }
-        if (!ShareAuthUtils.isTimestampWithinWindow(metadata.authTimestampMs)) {
-            return ShareAuthValidation(false, HttpStatusCode.Unauthorized, "Expired auth timestamp")
-        }
-        if (!registerNonce(metadata.authNonce)) {
-            return ShareAuthValidation(false, HttpStatusCode.Forbidden, "Replay detected")
-        }
-
-        val payload =
-            ShareAuthUtils.buildTransferPayloadToSign(
-                sessionToken = metadata.sessionToken,
-                encryptedContent = metadata.encryptedContent,
-                contentNonce = metadata.contentNonce,
-                timestamp = metadata.timestamp,
-                attachmentNames = metadata.attachmentNames.map { it.trim() },
-                authTimestampMs = metadata.authTimestampMs,
-                authNonce = metadata.authNonce,
-            )
-        val verified =
-            keyCandidates.firstOrNull { candidate ->
-                ShareAuthUtils.verifySignature(
-                    keyHex = candidate,
-                    payload = payload,
-                    providedSignatureHex = metadata.authSignature,
+    ): ShareAuthValidation =
+        validateAuthentication(
+            e2eEnabled = metadata.e2eEnabled,
+            authTimestampMs = metadata.authTimestampMs,
+            authNonce = metadata.authNonce,
+            providedSignatureHex = metadata.authSignature,
+            resolvePairingKeyHex = resolvePairingKeyHex,
+            payloadBuilder = {
+                ShareAuthUtils.buildTransferPayloadToSign(
+                    sessionToken = metadata.sessionToken,
+                    encryptedContent = metadata.encryptedContent,
+                    contentNonce = metadata.contentNonce,
+                    timestamp = metadata.timestamp,
+                    attachmentNames = metadata.attachmentNames.map { it.trim() },
+                    authTimestampMs = metadata.authTimestampMs,
+                    authNonce = metadata.authNonce,
                 )
+            },
+        )
+
+    private suspend fun validateAuthentication(
+        e2eEnabled: Boolean,
+        authTimestampMs: Long,
+        authNonce: String,
+        providedSignatureHex: String,
+        resolvePairingKeyHex: suspend () -> String?,
+        payloadBuilder: () -> String,
+    ): ShareAuthValidation {
+        val keyCandidates = resolveKeyCandidates(e2eEnabled, resolvePairingKeyHex)
+        val validationError =
+            when {
+                !e2eEnabled -> ShareAuthValidation(ok = true, keyHex = null)
+                keyCandidates.isEmpty() -> pairingNotConfiguredValidation()
+                !ShareAuthUtils.isTimestampWithinWindow(authTimestampMs) -> {
+                    ShareAuthValidation(false, HttpStatusCode.Unauthorized, EXPIRED_AUTH_TIMESTAMP_MESSAGE)
+                }
+
+                !registerNonce(authNonce) -> {
+                    ShareAuthValidation(false, HttpStatusCode.Forbidden, REPLAY_DETECTED_MESSAGE)
+                }
+
+                else -> null
             }
-        return if (verified != null) {
-            ShareAuthValidation(true, keyHex = verified)
-        } else {
-            ShareAuthValidation(false, HttpStatusCode.Unauthorized, "Invalid auth signature")
-        }
+        val verifiedKey =
+            if (validationError == null) {
+                val payload = payloadBuilder()
+                keyCandidates.firstOrNull { candidate ->
+                    ShareAuthUtils.verifySignature(
+                        keyHex = candidate,
+                        payload = payload,
+                        providedSignatureHex = providedSignatureHex,
+                    )
+                }
+            } else {
+                null
+            }
+        return validationError
+            ?: verifiedKey?.let { ShareAuthValidation(true, keyHex = it) }
+            ?: ShareAuthValidation(false, HttpStatusCode.Unauthorized, INVALID_AUTH_SIGNATURE_MESSAGE)
     }
+
+    private suspend fun resolveKeyCandidates(
+        e2eEnabled: Boolean,
+        resolvePairingKeyHex: suspend () -> String?,
+    ): List<String> =
+        if (!e2eEnabled) {
+            emptyList()
+        } else {
+            resolvePairingKeyHex()
+                ?.trim()
+                ?.takeIf(::isValidKeyHex)
+                ?.let(::resolveCandidateKeyHexes)
+                .orEmpty()
+        }
+
+    private fun pairingNotConfiguredValidation(): ShareAuthValidation =
+        ShareAuthValidation(
+            ok = false,
+            status = HttpStatusCode.PreconditionFailed,
+            message = PAIRING_NOT_CONFIGURED_MESSAGE,
+        )
 
     private fun cleanupExpiredAuthNoncesLocked(nowMs: Long = System.currentTimeMillis()) {
         usedAuthNonces.entries.removeIf { (_, issuedAt) ->
@@ -152,6 +148,11 @@ internal class ShareAuthenticationValidator {
 
     private companion object {
         private const val AUTH_NONCE_TTL_MS = 10 * 60 * 1000L
+        private const val EXPIRED_AUTH_TIMESTAMP_MESSAGE = "Expired auth timestamp"
+        private const val INVALID_AUTH_SIGNATURE_MESSAGE = "Invalid auth signature"
         private const val MAX_AUTH_NONCES_TRACKED = 5000
+        private const val PAIRING_NOT_CONFIGURED_MESSAGE =
+            "LAN share pairing code is not configured on receiver"
+        private const val REPLAY_DETECTED_MESSAGE = "Replay detected"
     }
 }

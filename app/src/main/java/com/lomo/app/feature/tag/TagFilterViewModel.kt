@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
@@ -17,7 +18,6 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -48,22 +48,22 @@ class TagFilterViewModel
         private val rootDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .rootDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         private val imageDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .imageDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
                 .appPreferences()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
+                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
                 .activeDayCount()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
         val rootDir: StateFlow<String?> = rootDirectory
         val imageDir: StateFlow<String?> = imageDirectory
@@ -72,11 +72,16 @@ class TagFilterViewModel
         val memos: StateFlow<List<Memo>> =
             memoUiCoordinator
                 .memosByTag(tagName)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            combine(memos, rootDir, imageDir, imageMap) { currentMemos, rootDirectory, imageDirectory, currentImageMap ->
+            combine(memos, rootDir, imageDir, imageMap) {
+                currentMemos,
+                rootDirectory,
+                imageDirectory,
+                currentImageMap,
+                ->
                 UiMemoMappingInput(
                     memos = currentMemos,
                     rootDirectory = rootDirectory,
@@ -91,16 +96,17 @@ class TagFilterViewModel
                         imagePath = input.imageDirectory,
                         imageMap = input.imageMap,
                     )
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     deleteMemoUseCase(memo)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
                 }
             }
         }
@@ -110,12 +116,13 @@ class TagFilterViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     updateMemoContentUseCase(memo, newContent)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to update memo")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
                 }
             }
         }
@@ -126,7 +133,7 @@ class TagFilterViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val path =
                         when (
                             val result =
@@ -138,10 +145,11 @@ class TagFilterViewModel
                             is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
                         }
                     onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to save image")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }

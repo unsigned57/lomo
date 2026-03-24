@@ -46,33 +46,47 @@ object StorageTimestampFormats {
         }
 
     fun parseMemoHeaderLine(line: String): ParsedMemoHeader? {
-        val trimmedStart = line.trimStart()
-        if (!trimmedStart.startsWith("-")) return null
+        val afterDash =
+            line
+                .trimStart()
+                .takeIf { trimmed -> trimmed.startsWith("-") }
+                ?.drop(1)
+                ?.trimStart()
+                ?.takeIf(String::isNotEmpty)
+                ?: return null
 
-        val afterDash = trimmedStart.drop(1).trimStart()
-        if (afterDash.isEmpty()) return null
-
-        parseFormatters.forEach { formatter ->
-            val position = ParsePosition(0)
-            val parsed = runCatching { formatter.parse(afterDash, position) }.getOrNull()
-            val end = position.index
-            if (parsed == null || end <= 0) return@forEach
-
-            // Accept only exact timestamp token boundaries.
-            if (end < afterDash.length && !afterDash[end].isWhitespace()) return@forEach
-
-            val timePart = afterDash.substring(0, end)
-            val content = afterDash.substring(end).trimStart()
-            return ParsedMemoHeader(timePart = timePart, contentPart = content)
-        }
-
-        return null
+        return parseFormatters
+            .asSequence()
+            .mapNotNull { formatter -> parseHeader(formatter, afterDash) }
+            .firstOrNull()
     }
 
     data class ParsedMemoHeader(
         val timePart: String,
         val contentPart: String,
     )
+
+    private fun parseHeader(
+        formatter: DateTimeFormatter,
+        afterDash: String,
+    ): ParsedMemoHeader? {
+        val position = ParsePosition(0)
+        val parsed = runCatching { formatter.parse(afterDash, position) }.getOrNull()
+        val end = position.index
+        if (parsed == null || end <= 0) {
+            return null
+        }
+
+        val hasExactBoundary = end >= afterDash.length || afterDash[end].isWhitespace()
+        return if (hasExactBoundary) {
+            ParsedMemoHeader(
+                timePart = afterDash.substring(0, end),
+                contentPart = afterDash.substring(end).trimStart(),
+            )
+        } else {
+            null
+        }
+    }
 
     private fun buildFormatter(pattern: String): DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
 }

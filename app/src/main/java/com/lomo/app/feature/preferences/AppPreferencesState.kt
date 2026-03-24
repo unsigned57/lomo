@@ -1,12 +1,12 @@
 package com.lomo.app.feature.preferences
 
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -91,11 +91,11 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
 
 fun PreferencesRepository.appPreferencesState(scope: CoroutineScope): StateFlow<AppPreferencesState> =
     observeAppPreferences()
-        .stateIn(scope, SharingStarted.WhileSubscribed(5000L), AppPreferencesState.defaults())
+        .stateIn(scope, appWhileSubscribed(), AppPreferencesState.defaults())
 
 fun MemoRepository.activeDayCountState(scope: CoroutineScope): StateFlow<Int> =
     getActiveDayCount()
-        .stateIn(scope, SharingStarted.WhileSubscribed(5000L), 0)
+        .stateIn(scope, appWhileSubscribed(), 0)
 
 private data class BasePreferences(
     val dateFormat: String,

@@ -5,7 +5,14 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.FilterList
 import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.Search
-import androidx.compose.material3.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
 
 /**
@@ -28,59 +35,43 @@ internal fun MainTopBar(
         title = { Text(title) },
         navigationIcon = {
             if (showNavigationIcon) {
-                IconButton(
+                MainTopBarIconButton(
+                    icon = Icons.Rounded.Menu,
+                    contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_menu),
                     onClick = {
                         haptic.medium()
                         onMenu()
                     },
-                ) {
-                    Icon(
-                        Icons.Rounded.Menu,
-                        androidx.compose.ui.res
-                            .stringResource(com.lomo.app.R.string.cd_menu),
-                    )
-                }
+                )
             }
         },
         actions = {
             if (isFilterActive) {
-                IconButton(
+                MainTopBarIconButton(
+                    icon = Icons.Rounded.Close,
+                    contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_clear_filter),
                     onClick = {
                         haptic.medium()
                         onClearFilter()
                     },
-                ) {
-                    Icon(
-                        Icons.Rounded.Close,
-                        androidx.compose.ui.res
-                            .stringResource(com.lomo.app.R.string.cd_clear_filter),
-                    )
-                }
+                )
             }
-            IconButton(
+            MainTopBarIconButton(
+                icon = Icons.Rounded.Search,
+                contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_search),
                 onClick = {
                     haptic.medium()
                     onSearch()
                 },
-            ) {
-                Icon(
-                    Icons.Rounded.Search,
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.app.R.string.cd_search),
-                )
-            }
-            IconButton(
+            )
+            MainTopBarIconButton(
+                icon = Icons.Rounded.FilterList,
+                contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_filter),
                 onClick = {
                     haptic.medium()
                     onFilter()
                 },
-            ) {
-                Icon(
-                    Icons.Rounded.FilterList,
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.app.R.string.cd_filter),
-                )
-            }
+            )
         },
         colors =
             TopAppBarDefaults.topAppBarColors(
@@ -89,4 +80,18 @@ internal fun MainTopBar(
             ),
         scrollBehavior = scrollBehavior,
     )
+}
+
+@Composable
+private fun MainTopBarIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+) {
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+        )
+    }
 }

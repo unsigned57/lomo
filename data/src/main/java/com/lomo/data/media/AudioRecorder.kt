@@ -9,6 +9,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.log10
 
 class AudioRecorder
@@ -27,7 +28,7 @@ class AudioRecorder
             val targetUri = android.net.Uri.parse(outputLocation.raw)
 
             val mediaRecorder = createRecorder()
-            try {
+            runCatching {
                 mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
                 mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
                 mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -42,40 +43,45 @@ class AudioRecorder
                 mediaRecorder.start()
                 recorder = mediaRecorder
                 isRecording = true
-            } catch (e: Exception) {
-                Log.e("AudioRecorder", "Failed to start recording", e)
-                try {
-                    mediaRecorder.release()
-                } catch (releaseError: Exception) {
-                    Log.e("AudioRecorder", "Failed to release recorder after start failure", releaseError)
-                }
-                closeOutputFileDescriptor()
             }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    Log.e(TAG, "Failed to start recording", error)
+                    releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
+                    closeOutputFileDescriptor()
+                }
         }
 
         override fun stop() {
             if (!isRecording) return
 
-            try {
+            runCatching {
                 recorder?.stop()
-            } catch (e: Exception) {
-                Log.e("AudioRecorder", "Failed to stop recording", e)
-            } finally {
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.e(TAG, "Failed to stop recording", error)
+            }.also {
                 release()
             }
         }
 
         override fun getAmplitude(): Int =
-            try {
+            runCatching {
                 recorder?.maxAmplitude ?: 0
-            } catch (e: Exception) {
+            }.getOrElse { error ->
+                if (error is CancellationException) throw error
+                Log.w(TAG, "Failed to read recording amplitude", error)
                 0
             }
 
         // Convert amplitude to decibels for visualization if needed
         fun getDecibels(): Float {
             val amplitude = getAmplitude()
-            return if (amplitude > 0) 20 * log10(amplitude.toDouble()).toFloat() else -80f
+            return if (amplitude > 0) {
+                DECIBELS_MULTIPLIER * log10(amplitude.toDouble()).toFloat()
+            } else {
+                MIN_DECIBELS
+            }
         }
 
         private fun createRecorder(): MediaRecorder =
@@ -86,10 +92,11 @@ class AudioRecorder
             }
 
         private fun release() {
-            try {
+            runCatching {
                 recorder?.release()
-            } catch (e: Exception) {
-                Log.e("AudioRecorder", "Failed to release recorder", e)
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.e(TAG, "Failed to release recorder", error)
             }
             recorder = null
             closeOutputFileDescriptor()
@@ -97,11 +104,28 @@ class AudioRecorder
         }
 
         private fun closeOutputFileDescriptor() {
-            try {
+            runCatching {
                 outputFileDescriptor?.close()
-            } catch (e: Exception) {
-                Log.e("AudioRecorder", "Failed to close output file descriptor", e)
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.e(TAG, "Failed to close output file descriptor", error)
             }
             outputFileDescriptor = null
         }
+
+        private fun releaseRecorder(
+            mediaRecorder: MediaRecorder,
+            message: String,
+        ) {
+            runCatching {
+                mediaRecorder.release()
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Log.e(TAG, message, error)
+            }
+        }
     }
+
+private const val DECIBELS_MULTIPLIER = 20
+private const val MIN_DECIBELS = -80f
+private const val TAG = "AudioRecorder"

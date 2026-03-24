@@ -1,4 +1,5 @@
 package com.lomo.app.feature.settings
+
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
@@ -82,5 +83,5 @@ data class SettingsScreenUiState(
     val webDav: WebDavSectionState,
     val interaction: InteractionSectionState,
     val system: SystemSectionState,
-    val operationError: String?,
+    val operationError: SettingsOperationError?,
 )

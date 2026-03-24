@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
@@ -18,7 +19,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val SEARCH_QUERY_DEBOUNCE_MILLIS = 300L
 
 @HiltViewModel
 class SearchViewModel
@@ -53,29 +55,29 @@ class SearchViewModel
         val rootDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .rootDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         val imageDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .imageDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
                 .appPreferences()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), AppPreferencesState.defaults())
+                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
                 .activeDayCount()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000L), 0)
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
         @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
         val searchResults: StateFlow<List<Memo>> =
             _searchQuery
-                .debounce(300)
+                .debounce(SEARCH_QUERY_DEBOUNCE_MILLIS)
                 .flatMapLatest { query ->
                     if (query.isBlank()) {
                         flowOf(emptyList())
@@ -84,7 +86,7 @@ class SearchViewModel
                     }
                 }.catch {
                     emit(emptyList())
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         @OptIn(ExperimentalCoroutinesApi::class)
         val searchUiModels: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
@@ -108,7 +110,7 @@ class SearchViewModel
                         imagePath = input.imageDirectory,
                         imageMap = input.imageMap,
                     )
-                }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         fun onSearchQueryChanged(query: String) {
             _searchQuery.value = query
@@ -116,12 +118,13 @@ class SearchViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     deleteMemoUseCase(memo)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
                 }
             }
         }
@@ -131,12 +134,13 @@ class SearchViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     updateMemoContentUseCase(memo, newContent)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to update memo")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
                 }
             }
         }
@@ -147,7 +151,7 @@ class SearchViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val path =
                         when (
                             val result =
@@ -159,10 +163,11 @@ class SearchViewModel
                             is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
                         }
                     onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to save image")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }

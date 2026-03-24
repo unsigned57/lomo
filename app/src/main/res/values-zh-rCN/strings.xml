@@ -292,6 +292,11 @@
     <string name="settings_git_sync_status_not_configured">未配置</string>
     <string name="settings_git_sync_status_initializing">初始化中...</string>
     <string name="settings_git_sync_direct_path_required">Git 同步需要直接路径模式，请使用文件路径而非 SAF 设置备忘录目录。</string>
+    <string name="settings_git_not_configured_message">Git 同步尚未配置。</string>
+    <string name="settings_git_pat_required_message">尚未配置个人访问令牌。</string>
+    <string name="settings_git_repository_url_not_configured">尚未配置 Git 仓库地址。</string>
+    <string name="settings_git_memo_directory_not_configured">尚未配置备忘录目录。</string>
+    <string name="settings_git_repository_not_initialized">Git 仓库尚未初始化。</string>
     <string name="settings_git_sync_interval_30min">30 分钟</string>
     <string name="settings_git_sync_interval_1h">1 小时</string>
     <string name="settings_git_sync_interval_6h">6 小时</string>
@@ -354,6 +359,7 @@
     <string name="settings_webdav_sync_status_deleting">删除中...</string>
     <string name="settings_webdav_sync_status_error">错误：%1$s</string>
     <string name="settings_webdav_sync_status_not_configured">未配置</string>
+    <string name="settings_webdav_not_configured_message">WebDAV 同步尚未配置。</string>
     <string name="settings_webdav_test_connection">测试连接</string>
     <string name="settings_webdav_test_connection_testing">测试中...</string>
     <string name="settings_webdav_test_connection_success">连接成功</string>

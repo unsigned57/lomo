@@ -45,7 +45,6 @@ internal object DatabaseTransitionStrategy {
     fun prepareBeforeOpen(
         context: Context,
         targetVersion: Int,
-        migrations: List<Migration>,
         databaseName: String = DATABASE_NAME,
     ) {
         val databaseFile = context.getDatabasePath(databaseName)
@@ -79,47 +78,18 @@ internal object DatabaseTransitionStrategy {
     internal fun shouldResetDatabase(
         existingVersion: Int,
         targetVersion: Int,
-    ): Boolean {
-        if (existingVersion <= 0) return true
-        if (existingVersion == targetVersion) return false
-        if (existingVersion > targetVersion) return true
-        // All upgrade paths (1..target) are covered by migrations.
-        return false
-    }
+    ): Boolean = existingVersion <= 0 || existingVersion > targetVersion
 
     internal fun canReachTargetVersion(
         fromVersion: Int,
         targetVersion: Int,
         migrationEdges: List<Pair<Int, Int>>,
-    ): Boolean {
-        if (fromVersion == targetVersion) return true
-        if (fromVersion <= 0 || targetVersion <= 0 || fromVersion > targetVersion) return false
-
-        val graph = mutableMapOf<Int, MutableList<Int>>()
-        migrationEdges.forEach { (from, to) ->
-            if (to > from) {
-                graph.getOrPut(from) { mutableListOf() }.add(to)
-            }
+    ): Boolean =
+        when {
+            fromVersion == targetVersion -> true
+            fromVersion <= 0 || targetVersion <= 0 || fromVersion > targetVersion -> false
+            else -> canReachTargetVersionByGraph(fromVersion, targetVersion, migrationEdges)
         }
-
-        val queue = ArrayDeque<Int>()
-        val visited = mutableSetOf<Int>()
-        queue.addLast(fromVersion)
-        visited.add(fromVersion)
-
-        while (queue.isNotEmpty()) {
-            val current = queue.removeFirst()
-            val nextVersions = graph[current].orEmpty()
-            for (next in nextVersions) {
-                if (next == targetVersion) return true
-                if (next <= targetVersion && visited.add(next)) {
-                    queue.addLast(next)
-                }
-            }
-        }
-
-        return false
-    }
 
     private fun readUserVersion(databaseFile: File): Int =
         runCatching {
@@ -153,5 +123,36 @@ internal object DatabaseTransitionStrategy {
         if (!file.delete()) {
             Timber.tag(TAG).w("Failed to delete stale db artifact: %s", file.path)
         }
+    }
+
+    private fun canReachTargetVersionByGraph(
+        fromVersion: Int,
+        targetVersion: Int,
+        migrationEdges: List<Pair<Int, Int>>,
+    ): Boolean {
+        val graph = mutableMapOf<Int, MutableList<Int>>()
+        migrationEdges.forEach { (from, to) ->
+            if (to > from) {
+                graph.getOrPut(from) { mutableListOf() }.add(to)
+            }
+        }
+
+        val queue = ArrayDeque<Int>()
+        val visited = mutableSetOf<Int>()
+        queue.addLast(fromVersion)
+        visited.add(fromVersion)
+
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            val nextVersions = graph[current].orEmpty()
+            if (nextVersions.any { it == targetVersion }) {
+                return true
+            }
+            nextVersions
+                .filter { it <= targetVersion && visited.add(it) }
+                .forEach(queue::addLast)
+        }
+
+        return false
     }
 }

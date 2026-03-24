@@ -2,11 +2,11 @@ package com.lomo.app.provider
 
 import android.net.Uri
 import androidx.core.net.toUri
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -36,7 +36,7 @@ class ImageMapProvider
                         .mapValues { (_, location) -> location.raw.toUri() }
                 }.stateIn(
                     scope = scope,
-                    started = SharingStarted.WhileSubscribed(5000),
+                    started = appWhileSubscribed(),
                     initialValue = emptyMap(),
                 )
     }

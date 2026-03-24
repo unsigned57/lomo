@@ -102,12 +102,16 @@ subprojects {
             apply(plugin = "dev.detekt")
             dependencies.add("detektPlugins", project(":detekt-rules"))
 
+            val moduleConfig = rootProject.file(detektConfigByProject.getValue(name))
+
             extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) {
                 toolVersion = detektVersion
-                config.setFrom(rootProject.file(detektConfigByProject.getValue(name)))
-                buildUponDefaultConfig = false
+                config.setFrom(moduleConfig)
+                buildUponDefaultConfig = true
                 allRules = false
                 autoCorrect = false
+                ignoreFailures = false
+                basePath.set(rootProject.layout.projectDirectory)
             }
 
             tasks.withType(dev.detekt.gradle.Detekt::class.java).configureEach {
@@ -121,9 +125,14 @@ subprojects {
                 )
                 include("**/*.kt", "**/*.kts")
                 exclude("**/build/**")
+                buildUponDefaultConfig.set(true)
+                ignoreFailures.set(false)
+                config.setFrom(moduleConfig)
+                basePath.set(rootProject.projectDir.absolutePath)
                 reports {
                     checkstyle.required.set(false)
                     html.required.set(true)
+                    markdown.required.set(false)
                     sarif.required.set(false)
                 }
             }
@@ -140,4 +149,10 @@ tasks.register("architectureCheck") {
         ":data:detekt",
         ":ui-components:detekt",
     )
+}
+
+tasks.register("qualityCheck") {
+    group = "verification"
+    description = "Runs the repository detekt quality gate."
+    dependsOn("architectureCheck")
 }

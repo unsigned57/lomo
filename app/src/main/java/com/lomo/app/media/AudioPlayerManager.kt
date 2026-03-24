@@ -24,6 +24,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val AUDIO_PLAYER_MANAGER_TAG = "AudioPlayerManager"
+
 @Singleton
 class AudioPlayerManager
     @Inject
@@ -31,11 +33,6 @@ class AudioPlayerManager
         @ApplicationContext private val context: Context,
         private val uriResolver: AudioPlaybackResolverRepository,
     ) : AudioPlayerController {
-        private companion object {
-            const val TAG = "AudioPlayerManager"
-            const val PROGRESS_UPDATE_INTERVAL_MS = 100L
-        }
-
         private var player: ExoPlayer? = null
 
         private val _currentPlayingUri = MutableStateFlow<String?>(null)
@@ -52,21 +49,43 @@ class AudioPlayerManager
 
         private val coroutineExceptionHandler =
             CoroutineExceptionHandler { _, throwable ->
-                logError("Audio player coroutine failed", throwable)
+                logAudioPlayerError("Audio player coroutine failed", throwable)
             }
 
         private var scopeJob = SupervisorJob()
-        private var scope = createScope(scopeJob)
+        private var scope = createAudioPlayerScope(scopeJob, coroutineExceptionHandler)
         private var progressUpdateJob: Job? = null
 
-        private fun createScope(job: Job): CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
-
-        private fun ensureActiveScope() {
-            if (!scopeJob.isActive) {
-                scopeJob = SupervisorJob()
-                scope = createScope(scopeJob)
+        private val ensureActiveScope: () -> Unit =
+            {
+                if (!scopeJob.isActive) {
+                    scopeJob = SupervisorJob()
+                    scope = createAudioPlayerScope(scopeJob, coroutineExceptionHandler)
+                }
             }
-        }
+
+        private val updateDuration: () -> Unit =
+            {
+                player?.duration?.let { dur ->
+                    if (dur > 0) _duration.value = dur
+                }
+            }
+
+        val setRootLocation: (String?) -> Unit =
+            { location ->
+                uriResolver.setRootLocation(location?.let(::StorageLocation))
+            }
+
+        val setVoiceLocation: (String?) -> Unit =
+            { location ->
+                uriResolver.setVoiceLocation(location?.let(::StorageLocation))
+            }
+
+        val cancelScope: () -> Unit =
+            {
+                stopProgressUpdates()
+                scopeJob.cancel()
+            }
 
         private fun ensurePlayer() {
             if (player == null) {
@@ -99,25 +118,6 @@ class AudioPlayerManager
             }
         }
 
-        private fun updateDuration() {
-            player?.duration?.let { dur ->
-                if (dur > 0) _duration.value = dur
-            }
-        }
-
-        fun setRootLocation(location: String?) {
-            uriResolver.setRootLocation(location?.let(::StorageLocation))
-        }
-
-        fun setVoiceLocation(location: String?) {
-            uriResolver.setVoiceLocation(location?.let(::StorageLocation))
-        }
-
-        fun cancelScope() {
-            stopProgressUpdates()
-            scopeJob.cancel()
-        }
-
         private fun startProgressUpdates() {
             if (progressUpdateJob?.isActive == true) {
                 return
@@ -147,33 +147,41 @@ class AudioPlayerManager
             scope.launch {
                 ensurePlayer()
                 val currentPlayer = player ?: return@launch
-
-                val resolvedUri = uriResolver.resolve(uri)
-                if (resolvedUri == null) {
-                    return@launch
-                }
+                val resolvedUri = uriResolver.resolve(uri) ?: return@launch
 
                 if (_currentPlayingUri.value == uri) {
-                    if (currentPlayer.isPlaying) {
-                        currentPlayer.pause()
-                    } else {
-                        currentPlayer.play()
-                    }
+                    togglePlayback(currentPlayer)
                 } else {
-                    try {
-                        stopProgressUpdates()
-                        currentPlayer.stop()
-                        _playbackPosition.value = 0
-                        _duration.value = 0
-                        currentPlayer.setMediaItem(MediaItem.fromUri(resolvedUri))
-                        currentPlayer.prepare()
-                        currentPlayer.play()
-                        _currentPlayingUri.value = uri
-                    } catch (throwable: Throwable) {
-                        if (throwable is CancellationException) throw throwable
-                        logError("Failed to start playback for uri=$uri", throwable)
-                    }
+                    startPlayback(currentPlayer, uri, resolvedUri)
                 }
+            }
+        }
+
+        private fun togglePlayback(currentPlayer: ExoPlayer) {
+            if (currentPlayer.isPlaying) {
+                currentPlayer.pause()
+            } else {
+                currentPlayer.play()
+            }
+        }
+
+        private fun startPlayback(
+            currentPlayer: ExoPlayer,
+            uri: String,
+            resolvedUri: String,
+        ) {
+            runCatching {
+                stopProgressUpdates()
+                currentPlayer.stop()
+                _playbackPosition.value = 0
+                _duration.value = 0
+                currentPlayer.setMediaItem(MediaItem.fromUri(resolvedUri))
+                currentPlayer.prepare()
+                currentPlayer.play()
+                _currentPlayingUri.value = uri
+            }.onFailure { throwable ->
+                if (throwable is CancellationException) throw throwable
+                logAudioPlayerError("Failed to start playback for uri=$uri", throwable)
             }
         }
 
@@ -210,14 +218,23 @@ class AudioPlayerManager
             }
         }
 
-        private fun logError(
-            message: String,
-            throwable: Throwable? = null,
-        ) {
-            if (throwable == null) {
-                Log.e(TAG, message)
-            } else {
-                Log.e(TAG, message, throwable)
-            }
+        private companion object {
+            const val PROGRESS_UPDATE_INTERVAL_MS = 100L
         }
     }
+
+private fun createAudioPlayerScope(
+    job: Job,
+    coroutineExceptionHandler: CoroutineExceptionHandler,
+): CoroutineScope = CoroutineScope(Dispatchers.Main.immediate + job + coroutineExceptionHandler)
+
+private fun logAudioPlayerError(
+    message: String,
+    throwable: Throwable? = null,
+) {
+    if (throwable == null) {
+        Log.e(AUDIO_PLAYER_MANAGER_TAG, message)
+    } else {
+        Log.e(AUDIO_PLAYER_MANAGER_TAG, message, throwable)
+    }
+}

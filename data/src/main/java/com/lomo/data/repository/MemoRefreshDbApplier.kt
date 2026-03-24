@@ -2,12 +2,23 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoTagDao
+import com.lomo.data.local.dao.MemoTrashDao
+import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.entity.LocalFileStateEntity
+import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFtsEntity
+import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.util.SearchTokenizer
 
 class MemoRefreshDbApplier
-    constructor(
-        private val dao: MemoDao,
+(
+        private val memoDao: MemoDao,
+        private val memoWriteDao: MemoWriteDao,
+        private val memoTagDao: MemoTagDao,
+        private val memoFtsDao: MemoFtsDao,
+        private val memoTrashDao: MemoTrashDao,
         private val localFileStateDao: LocalFileStateDao,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit,
     ) {
@@ -30,77 +41,115 @@ class MemoRefreshDbApplier
             parseResult: MemoRefreshParseResult,
             filesToDeleteInDb: Set<Pair<String, Boolean>>,
         ) {
+            replaceDates(parseResult)
+
+            val deduplicatedMainMemos = deduplicateMemos(parseResult.mainMemos)
+            val filteredTrashMemos = filterTrashMemos(parseResult.trashMemos, deduplicatedMainMemos)
+            val mainIds = deduplicatedMainMemos.map { it.id }.toSet()
+
+            deleteConflictingTrash(mainIds)
+            persistMainMemos(deduplicatedMainMemos)
+            persistTrashMemos(filteredTrashMemos)
+            upsertMetadata(parseResult.metadataToUpdate)
+            filesToDeleteInDb.forEach { (filename, isTrash) ->
+                deleteFileRecords(filename, isTrash)
+            }
+        }
+
+        private suspend fun replaceDates(parseResult: MemoRefreshParseResult) {
             parseResult.mainDatesToReplace.forEach { date ->
-                val memoIds = dao.getMemosByDate(date).map { it.id }
-                if (memoIds.isNotEmpty()) {
-                    dao.deleteTagRefsByMemoIds(memoIds)
-                    dao.deleteMemoFtsByIds(memoIds)
-                }
-                dao.deleteMemosByDate(date)
+                deleteMainDate(date)
             }
             parseResult.trashDatesToReplace.forEach { date ->
-                dao.deleteTrashMemosByDate(date)
+                memoTrashDao.deleteTrashMemosByDate(date)
             }
+        }
 
-            val deduplicatedMainMemos =
-                parseResult.mainMemos
-                    .associateBy { it.id }
-                    .values
-                    .toList()
-            val deduplicatedTrashMemos =
-                parseResult.trashMemos
-                    .associateBy { it.id }
-                    .values
-                    .toList()
-            val mainIds = deduplicatedMainMemos.map { it.id }.toSet()
-            val filteredTrashMemos =
-                deduplicatedTrashMemos.filter { trashMemo ->
-                    trashMemo.id !in mainIds
-                }
+        private suspend fun deleteMainDate(date: String) {
+            val memoIds = memoDao.getMemosByDate(date).map { it.id }
+            if (memoIds.isNotEmpty()) {
+                memoTagDao.deleteTagRefsByMemoIds(memoIds)
+                memoFtsDao.deleteMemoFtsByIds(memoIds)
+            }
+            memoWriteDao.deleteMemosByDate(date)
+        }
 
+        private suspend fun deleteConflictingTrash(mainIds: Set<String>) {
             if (mainIds.isNotEmpty()) {
-                dao.deleteTrashMemosByIds(mainIds.toList())
+                memoTrashDao.deleteTrashMemosByIds(mainIds.toList())
+            }
+        }
+
+        private suspend fun persistMainMemos(memos: List<MemoEntity>) {
+            if (memos.isEmpty()) {
+                return
             }
 
-            if (deduplicatedMainMemos.isNotEmpty()) {
-                dao.insertMemos(deduplicatedMainMemos)
-                dao.replaceTagRefsForMemos(deduplicatedMainMemos)
-                dao.replaceMemoFtsBatch(
-                    deduplicatedMainMemos.map {
-                        MemoFtsEntity(
-                            memoId = it.id,
-                            content = SearchTokenizer.tokenize(it.content),
-                        )
-                    },
-                )
-            }
+            memoWriteDao.insertMemos(memos)
+            memoTagDao.replaceTagRefsForMemos(memos)
+            memoFtsDao.replaceMemoFtsBatch(
+                memos.map {
+                    MemoFtsEntity(
+                        memoId = it.id,
+                        content = SearchTokenizer.tokenize(it.content),
+                    )
+                },
+            )
+        }
 
-            if (filteredTrashMemos.isNotEmpty()) {
-                dao.insertTrashMemos(filteredTrashMemos)
+        private suspend fun persistTrashMemos(memos: List<TrashMemoEntity>) {
+            if (memos.isNotEmpty()) {
+                memoTrashDao.insertTrashMemos(memos)
             }
+        }
 
-            if (parseResult.metadataToUpdate.isNotEmpty()) {
-                localFileStateDao.upsertAll(parseResult.metadataToUpdate)
+        private suspend fun upsertMetadata(metadata: List<LocalFileStateEntity>) {
+            if (metadata.isNotEmpty()) {
+                localFileStateDao.upsertAll(metadata)
             }
+        }
 
-            filesToDeleteInDb.forEach { (filename, isTrash) ->
-                val date = filename.removeSuffix(".md")
-                if (isTrash) {
-                    val trashMemosInDb = dao.getTrashMemosByDate(date)
-                    val trashMemoIds = trashMemosInDb.map { it.id }
-                    if (trashMemoIds.isNotEmpty()) {
-                        dao.deleteTrashMemosByIds(trashMemoIds)
-                    }
-                } else {
-                    val memosInDb = dao.getMemosByDate(date)
-                    val memoIds = memosInDb.map { it.id }
-                    if (memoIds.isNotEmpty()) {
-                        dao.deleteTagRefsByMemoIds(memoIds)
-                        dao.deleteMemosByIds(memoIds)
-                        dao.deleteMemoFtsByIds(memoIds)
-                    }
-                }
-                localFileStateDao.deleteByFilename(filename, isTrash)
+        private suspend fun deleteFileRecords(
+            filename: String,
+            isTrash: Boolean,
+        ) {
+            val date = filename.removeSuffix(".md")
+            if (isTrash) {
+                deleteTrashDate(date)
+            } else {
+                deleteMainDateEntries(date)
+            }
+            localFileStateDao.deleteByFilename(filename, isTrash)
+        }
+
+        private suspend fun deleteTrashDate(date: String) {
+            val trashMemoIds = memoTrashDao.getTrashMemosByDate(date).map { it.id }
+            if (trashMemoIds.isNotEmpty()) {
+                memoTrashDao.deleteTrashMemosByIds(trashMemoIds)
+            }
+        }
+
+        private suspend fun deleteMainDateEntries(date: String) {
+            val memoIds = memoDao.getMemosByDate(date).map { it.id }
+            if (memoIds.isNotEmpty()) {
+                memoTagDao.deleteTagRefsByMemoIds(memoIds)
+                memoWriteDao.deleteMemosByIds(memoIds)
+                memoFtsDao.deleteMemoFtsByIds(memoIds)
             }
         }
     }
+
+private fun deduplicateMemos(memos: List<MemoEntity>): List<MemoEntity> =
+    memos.associateBy { it.id }.values.toList()
+
+private fun filterTrashMemos(
+    trashMemos: List<TrashMemoEntity>,
+    mainMemos: List<MemoEntity>,
+): List<TrashMemoEntity> {
+    val mainIds = mainMemos.map { it.id }.toSet()
+    return trashMemos
+        .associateBy { it.id }
+        .values
+        .filter { trashMemo -> trashMemo.id !in mainIds }
+        .toList()
+}

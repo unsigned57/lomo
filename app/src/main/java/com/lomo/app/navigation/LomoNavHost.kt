@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -35,167 +36,231 @@ fun LomoNavHost(
     navController: NavHostController,
     viewModel: MainViewModel,
 ) {
-    var lastBackNavigationTime by remember { mutableLongStateOf(0L) }
-    val popBackStackSafely: () -> Unit = {
-        val now = SystemClock.elapsedRealtime()
-        if (now - lastBackNavigationTime >= BACK_NAVIGATION_THROTTLE_MILLIS) {
-            lastBackNavigationTime = now
-            navController.popBackStackOrNavigateMain()
-        }
-    }
-
-    val navigateToShare: (String, Long) -> Unit = { content, timestamp ->
-        val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
-        navController.navigate(
-            NavRoute.Share(
-                payloadKey = payloadKey,
-                memoTimestamp = timestamp,
-            ),
-        )
-    }
-
-    val navigateToImage: (ImageViewerRequest) -> Unit = { request ->
-        val imageUrls = request.imageUrls.ifEmpty { emptyList() }
-        val clampedIndex =
-            if (imageUrls.isEmpty()) {
-                0
-            } else {
-                request.initialIndex.coerceIn(0, imageUrls.lastIndex)
-            }
-        val fallbackUrl = imageUrls.getOrNull(clampedIndex).orEmpty()
-        val encodedFallbackUrl = URLEncoder.encode(fallbackUrl, StandardCharsets.UTF_8.toString())
-        val payloadKey = ImageViewerRoutePayloadStore.putImageUrls(imageUrls)
-        navController.navigate(
-            NavRoute.ImageViewer(
-                url = encodedFallbackUrl,
-                payloadKey = payloadKey,
-                initialIndex = clampedIndex,
-            ),
-        )
-    }
+    val popBackStackSafely = rememberBackNavigationAction(navController = navController)
+    val navigateToShare = rememberShareNavigationAction(navController = navController)
+    val navigateToImage = rememberImageNavigationAction(navController = navController)
 
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     androidx.compose.animation.SharedTransitionLayout {
         androidx.compose.runtime.CompositionLocalProvider(
             com.lomo.ui.util.LocalSharedTransitionScope provides this,
         ) {
-            NavHost(
+            LomoNavigationGraph(
                 navController = navController,
-                startDestination = NavRoute.Main,
-                enterTransition = NavigationTransitions.standardEnter,
-                exitTransition = NavigationTransitions.standardExit,
-                popEnterTransition = NavigationTransitions.standardPopEnter,
-                popExitTransition = NavigationTransitions.standardPopExit,
-            ) {
-                composable<NavRoute.Main> {
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
-                    ) {
-                        MainScreen(
-                            viewModel = viewModel,
-                            onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
-                            onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
-                            onNavigateToSearch = { navController.navigate(NavRoute.Search) },
-                            onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
-                            onNavigateToImage = navigateToImage,
-                            onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
-                            onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
-                            onNavigateToShare = navigateToShare,
-                        )
-                    }
-                }
+                viewModel = viewModel,
+                popBackStackSafely = popBackStackSafely,
+                navigateToShare = navigateToShare,
+                navigateToImage = navigateToImage,
+            )
+        }
+    }
+}
 
-                composable<NavRoute.Settings> {
-                    SettingsScreen(
-                        onBackClick = popBackStackSafely,
-                    )
-                }
+@Composable
+private fun rememberBackNavigationAction(navController: NavHostController): () -> Unit {
+    var lastBackNavigationTime by remember { mutableLongStateOf(0L) }
 
-                composable<NavRoute.Trash> {
-                    TrashScreen(
-                        onBackClick = popBackStackSafely,
-                    )
-                }
-
-                composable<NavRoute.Search> {
-                    SearchScreen(
-                        onBackClick = popBackStackSafely,
-                        onNavigateToShare = navigateToShare,
-                    )
-                }
-
-                composable<NavRoute.Tag> { backStackEntry ->
-                    val tag = backStackEntry.toRoute<NavRoute.Tag>()
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
-                    ) {
-                        TagFilterScreen(
-                            tagName = tag.tagName,
-                            onBackClick = popBackStackSafely,
-                            onNavigateToImage = navigateToImage,
-                            onNavigateToShare = navigateToShare,
-                        )
-                    }
-                }
-
-                composable<NavRoute.DailyReview> {
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
-                    ) {
-                        com.lomo.app.feature.review.DailyReviewScreen(
-                            onBackClick = popBackStackSafely,
-                            onNavigateToImage = navigateToImage,
-                            onNavigateToShare = navigateToShare,
-                            onNavigateToMemo = { memoId ->
-                                viewModel.requestFocusMemo(memoId)
-                                navController.popBackStackOrNavigateMain()
-                            },
-                        )
-                    }
-                }
-
-                composable<NavRoute.Gallery> {
-                    GalleryScreen(
-                        viewModel = viewModel,
-                        onBackClick = popBackStackSafely,
-                        onNavigateToImage = navigateToImage,
-                        onNavigateToShare = navigateToShare,
-                    )
-                }
-
-                composable<NavRoute.Share> {
-                    ShareScreen(
-                        onBackClick = popBackStackSafely,
-                    )
-                }
-
-                // ImageViewer with custom fade + scale animation
-                composable<NavRoute.ImageViewer>(
-                    enterTransition = NavigationTransitions.imageViewerEnter,
-                    exitTransition = NavigationTransitions.imageViewerExit,
-                    popEnterTransition = NavigationTransitions.imageViewerPopEnter,
-                    popExitTransition = NavigationTransitions.imageViewerPopExit,
-                ) { entry ->
-                    val route = entry.toRoute<NavRoute.ImageViewer>()
-                    val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
-                    val imageUrls =
-                        androidx.compose.runtime.remember(route.payloadKey, decodedUrl) {
-                            ImageViewerRoutePayloadStore
-                                .getImageUrls(route.payloadKey)
-                                ?.ifEmpty { null }
-                                ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
-                        }
-                    androidx.compose.runtime.CompositionLocalProvider(
-                        com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
-                    ) {
-                        ImageViewerScreen(
-                            imageUrls = imageUrls,
-                            initialIndex = route.initialIndex,
-                            onBackClick = popBackStackSafely,
-                        )
-                    }
-                }
+    return remember(navController) {
+        {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastBackNavigationTime >= BACK_NAVIGATION_THROTTLE_MILLIS) {
+                lastBackNavigationTime = now
+                navController.popBackStackOrNavigateMain()
             }
+        }
+    }
+}
+
+@Composable
+private fun rememberShareNavigationAction(navController: NavHostController): (String, Long) -> Unit =
+    remember(navController) {
+        { content, timestamp ->
+            val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
+            navController.navigate(
+                NavRoute.Share(
+                    payloadKey = payloadKey,
+                    memoTimestamp = timestamp,
+                ),
+            )
+        }
+    }
+
+@Composable
+private fun rememberImageNavigationAction(navController: NavHostController): (ImageViewerRequest) -> Unit =
+    remember(navController) {
+        { request ->
+            val imageUrls = request.imageUrls.ifEmpty { emptyList() }
+            val clampedIndex =
+                if (imageUrls.isEmpty()) {
+                    0
+                } else {
+                    request.initialIndex.coerceIn(0, imageUrls.lastIndex)
+                }
+            val fallbackUrl = imageUrls.getOrNull(clampedIndex).orEmpty()
+            val encodedFallbackUrl = URLEncoder.encode(fallbackUrl, StandardCharsets.UTF_8.toString())
+            val payloadKey = ImageViewerRoutePayloadStore.putImageUrls(imageUrls)
+            navController.navigate(
+                NavRoute.ImageViewer(
+                    url = encodedFallbackUrl,
+                    payloadKey = payloadKey,
+                    initialIndex = clampedIndex,
+                ),
+            )
+        }
+    }
+
+@Composable
+private fun LomoNavigationGraph(
+    navController: NavHostController,
+    viewModel: MainViewModel,
+    popBackStackSafely: () -> Unit,
+    navigateToShare: (String, Long) -> Unit,
+    navigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    NavHost(
+        navController = navController,
+        startDestination = NavRoute.Main,
+        enterTransition = NavigationTransitions.standardEnter,
+        exitTransition = NavigationTransitions.standardExit,
+        popEnterTransition = NavigationTransitions.standardPopEnter,
+        popExitTransition = NavigationTransitions.standardPopExit,
+    ) {
+        addPrimaryDestinations(
+            navController = navController,
+            viewModel = viewModel,
+            popBackStackSafely = popBackStackSafely,
+            navigateToShare = navigateToShare,
+            navigateToImage = navigateToImage,
+        )
+        addSecondaryDestinations(
+            navController = navController,
+            viewModel = viewModel,
+            popBackStackSafely = popBackStackSafely,
+            navigateToShare = navigateToShare,
+            navigateToImage = navigateToImage,
+        )
+        addImageViewerDestination(
+            popBackStackSafely = popBackStackSafely,
+        )
+    }
+}
+
+private fun NavGraphBuilder.addPrimaryDestinations(
+    navController: NavHostController,
+    viewModel: MainViewModel,
+    popBackStackSafely: () -> Unit,
+    navigateToShare: (String, Long) -> Unit,
+    navigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    composable<NavRoute.Main> {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
+        ) {
+            MainScreen(
+                viewModel = viewModel,
+                onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
+                onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
+                onNavigateToSearch = { navController.navigate(NavRoute.Search) },
+                onNavigateToTag = { tag -> navController.navigate(NavRoute.Tag(tag)) },
+                onNavigateToImage = navigateToImage,
+                onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
+                onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
+                onNavigateToShare = navigateToShare,
+            )
+        }
+    }
+
+    composable<NavRoute.Settings> {
+        SettingsScreen(onBackClick = popBackStackSafely)
+    }
+
+    composable<NavRoute.Trash> {
+        TrashScreen(onBackClick = popBackStackSafely)
+    }
+
+    composable<NavRoute.Search> {
+        SearchScreen(
+            onBackClick = popBackStackSafely,
+            onNavigateToShare = navigateToShare,
+        )
+    }
+}
+
+private fun NavGraphBuilder.addSecondaryDestinations(
+    navController: NavHostController,
+    viewModel: MainViewModel,
+    popBackStackSafely: () -> Unit,
+    navigateToShare: (String, Long) -> Unit,
+    navigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    composable<NavRoute.Tag> { backStackEntry ->
+        val tag = backStackEntry.toRoute<NavRoute.Tag>()
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
+        ) {
+            TagFilterScreen(
+                tagName = tag.tagName,
+                onBackClick = popBackStackSafely,
+                onNavigateToImage = navigateToImage,
+                onNavigateToShare = navigateToShare,
+            )
+        }
+    }
+
+    composable<NavRoute.DailyReview> {
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
+        ) {
+            com.lomo.app.feature.review.DailyReviewScreen(
+                onBackClick = popBackStackSafely,
+                onNavigateToImage = navigateToImage,
+                onNavigateToShare = navigateToShare,
+                onNavigateToMemo = { memoId ->
+                    viewModel.requestFocusMemo(memoId)
+                    navController.popBackStackOrNavigateMain()
+                },
+            )
+        }
+    }
+
+    composable<NavRoute.Gallery> {
+        GalleryScreen(
+            viewModel = viewModel,
+            onBackClick = popBackStackSafely,
+            onNavigateToImage = navigateToImage,
+            onNavigateToShare = navigateToShare,
+        )
+    }
+
+    composable<NavRoute.Share> {
+        ShareScreen(onBackClick = popBackStackSafely)
+    }
+}
+
+private fun NavGraphBuilder.addImageViewerDestination(popBackStackSafely: () -> Unit) {
+    composable<NavRoute.ImageViewer>(
+        enterTransition = NavigationTransitions.imageViewerEnter,
+        exitTransition = NavigationTransitions.imageViewerExit,
+        popEnterTransition = NavigationTransitions.imageViewerPopEnter,
+        popExitTransition = NavigationTransitions.imageViewerPopExit,
+    ) { entry ->
+        val route = entry.toRoute<NavRoute.ImageViewer>()
+        val decodedUrl = URLDecoder.decode(route.url, StandardCharsets.UTF_8.toString())
+        val imageUrls =
+            androidx.compose.runtime.remember(route.payloadKey, decodedUrl) {
+                ImageViewerRoutePayloadStore
+                    .getImageUrls(route.payloadKey)
+                    ?.ifEmpty { null }
+                    ?: decodedUrl.takeIf(String::isNotBlank)?.let(::listOf).orEmpty()
+            }
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
+        ) {
+            ImageViewerScreen(
+                imageUrls = imageUrls,
+                initialIndex = route.initialIndex,
+                onBackClick = popBackStackSafely,
+            )
         }
     }
 }

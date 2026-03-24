@@ -32,14 +32,14 @@ internal suspend fun runDeleteAnimationWithRollback(
     deletingIds.update { it + itemIds }
     delay(animationDelayMs)
 
-    return try {
+    return runCatching {
         mutation()
         Result.success(Unit)
-    } catch (cancellation: CancellationException) {
+    }.getOrElse { throwable ->
         deletingIds.update { it - itemIds }
-        throw cancellation
-    } catch (throwable: Throwable) {
-        deletingIds.update { it - itemIds }
+        if (throwable is CancellationException) {
+            throw throwable
+        }
         Result.failure(throwable)
     }
 }

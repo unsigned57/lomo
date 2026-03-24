@@ -6,10 +6,14 @@ import com.lomo.domain.repository.GitSyncRepository
 import kotlinx.coroutines.flow.Flow
 
 class LoadMemoVersionHistoryUseCase
-    constructor(
+(
         private val gitSyncRepository: GitSyncRepository,
     ) {
         fun observeGitSyncEnabled(): Flow<Boolean> = gitSyncRepository.isGitSyncEnabled()
 
-        suspend operator fun invoke(memo: Memo): List<MemoVersion> = gitSyncRepository.getMemoVersionHistory(memo.dateKey, memo.timestamp)
+        suspend operator fun invoke(memo: Memo): List<MemoVersion> =
+            gitSyncRepository.getMemoVersionHistory(
+                memo.dateKey,
+                memo.timestamp,
+            )
     }

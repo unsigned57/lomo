@@ -2,7 +2,9 @@ package com.lomo.data.repository
 
 import android.net.Uri
 import com.lomo.data.source.MediaStorageDataSource
+import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
@@ -21,12 +23,6 @@ class MediaRepositoryImpl
         private val workspaceConfigSource: WorkspaceConfigSource,
         private val mediaStorageDataSource: MediaStorageDataSource,
     ) : MediaRepository {
-        companion object {
-            private const val TAG = "MediaRepositoryImpl"
-            private const val IMAGE_DIRECTORY_NAME = "images"
-            private const val VOICE_DIRECTORY_NAME = "voice"
-        }
-
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
         override suspend fun importImage(source: StorageLocation): StorageLocation {
@@ -47,7 +43,7 @@ class MediaRepositoryImpl
         override fun observeImageLocations(): Flow<Map<MediaEntryId, StorageLocation>> = imageLocationMap.asStateFlow()
 
         override suspend fun refreshImageLocations() {
-            if (workspaceConfigSource.getImageRootFlow().first() == null) {
+            if (workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first() == null) {
                 imageLocationMap.value = emptyMap()
                 return
             }
@@ -63,14 +59,14 @@ class MediaRepositoryImpl
                 MediaCategory.IMAGE -> {
                     createDefaultWorkspace(
                         folderName = IMAGE_DIRECTORY_NAME,
-                        setRoot = workspaceConfigSource::setImageRoot,
+                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.IMAGE, uri) },
                     )
                 }
 
                 MediaCategory.VOICE -> {
                     createDefaultWorkspace(
                         folderName = VOICE_DIRECTORY_NAME,
-                        setRoot = workspaceConfigSource::setVoiceRoot,
+                        setRoot = { uri -> workspaceConfigSource.setRoot(StorageRootType.VOICE, uri) },
                     )
                 }
             }
@@ -86,16 +82,22 @@ class MediaRepositoryImpl
             folderName: String,
             setRoot: suspend (String) -> Unit,
         ): StorageLocation? =
-            try {
+            runNonFatalCatching {
                 val uri = workspaceConfigSource.createDirectory(folderName)
                 setRoot(uri)
                 StorageLocation(uri)
-            } catch (e: Exception) {
+            }.getOrElse { error ->
                 Timber.tag(TAG).w(
-                    e,
+                    error,
                     "Failed to create default media workspace: folder=%s",
                     folderName,
                 )
                 null
             }
+
+        companion object {
+            private const val TAG = "MediaRepositoryImpl"
+            private const val IMAGE_DIRECTORY_NAME = "images"
+            private const val VOICE_DIRECTORY_NAME = "voice"
+        }
     }

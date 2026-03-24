@@ -42,6 +42,7 @@ import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 
@@ -90,138 +91,220 @@ fun DailyReviewScreen(
         },
         showJump = true,
     ) { showMenu, openEditor ->
-        Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            androidx.compose.ui.res
-                                .stringResource(R.string.sidebar_daily_review),
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
+        DailyReviewScreenScaffold(
+            onBackClick = onBackClick,
+            haptic = haptic,
+            scrollBehavior = scrollBehavior,
+            snackbarHostState = snackbarHostState,
+        ) { scaffoldPadding ->
+            DailyReviewScreenContent(
+                uiState = uiState,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                padding = scaffoldPadding,
+                onShowMenu = showMenu,
+                onOpenEditor = openEditor,
+                onNavigateToImage = onNavigateToImage,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DailyReviewScreenScaffold(
+    onBackClick: () -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    snackbarHostState: SnackbarHostState,
+    content: @Composable (PaddingValues) -> Unit,
+) {
+    Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        topBar = {
+            TopAppBar(
+                title = { Text(androidx.compose.ui.res.stringResource(R.string.sidebar_daily_review)) },
+                navigationIcon = {
+                    IconButton(
+                        onClick = {
                             haptic.medium()
                             onBackClick()
-                        }) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription =
-                                    androidx.compose.ui.res
-                                        .stringResource(R.string.back),
-                            )
-                        }
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { scaffoldPadding ->
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(scaffoldPadding),
-                contentAlignment = Alignment.Center,
-            ) {
-                when (val state = uiState) {
-                    is UiState.Loading -> {
-                        ExpressiveContainedLoadingIndicator()
-                    }
-
-                    is UiState.Error -> {
-                        Text(
-                            text = state.message,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(AppSpacing.Medium),
+                        },
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
                         )
                     }
+                },
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                scrollBehavior = scrollBehavior,
+            )
+        },
+        content = content,
+    )
+}
 
-                    is UiState.Success -> {
-                        val memos = state.data
-                        if (memos.isEmpty()) {
-                            EmptyState(
-                                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                                title =
-                                    androidx.compose.ui.res
-                                        .stringResource(R.string.review_no_memos_title),
-                                description =
-                                    androidx.compose.ui.res
-                                        .stringResource(R.string.review_no_memos_desc),
-                            )
-                        } else {
-                            val pagerState = rememberPagerState(pageCount = { memos.size })
+@Composable
+private fun DailyReviewScreenContent(
+    uiState: UiState<List<com.lomo.app.feature.main.MemoUiModel>>,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    padding: PaddingValues,
+    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onOpenEditor: (Memo) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+        contentAlignment = Alignment.Center,
+    ) {
+        when (val state = uiState) {
+            is UiState.Loading -> ExpressiveContainedLoadingIndicator()
 
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                HorizontalPager(
-                                    state = pagerState,
-                                    contentPadding = PaddingValues(horizontal = AppSpacing.Large),
-                                    pageSpacing = AppSpacing.Medium,
-                                    modifier =
-                                        Modifier
-                                            .weight(1f)
-                                            .fillMaxWidth(),
-                                ) { page ->
-                                    val memo = memos[page]
-                                    val onMemoImageClick =
-                                        remember(memo.imageUrls, onNavigateToImage) {
-                                            { url: String ->
-                                                onNavigateToImage(
-                                                    createImageViewerRequest(
-                                                        imageUrls = memo.imageUrls,
-                                                        clickedUrl = url,
-                                                    ),
-                                                )
-                                            }
-                                        }
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Column(
-                                            modifier =
-                                                Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(bottom = AppSpacing.ExtraLarge)
-                                                    .verticalScroll(rememberScrollState()),
-                                        ) {
-                                            MemoCardEntry(
-                                                uiModel = memo,
-                                                dateFormat = dateFormat,
-                                                timeFormat = timeFormat,
-                                                doubleTapEditEnabled = doubleTapEditEnabled,
-                                                freeTextCopyEnabled = freeTextCopyEnabled,
-                                                onMemoEdit = openEditor,
-                                                onShowMenu = showMenu,
-                                                onImageClick = onMemoImageClick,
-                                            )
+            is UiState.Error -> {
+                Text(
+                    text = state.message,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(AppSpacing.Medium),
+                )
+            }
 
-                                            Text(
-                                                text = "${page + 1} / ${memos.size}",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier =
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(top = AppSpacing.Medium),
-                                                textAlign = TextAlign.Center,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    else -> {}
+            is UiState.Success -> {
+                val memos = state.data
+                if (memos.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.AutoMirrored.Filled.ArrowBack,
+                        title = androidx.compose.ui.res.stringResource(R.string.review_no_memos_title),
+                        description = androidx.compose.ui.res.stringResource(R.string.review_no_memos_desc),
+                    )
+                } else {
+                    DailyReviewPager(
+                        memos = memos,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        doubleTapEditEnabled = doubleTapEditEnabled,
+                        freeTextCopyEnabled = freeTextCopyEnabled,
+                        onShowMenu = onShowMenu,
+                        onOpenEditor = onOpenEditor,
+                        onNavigateToImage = onNavigateToImage,
+                    )
                 }
             }
+
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+private fun DailyReviewPager(
+    memos: List<com.lomo.app.feature.main.MemoUiModel>,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onOpenEditor: (Memo) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    val pagerState = rememberPagerState(pageCount = { memos.size })
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        HorizontalPager(
+            state = pagerState,
+            contentPadding = PaddingValues(horizontal = AppSpacing.Large),
+            pageSpacing = AppSpacing.Medium,
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+        ) { page ->
+            DailyReviewPagerPage(
+                memo = memos[page],
+                page = page,
+                totalPages = memos.size,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                onShowMenu = onShowMenu,
+                onOpenEditor = onOpenEditor,
+                onNavigateToImage = onNavigateToImage,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DailyReviewPagerPage(
+    memo: com.lomo.app.feature.main.MemoUiModel,
+    page: Int,
+    totalPages: Int,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onOpenEditor: (Memo) -> Unit,
+    onNavigateToImage: (ImageViewerRequest) -> Unit,
+) {
+    val onMemoImageClick =
+        remember(memo.imageUrls, onNavigateToImage) {
+            { url: String ->
+                onNavigateToImage(
+                    createImageViewerRequest(
+                        imageUrls = memo.imageUrls,
+                        clickedUrl = url,
+                    ),
+                )
+            }
+        }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = AppSpacing.ExtraLarge)
+                    .verticalScroll(rememberScrollState()),
+        ) {
+            MemoCardEntry(
+                uiModel = memo,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                onMemoEdit = onOpenEditor,
+                onShowMenu = onShowMenu,
+                onImageClick = onMemoImageClick,
+            )
+
+            Text(
+                text = "${page + 1} / $totalPages",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = AppSpacing.Medium),
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

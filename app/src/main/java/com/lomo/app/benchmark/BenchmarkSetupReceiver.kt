@@ -30,7 +30,7 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
 
         val pendingResult = goAsync()
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            try {
+            runCatching {
                 if (!isBenchmarkSetupEnabled()) {
                     pendingResult.setResultCode(Activity.RESULT_CANCELED)
                     pendingResult.setResultData("benchmark setup disabled for build type ${BuildConfig.BUILD_TYPE}")
@@ -42,7 +42,7 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
                         .getIntExtra(
                             BenchmarkSetupContract.EXTRA_SEED_COUNT,
                             BenchmarkSetupContract.DEFAULT_SEED_COUNT,
-                        ).coerceIn(0, 200)
+                        ).coerceIn(MIN_SEED_COUNT, MAX_SEED_COUNT)
                 val shouldReset = intent.getBooleanExtra(BenchmarkSetupContract.EXTRA_RESET, true)
                 val rootPath =
                     intent.getStringExtra(BenchmarkSetupContract.EXTRA_ROOT_PATH).orEmpty().ifBlank {
@@ -61,12 +61,11 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
 
                 pendingResult.setResultCode(Activity.RESULT_OK)
                 pendingResult.setResultData("prepared:${rootDir.absolutePath}:seed=$seedCount")
-            } catch (t: Throwable) {
+            }.onFailure { throwable ->
                 pendingResult.setResultCode(Activity.RESULT_CANCELED)
-                pendingResult.setResultData("error:${t.message ?: t.javaClass.simpleName}")
-            } finally {
-                pendingResult.finish()
+                pendingResult.setResultData("error:${throwable.message ?: throwable.javaClass.simpleName}")
             }
+            pendingResult.finish()
         }
     }
 
@@ -78,7 +77,7 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
     private suspend fun seedMemos(count: Int) {
         if (count <= 0) return
 
-        val baseTime = System.currentTimeMillis() - count * 60_000L
+        val baseTime = System.currentTimeMillis() - count * MEMO_INTERVAL_MS
         repeat(count) { index ->
             memoRepository.saveMemo(
                 content =
@@ -87,13 +86,21 @@ class BenchmarkSetupReceiver : BroadcastReceiver() {
                         append(index + 1)
                         append("\n")
                         append("- [ ] perf-path-")
-                        append(index % 5)
+                        append(index % PATH_VARIANT_COUNT)
                         append("\n")
                         append("#tag")
-                        append(index % 4)
+                        append(index % TAG_VARIANT_COUNT)
                     },
-                timestamp = baseTime + (index * 60_000L),
+                timestamp = baseTime + (index * MEMO_INTERVAL_MS),
             )
         }
+    }
+
+    private companion object {
+        const val MIN_SEED_COUNT = 0
+        const val MAX_SEED_COUNT = 200
+        const val MEMO_INTERVAL_MS = 60_000L
+        const val PATH_VARIANT_COUNT = 5
+        const val TAG_VARIANT_COUNT = 4
     }
 }

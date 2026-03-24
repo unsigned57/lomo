@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import org.eclipse.jgit.api.Git
@@ -10,7 +11,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-internal class GitSyncQueryTestCoordinator
+class GitSyncQueryTestCoordinator
     @Inject
     constructor(
         private val credentialStrategy: GitCredentialStrategy,
@@ -20,7 +21,12 @@ internal class GitSyncQueryTestCoordinator
             rootDir: File,
             filename: String,
             maxCount: Int = 50,
-        ): List<GitFileHistoryEntry> = fileHistoryReader.getFileHistory(rootDir = rootDir, filename = filename, maxCount = maxCount)
+        ): List<GitFileHistoryEntry> =
+            fileHistoryReader.getFileHistory(
+                rootDir = rootDir,
+                filename = filename,
+                maxCount = maxCount,
+            )
 
         fun getStatus(rootDir: File): GitSyncStatus {
             val gitDir = File(rootDir, ".git")
@@ -28,7 +34,7 @@ internal class GitSyncQueryTestCoordinator
                 return emptyStatus()
             }
 
-            return try {
+            return runNonFatalCatching {
                 Git.open(rootDir).use { g ->
                     val status = g.status().call()
                     val hasChanges = status.hasUncommittedChanges() || status.untracked.isNotEmpty()
@@ -52,8 +58,8 @@ internal class GitSyncQueryTestCoordinator
                         lastSyncTime = null,
                     )
                 }
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to get git status")
+            }.getOrElse { error ->
+                Timber.w(error, "Failed to get git status")
                 emptyStatus()
             }
         }
@@ -62,7 +68,7 @@ internal class GitSyncQueryTestCoordinator
             val credentials =
                 credentialStrategy.credentialProviders()
                     ?: return GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
-            return try {
+            return runNonFatalCatching {
                 credentialStrategy.runWithCredentialFallback(credentials, "ls-remote") { provider ->
                     Git
                         .lsRemoteRepository()
@@ -72,9 +78,9 @@ internal class GitSyncQueryTestCoordinator
                         .call()
                 }
                 GitSyncResult.Success("Connection successful")
-            } catch (e: Exception) {
-                Timber.w(e, "Connection test failed")
-                GitSyncResult.Error("Connection failed: ${e.message}", e)
+            }.getOrElse { error ->
+                Timber.w(error, "Connection test failed")
+                GitSyncResult.Error("Connection failed: ${error.message}", error)
             }
         }
 

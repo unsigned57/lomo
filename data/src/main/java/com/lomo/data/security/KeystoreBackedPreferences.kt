@@ -50,8 +50,8 @@ internal class KeystoreBackedPreferences(
     }
 
     private fun decrypt(payload: String): String {
-        val parts = payload.split(PAYLOAD_SEPARATOR, limit = 3)
-        require(parts.size == 3 && parts.first() == PAYLOAD_VERSION) {
+        val parts = payload.split(PAYLOAD_SEPARATOR, limit = PAYLOAD_PART_LIMIT)
+        require(parts.size == PAYLOAD_PART_LIMIT && parts.first() == PAYLOAD_VERSION) {
             "Unsupported secure preference payload"
         }
         val iv = decode(parts[1])
@@ -89,6 +89,7 @@ internal class KeystoreBackedPreferences(
         const val KEY_SIZE_BITS = 256
         const val GCM_TAG_LENGTH_BITS = 128
         const val KEY_ALIAS_PREFIX = "com.lomo.secure."
+        const val PAYLOAD_PART_LIMIT = 3
         const val PAYLOAD_VERSION = "v1"
         const val PAYLOAD_SEPARATOR = ":"
     }

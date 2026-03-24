@@ -55,12 +55,17 @@ class WebDavSyncScheduler
         }
 
         private fun parseInterval(interval: String): Duration =
-            when (interval) {
-                "30min" -> Duration.ofMinutes(30)
-                "1h" -> Duration.ofHours(1)
-                "6h" -> Duration.ofHours(6)
-                "12h" -> Duration.ofHours(12)
-                "24h" -> Duration.ofHours(24)
-                else -> Duration.ofHours(1)
-            }
+            AUTO_SYNC_INTERVALS[interval] ?: DEFAULT_AUTO_SYNC_INTERVAL
+
+        private companion object {
+            private val AUTO_SYNC_INTERVALS =
+                mapOf(
+                    "30min" to Duration.ofMinutes(30),
+                    "1h" to Duration.ofHours(1),
+                    "6h" to Duration.ofHours(6),
+                    "12h" to Duration.ofHours(12),
+                    "24h" to Duration.ofHours(24),
+                )
+            private val DEFAULT_AUTO_SYNC_INTERVAL = Duration.ofHours(1)
+        }
     }

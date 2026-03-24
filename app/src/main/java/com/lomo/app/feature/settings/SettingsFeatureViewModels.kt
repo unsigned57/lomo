@@ -1,4 +1,5 @@
 package com.lomo.app.feature.settings
+
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.coroutines.CoroutineScope
@@ -135,136 +136,43 @@ class SettingsLanShareFeatureViewModel(
 }
 
 class SettingsGitFeatureViewModel(
-    private val actionCoordinator: SettingsActionCoordinator,
-    private val gitCoordinator: SettingsGitCoordinator,
+    actionCoordinator: SettingsActionCoordinator,
+    gitCoordinator: SettingsGitCoordinator,
 ) {
-    fun updateGitSyncEnabled(enabled: Boolean) {
-        actionCoordinator.updateGitSyncEnabled(enabled)
-    }
-
-    fun updateGitRemoteUrl(url: String) {
-        actionCoordinator.updateGitRemoteUrl(url)
-    }
-
-    fun isValidGitRemoteUrl(url: String): Boolean = gitCoordinator.isValidGitRemoteUrl(url)
-
-    fun shouldShowGitConflictDialog(message: String): Boolean = gitCoordinator.shouldShowGitConflictDialog(message)
-
-    fun presentGitSyncErrorMessage(
-        message: String,
-        conflictSummary: String,
-        directPathRequired: String,
-        unknownError: String,
-    ): String =
-        gitCoordinator.presentGitSyncErrorMessage(
-            message = message,
-            conflictSummary = conflictSummary,
-            directPathRequired = directPathRequired,
-            unknownError = unknownError,
-        )
-
-    fun updateGitPat(token: String) {
-        actionCoordinator.updateGitPat(token)
-    }
-
-    fun updateGitAuthorName(name: String) {
-        actionCoordinator.updateGitAuthorName(name)
-    }
-
-    fun updateGitAuthorEmail(email: String) {
-        actionCoordinator.updateGitAuthorEmail(email)
-    }
-
-    fun updateGitAutoSyncEnabled(enabled: Boolean) {
-        actionCoordinator.updateGitAutoSyncEnabled(enabled)
-    }
-
-    fun updateGitAutoSyncInterval(interval: String) {
-        actionCoordinator.updateGitAutoSyncInterval(interval)
-    }
-
-    fun updateGitSyncOnRefresh(enabled: Boolean) {
-        actionCoordinator.updateGitSyncOnRefresh(enabled)
-    }
-
-    fun triggerGitSyncNow() {
-        actionCoordinator.triggerGitSyncNow()
-    }
-
-    fun resolveGitConflictUsingRemote() {
-        actionCoordinator.resolveGitConflictUsingRemote()
-    }
-
-    fun resolveGitConflictUsingLocal() {
-        actionCoordinator.resolveGitConflictUsingLocal()
-    }
-
-    fun testGitConnection() {
-        actionCoordinator.testGitConnection()
-    }
-
-    fun resetConnectionTestState() {
-        gitCoordinator.resetConnectionTestState()
-    }
-
-    fun resetGitRepository() {
-        actionCoordinator.resetGitRepository()
-    }
+    val updateGitSyncEnabled = actionCoordinator.updateGitSyncEnabled
+    val updateGitRemoteUrl = actionCoordinator.updateGitRemoteUrl
+    val isValidGitRemoteUrl = gitCoordinator.isValidGitRemoteUrl
+    val shouldShowGitConflictDialog = gitCoordinator.shouldShowGitConflictDialog
+    val updateGitPat = actionCoordinator.updateGitPat
+    val updateGitAuthorName = actionCoordinator.updateGitAuthorName
+    val updateGitAuthorEmail = actionCoordinator.updateGitAuthorEmail
+    val updateGitAutoSyncEnabled = actionCoordinator.updateGitAutoSyncEnabled
+    val updateGitAutoSyncInterval = actionCoordinator.updateGitAutoSyncInterval
+    val updateGitSyncOnRefresh = actionCoordinator.updateGitSyncOnRefresh
+    val triggerGitSyncNow = actionCoordinator.triggerGitSyncNow
+    val resolveGitConflictUsingRemote = actionCoordinator.resolveGitConflictUsingRemote
+    val resolveGitConflictUsingLocal = actionCoordinator.resolveGitConflictUsingLocal
+    val testGitConnection = actionCoordinator.testGitConnection
+    val resetConnectionTestState = gitCoordinator.resetConnectionTestState
+    val resetGitRepository = actionCoordinator.resetGitRepository
 }
 
 class SettingsWebDavFeatureViewModel(
-    private val actionCoordinator: SettingsActionCoordinator,
-    private val webDavCoordinator: SettingsWebDavCoordinator,
+    actionCoordinator: SettingsActionCoordinator,
+    webDavCoordinator: SettingsWebDavCoordinator,
 ) {
-    fun updateWebDavSyncEnabled(enabled: Boolean) {
-        actionCoordinator.updateWebDavSyncEnabled(enabled)
-    }
-
-    fun updateProvider(provider: WebDavProvider) {
-        actionCoordinator.updateWebDavProvider(provider)
-    }
-
-    fun updateBaseUrl(url: String) {
-        actionCoordinator.updateWebDavBaseUrl(url)
-    }
-
-    fun updateEndpointUrl(url: String) {
-        actionCoordinator.updateWebDavEndpointUrl(url)
-    }
-
-    fun updateUsername(username: String) {
-        actionCoordinator.updateWebDavUsername(username)
-    }
-
-    fun updatePassword(password: String) {
-        actionCoordinator.updateWebDavPassword(password)
-    }
-
-    fun updateAutoSyncEnabled(enabled: Boolean) {
-        actionCoordinator.updateWebDavAutoSyncEnabled(enabled)
-    }
-
-    fun updateAutoSyncInterval(interval: String) {
-        actionCoordinator.updateWebDavAutoSyncInterval(interval)
-    }
-
-    fun updateSyncOnRefresh(enabled: Boolean) {
-        actionCoordinator.updateWebDavSyncOnRefresh(enabled)
-    }
-
-    fun triggerSyncNow() {
-        actionCoordinator.triggerWebDavSyncNow()
-    }
-
-    fun testConnection() {
-        actionCoordinator.testWebDavConnection()
-    }
-
-    fun resetConnectionTestState() {
-        webDavCoordinator.resetConnectionTestState()
-    }
-
-    fun isValidUrl(url: String): Boolean = webDavCoordinator.isValidWebDavUrl(url)
-
-    fun isValidWebDavUrl(url: String): Boolean = webDavCoordinator.isValidWebDavUrl(url)
+    val updateWebDavSyncEnabled = actionCoordinator.updateWebDavSyncEnabled
+    val updateProvider = actionCoordinator.updateWebDavProvider
+    val updateBaseUrl = actionCoordinator.updateWebDavBaseUrl
+    val updateEndpointUrl = actionCoordinator.updateWebDavEndpointUrl
+    val updateUsername = actionCoordinator.updateWebDavUsername
+    val updatePassword = actionCoordinator.updateWebDavPassword
+    val updateAutoSyncEnabled = actionCoordinator.updateWebDavAutoSyncEnabled
+    val updateAutoSyncInterval = actionCoordinator.updateWebDavAutoSyncInterval
+    val updateSyncOnRefresh = actionCoordinator.updateWebDavSyncOnRefresh
+    val triggerSyncNow = actionCoordinator.triggerWebDavSyncNow
+    val testConnection = actionCoordinator.testWebDavConnection
+    val resetConnectionTestState = webDavCoordinator::resetConnectionTestState
+    val isValidUrl = webDavCoordinator::isValidWebDavUrl
+    val isValidWebDavUrl = webDavCoordinator::isValidWebDavUrl
 }

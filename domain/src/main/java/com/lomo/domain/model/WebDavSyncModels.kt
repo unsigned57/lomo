@@ -1,5 +1,11 @@
 package com.lomo.domain.model
 
+enum class WebDavSyncErrorCode {
+    NOT_CONFIGURED,
+    CONNECTION_FAILED,
+    UNKNOWN,
+}
+
 enum class WebDavProvider {
     NUTSTORE,
     NEXTCLOUD,
@@ -47,10 +53,22 @@ sealed interface WebDavSyncResult {
     ) : WebDavSyncResult
 
     data class Error(
+        val code: WebDavSyncErrorCode,
         val message: String,
         val exception: Throwable? = null,
         val outcomes: List<WebDavSyncOutcome> = emptyList(),
-    ) : WebDavSyncResult
+    ) : WebDavSyncResult {
+        constructor(
+            message: String,
+            exception: Throwable? = null,
+            outcomes: List<WebDavSyncOutcome> = emptyList(),
+        ) : this(
+            code = webDavSyncErrorCodeFromMessage(message),
+            message = message,
+            exception = exception,
+            outcomes = outcomes,
+        )
+    }
 
     data object NotConfigured : WebDavSyncResult
 
@@ -81,13 +99,39 @@ sealed interface WebDavSyncState {
     ) : WebDavSyncState
 
     data class Error(
+        val code: WebDavSyncErrorCode,
         val message: String,
         val timestamp: Long,
-    ) : WebDavSyncState
+    ) : WebDavSyncState {
+        constructor(
+            message: String,
+            timestamp: Long,
+        ) : this(
+            code = webDavSyncErrorCodeFromMessage(message),
+            message = message,
+            timestamp = timestamp,
+        )
+    }
 
     data object NotConfigured : WebDavSyncState
 
     data class ConflictDetected(
         val conflicts: SyncConflictSet,
     ) : WebDavSyncState
+}
+
+class WebDavSyncFailureException(
+    val code: WebDavSyncErrorCode,
+    message: String,
+    cause: Throwable? = null,
+) : Exception(message, cause)
+
+private fun webDavSyncErrorCodeFromMessage(rawMessage: String?): WebDavSyncErrorCode {
+    val normalized = rawMessage?.trim().orEmpty()
+    return when {
+        normalized.isBlank() -> WebDavSyncErrorCode.UNKNOWN
+        normalized.contains("not configured", ignoreCase = true) -> WebDavSyncErrorCode.NOT_CONFIGURED
+        normalized.contains("connection", ignoreCase = true) -> WebDavSyncErrorCode.CONNECTION_FAILED
+        else -> WebDavSyncErrorCode.UNKNOWN
+    }
 }

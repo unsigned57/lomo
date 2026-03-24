@@ -1,8 +1,6 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.MemoDao
 import com.lomo.domain.model.Memo
-import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -22,7 +20,7 @@ import org.junit.Test
 
 class MemoRepositoryImplTest {
     @MockK(relaxed = true)
-    private lateinit var dao: MemoDao
+    private lateinit var dao: TestMemoDaoSuite
 
     @MockK(relaxed = true)
     private lateinit var synchronizer: MemoSynchronizer
@@ -34,9 +32,27 @@ class MemoRepositoryImplTest {
         MockKAnnotations.init(this)
         repository =
             MemoRepositoryImpl(
-                dao = dao,
-                synchronizer = synchronizer,
-                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
+                queryRepository =
+                    MemoQueryRepositoryImpl(
+                        memoDao = dao,
+                        memoPinDao = dao,
+                        synchronizer = synchronizer,
+                    ),
+                mutationRepository =
+                    MemoMutationRepositoryImpl(
+                        memoPinDao = dao,
+                        synchronizer = synchronizer,
+                    ),
+                searchRepository =
+                    MemoSearchRepositoryImpl(
+                        memoSearchDao = dao,
+                        memoPinDao = dao,
+                    ),
+                trashRepository =
+                    MemoTrashRepositoryImpl(
+                        memoTrashDao = dao,
+                        synchronizer = synchronizer,
+                    ),
             )
         every { dao.getPinnedMemoIdsFlow() } returns flowOf(emptyList())
         coEvery { dao.getPinnedMemoIds() } returns emptyList()
@@ -65,7 +81,7 @@ class MemoRepositoryImplTest {
         }
 
     @Test
-    fun `updateMemo routes blank content to delete path`() =
+    fun `updateMemo delegates blank content to synchronizer update path`() =
         runTest {
             val memo =
                 Memo(
@@ -78,8 +94,8 @@ class MemoRepositoryImplTest {
 
             repository.updateMemo(memo, "   ")
 
-            coVerify(exactly = 1) { synchronizer.deleteMemoAsync(memo) }
-            coVerify(exactly = 0) { synchronizer.updateMemoAsync(any(), any()) }
+            coVerify(exactly = 1) { synchronizer.updateMemoAsync(memo, "   ") }
+            coVerify(exactly = 0) { synchronizer.deleteMemoAsync(any()) }
         }
 
     @Test

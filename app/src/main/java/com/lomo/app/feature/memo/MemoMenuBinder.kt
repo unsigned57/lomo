@@ -3,7 +3,6 @@ package com.lomo.app.feature.memo
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuHost
@@ -28,35 +27,20 @@ fun MemoMenuBinder(
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
-    val hostView = LocalView.current
     val shareUtils = LocalShareUtils.current
     val scope = rememberCoroutineScope()
 
     MemoMenuHost(
-        onEdit = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                onEditMemo(memo)
-            }
-        },
-        onDelete = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                onDeleteMemo(memo)
-            }
-        },
+        onEdit = { state -> state.withMemo(onEditMemo) },
+        onDelete = { state -> state.withMemo(onDeleteMemo) },
         onShareImage = { state ->
-            val memo = state.memo as? Memo
             scope.launch {
-                shareUtils.shareMemoAsImage(
+                shareMemoAsImage(
+                    state = state,
                     context = context,
-                    content = state.content,
-                    hostView = hostView,
-                    showTime = shareCardShowTime,
-                    timestamp = memo?.timestamp,
-                    tags = memo?.tags.orEmpty(),
+                    shareUtils = shareUtils,
+                    shareCardShowTime = shareCardShowTime,
                     activeDayCount = activeDayCount,
-                    resolvedImagePaths = state.imageUrls,
                 )
             }
         },
@@ -66,20 +50,10 @@ fun MemoMenuBinder(
                 content = state.content,
             )
         },
-        onLanShare = { state ->
-            val memo = state.memo as? Memo
-            if (memo != null) {
-                onLanShare(memo.content, memo.timestamp)
-            }
-        },
+        onLanShare = { state -> state.withMemo { memo -> onLanShare(memo.content, memo.timestamp) } },
         onTogglePin =
             if (onTogglePin != null) {
-                { state ->
-                    val memo = state.memo as? Memo
-                    if (memo != null) {
-                        onTogglePin(memo, !state.isPinned)
-                    }
-                }
+                { state -> state.withMemo { memo -> onTogglePin(memo, !state.isPinned) } }
             } else {
                 null
             },
@@ -90,4 +64,27 @@ fun MemoMenuBinder(
     ) { showMenu ->
         content(showMenu)
     }
+}
+
+private suspend fun shareMemoAsImage(
+    state: MemoMenuState,
+    context: android.content.Context,
+    shareUtils: com.lomo.app.util.ShareUtils,
+    shareCardShowTime: Boolean,
+    activeDayCount: Int,
+) {
+    val memo = state.memo as? Memo
+    shareUtils.shareMemoAsImage(
+        context = context,
+        content = state.content,
+        showTime = shareCardShowTime,
+        timestamp = memo?.timestamp,
+        tags = memo?.tags.orEmpty(),
+        activeDayCount = activeDayCount,
+        resolvedImagePaths = state.imageUrls,
+    )
+}
+
+private inline fun MemoMenuState.withMemo(block: (Memo) -> Unit) {
+    (memo as? Memo)?.let(block)
 }

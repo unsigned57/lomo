@@ -1,5 +1,6 @@
 package com.lomo.data.sync
 
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.data.webdav.WebDavClient
 import timber.log.Timber
 import java.io.File
@@ -9,6 +10,9 @@ import java.io.File
  * to the new directory layout.
  */
 object SyncLayoutMigration {
+    private const val LEGACY_IMAGE_FOLDER = "images"
+    private const val LEGACY_VOICE_FOLDER = "voice"
+    private const val LOMO_ROOT_FOLDER = "lomo"
 
     // ── WebDAV ──────────────────────────────────────────────────────────
 
@@ -28,44 +32,37 @@ object SyncLayoutMigration {
             } catch (_: Exception) {
                 return
             }
-
-        // Check if old-format data exists (root-level .md files or old images/voice dirs)
-        val oldMemos = rootFiles.filter { !it.isDirectory && it.path.endsWith(".md") }
-        val hasOldImages = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == "images" }
-        val hasOldVoice = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == "voice" }
-        val hasLomo = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == "lomo" }
-
-        if (oldMemos.isEmpty() && !hasOldImages && !hasOldVoice) return
-        if (hasLomo) return // Already migrated or mixed state — don't touch
+        val legacyState = resolveLegacyWebDavState(rootFiles)
+        if (!legacyState.needsMigration || legacyState.hasLomoRoot) return
 
         Timber.i("SyncLayoutMigration: migrating WebDAV remote to lomo/ layout")
 
         // Ensure target directories
-        client.ensureDirectory("lomo")
+        client.ensureDirectory(LOMO_ROOT_FOLDER)
         for (folder in layout.distinctFolders) {
-            client.ensureDirectory("lomo/$folder")
+            client.ensureDirectory("$LOMO_ROOT_FOLDER/$folder")
         }
 
         // Move memos
-        for (memo in oldMemos) {
+        for (memo in legacyState.oldMemos) {
             val filename = memo.path.trimStart('/')
-            try {
+            runNonFatalCatching {
                 val content = client.get(filename)
                 client.put(
-                    path = "lomo/${layout.memoFolder}/$filename",
+                    path = "$LOMO_ROOT_FOLDER/${layout.memoFolder}/$filename",
                     bytes = content.bytes,
                     contentType = "text/markdown; charset=utf-8",
                     lastModifiedHint = content.lastModified,
                 )
                 client.delete(filename)
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to migrate WebDAV memo: %s", filename)
+            }.onFailure { error ->
+                Timber.w(error, "Failed to migrate WebDAV memo: %s", filename)
             }
         }
 
         // Move media folders
-        migrateWebDavMediaFolder(client, "images", "lomo/${layout.imageFolder}")
-        migrateWebDavMediaFolder(client, "voice", "lomo/${layout.voiceFolder}")
+        migrateWebDavMediaFolder(client, LEGACY_IMAGE_FOLDER, "$LOMO_ROOT_FOLDER/${layout.imageFolder}")
+        migrateWebDavMediaFolder(client, LEGACY_VOICE_FOLDER, "$LOMO_ROOT_FOLDER/${layout.voiceFolder}")
     }
 
     private fun migrateWebDavMediaFolder(
@@ -83,7 +80,7 @@ object SyncLayoutMigration {
 
         for (resource in files) {
             val filename = resource.path.substringAfterLast('/')
-            try {
+            runNonFatalCatching {
                 val content = client.get(resource.path)
                 client.put(
                     path = "$newFolder/$filename",
@@ -92,8 +89,8 @@ object SyncLayoutMigration {
                     lastModifiedHint = content.lastModified,
                 )
                 client.delete(resource.path)
-            } catch (e: Exception) {
-                Timber.w(e, "Failed to migrate WebDAV media: %s", resource.path)
+            }.onFailure { error ->
+                Timber.w(error, "Failed to migrate WebDAV media: %s", resource.path)
             }
         }
 
@@ -147,9 +144,8 @@ object SyncLayoutMigration {
         oldFolderName: String,
         newFolderName: String,
     ): Boolean {
-        if (oldFolderName == newFolderName) return false
         val oldDir = File(repoRootDir, oldFolderName)
-        if (!oldDir.exists() || !oldDir.isDirectory) return false
+        if (oldFolderName == newFolderName || !oldDir.exists() || !oldDir.isDirectory) return false
 
         val newDir = File(repoRootDir, newFolderName)
         if (!newDir.exists()) newDir.mkdirs()
@@ -170,4 +166,24 @@ object SyncLayoutMigration {
         }
         return moved
     }
+
+    private fun resolveLegacyWebDavState(
+        rootFiles: List<com.lomo.data.webdav.WebDavRemoteResource>,
+    ): LegacyWebDavState {
+        val oldMemos = rootFiles.filter { !it.isDirectory && it.path.endsWith(".md") }
+        val hasOldImages = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == LEGACY_IMAGE_FOLDER }
+        val hasOldVoice = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == LEGACY_VOICE_FOLDER }
+        val hasLomoRoot = rootFiles.any { it.isDirectory && it.path.trimEnd('/') == LOMO_ROOT_FOLDER }
+        return LegacyWebDavState(
+            oldMemos = oldMemos,
+            needsMigration = oldMemos.isNotEmpty() || hasOldImages || hasOldVoice,
+            hasLomoRoot = hasLomoRoot,
+        )
+    }
+
+    private data class LegacyWebDavState(
+        val oldMemos: List<com.lomo.data.webdav.WebDavRemoteResource>,
+        val needsMigration: Boolean,
+        val hasLomoRoot: Boolean,
+    )
 }

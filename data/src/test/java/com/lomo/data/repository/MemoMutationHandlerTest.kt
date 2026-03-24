@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
@@ -12,12 +11,13 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 import com.lomo.domain.usecase.MemoIdentityPolicy
-import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import io.mockk.just
+import io.mockk.runs
 import io.mockk.slot
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flow
@@ -35,7 +35,7 @@ class MemoMutationHandlerTest {
     private lateinit var fileDataSource: FileDataSource
 
     @MockK(relaxed = true)
-    private lateinit var dao: MemoDao
+    private lateinit var dao: TestMemoDaoSuite
 
     @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
@@ -59,13 +59,12 @@ class MemoMutationHandlerTest {
         handler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
-                dao = dao,
+                daoBundle = testMemoMutationDaoBundle(dao),
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = savePlanFactory,
                 textProcessor = MemoTextProcessor(),
                 dataStore = dataStore,
                 trashMutationHandler = trashMutationHandler,
-                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
                 memoIdentityPolicy = MemoIdentityPolicy(),
             )
     }
@@ -172,8 +171,9 @@ class MemoMutationHandlerTest {
 
             val persistedMemo = slot<com.lomo.data.local.entity.MemoEntity>()
             coEvery {
-                dao.persistMemoWithOutbox(capture(persistedMemo), any())
-            } returns 1L
+                dao.insertMemo(capture(persistedMemo))
+            } just runs
+            coEvery { dao.insertMemoFileOutbox(any()) } returns 1L
 
             val outboxId = handler.updateMemoInDb(sourceMemo, "after")
 
@@ -200,13 +200,12 @@ class MemoMutationHandlerTest {
             val localHandler =
                 MemoMutationHandler(
                     markdownStorageDataSource = fileDataSource,
-                    dao = dao,
+                    daoBundle = testMemoMutationDaoBundle(dao),
                     localFileStateDao = localFileStateDao,
                     savePlanFactory = savePlanFactory,
                     textProcessor = MemoTextProcessor(),
                     dataStore = dataStore,
                     trashMutationHandler = trashMutationHandler,
-                    resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
                     memoIdentityPolicy = MemoIdentityPolicy(),
                 )
 
@@ -218,7 +217,7 @@ class MemoMutationHandlerTest {
 
             coEvery { dao.countMemoIdCollisions(any(), any()) } returns 0
             coEvery { dao.countMemosByIdGlob(any()) } returns 0
-            coEvery { dao.persistMemoWithOutbox(any(), any()) } returnsMany listOf(1L, 2L)
+            coEvery { dao.insertMemoFileOutbox(any()) } returnsMany listOf(1L, 2L)
             coEvery {
                 savePlanFactory.create(
                     content = any(),

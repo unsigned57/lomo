@@ -19,10 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CalendarMonth
-import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EditCalendar
 import androidx.compose.material.icons.rounded.FilterAlt
-import androidx.compose.material.icons.rounded.Update
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,14 +63,28 @@ internal fun MainMemoFilterSheet(
     onSortOptionSelected: (MemoSortOption) -> Unit,
     onStartDateSelected: (LocalDate?) -> Unit,
     onEndDateSelected: (LocalDate?) -> Unit,
-    onClearDateRange: () -> Unit,
-    onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val haptic = LocalAppHapticFeedback.current
     var datePickerTarget by rememberSaveable { mutableStateOf<DatePickerTarget?>(null) }
     val hasDateFilter = filter.startDate != null || filter.endDate != null
+    val openStartDatePicker = {
+        haptic.medium()
+        datePickerTarget = DatePickerTarget.START
+    }
+    val openEndDatePicker = {
+        haptic.medium()
+        datePickerTarget = DatePickerTarget.END
+    }
+    val clearStartDate = {
+        haptic.medium()
+        onStartDateSelected(null)
+    }
+    val clearEndDate = {
+        haptic.medium()
+        onEndDateSelected(null)
+    }
 
     ProvideExpressiveMotion {
         ModalBottomSheet(
@@ -92,103 +103,30 @@ internal fun MainMemoFilterSheet(
                         .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
             ) {
-                MainMemoFilterHeader()
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-                ) {
-                    MemoSortOption.entries.forEach { option ->
-                        val icon =
-                            when (option) {
-                                MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
-                                MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
-                            }
-                        MainMemoSortButton(
-                            modifier = Modifier.weight(1f),
-                            text = sortOptionLabel(option),
-                            icon = icon,
-                            selected = filter.sortOption == option,
-                            onClick = { onSortOptionSelected(option) },
-                        )
-                    }
-                }
-                MainMemoFilterSectionCard(
-                    icon = Icons.Rounded.CalendarMonth,
-                    title = stringResource(R.string.main_filter_section_time_range),
-                    isActive = hasDateFilter,
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-                    ) {
-                        MainMemoDateField(
-                            modifier = Modifier.weight(1f),
-                            label = stringResource(R.string.main_filter_start_date),
-                            value = filter.startDate.formatOrDefault(),
-                            hasValue = filter.startDate != null,
-                            onPick = {
-                                haptic.medium()
-                                datePickerTarget = DatePickerTarget.START
-                            },
-                            onClear = {
-                                haptic.medium()
-                                onStartDateSelected(null)
-                            },
-                        )
-                        MainMemoDateField(
-                            modifier = Modifier.weight(1f),
-                            label = stringResource(R.string.main_filter_end_date),
-                            value = filter.endDate.formatOrDefault(),
-                            hasValue = filter.endDate != null,
-                            onPick = {
-                                haptic.medium()
-                                datePickerTarget = DatePickerTarget.END
-                            },
-                            onClear = {
-                                haptic.medium()
-                                onEndDateSelected(null)
-                            },
-                        )
-                    }
-                }
+                MainMemoFilterSheetContent(
+                    filter = filter,
+                    hasDateFilter = hasDateFilter,
+                    onSortOptionSelected = onSortOptionSelected,
+                    onOpenStartDatePicker = openStartDatePicker,
+                    onOpenEndDatePicker = openEndDatePicker,
+                    onClearStartDate = clearStartDate,
+                    onClearEndDate = clearEndDate,
+                )
             }
         }
     }
 
-    when (datePickerTarget) {
-        DatePickerTarget.START -> {
-            MainMemoDatePickerDialog(
-                title = stringResource(R.string.main_filter_pick_start_date),
-                initialDate = filter.startDate,
-                onConfirm = { date ->
-                    onStartDateSelected(date)
-                    datePickerTarget = null
-                },
-                onDismiss = { datePickerTarget = null },
-            )
-        }
-
-        DatePickerTarget.END -> {
-            MainMemoDatePickerDialog(
-                title = stringResource(R.string.main_filter_pick_end_date),
-                initialDate = filter.endDate,
-                onConfirm = { date ->
-                    onEndDateSelected(date)
-                    datePickerTarget = null
-                },
-                onDismiss = { datePickerTarget = null },
-            )
-        }
-
-        null -> {
-            Unit
-        }
-    }
+    MainMemoDatePickerHost(
+        datePickerTarget = datePickerTarget,
+        filter = filter,
+        onStartDateSelected = onStartDateSelected,
+        onEndDateSelected = onEndDateSelected,
+        onDismiss = { datePickerTarget = null },
+    )
 }
 
 @Composable
-private fun MainMemoFilterHeader() {
+internal fun MainMemoFilterHeader() {
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -213,7 +151,7 @@ private fun MainMemoFilterHeader() {
 }
 
 @Composable
-private fun MainMemoFilterSectionCard(
+internal fun MainMemoFilterSectionCard(
     icon: ImageVector,
     title: String,
     isActive: Boolean = false,
@@ -234,7 +172,12 @@ private fun MainMemoFilterSectionCard(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint =
+                            if (isActive) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
                         modifier = Modifier.padding(AppSpacing.Small),
                     )
                 }
@@ -250,7 +193,7 @@ private fun MainMemoFilterSectionCard(
 }
 
 @Composable
-private fun MainMemoSortButton(
+internal fun MainMemoSortButton(
     modifier: Modifier = Modifier,
     text: String,
     icon: ImageVector,
@@ -304,7 +247,7 @@ private fun MainMemoSortButton(
 }
 
 @Composable
-private fun MainMemoDateField(
+internal fun MainMemoDateField(
     modifier: Modifier = Modifier,
     label: String,
     value: String,
@@ -335,41 +278,11 @@ private fun MainMemoDateField(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.CalendarMonth,
-                    contentDescription = null,
-                    tint = if (hasValue) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp),
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                )
+                MainMemoDateFieldContent(label = label, value = value, hasValue = hasValue)
             }
 
             if (hasValue) {
-                IconButton(
-                    onClick = onClear,
-                    modifier =
-                        Modifier
-                            .size(24.dp)
-                            .align(Alignment.TopEnd),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.action_clear),
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                MainMemoDateFieldClearAction(onClear = onClear)
             }
         }
     }
@@ -377,7 +290,7 @@ private fun MainMemoDateField(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainMemoDatePickerDialog(
+internal fun MainMemoDatePickerDialog(
     title: String,
     initialDate: LocalDate?,
     onConfirm: (LocalDate?) -> Unit,
@@ -456,14 +369,15 @@ private fun MainMemoFilterDragHandle() {
 }
 
 @Composable
-private fun sortOptionLabel(option: MemoSortOption): String =
+internal fun sortOptionLabel(option: MemoSortOption): String =
     when (option) {
         MemoSortOption.CREATED_TIME -> stringResource(R.string.main_filter_sort_created_time)
         MemoSortOption.UPDATED_TIME -> stringResource(R.string.main_filter_sort_updated_time)
     }
 
 @Composable
-private fun LocalDate?.formatOrDefault(): String = this?.format(DATE_LABEL_FORMATTER) ?: stringResource(R.string.main_filter_date_not_set)
+internal fun LocalDate?.formatOrDefault(): String =
+    this?.format(DATE_LABEL_FORMATTER) ?: stringResource(R.string.main_filter_date_not_set)
 
 private fun LocalDate.toEpochMillis(): Long =
     atStartOfDay(DEFAULT_ZONE)
@@ -476,7 +390,7 @@ private fun Long.toLocalDate(): LocalDate =
         .atZone(DEFAULT_ZONE)
         .toLocalDate()
 
-private enum class DatePickerTarget {
+internal enum class DatePickerTarget {
     START,
     END,
 }

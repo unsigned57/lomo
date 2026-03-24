@@ -1,5 +1,6 @@
 package com.lomo.app.feature.lanshare
 
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

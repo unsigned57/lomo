@@ -48,7 +48,8 @@ class SyncPolicyRepositoryImpl
                 )
         }
 
-        override fun observeRemoteSyncBackend(): Flow<SyncBackendType> = dataStore.syncBackendType.map(::syncBackendFromPreference)
+        override fun observeRemoteSyncBackend(): Flow<SyncBackendType> =
+            dataStore.syncBackendType.map(::syncBackendFromPreference)
 
         override suspend fun setRemoteSyncBackend(type: SyncBackendType) {
             dataStore.updateSyncBackendType(type.preferenceValue)

@@ -2,52 +2,76 @@ package com.lomo.data.share
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.SharePayload
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.domain.repository.LanShareConfigurationController
+import com.lomo.domain.repository.LanShareLifecycleController
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.repository.LanShareStateRepository
+import com.lomo.domain.repository.LanShareTransferController
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/**
- * Orchestrates LAN share collaborators.
- *
- * Responsibilities are split across dedicated collaborators:
- * - lifecycle: [ShareServiceLifecycleController]
- * - pairing/config policy: [SharePairingConfig]
- * - transfer orchestration: [ShareTransferOrchestrator]
- * - attachment storage strategy: [ShareAttachmentStorage]
- * - incoming memo persistence: [ShareIncomingMemoSaver]
- */
 @Singleton
 class ShareServiceManager
     @Inject
     constructor(
-        private val lifecycleController: ShareServiceLifecycleController,
-        private val transferOrchestrator: ShareTransferOrchestrator,
-        private val pairingConfig: SharePairingConfig,
-        private val attachmentStorage: ShareAttachmentStorage,
-        private val incomingMemoSaver: ShareIncomingMemoSaver,
-    ) : LanShareService {
+        stateRepository: LanShareStateDelegate,
+        lifecycleController: LanShareLifecycleControllerImpl,
+        transferController: LanShareTransferControllerImpl,
+        configurationController: LanShareConfigurationControllerImpl,
+    ) : LanShareService,
+        LanShareStateRepository by stateRepository,
+        LanShareLifecycleController by lifecycleController,
+        LanShareTransferController by transferController,
+        LanShareConfigurationController by configurationController
+
+@Singleton
+class ShareIncomingStateHolder
+    @Inject
+    constructor() {
+        private val _incomingShare = MutableStateFlow<IncomingShareState>(IncomingShareState.None)
+        val incomingShare: StateFlow<IncomingShareState> = _incomingShare.asStateFlow()
+
+        fun showPending(payload: SharePayload) {
+            _incomingShare.value = IncomingShareState.Pending(payload)
+        }
+
+        fun clear() {
+            _incomingShare.value = IncomingShareState.None
+        }
+    }
+
+@Singleton
+class LanShareStateDelegate
+    @Inject
+    constructor(
+        lifecycleController: ShareServiceLifecycleController,
+        transferOrchestrator: ShareTransferOrchestrator,
+        pairingConfig: SharePairingConfig,
+        incomingStateHolder: ShareIncomingStateHolder,
+        attachmentStorage: ShareAttachmentStorage,
+        incomingMemoSaver: ShareIncomingMemoSaver,
+    ) : LanShareStateRepository {
         override val discoveredDevices: StateFlow<List<DiscoveredDevice>> =
             lifecycleController.discoveredDevices
 
-        private val _incomingShare = MutableStateFlow<IncomingShareState>(IncomingShareState.None)
-        override val incomingShare: StateFlow<IncomingShareState> = _incomingShare.asStateFlow()
+        override val incomingShare: StateFlow<IncomingShareState> = incomingStateHolder.incomingShare
 
         override val transferState: StateFlow<ShareTransferState> = transferOrchestrator.transferState
 
-        override val lanShareE2eEnabled = pairingConfig.lanShareE2eEnabled
-        override val lanSharePairingConfigured = pairingConfig.lanSharePairingConfigured
-        override val lanSharePairingCode = pairingConfig.lanSharePairingCode
-        override val lanShareDeviceName = pairingConfig.lanShareDeviceName
+        override val lanShareE2eEnabled: Flow<Boolean> = pairingConfig.lanShareE2eEnabled
+        override val lanSharePairingConfigured: Flow<Boolean> = pairingConfig.lanSharePairingConfigured
+        override val lanSharePairingCode: StateFlow<String> = pairingConfig.lanSharePairingCode
+        override val lanShareDeviceName: Flow<String> = pairingConfig.lanShareDeviceName
 
         init {
             lifecycleController.bindServerCallbacks(
-                onIncomingPrepare = { payload ->
-                    _incomingShare.value = IncomingShareState.Pending(payload)
-                },
+                onIncomingPrepare = incomingStateHolder::showPending,
                 onSaveAttachment = { name, type, payloadFile ->
                     attachmentStorage.saveAttachmentFile(name, type, payloadFile)
                 },
@@ -56,7 +80,15 @@ class ShareServiceManager
                 },
             )
         }
+    }
 
+@Singleton
+class LanShareLifecycleControllerImpl
+    @Inject
+    constructor(
+        private val lifecycleController: ShareServiceLifecycleController,
+        private val transferOrchestrator: ShareTransferOrchestrator,
+    ) : LanShareLifecycleController {
         override fun startServices() {
             lifecycleController.startServices()
         }
@@ -73,7 +105,16 @@ class ShareServiceManager
         override fun stopDiscovery() {
             lifecycleController.stopDiscovery()
         }
+    }
 
+@Singleton
+class LanShareTransferControllerImpl
+    @Inject
+    constructor(
+        private val lifecycleController: ShareServiceLifecycleController,
+        private val transferOrchestrator: ShareTransferOrchestrator,
+        private val incomingStateHolder: ShareIncomingStateHolder,
+    ) : LanShareTransferController {
         override suspend fun sendMemo(
             device: DiscoveredDevice,
             content: String,
@@ -89,18 +130,26 @@ class ShareServiceManager
 
         override fun acceptIncoming() {
             lifecycleController.acceptIncoming()
-            _incomingShare.value = IncomingShareState.None
+            incomingStateHolder.clear()
         }
 
         override fun rejectIncoming() {
             lifecycleController.rejectIncoming()
-            _incomingShare.value = IncomingShareState.None
+            incomingStateHolder.clear()
         }
 
         override fun resetTransferState() {
             transferOrchestrator.resetTransferState()
         }
+    }
 
+@Singleton
+class LanShareConfigurationControllerImpl
+    @Inject
+    constructor(
+        private val pairingConfig: SharePairingConfig,
+        private val lifecycleController: ShareServiceLifecycleController,
+    ) : LanShareConfigurationController {
         override suspend fun setLanShareE2eEnabled(enabled: Boolean) {
             pairingConfig.setLanShareE2eEnabled(enabled)
         }

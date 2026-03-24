@@ -1,8 +1,8 @@
 package com.lomo.data.repository
 
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.repository.AppUpdateRepository
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -20,31 +20,31 @@ class AppUpdateRepositoryImpl
             withContext(Dispatchers.IO) {
                 var connection: HttpURLConnection? = null
                 try {
-                    val url = URL(GITHUB_LATEST_RELEASES_URL)
-                    connection = url.openConnection() as HttpURLConnection
-                    connection.requestMethod = "GET"
-                    connection.connectTimeout = CONNECT_TIMEOUT_MS
-                    connection.readTimeout = READ_TIMEOUT_MS
-                    connection.setRequestProperty("User-Agent", USER_AGENT)
+                    runNonFatalCatching {
+                        val url = URL(GITHUB_LATEST_RELEASES_URL)
+                        connection = url.openConnection() as HttpURLConnection
+                        connection.requestMethod = "GET"
+                        connection.connectTimeout = CONNECT_TIMEOUT_MS
+                        connection.readTimeout = READ_TIMEOUT_MS
+                        connection.setRequestProperty("User-Agent", USER_AGENT)
 
-                    val responseCode = connection.responseCode
-                    if (responseCode != HttpURLConnection.HTTP_OK) {
-                        Timber.w("Update check failed: code=%d", responseCode)
-                        return@withContext null
+                        val responseCode = connection.responseCode
+                        if (responseCode != HttpURLConnection.HTTP_OK) {
+                            Timber.w("Update check failed: code=%d", responseCode)
+                            null
+                        } else {
+                            val response = connection.inputStream.bufferedReader().use { it.readText() }
+                            val json = JSONObject(response)
+                            LatestAppRelease(
+                                tagName = json.getString("tag_name"),
+                                htmlUrl = json.getString("html_url"),
+                                body = json.optString("body", ""),
+                            )
+                        }
+                    }.getOrElse { error ->
+                        Timber.w(error, "Update check failed")
+                        null
                     }
-
-                    val response = connection.inputStream.bufferedReader().use { it.readText() }
-                    val json = JSONObject(response)
-                    return@withContext LatestAppRelease(
-                        tagName = json.getString("tag_name"),
-                        htmlUrl = json.getString("html_url"),
-                        body = json.optString("body", ""),
-                    )
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (e: Exception) {
-                    Timber.w(e, "Update check failed")
-                    return@withContext null
                 } finally {
                     connection?.disconnect()
                 }

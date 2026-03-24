@@ -26,7 +26,7 @@ class SettingsViewModel
         private val webDavCoordinator =
             coordinatorFactory.createWebDavCoordinator(viewModelScope)
 
-        private val _operationError = MutableStateFlow<String?>(null)
+        private val _operationError = MutableStateFlow<SettingsOperationError?>(null)
         private val operationErrorFlow = _operationError.asStateFlow()
         private val errorMapper = coordinatorFactory.createErrorMapper()
         private val actionCoordinator =
@@ -53,7 +53,7 @@ class SettingsViewModel
 
         val pairingCodeError: StateFlow<String?> = stateProvider.pairingCodeError
         val connectionTestState: StateFlow<SettingsGitConnectionTestState> = stateProvider.connectionTestState
-        val operationError: StateFlow<String?> = stateProvider.operationError
+        val operationError: StateFlow<SettingsOperationError?> = stateProvider.operationError
 
         val storageFeature =
             SettingsStorageFeatureViewModel(

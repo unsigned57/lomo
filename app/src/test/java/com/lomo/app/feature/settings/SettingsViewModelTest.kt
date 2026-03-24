@@ -1,5 +1,6 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
@@ -8,7 +9,7 @@ import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.LanShareService
-import com.lomo.domain.usecase.GitSyncErrorUseCase
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
@@ -39,7 +40,6 @@ class SettingsViewModelTest {
     private lateinit var gitSyncSettingsUseCase: GitSyncSettingsUseCase
     private lateinit var webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase
     private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
-    private lateinit var gitSyncErrorUseCase: GitSyncErrorUseCase
 
     @Before
     fun setUp() {
@@ -50,7 +50,6 @@ class SettingsViewModelTest {
         gitSyncSettingsUseCase = mockk(relaxed = true)
         webDavSyncSettingsUseCase = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
-        gitSyncErrorUseCase = GitSyncErrorUseCase()
 
         every { appConfigRepository.observeRootDisplayName() } returns flowOf("")
         every { appConfigRepository.observeImageDisplayName() } returns flowOf("")
@@ -118,11 +117,14 @@ class SettingsViewModelTest {
             viewModel.gitFeature.triggerGitSyncNow()
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals("sync failed", viewModel.operationError.value)
+            assertEquals(
+                SettingsOperationError.Message("Failed to run Git sync: sync failed"),
+                viewModel.operationError.value,
+            )
         }
 
     @Test
-    fun `testGitConnection exposes error state and operationError on exception`() =
+    fun `testGitConnection exposes structured error state on exception`() =
         runTest {
             coEvery { gitSyncSettingsUseCase.testConnection() } throws IllegalStateException("network down")
             val viewModel = createViewModel()
@@ -131,14 +133,17 @@ class SettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                SettingsGitConnectionTestState.Error("network down"),
+                SettingsGitConnectionTestState.Error(
+                    code = GitSyncErrorCode.UNKNOWN,
+                    detail = "Failed to test Git connection: network down",
+                ),
                 viewModel.connectionTestState.value,
             )
-            assertEquals("network down", viewModel.operationError.value)
+            assertNull(viewModel.operationError.value)
         }
 
     @Test
-    fun `testGitConnection sanitizes technical error result message`() =
+    fun `testGitConnection keeps structured error code and detail for rendering`() =
         runTest {
             coEvery { gitSyncSettingsUseCase.testConnection() } returns
                 GitSyncResult.Error("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute")
@@ -148,7 +153,10 @@ class SettingsViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals(
-                SettingsGitConnectionTestState.Error("Failed to test Git connection"),
+                SettingsGitConnectionTestState.Error(
+                    code = GitSyncErrorCode.UNKNOWN,
+                    detail = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute",
+                ),
                 viewModel.connectionTestState.value,
             )
         }
@@ -162,7 +170,7 @@ class SettingsViewModelTest {
             viewModel.lanShareFeature.updateLanSharePairingCode("bad")
             testDispatcher.scheduler.advanceUntilIdle()
 
-            assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
+            assertEquals(LanSharePairingCodePolicy.INVALID_LENGTH_MESSAGE, viewModel.pairingCodeError.value)
         }
 
     @Test
@@ -178,30 +186,12 @@ class SettingsViewModelTest {
         }
 
     @Test
-    fun `git sync error presentation delegates to policy classification`() =
+    fun `git conflict dialog classification uses structured error code`() =
         runTest {
             val viewModel = createViewModel()
 
-            val conflict = "Sync halted: rebase STOPPED detected."
-            val presentedConflict =
-                viewModel.gitFeature.presentGitSyncErrorMessage(
-                    message = conflict,
-                    conflictSummary = "conflict",
-                    directPathRequired = "direct",
-                    unknownError = "unknown",
-                )
-            assertEquals("conflict", presentedConflict)
-            assertEquals(true, viewModel.gitFeature.shouldShowGitConflictDialog(conflict))
-
-            val technical = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute"
-            val presentedTechnical =
-                viewModel.gitFeature.presentGitSyncErrorMessage(
-                    message = technical,
-                    conflictSummary = "conflict",
-                    directPathRequired = "direct",
-                    unknownError = "unknown",
-                )
-            assertEquals("unknown", presentedTechnical)
+            assertEquals(true, viewModel.gitFeature.shouldShowGitConflictDialog(GitSyncErrorCode.CONFLICT))
+            assertEquals(false, viewModel.gitFeature.shouldShowGitConflictDialog(GitSyncErrorCode.UNKNOWN))
         }
 
     @Test
@@ -225,7 +215,6 @@ class SettingsViewModelTest {
                     gitSyncSettingsUseCase = gitSyncSettingsUseCase,
                     webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
                     switchRootStorageUseCase = switchRootStorageUseCase,
-                    gitSyncErrorUseCase = gitSyncErrorUseCase,
                 ),
         )
 }

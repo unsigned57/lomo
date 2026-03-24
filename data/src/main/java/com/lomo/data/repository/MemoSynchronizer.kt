@@ -1,8 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.MemoFileOutboxEntity
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.Memo
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,49 +28,22 @@ class MemoSynchronizer
         private val mutationHandler: MemoMutationHandler,
     ) {
         private val mutex = Mutex()
-        private val flushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val outboxDrainSignal = Channel<Unit>(Channel.CONFLATED)
-
-        private val _outboxDrainCompleted =
-            MutableSharedFlow<Unit>(
-                extraBufferCapacity = 1,
-                onBufferOverflow = BufferOverflow.DROP_OLDEST,
-            )
-        val outboxDrainCompleted: SharedFlow<Unit> = _outboxDrainCompleted.asSharedFlow()
+        private val outboxCoordinator = MemoOutboxDrainCoordinator(mutationHandler, mutex)
+        val outboxDrainCompleted: SharedFlow<Unit> = outboxCoordinator.outboxDrainCompleted
 
         // Sync state for UI observation - helps prevent writes during active sync
         private val _isSyncing = kotlinx.coroutines.flow.MutableStateFlow(false)
         val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSyncing
 
-        private companion object {
-            const val MAX_OUTBOX_RETRIES = 5
-            const val OUTBOX_RETRY_DELAY_MS = 1_500L
-        }
-
         init {
-            flushScope.launch {
-                requestOutboxDrain()
-                for (signal in outboxDrainSignal) {
-                    if (signal != Unit) continue
-                    try {
-                        mutex.withLock {
-                            drainOutboxLocked()
-                        }
-                        _outboxDrainCompleted.tryEmit(Unit)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Timber.w(e, "Background memo outbox drain failed")
-                    }
-                }
-            }
+            outboxCoordinator.start()
         }
 
         suspend fun refresh(targetFilename: String? = null) =
             mutex.withLock {
                 _isSyncing.value = true
                 try {
-                    drainOutboxLocked()
+                    outboxCoordinator.drainOutboxLocked()
                     if (mutationHandler.hasPendingMemoFileOutbox()) {
                         Timber.w("Skip refresh because memo outbox is still pending")
                         return@withLock
@@ -93,7 +66,7 @@ class MemoSynchronizer
             mutex.withLock {
                 mutationHandler.saveMemoInDb(content, timestamp)
             }
-            requestOutboxDrain()
+            outboxCoordinator.requestOutboxDrain()
         }
 
         suspend fun updateMemo(
@@ -110,11 +83,16 @@ class MemoSynchronizer
                     mutationHandler.updateMemoInDb(memo, newContent)
                 }
             if (outboxId != null) {
-                requestOutboxDrain()
+                outboxCoordinator.requestOutboxDrain()
             }
         }
 
-        suspend fun deleteMemo(memo: Memo) = mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.deleteMemo(memo) } }
+        suspend fun deleteMemo(memo: Memo) =
+            mutex.withLock {
+                withContext(Dispatchers.IO) {
+                    mutationHandler.deleteMemo(memo)
+                }
+            }
 
         suspend fun deleteMemoAsync(memo: Memo) =
             withContext(Dispatchers.IO) {
@@ -123,11 +101,16 @@ class MemoSynchronizer
                         mutationHandler.deleteMemoInDb(memo)
                     }
                 if (outboxId != null) {
-                    requestOutboxDrain()
+                    outboxCoordinator.requestOutboxDrain()
                 }
             }
 
-        suspend fun restoreMemo(memo: Memo) = mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.restoreMemo(memo) } }
+        suspend fun restoreMemo(memo: Memo) =
+            mutex.withLock {
+                withContext(Dispatchers.IO) {
+                    mutationHandler.restoreMemo(memo)
+                }
+            }
 
         suspend fun restoreMemoAsync(memo: Memo) =
             withContext(Dispatchers.IO) {
@@ -136,81 +119,122 @@ class MemoSynchronizer
                         mutationHandler.restoreMemoInDb(memo)
                     }
                 if (outboxId != null) {
-                    requestOutboxDrain()
+                    outboxCoordinator.requestOutboxDrain()
                 }
             }
 
         suspend fun deletePermanently(memo: Memo) =
             mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.deletePermanently(memo) } }
+    }
 
-        private suspend fun drainOutboxLocked() {
-            while (true) {
-                val item = mutationHandler.nextMemoFileOutbox() ?: return
-                if (item.retryCount >= MAX_OUTBOX_RETRIES) {
-                    Timber.e(
-                        "Drop poisoned outbox item id=%d op=%s memoId=%s retryCount=%d",
-                        item.id,
-                        item.operation,
-                        item.memoId,
-                        item.retryCount,
-                    )
-                    mutationHandler.acknowledgeMemoFileOutbox(item.id)
-                    continue
-                }
+private class MemoOutboxDrainCoordinator(
+    private val mutationHandler: MemoMutationHandler,
+    private val mutex: Mutex,
+) {
+    private val flushScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val outboxDrainSignal = Channel<Unit>(Channel.CONFLATED)
+    private val _outboxDrainCompleted =
+        MutableSharedFlow<Unit>(
+            extraBufferCapacity = 1,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+    val outboxDrainCompleted: SharedFlow<Unit> = _outboxDrainCompleted.asSharedFlow()
 
-                try {
-                    val flushed = mutationHandler.flushMemoFileOutbox(item)
-                    if (flushed) {
-                        mutationHandler.acknowledgeMemoFileOutbox(item.id)
-                    } else {
-                        val shouldContinue =
-                            handleOutboxFailure(
-                                item = item,
-                                throwable = IllegalStateException("Outbox file flush returned false for ${item.operation}"),
-                            )
-                        if (!shouldContinue) return
+    fun start() {
+        flushScope.launch {
+            requestOutboxDrain()
+            for (signal in outboxDrainSignal) {
+                if (signal != Unit) continue
+                runNonFatalCatching {
+                    mutex.withLock {
+                        drainOutboxLocked()
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    val shouldContinue = handleOutboxFailure(item, e)
-                    if (!shouldContinue) return
+                    _outboxDrainCompleted.tryEmit(Unit)
+                }.onFailure { error ->
+                    Timber.w(error, "Background memo outbox drain failed")
                 }
             }
-        }
-
-        private suspend fun handleOutboxFailure(
-            item: MemoFileOutboxEntity,
-            throwable: Throwable,
-        ): Boolean {
-            mutationHandler.markMemoFileOutboxFailed(item.id, throwable)
-            val nextRetryCount = item.retryCount + 1
-            if (nextRetryCount >= MAX_OUTBOX_RETRIES) {
-                Timber.e(
-                    throwable,
-                    "Drop poisoned outbox item id=%d op=%s memoId=%s after %d retries",
-                    item.id,
-                    item.operation,
-                    item.memoId,
-                    nextRetryCount,
-                )
-                mutationHandler.acknowledgeMemoFileOutbox(item.id)
-                return true
-            }
-
-            scheduleRetry(nextRetryCount)
-            return false
-        }
-
-        private fun scheduleRetry(retryCount: Int) {
-            val delayMillis = OUTBOX_RETRY_DELAY_MS * retryCount.coerceAtLeast(1)
-            flushScope.launch {
-                delay(delayMillis)
-                requestOutboxDrain()
-            }
-        }
-
-        private fun requestOutboxDrain() {
-            outboxDrainSignal.trySend(Unit)
         }
     }
+
+    suspend fun drainOutboxLocked() {
+        var shouldContinue = true
+        while (shouldContinue) {
+            val item = mutationHandler.nextMemoFileOutbox() ?: break
+            shouldContinue = processOutboxItem(item)
+        }
+    }
+
+    fun requestOutboxDrain() {
+        outboxDrainSignal.trySend(Unit)
+    }
+
+    private suspend fun handleOutboxFailure(
+        item: MemoFileOutboxEntity,
+        throwable: Throwable,
+    ): Boolean {
+        mutationHandler.markMemoFileOutboxFailed(item.id, throwable)
+        val nextRetryCount = item.retryCount + 1
+        if (nextRetryCount >= MAX_OUTBOX_RETRIES) {
+            Timber.e(
+                throwable,
+                "Drop poisoned outbox item id=%d op=%s memoId=%s after %d retries",
+                item.id,
+                item.operation,
+                item.memoId,
+                nextRetryCount,
+            )
+            mutationHandler.acknowledgeMemoFileOutbox(item.id)
+            return true
+        }
+
+        scheduleRetry(nextRetryCount)
+        return false
+    }
+
+    private suspend fun processOutboxItem(item: MemoFileOutboxEntity): Boolean {
+        if (item.retryCount >= MAX_OUTBOX_RETRIES) {
+            Timber.e(
+                "Drop poisoned outbox item id=%d op=%s memoId=%s retryCount=%d",
+                item.id,
+                item.operation,
+                item.memoId,
+                item.retryCount,
+            )
+            mutationHandler.acknowledgeMemoFileOutbox(item.id)
+            return true
+        }
+
+        return runNonFatalCatching {
+            flushOrRetryOutboxItem(item)
+        }.getOrElse { error ->
+            handleOutboxFailure(item, error)
+        }
+    }
+
+    private suspend fun flushOrRetryOutboxItem(item: MemoFileOutboxEntity): Boolean {
+        val flushed = mutationHandler.flushMemoFileOutbox(item)
+        return if (flushed) {
+            mutationHandler.acknowledgeMemoFileOutbox(item.id)
+            true
+        } else {
+            handleOutboxFailure(
+                item = item,
+                throwable = IllegalStateException("Outbox file flush returned false for ${item.operation}"),
+            )
+        }
+    }
+
+    private fun scheduleRetry(retryCount: Int) {
+        val delayMillis = OUTBOX_RETRY_DELAY_MS * retryCount.coerceAtLeast(1)
+        flushScope.launch {
+            delay(delayMillis)
+            requestOutboxDrain()
+        }
+    }
+
+    private companion object {
+        const val MAX_OUTBOX_RETRIES = 5
+        const val OUTBOX_RETRY_DELAY_MS = 1_500L
+    }
+}

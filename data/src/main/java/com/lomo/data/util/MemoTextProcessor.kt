@@ -4,23 +4,11 @@ import com.lomo.data.memo.MemoContentHashPolicy
 import com.lomo.domain.model.StorageTimestampFormats
 import java.time.Instant
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 class MemoTextProcessor
     @Inject
     constructor() {
-        companion object {
-            private val TAG_PATTERN = Regex("(?:^|\\s)#([\\p{L}\\p{N}_][\\p{L}\\p{N}_/]*)")
-            private val MD_IMAGE_PATTERN = Regex("!\\[.*?\\]\\((.*?)\\)")
-            private val WIKI_IMAGE_PATTERN = Regex("!\\[\\[(.*?)\\]\\]")
-            private val AUDIO_LINK_PATTERN =
-                Regex(
-                    "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
-                    RegexOption.IGNORE_CASE,
-                )
-        }
-
         /**
          * Finds the start and end line indices of a memo block in a list of lines.
          * @param lines The file content split by lines.
@@ -33,65 +21,13 @@ class MemoTextProcessor
             rawContent: String,
             timestamp: Long,
             memoId: String? = null,
-        ): Pair<Int, Int> {
-            memoId?.let { id ->
-                findMemoBlockByMemoId(lines, id)?.let { return it }
-            }
-
-            // 1. Try exact raw block match first.
-            val rawLines = rawContent.lines().map { it.trimEnd() }.toMutableList()
-            while (rawLines.isNotEmpty() && rawLines.last().isEmpty()) {
-                rawLines.removeAt(rawLines.lastIndex)
-            }
-            if (rawLines.isNotEmpty()) {
-                val targetSize = rawLines.size
-                for (i in 0..(lines.size - targetSize).coerceAtLeast(0)) {
-                    var matched = true
-                    for (k in rawLines.indices) {
-                        if (lines[i + k].trimEnd() != rawLines[k]) {
-                            matched = false
-                            break
-                        }
-                    }
-                    if (matched) return i to findBlockEndIndex(lines, i)
-                }
-            }
-
-            // 2. Fallback: first line match.
-            val contentStartLine = rawContent.lines().firstOrNull { it.isNotBlank() } ?: return -1 to -1
-            val cleanContentStart = contentStartLine.trim()
-            for (i in lines.indices) {
-                if (lines[i].trim() == cleanContentStart) {
-                    var endIndex = i
-                    endIndex = findBlockEndIndex(lines, i)
-                    return i to endIndex
-                }
-            }
-
-            // 3. Last fallback: timestamp-only match.
-            val zone = ZoneId.systemDefault()
-            val formats = StorageTimestampFormats.supportedPatterns
-
-            for (fmt in formats) {
-                val timestampPart =
-                    StorageTimestampFormats
-                        .formatter(fmt)
-                        .withZone(zone)
-                        .format(Instant.ofEpochMilli(timestamp))
-
-                val startIndex =
-                    lines.indexOfFirst { line ->
-                        val trimmed = line.trim()
-                        trimmed == "- $timestampPart" || trimmed.startsWith("- $timestampPart ")
-                    }
-                if (startIndex != -1) {
-                    val endIndex = findBlockEndIndex(lines, startIndex)
-                    return startIndex to endIndex
-                }
-            }
-
-            return -1 to -1
-        }
+        ): Pair<Int, Int> =
+            memoId
+                ?.let { findMemoBlockByMemoId(lines, it) }
+                ?: findMemoBlockByRawContent(lines, rawContent)
+                ?: findMemoBlockByFirstLine(lines, rawContent)
+                ?: findMemoBlockByTimestamp(lines, timestamp)
+                ?: MEMO_BLOCK_NOT_FOUND
 
         /**
          * Replaces an existing memo block with new content. Returns true if successful, false if block
@@ -104,29 +40,28 @@ class MemoTextProcessor
             rawContent: String,
             timestamp: Long,
             newRawContent: String,
-            timestampStr: String, // New argument
+            timestampStr: String,
             memoId: String? = null,
         ): Boolean {
-            var (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp, memoId)
-
-            if (startIndex != -1 && endIndex >= startIndex) {
-                val contentLines = newRawContent.lines()
-                val newMemoLines = mutableListOf<String>()
-
-                if (contentLines.isNotEmpty()) {
-                    newMemoLines.add("- $timestampStr ${contentLines.first()}")
-                    for (i in 1 until contentLines.size) {
-                        newMemoLines.add(contentLines[i])
-                    }
-                } else {
-                    newMemoLines.add("- $timestampStr")
-                }
-
-                lines.subList(startIndex, endIndex + 1).clear()
-                lines.addAll(startIndex, newMemoLines)
-                return true
+            val (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp, memoId)
+            if (startIndex == -1 || endIndex < startIndex) {
+                return false
             }
-            return false
+
+            val contentLines = newRawContent.lines()
+            val newMemoLines = mutableListOf<String>()
+            if (contentLines.isNotEmpty()) {
+                newMemoLines.add("- $timestampStr ${contentLines.first()}")
+                for (index in 1 until contentLines.size) {
+                    newMemoLines.add(contentLines[index])
+                }
+            } else {
+                newMemoLines.add("- $timestampStr")
+            }
+
+            lines.subList(startIndex, endIndex + 1).clear()
+            lines.addAll(startIndex, newMemoLines)
+            return true
         }
 
         /** Removes a memo block. Returns true if successful. */
@@ -137,11 +72,12 @@ class MemoTextProcessor
             memoId: String? = null,
         ): Boolean {
             val (startIndex, endIndex) = findMemoBlock(lines, rawContent, timestamp, memoId)
-            if (startIndex != -1 && endIndex >= startIndex) {
-                lines.subList(startIndex, endIndex + 1).clear()
-                return true
+            if (startIndex == -1 || endIndex < startIndex) {
+                return false
             }
-            return false
+
+            lines.subList(startIndex, endIndex + 1).clear()
+            return true
         }
 
         fun extractTags(content: String): List<String> {
@@ -164,13 +100,12 @@ class MemoTextProcessor
         fun extractAudioLinks(content: String): List<String> =
             AUDIO_LINK_PATTERN
                 .findAll(content)
-                .mapNotNull {
-                    it.groupValues.getOrNull(1)
-                }.toList()
+                .mapNotNull { it.groupValues.getOrNull(1) }
+                .toList()
 
         fun extractLocalAttachmentPaths(content: String): List<String> =
             (extractImages(content) + extractAudioLinks(content))
-                .map { it.trim() }
+                .map(String::trim)
                 .filter { path ->
                     path.isNotEmpty() &&
                         !path.startsWith("http://", ignoreCase = true) &&
@@ -186,43 +121,47 @@ class MemoTextProcessor
 
             val pattern = if (checked) "- [ ]" else "- [x]"
             val replacement = if (checked) "- [x]" else "- [ ]"
-
-            val builder = StringBuilder(content.length + 8)
+            val builder = StringBuilder(content.length + CHECKBOX_BUFFER_PADDING)
             var currentIndex = 0
             var hadAnyLine = false
-            var targetFound = false
-            var targetReplaced = false
+            var toggleState = CheckboxToggleState.NOT_FOUND
 
             content.lineSequence().forEach { line ->
-                if (hadAnyLine) builder.append('\n')
-
-                if (currentIndex == lineIndex) {
-                    targetFound = true
-                    if (line.contains(pattern)) {
-                        builder.append(line.replaceFirst(pattern, replacement))
-                        targetReplaced = true
-                    } else {
-                        builder.append(line)
-                    }
-                } else {
-                    builder.append(line)
+                if (hadAnyLine) {
+                    builder.append('\n')
                 }
+
+                val resolvedLine =
+                    if (currentIndex == lineIndex) {
+                        if (line.contains(pattern)) {
+                            toggleState = CheckboxToggleState.REPLACED
+                            line.replaceFirst(pattern, replacement)
+                        } else {
+                            toggleState = CheckboxToggleState.PATTERN_MISSING
+                            line
+                        }
+                    } else {
+                        line
+                    }
+                builder.append(resolvedLine)
 
                 hadAnyLine = true
                 currentIndex++
             }
 
-            if (!targetFound) {
-                timber.log.Timber.w("toggleCheckbox: lineIndex $lineIndex out of bounds (0..${currentIndex - 1})")
-                return content
-            }
+            return when (toggleState) {
+                CheckboxToggleState.NOT_FOUND -> {
+                    timber.log.Timber.w("toggleCheckbox: lineIndex $lineIndex out of bounds (0..${currentIndex - 1})")
+                    content
+                }
 
-            if (!targetReplaced) {
-                timber.log.Timber.w("toggleCheckbox: expected pattern '$pattern' not found at line $lineIndex")
-                return content
-            }
+                CheckboxToggleState.PATTERN_MISSING -> {
+                    timber.log.Timber.w("toggleCheckbox: expected pattern '$pattern' not found at line $lineIndex")
+                    content
+                }
 
-            return builder.toString()
+                CheckboxToggleState.REPLACED -> builder.toString()
+            }
         }
 
         private fun findMemoBlockByMemoId(
@@ -261,7 +200,9 @@ class MemoTextProcessor
 
                 val contentBuilder = StringBuilder(header.contentPart)
                 for (lineIndex in (start + 1)..end) {
-                    if (lineIndex !in lines.indices) continue
+                    if (lineIndex !in lines.indices) {
+                        continue
+                    }
                     val line = lines[lineIndex]
                     if (contentBuilder.isEmpty()) {
                         contentBuilder.append(line)
@@ -283,58 +224,28 @@ class MemoTextProcessor
         }
 
         private fun parseMemoId(memoId: String): ParsedMemoId? {
-            val trimmed = memoId.trim()
-            if (trimmed.isEmpty()) return null
-
-            val parts = trimmed.split('_')
-            if (parts.size < 3) return null
-
-            val tail = parts.last()
-            val collisionIndex = if (tail.all(Char::isDigit)) tail.toIntOrNull() ?: return null else 0
+            val parts = memoId.trim().takeIf(String::isNotEmpty)?.split(MEMO_ID_SEPARATOR).orEmpty()
+            val tail = parts.lastOrNull()
+            val collisionIndex = tail?.takeIf { it.all(Char::isDigit) }?.toIntOrNull() ?: 0
             val coreParts = if (collisionIndex > 0) parts.dropLast(1) else parts
-            if (coreParts.size < 3) return null
+            val resolvedContentHash = coreParts.lastOrNull()?.takeIf(::isValidMemoContentHash)
+            val resolvedTimePart = resolvedContentHash?.let { resolveMemoIdTimePart(coreParts.dropLast(1)) }
+            val isValid =
+                parts.size >= MIN_MEMO_ID_PARTS &&
+                    coreParts.size >= MIN_MEMO_ID_PARTS &&
+                    resolvedContentHash != null &&
+                    resolvedTimePart != null
 
-            val contentHash = coreParts.last()
-            if (!contentHash.matches(Regex("^[0-9a-f]+$"))) return null
-
-            // ID schema: {date}_{time}_{contentHash}[_{collision}]
-            // Date may contain underscores, and time may also contain underscores depending on selected format.
-            // We find the split point by validating time suffix candidates.
-            val dateAndTimeParts = coreParts.dropLast(1)
-            var timePart: String? = null
-            for (start in 1 until dateAndTimeParts.size) {
-                val candidate = dateAndTimeParts.subList(start, dateAndTimeParts.size).joinToString("_")
-                if (StorageTimestampFormats.parseOrNull(candidate) != null) {
-                    timePart = candidate
-                    break
-                }
+            return if (isValid) {
+                ParsedMemoId(
+                    timePart = resolvedTimePart.orEmpty(),
+                    contentHash = resolvedContentHash.orEmpty(),
+                    collisionIndex = collisionIndex,
+                )
+            } else {
+                null
             }
-            val resolvedTimePart = timePart ?: return null
-
-            return ParsedMemoId(
-                timePart = resolvedTimePart,
-                contentHash = contentHash,
-                collisionIndex = collisionIndex,
-            )
         }
-
-        private fun findBlockEndIndex(
-            lines: List<String>,
-            startIndex: Int,
-        ): Int {
-            var endIndex = startIndex
-            for (j in (startIndex + 1) until lines.size) {
-                if (isMemoHeaderLine(lines[j])) {
-                    break
-                }
-                endIndex = j
-            }
-            return endIndex
-        }
-
-        private fun isMemoHeaderLine(line: String): Boolean = StorageTimestampFormats.parseMemoHeaderLine(line) != null
-
-        private fun contentHash(content: String): String = MemoContentHashPolicy.hashHex(content)
 
         private data class ParsedMemoId(
             val timePart: String,
@@ -348,4 +259,111 @@ class MemoTextProcessor
             val timePart: String,
             val content: String,
         )
+
+        private enum class CheckboxToggleState {
+            NOT_FOUND,
+            PATTERN_MISSING,
+            REPLACED,
+        }
+
+        companion object {
+            private val TAG_PATTERN = Regex("""(?:^|\s)#([\p{L}\p{N}_][\p{L}\p{N}_/]*)""")
+            private val MD_IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
+            private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
+            private val AUDIO_LINK_PATTERN =
+                Regex(
+                    """(?<!!)\[[^\]]*]\((.+?\.(?:m4a|mp3|ogg|wav|aac))\)""",
+                    RegexOption.IGNORE_CASE,
+                )
+        }
     }
+
+private const val CHECKBOX_BUFFER_PADDING = 8
+private const val MEMO_ID_SEPARATOR = '_'
+private const val MIN_MEMO_ID_PARTS = 3
+private val MEMO_BLOCK_NOT_FOUND = -1 to -1
+private val MEMO_CONTENT_HASH_REGEX = Regex("^[0-9a-f]+$")
+
+private fun findMemoBlockByRawContent(
+    lines: List<String>,
+    rawContent: String,
+): Pair<Int, Int>? {
+    val rawLines = rawContent.lines().map { it.trimEnd() }.toMutableList()
+    while (rawLines.isNotEmpty() && rawLines.last().isEmpty()) {
+        rawLines.removeAt(rawLines.lastIndex)
+    }
+    val startIndex =
+        if (rawLines.isEmpty() || rawLines.size > lines.size) {
+            null
+        } else {
+            val targetSize = rawLines.size
+            (0..(lines.size - targetSize)).firstOrNull { candidateStart ->
+                rawLines.indices.all { offset ->
+                    lines[candidateStart + offset].trimEnd() == rawLines[offset]
+                }
+            }
+        }
+    return startIndex?.let { it to findBlockEndIndex(lines, it) }
+}
+
+private fun findMemoBlockByFirstLine(
+    lines: List<String>,
+    rawContent: String,
+): Pair<Int, Int>? {
+    val contentStartLine = rawContent.lines().firstOrNull { it.isNotBlank() }?.trim() ?: return null
+    val startIndex = lines.indexOfFirst { it.trim() == contentStartLine }
+    return startIndex.takeIf { it >= 0 }?.let { it to findBlockEndIndex(lines, it) }
+}
+
+private fun findMemoBlockByTimestamp(
+    lines: List<String>,
+    timestamp: Long,
+): Pair<Int, Int>? {
+    val zone = ZoneId.systemDefault()
+    return StorageTimestampFormats.supportedPatterns
+        .asSequence()
+        .map { format ->
+            StorageTimestampFormats
+                .formatter(format)
+                .withZone(zone)
+                .format(Instant.ofEpochMilli(timestamp))
+        }.mapNotNull { timestampPart ->
+            lines.indexOfFirst { line ->
+                val trimmed = line.trim()
+                trimmed == "- $timestampPart" || trimmed.startsWith("- $timestampPart ")
+            }.takeIf { it >= 0 }?.let { it to findBlockEndIndex(lines, it) }
+        }.firstOrNull()
+}
+
+private fun resolveMemoIdTimePart(dateAndTimeParts: List<String>): String? {
+    for (start in 1 until dateAndTimeParts.size) {
+        val candidate =
+            dateAndTimeParts
+                .subList(start, dateAndTimeParts.size)
+                .joinToString(MEMO_ID_SEPARATOR.toString())
+        if (StorageTimestampFormats.parseOrNull(candidate) != null) {
+            return candidate
+        }
+    }
+    return null
+}
+
+private fun isValidMemoContentHash(contentHash: String): Boolean = MEMO_CONTENT_HASH_REGEX.matches(contentHash)
+
+private fun findBlockEndIndex(
+    lines: List<String>,
+    startIndex: Int,
+): Int {
+    var endIndex = startIndex
+    for (index in (startIndex + 1) until lines.size) {
+        if (isMemoHeaderLine(lines[index])) {
+            break
+        }
+        endIndex = index
+    }
+    return endIndex
+}
+
+private fun isMemoHeaderLine(line: String): Boolean = StorageTimestampFormats.parseMemoHeaderLine(line) != null
+
+private fun contentHash(content: String): String = MemoContentHashPolicy.hashHex(content)

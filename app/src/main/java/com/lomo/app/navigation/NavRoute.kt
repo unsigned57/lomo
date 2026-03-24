@@ -55,7 +55,8 @@ object ShareRoutePayloadStore {
 
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, 0.75f, true)
+    private const val STORE_LOAD_FACTOR = 0.75f
+    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, STORE_LOAD_FACTOR, true)
 
     @Synchronized
     fun putMemoContent(content: String): String {
@@ -110,7 +111,8 @@ object ImageViewerRoutePayloadStore {
 
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, 0.75f, true)
+    private const val STORE_LOAD_FACTOR = 0.75f
+    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, STORE_LOAD_FACTOR, true)
 
     @Synchronized
     fun putImageUrls(imageUrls: List<String>): String {

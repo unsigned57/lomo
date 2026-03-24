@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.view.View
 import android.widget.Toast
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.core.content.FileProvider
@@ -47,20 +46,18 @@ class ShareUtils
             context: Context,
             content: String,
             title: String? = null,
-            hostView: View? = null,
             showTime: Boolean = true,
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
             activeDayCount: Int? = null,
             resolvedImagePaths: List<String> = emptyList(),
         ) {
-            try {
+            runCatching {
                 val imageUri =
                     createShareImageUri(
                         context = context,
                         content = content,
                         title = title,
-                        hostView = hostView,
                         config =
                             ShareImageConfig(
                                 showTime = showTime,
@@ -82,9 +79,10 @@ class ShareUtils
                         }
                     context.startActivity(Intent.createChooser(sendIntent, null))
                 }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (throwable: Throwable) {
+            }.onFailure { throwable ->
+                if (throwable is CancellationException) {
+                    throw throwable
+                }
                 Timber.e(throwable, "shareMemoAsImage failed, fallback to text share")
                 withContext(Dispatchers.Main.immediate) {
                     shareMemoText(context, content, title)
@@ -131,16 +129,14 @@ class ShareUtils
             content: String,
             fileName: String,
         ) {
-            // TODO: Create temp file and share via FileProvider.
+            // Markdown shares currently reuse the plain-text path until a dedicated FileProvider flow is introduced.
             shareMemoText(context, content, fileName)
         }
 
-        @Suppress("UNUSED_PARAMETER")
         private suspend fun createShareImageUri(
             context: Context,
             content: String,
             title: String?,
-            hostView: View?,
             config: ShareImageConfig,
         ): android.net.Uri {
             val bitmap =
@@ -161,7 +157,7 @@ class ShareUtils
                     val pngBytes =
                         withContext(Dispatchers.Default) {
                             ByteArrayOutputStream().use { out ->
-                                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+                                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, PNG_COMPRESS_QUALITY, out)
                                 out.toByteArray()
                             }
                         }
@@ -183,6 +179,10 @@ class ShareUtils
                     file,
                 )
             }
+        }
+
+        private companion object {
+            const val PNG_COMPRESS_QUALITY = 100
         }
     }
 

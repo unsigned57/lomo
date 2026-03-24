@@ -65,32 +65,32 @@ data class SyncDirectoryLayout(
         /**
          * Extracts the last meaningful path segment from a filesystem path or content URI.
          */
-        private fun lastSegment(pathOrUri: String?): String? {
-            if (pathOrUri.isNullOrBlank()) return null
-
-            // Content URIs – decode the tree/document path and take the last segment.
-            if (pathOrUri.startsWith("content://")) {
-                val decoded = Uri.decode(Uri.parse(pathOrUri).lastPathSegment.orEmpty())
-                // SAF document IDs often look like "primary:Documents/memos"
-                val afterColon = decoded.substringAfter(':', decoded)
-                return afterColon.trimEnd('/').substringAfterLast('/').takeIf { it.isNotBlank() }
-            }
-
-            // Regular filesystem path
-            return pathOrUri.trimEnd('/').substringAfterLast('/').takeIf { it.isNotBlank() }
-        }
+        private fun lastSegment(pathOrUri: String?): String? =
+            pathOrUri
+                ?.takeUnless(String::isBlank)
+                ?.let { path ->
+                    val normalizedPath =
+                        if (path.startsWith("content://")) {
+                            val decoded = Uri.decode(Uri.parse(path).lastPathSegment.orEmpty())
+                            decoded.substringAfter(':', decoded)
+                        } else {
+                            path
+                        }
+                    normalizedPath.trimEnd('/').substringAfterLast('/').takeIf(String::isNotBlank)
+                }
 
         /**
          * Normalizes a path/URI to a canonical form for comparison.
          */
-        private fun normalizePath(pathOrUri: String?): String? {
-            if (pathOrUri.isNullOrBlank()) return null
-
-            if (pathOrUri.startsWith("content://")) {
-                return Uri.parse(pathOrUri).toString().trimEnd('/')
-            }
-
-            return pathOrUri.trimEnd('/')
-        }
+        private fun normalizePath(pathOrUri: String?): String? =
+            pathOrUri
+                ?.takeUnless(String::isBlank)
+                ?.let { path ->
+                    if (path.startsWith("content://")) {
+                        Uri.parse(path).toString().trimEnd('/')
+                    } else {
+                        path.trimEnd('/')
+                    }
+                }
     }
 }

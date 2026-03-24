@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 
-import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.LocalFileStateDao
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerifyOrder
@@ -13,21 +13,32 @@ import org.junit.Test
 
 class WorkspaceTransitionRepositoryImplTest {
     @MockK(relaxed = true)
-    private lateinit var memoDao: MemoDao
+    private lateinit var memoDao: TestMemoDaoSuite
+
+    @MockK(relaxed = true)
+    private lateinit var localFileStateDao: LocalFileStateDao
 
     private lateinit var repository: WorkspaceTransitionRepositoryImpl
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        repository = WorkspaceTransitionRepositoryImpl(memoDao)
+        repository =
+            WorkspaceTransitionRepositoryImpl(
+                memoWriteDao = memoDao,
+                memoOutboxDao = memoDao,
+                memoTagDao = memoDao,
+                memoFtsDao = memoDao,
+                memoTrashDao = memoDao,
+                localFileStateDao = localFileStateDao,
+            )
     }
 
     @Test
     fun `clearMemoStateAfterWorkspaceTransition clears memo dependent tables in expected order`() =
         runTest {
             coEvery { memoDao.clearMemoFileOutbox() } just runs
-            coEvery { memoDao.clearLocalFileState() } just runs
+            coEvery { localFileStateDao.clearAll() } just runs
             coEvery { memoDao.clearTagRefs() } just runs
             coEvery { memoDao.clearAll() } just runs
             coEvery { memoDao.clearTrash() } just runs
@@ -37,7 +48,7 @@ class WorkspaceTransitionRepositoryImplTest {
 
             coVerifyOrder {
                 memoDao.clearMemoFileOutbox()
-                memoDao.clearLocalFileState()
+                localFileStateDao.clearAll()
                 memoDao.clearTagRefs()
                 memoDao.clearAll()
                 memoDao.clearTrash()

@@ -4,7 +4,7 @@ import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.MediaRepository
 
 class StartupMaintenanceUseCase
-    constructor(
+(
         private val mediaRepository: MediaRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,

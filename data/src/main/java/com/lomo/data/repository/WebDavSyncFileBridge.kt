@@ -1,0 +1,149 @@
+package com.lomo.data.repository
+
+import com.lomo.data.local.entity.WebDavSyncMetadataEntity
+import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.data.util.runNonFatalCatching
+import com.lomo.data.webdav.WebDavClient
+import com.lomo.data.webdav.WebDavRemoteResource
+import com.lomo.domain.model.WebDavSyncDirection
+import com.lomo.domain.model.WebDavSyncReason
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class WebDavSyncFileBridge
+    @Inject
+    constructor(
+        private val runtime: WebDavSyncRepositoryContext,
+    ) {
+        fun ensureRemoteDirectories(
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+        ) {
+            client.ensureDirectory("")
+            client.ensureDirectory(WEBDAV_ROOT)
+            layout.distinctFolders.forEach { folder ->
+                client.ensureDirectory(remoteFolderPath(folder))
+            }
+        }
+
+        suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalWebDavFile> {
+            val memoPrefix = memoRemotePrefix(layout)
+            val memoFiles =
+                runtime.markdownStorageDataSource
+                    .listMetadataIn(MemoDirectoryType.MAIN)
+                    .filter { it.filename.endsWith(WEBDAV_MEMO_SUFFIX) }
+                    .associate { metadata ->
+                        val remotePath = "$memoPrefix${metadata.filename}"
+                        remotePath to LocalWebDavFile(remotePath, metadata.lastModified)
+                    }
+            val mediaFiles =
+                runtime.localMediaSyncStore
+                    .listFiles(layout)
+                    .mapKeys { (path, _) -> "$WEBDAV_ROOT/$path" }
+                    .mapValues { (path, metadata) ->
+                        LocalWebDavFile(path, metadata.lastModified)
+                    }
+            return memoFiles + mediaFiles
+        }
+
+        fun remoteFiles(
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+        ): Map<String, RemoteWebDavFile> {
+            val listed = mutableListOf<WebDavRemoteResource>()
+            val visitedFolders = mutableSetOf<String>()
+            layout.distinctFolders.forEach { folder ->
+                val remotePath = remoteFolderPath(folder)
+                if (visitedFolders.add(remotePath)) {
+                    listed.addAll(client.list(remotePath).filterNot(WebDavRemoteResource::isDirectory))
+                }
+            }
+            return listed.associate(::toRemoteEntry)
+        }
+
+        suspend fun persistMetadata(
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+            localFiles: Map<String, LocalWebDavFile>,
+            remoteFiles: Map<String, RemoteWebDavFile>,
+            actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
+            localChanged: Boolean,
+            remoteChanged: Boolean,
+        ) {
+            val syncedLocalFiles = if (localChanged) localFiles(layout) else localFiles
+            val syncedRemoteFiles =
+                if (remoteChanged) {
+                    runNonFatalCatching {
+                        remoteFiles(client, layout)
+                    }.getOrElse { error ->
+                        val message = error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE
+                        throw IllegalStateException(
+                            "Failed to reload remote WebDAV files after sync: $message",
+                            error,
+                        )
+                    }
+                } else {
+                    remoteFiles
+                }
+            val now = System.currentTimeMillis()
+            val entities =
+                syncedLocalFiles.keys
+                    .intersect(syncedRemoteFiles.keys)
+                    .sorted()
+                    .mapNotNull { path ->
+                        val local = syncedLocalFiles[path] ?: return@mapNotNull null
+                        val remote = syncedRemoteFiles[path] ?: return@mapNotNull null
+                        val outcome = actionOutcomes[path]
+                        WebDavSyncMetadataEntity(
+                            relativePath = path,
+                            remotePath = path,
+                            etag = remote.etag,
+                            remoteLastModified = remote.lastModified,
+                            localLastModified = local.lastModified,
+                            lastSyncedAt = now,
+                            lastResolvedDirection = outcome?.first?.name ?: WebDavSyncMetadataEntity.NONE,
+                            lastResolvedReason = outcome?.second?.name ?: WebDavSyncMetadataEntity.UNCHANGED,
+                        )
+                    }
+            runtime.metadataDao.replaceAll(entities)
+        }
+
+        fun isMemoPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): Boolean {
+            val memoPrefix = memoRemotePrefix(layout)
+            return path.startsWith(memoPrefix) && path.endsWith(WEBDAV_MEMO_SUFFIX)
+        }
+
+        fun extractMemoFilename(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): String {
+            return path.removePrefix(memoRemotePrefix(layout))
+        }
+
+        fun contentTypeForPath(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): String =
+            if (isMemoPath(path, layout)) {
+                WEBDAV_MARKDOWN_CONTENT_TYPE
+            } else {
+                runtime.localMediaSyncStore.contentTypeForPath(path, layout)
+            }
+
+        private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWebDavFile> =
+            resource.path to
+                RemoteWebDavFile(
+                    path = resource.path,
+                    etag = resource.etag,
+                    lastModified = resource.lastModified,
+                )
+
+        private fun memoRemotePrefix(layout: SyncDirectoryLayout): String = "$WEBDAV_ROOT/${layout.memoFolder}/"
+
+        private fun remoteFolderPath(folder: String): String = "$WEBDAV_ROOT/$folder"
+    }

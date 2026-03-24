@@ -13,6 +13,13 @@ import androidx.compose.ui.unit.sp
 // Use system sans-serif as the primary app font.
 // On Android 12+ this maps to a variable font pipeline with proper weight interpolation.
 private val AppSansFamily = FontFamily.SansSerif
+private const val HEADLINE_LARGE_WEIGHT = 450
+private const val TITLE_LARGE_WEIGHT = 520
+private const val TITLE_MEDIUM_WEIGHT = 560
+private const val BODY_WEIGHT = 430
+private const val LABEL_WEIGHT = 560
+private const val MIN_FONT_WEIGHT = 1
+private const val MAX_FONT_WEIGHT = 1000
 
 val Typography =
     Typography(
@@ -43,7 +50,7 @@ val Typography =
         headlineLarge =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(450),
+                fontWeight = FontWeight(HEADLINE_LARGE_WEIGHT),
                 fontSize = 32.sp,
                 lineHeight = 40.sp,
                 letterSpacing = 0.0.sp,
@@ -67,7 +74,7 @@ val Typography =
         titleLarge =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(520),
+                fontWeight = FontWeight(TITLE_LARGE_WEIGHT),
                 fontSize = 22.sp,
                 lineHeight = 28.sp,
                 letterSpacing = 0.0.sp,
@@ -75,7 +82,7 @@ val Typography =
         titleMedium =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(560),
+                fontWeight = FontWeight(TITLE_MEDIUM_WEIGHT),
                 fontSize = 16.sp,
                 lineHeight = 24.sp,
                 letterSpacing = 0.15.sp,
@@ -91,7 +98,7 @@ val Typography =
         bodyLarge =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(430),
+                fontWeight = FontWeight(BODY_WEIGHT),
                 fontSize = 16.sp,
                 lineHeight = 24.sp,
                 letterSpacing = 0.5.sp,
@@ -99,7 +106,7 @@ val Typography =
         bodyMedium =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(430),
+                fontWeight = FontWeight(BODY_WEIGHT),
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 letterSpacing = 0.25.sp,
@@ -107,7 +114,7 @@ val Typography =
         bodySmall =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(430),
+                fontWeight = FontWeight(BODY_WEIGHT),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 letterSpacing = 0.4.sp,
@@ -115,7 +122,7 @@ val Typography =
         labelLarge =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(560),
+                fontWeight = FontWeight(LABEL_WEIGHT),
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
                 letterSpacing = 0.1.sp,
@@ -123,7 +130,7 @@ val Typography =
         labelMedium =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(560),
+                fontWeight = FontWeight(LABEL_WEIGHT),
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 letterSpacing = 0.5.sp,
@@ -131,7 +138,7 @@ val Typography =
         labelSmall =
             TextStyle(
                 fontFamily = AppSansFamily,
-                fontWeight = FontWeight(560),
+                fontWeight = FontWeight(LABEL_WEIGHT),
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 letterSpacing = 0.5.sp,
@@ -141,7 +148,7 @@ val Typography =
 private fun TextStyle.adjustWeight(adjustment: Int): TextStyle {
     if (adjustment == 0) return this
     val current = fontWeight ?: FontWeight.Normal
-    val adjusted = (current.weight + adjustment).coerceIn(1, 1000)
+    val adjusted = (current.weight + adjustment).coerceIn(MIN_FONT_WEIGHT, MAX_FONT_WEIGHT)
     return copy(fontWeight = FontWeight(adjusted))
 }
 

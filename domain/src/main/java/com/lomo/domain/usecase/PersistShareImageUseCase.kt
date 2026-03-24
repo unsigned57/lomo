@@ -3,7 +3,7 @@ package com.lomo.domain.usecase
 import com.lomo.domain.repository.ShareImageRepository
 
 class PersistShareImageUseCase
-    constructor(
+(
         private val repository: ShareImageRepository,
     ) {
         suspend operator fun invoke(

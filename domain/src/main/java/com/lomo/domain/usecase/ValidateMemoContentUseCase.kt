@@ -12,6 +12,10 @@ sealed interface MemoValidationResult {
             override val message: String = ValidateMemoContentUseCase.EMPTY_CONTENT_MESSAGE
         }
 
+        data object EmptyContentForUpdate : Invalid {
+            override val message: String = ValidateMemoContentUseCase.EMPTY_CONTENT_MESSAGE
+        }
+
         data class ContentTooLong(
             val maxLength: Int,
             val actualLength: Int,
@@ -30,8 +34,7 @@ class MemoValidationException(
  *
  * Keep these rules in domain so every write path shares the same boundary checks.
  */
-class ValidateMemoContentUseCase
-    constructor() {
+class ValidateMemoContentUseCase {
         fun validateCreate(content: String): MemoValidationResult =
             when {
                 content.isBlank() -> {
@@ -52,7 +55,10 @@ class ValidateMemoContentUseCase
 
         fun validateUpdate(content: String): MemoValidationResult =
             when {
-                // Blank update is allowed because repository treats it as delete.
+                content.isBlank() -> {
+                    MemoValidationResult.Invalid.EmptyContentForUpdate
+                }
+
                 content.length > MemoConstraints.MAX_MEMO_LENGTH -> {
                     MemoValidationResult.Invalid.ContentTooLong(
                         maxLength = MemoConstraints.MAX_MEMO_LENGTH,
@@ -85,4 +91,4 @@ class ValidateMemoContentUseCase
             fun lengthExceededMessage(maxLength: Int = MemoConstraints.MAX_MEMO_LENGTH): String =
                 "Content exceeds limit of $maxLength characters"
         }
-    }
+}

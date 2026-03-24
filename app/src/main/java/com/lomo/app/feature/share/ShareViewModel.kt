@@ -3,22 +3,24 @@ package com.lomo.app.feature.share
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
-import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+
+private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
 
 @HiltViewModel
 class ShareViewModel
@@ -43,27 +45,27 @@ class ShareViewModel
 
         val discoveredDevices =
             lanShareUiCoordinator.discoveredDevices
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         val transferState =
             lanShareUiCoordinator.transferState
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ShareTransferState.Idle)
+                .stateIn(viewModelScope, appWhileSubscribed(), ShareTransferState.Idle)
 
         val lanShareE2eEnabled =
             lanShareUiCoordinator.lanShareE2eEnabled
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+                .stateIn(viewModelScope, appWhileSubscribed(), true)
 
         val lanSharePairingConfigured =
             lanShareUiCoordinator.lanSharePairingConfigured
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+                .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         val lanSharePairingCode =
             lanShareUiCoordinator.lanSharePairingCode
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+                .stateIn(viewModelScope, appWhileSubscribed(), "")
 
         val lanShareDeviceName =
             lanShareUiCoordinator.lanShareDeviceName
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+                .stateIn(viewModelScope, appWhileSubscribed(), "")
 
         private val _pairingCodeError = MutableStateFlow<String?>(null)
         val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
@@ -88,7 +90,7 @@ class ShareViewModel
 
         fun sendMemo(device: DiscoveredDevice) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val currentContent = memoContentBacking
                     if (currentContent.isBlank()) {
                         _operationError.value = "Share content is unavailable. Please reopen the share page."
@@ -96,7 +98,7 @@ class ShareViewModel
                     }
 
                     if (lanShareUiCoordinator.requiresPairingBeforeSend()) {
-                        _pairingRequiredEvent.value += 1
+                        _pairingRequiredEvent.value += PAIRING_REQUIRED_EVENT_INCREMENT
                         return@launch
                     }
                     val attachmentResult = extractShareAttachmentsUseCase(currentContent)
@@ -110,9 +112,10 @@ class ShareViewModel
                     result.exceptionOrNull()?.let { throwable ->
                         reportOperationError(throwable, "Failed to send memo")
                     }
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (throwable: Throwable) {
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
                     reportOperationError(throwable, "Failed to send memo")
                 }
             }
@@ -120,11 +123,12 @@ class ShareViewModel
 
         fun updateLanShareE2eEnabled(enabled: Boolean) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     lanShareUiCoordinator.setLanShareE2eEnabled(enabled)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (throwable: Throwable) {
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
                     reportOperationError(throwable, "Failed to update secure share setting")
                 }
             }
@@ -132,25 +136,27 @@ class ShareViewModel
 
         fun updateLanSharePairingCode(pairingCode: String) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     lanShareUiCoordinator.setLanSharePairingCode(pairingCode)
                     _pairingCodeError.value = null
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (e: Exception) {
-                    _pairingCodeError.value = LanSharePairingCodePolicy.saveFailureMessage(e)
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
+                    _pairingCodeError.value = LanSharePairingCodePolicy.saveFailureMessage(throwable)
                 }
             }
         }
 
         fun clearLanSharePairingCode() {
             viewModelScope.launch {
-                try {
+                runCatching {
                     lanShareUiCoordinator.clearLanSharePairingCode()
                     _pairingCodeError.value = null
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (throwable: Throwable) {
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
                     reportOperationError(throwable, "Failed to clear pairing code")
                 }
             }
@@ -168,11 +174,12 @@ class ShareViewModel
 
         fun updateLanShareDeviceName(deviceName: String) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     lanShareUiCoordinator.setLanShareDeviceName(deviceName)
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (throwable: Throwable) {
+                }.onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
                     reportOperationError(throwable, "Failed to update device name")
                 }
             }

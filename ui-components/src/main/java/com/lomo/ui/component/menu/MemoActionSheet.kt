@@ -38,10 +38,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -90,40 +88,28 @@ fun MemoActionSheet(
 ) {
     val haptic = LocalAppHapticFeedback.current
     val actionsScrollState = rememberScrollState()
-    val sheetActions =
-        actions ?: rememberDefaultMemoActionSheetActions(
-            onCopy = onCopy,
-            onShareImage = onShareImage,
-            onShareText = onShareText,
-            onLanShare = onLanShare,
-            onTogglePin = onTogglePin,
-            isPinned = state.isPinned,
-            onJump = onJump,
-            onHistory = onHistory,
-            showHistory = showHistory,
-            showJump = showJump,
-            onEdit = onEdit,
-            onDelete = onDelete,
-        )
-    val showSwipeAffordanceIndicator by
-        remember(actionsScrollState, useHorizontalScroll, showSwipeAffordance) {
-            derivedStateOf {
-                useHorizontalScroll && showSwipeAffordance && actionsScrollState.maxValue > 0
-            }
-        }
-    val swipeAffordanceProgress by
-        remember(actionsScrollState) {
-            derivedStateOf {
-                val maxValue = actionsScrollState.maxValue
-                if (maxValue > 0) {
-                    actionsScrollState.value.toFloat() / maxValue.toFloat()
-                } else {
-                    0f
-                }
-            }
-        }
-    val canScrollBackward by remember(actionsScrollState) { derivedStateOf { actionsScrollState.canScrollBackward } }
-    val canScrollForward by remember(actionsScrollState) { derivedStateOf { actionsScrollState.canScrollForward } }
+    val sheetActions = actions ?: rememberDefaultMemoActionSheetActions(
+        onCopy = onCopy,
+        onShareImage = onShareImage,
+        onShareText = onShareText,
+        onLanShare = onLanShare,
+        onTogglePin = onTogglePin,
+        isPinned = state.isPinned,
+        onJump = onJump,
+        onHistory = onHistory,
+        showHistory = showHistory,
+        showJump = showJump,
+        onEdit = onEdit,
+        onDelete = onDelete,
+    )
+    val showSwipeAffordanceIndicator by rememberShowSwipeAffordanceIndicator(
+        actionsScrollState = actionsScrollState,
+        useHorizontalScroll = useHorizontalScroll,
+        showSwipeAffordance = showSwipeAffordance,
+    )
+    val swipeAffordanceProgress by rememberSwipeAffordanceProgress(actionsScrollState)
+    val canScrollBackward = actionsScrollState.canScrollBackward
+    val canScrollForward = actionsScrollState.canScrollForward
 
     Column(
         modifier =
@@ -132,46 +118,14 @@ fun MemoActionSheet(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp),
     ) {
-        // Quick Action Buttons Row (MD3 style chips)
-        CompositionLocalProvider(LocalOverscrollFactory provides null) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .let { base ->
-                            if (useHorizontalScroll) {
-                                base.horizontalScroll(actionsScrollState)
-                            } else {
-                                base
-                            }
-                        }.padding(vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                sheetActions.forEach { action ->
-                    ActionChip(
-                        icon = action.icon,
-                        label = action.label,
-                        isDestructive = action.isDestructive,
-                        isHighlighted = action.isHighlighted,
-                        modifier =
-                            if (equalWidthActions) {
-                                Modifier.weight(1f)
-                            } else {
-                                Modifier.width(92.dp)
-                            },
-                        onClick = {
-                            when (action.haptic) {
-                                MemoActionHaptic.NONE -> Unit
-                                MemoActionHaptic.MEDIUM -> haptic.medium()
-                                MemoActionHaptic.HEAVY -> haptic.heavy()
-                            }
-                            action.onClick()
-                            if (action.dismissAfterClick) onDismiss()
-                        },
-                    )
-                }
-            }
-        }
+        MemoActionRow(
+            actions = sheetActions,
+            actionsScrollState = actionsScrollState,
+            useHorizontalScroll = useHorizontalScroll,
+            equalWidthActions = equalWidthActions,
+            onDismiss = onDismiss,
+            onPerformHaptic = { type -> performMemoActionHaptic(haptic, type) },
+        )
 
         if (showSwipeAffordanceIndicator) {
             SwipeAffordanceIndicator(
@@ -190,172 +144,82 @@ fun MemoActionSheet(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
         )
 
-        // Info Section - Modern Card Style
-        Surface(
+        MemoInfoCard(state = state)
+    }
+}
+
+@Composable
+private fun MemoActionRow(
+    actions: List<MemoActionSheetAction>,
+    actionsScrollState: androidx.compose.foundation.ScrollState,
+    useHorizontalScroll: Boolean,
+    equalWidthActions: Boolean,
+    onDismiss: () -> Unit,
+    onPerformHaptic: (MemoActionHaptic) -> Unit,
+) {
+    CompositionLocalProvider(LocalOverscrollFactory provides null) {
+        Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-            shape = RoundedCornerShape(12.dp),
+                    .let { base ->
+                        if (useHorizontalScroll) {
+                            base.horizontalScroll(actionsScrollState)
+                        } else {
+                            base
+                        }
+                    }.padding(vertical = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                InfoItem(label = stringResource(R.string.info_created), value = state.createdTime)
-                InfoItem(label = stringResource(R.string.info_characters), value = "${state.wordCount}", alignment = Alignment.End)
+            actions.forEach { action ->
+                ActionChip(
+                    icon = action.icon,
+                    label = action.label,
+                    isDestructive = action.isDestructive,
+                    isHighlighted = action.isHighlighted,
+                    modifier =
+                        if (equalWidthActions) {
+                            Modifier.weight(1f)
+                        } else {
+                            Modifier.width(92.dp)
+                        },
+                    onClick = {
+                        onPerformHaptic(action.haptic)
+                        action.onClick()
+                        if (action.dismissAfterClick) onDismiss()
+                    },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun rememberDefaultMemoActionSheetActions(
-    onCopy: () -> Unit,
-    onShareImage: () -> Unit,
-    onShareText: () -> Unit,
-    onLanShare: () -> Unit,
-    onTogglePin: (() -> Unit)?,
-    isPinned: Boolean,
-    onJump: (() -> Unit)?,
-    onHistory: (() -> Unit)?,
-    showHistory: Boolean,
-    showJump: Boolean,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-): List<MemoActionSheetAction> {
-    val onCopyState = rememberUpdatedState(onCopy)
-    val onShareImageState = rememberUpdatedState(onShareImage)
-    val onShareTextState = rememberUpdatedState(onShareText)
-    val onLanShareState = rememberUpdatedState(onLanShare)
-    val onTogglePinState = rememberUpdatedState(onTogglePin)
-    val onJumpState = rememberUpdatedState(onJump)
-    val onHistoryState = rememberUpdatedState(onHistory)
-    val onEditState = rememberUpdatedState(onEdit)
-    val onDeleteState = rememberUpdatedState(onDelete)
-
-    val copyLabel = stringResource(R.string.action_copy)
-    val shareImageLabel = stringResource(R.string.action_share)
-    val shareTextLabel = stringResource(R.string.action_share_text)
-    val lanShareLabel = stringResource(R.string.action_lan_share)
-    val pinLabel = stringResource(if (isPinned) R.string.action_unpin else R.string.action_pin)
-    val jumpLabel = stringResource(R.string.action_jump)
-    val historyLabel = stringResource(R.string.action_history)
-    val editLabel = stringResource(R.string.action_edit)
-    val deleteLabel = stringResource(R.string.action_delete)
-    val hasJumpAction = showJump && onJump != null
-    val hasHistoryAction = showHistory && onHistory != null
-    val hasPinAction = onTogglePin != null
-
-    return remember(
-        isPinned,
-        hasJumpAction,
-        hasHistoryAction,
-        hasPinAction,
-        copyLabel,
-        shareImageLabel,
-        shareTextLabel,
-        lanShareLabel,
-        pinLabel,
-        jumpLabel,
-        historyLabel,
-        editLabel,
-        deleteLabel,
+private fun MemoInfoCard(state: MemoMenuState) {
+    Surface(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(12.dp),
     ) {
-        buildList {
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.ContentCopy,
-                    label = copyLabel,
-                    onClick = { onCopyState.value() },
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            InfoItem(
+                label = stringResource(R.string.info_created),
+                value = state.createdTime,
             )
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Share,
-                    label = shareImageLabel,
-                    onClick = { onShareImageState.value() },
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-            )
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.AutoMirrored.Outlined.TextSnippet,
-                    label = shareTextLabel,
-                    onClick = { onShareTextState.value() },
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-            )
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Wifi,
-                    label = lanShareLabel,
-                    onClick = { onLanShareState.value() },
-                    dismissAfterClick = true,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-            )
-            if (hasPinAction) {
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.PushPin,
-                        label = pinLabel,
-                        onClick = { onTogglePinState.value?.invoke() },
-                        isHighlighted = isPinned,
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-            }
-            if (hasJumpAction) {
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                        label = jumpLabel,
-                        onClick = { onJumpState.value?.invoke() },
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-            }
-            if (hasHistoryAction) {
-                add(
-                    MemoActionSheetAction(
-                        icon = Icons.Outlined.History,
-                        label = historyLabel,
-                        onClick = { onHistoryState.value?.invoke() },
-                        dismissAfterClick = true,
-                        haptic = MemoActionHaptic.MEDIUM,
-                    ),
-                )
-            }
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Edit,
-                    label = editLabel,
-                    onClick = { onEditState.value() },
-                    dismissAfterClick = false,
-                    haptic = MemoActionHaptic.MEDIUM,
-                ),
-            )
-            add(
-                MemoActionSheetAction(
-                    icon = Icons.Outlined.Delete,
-                    label = deleteLabel,
-                    onClick = { onDeleteState.value() },
-                    isDestructive = true,
-                    dismissAfterClick = false,
-                    haptic = MemoActionHaptic.HEAVY,
-                ),
+            InfoItem(
+                label = stringResource(R.string.info_characters),
+                value = "${state.wordCount}",
+                alignment = Alignment.End,
             )
         }
     }
@@ -415,8 +279,16 @@ private fun SwipeEdgeIcon(
     icon: ImageVector,
     enabled: Boolean,
 ) {
-    val contentAlpha by animateFloatAsState(targetValue = if (enabled) 1f else 0.38f, label = "menu_swipe_icon_alpha")
-    val containerAlpha by animateFloatAsState(targetValue = if (enabled) 0.8f else 0.45f, label = "menu_swipe_icon_container")
+    val contentAlpha by
+        animateFloatAsState(
+            targetValue = if (enabled) 1f else 0.38f,
+            label = "menu_swipe_icon_alpha",
+        )
+    val containerAlpha by
+        animateFloatAsState(
+            targetValue = if (enabled) 0.8f else 0.45f,
+            label = "menu_swipe_icon_container",
+        )
 
     Surface(
         shape = RoundedCornerShape(999.dp),

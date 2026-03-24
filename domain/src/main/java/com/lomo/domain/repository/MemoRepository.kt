@@ -8,8 +8,7 @@ import kotlinx.coroutines.flow.first
 /**
  * Core repository for memo data operations: CRUD, search, trash, stats, and sync.
  */
-interface MemoRepository {
-    // Data operations
+interface MemoQueryRepository {
     fun getAllMemosList(): Flow<List<Memo>>
 
     suspend fun getRecentMemos(limit: Int): List<Memo>
@@ -30,12 +29,7 @@ interface MemoRepository {
             getAllMemosList().first().drop(offset).take(limit)
         }
 
-    /**
-     * Returns total memo count as a one-shot value.
-     *
-     * Default implementation adapts from [getMemoCountFlow] for compatibility.
-     */
-    suspend fun getMemoCount(): Int = getMemoCountFlow().first()
+    suspend fun getMemoCount(): Int
 
     /**
      * Returns one memo by id without forcing callers to reload the whole list.
@@ -43,11 +37,14 @@ interface MemoRepository {
      * Default implementation preserves compatibility for repositories that only expose
      * flow-based list observation, but concrete implementations should override for efficiency.
      */
-    suspend fun getMemoById(id: String): Memo? = getAllMemosList().first().firstOrNull { memo -> memo.id == id }
-
-    suspend fun refreshMemos()
+    suspend fun getMemoById(id: String): Memo? =
+        getAllMemosList().first().firstOrNull { memo -> memo.id == id }
 
     fun isSyncing(): Flow<Boolean>
+}
+
+interface MemoMutationRepository {
+    suspend fun refreshMemos()
 
     suspend fun saveMemo(
         content: String,
@@ -65,8 +62,9 @@ interface MemoRepository {
         memoId: String,
         pinned: Boolean,
     )
+}
 
-    // Search & Filter
+interface MemoSearchRepository {
     fun searchMemosList(query: String): Flow<List<Memo>>
 
     fun getMemosByTagList(tag: String): Flow<List<Memo>>
@@ -80,11 +78,18 @@ interface MemoRepository {
     fun getTagCountsFlow(): Flow<List<MemoTagCount>>
 
     fun getActiveDayCount(): Flow<Int>
+}
 
-    // Trash
+interface MemoTrashRepository {
     fun getDeletedMemosList(): Flow<List<Memo>>
 
     suspend fun restoreMemo(memo: Memo)
 
     suspend fun deletePermanently(memo: Memo)
 }
+
+interface MemoRepository :
+    MemoQueryRepository,
+    MemoMutationRepository,
+    MemoSearchRepository,
+    MemoTrashRepository

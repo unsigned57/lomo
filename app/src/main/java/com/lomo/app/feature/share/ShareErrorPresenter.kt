@@ -3,9 +3,9 @@ package com.lomo.app.feature.share
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
-import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
 import com.lomo.domain.model.ShareTransferError
 import com.lomo.domain.model.ShareTransferErrorCode
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 
 object ShareErrorPresenter {
     @Composable
@@ -69,67 +69,63 @@ object ShareErrorPresenter {
         isTechnicalMessage: (String) -> Boolean,
     ): String {
         val detail = detailRaw.trim()
-        if (detail.isBlank()) {
-            return stringResource(R.string.share_error_unknown)
-        }
-
-        return when {
-            detail.equals("Please set an end-to-end encryption password first", ignoreCase = true) -> {
-                stringResource(R.string.share_error_set_password_first)
-            }
-
-            detail.equals("Please set a LAN share pairing code first", ignoreCase = true) -> {
-                stringResource(R.string.share_error_set_password_first)
-            }
-
-            detail.contains("pairing code is not configured on receiver", ignoreCase = true) -> {
-                stringResource(R.string.share_error_receiver_password_not_set)
-            }
-
-            detail.equals("Invalid attachment size", ignoreCase = true) -> {
-                stringResource(R.string.share_error_invalid_attachment_size)
-            }
-
-            detail.equals("Attachment too large", ignoreCase = true) -> {
-                stringResource(R.string.share_error_attachment_too_large)
-            }
-
-            detail.startsWith("Failed to resolve", ignoreCase = true) -> {
-                stringResource(R.string.share_error_attachment_resolve_failed)
-            }
-
-            detail.startsWith("Unsupported attachment type", ignoreCase = true) -> {
-                stringResource(R.string.share_error_unsupported_attachment_type)
-            }
-
-            detail.equals("Device unreachable", ignoreCase = true) -> {
-                stringResource(R.string.share_error_device_unreachable)
-            }
-
-            LanSharePairingCodePolicy.userMessageKey(detail) ==
-                LanSharePairingCodePolicy.UserMessageKey.INVALID_PAIRING_CODE -> {
-                stringResource(R.string.share_error_invalid_pairing_code)
-            }
-
-            detail.equals("Transfer failed", ignoreCase = true) -> {
-                stringResource(R.string.share_error_transfer_failed)
-            }
-
-            detail.equals("Unknown error", ignoreCase = true) -> {
+        val resolvedMessage =
+            if (detail.isBlank()) {
                 stringResource(R.string.share_error_unknown)
+            } else {
+                resolvePairingDetail(detail)
+                    ?: resolveAttachmentDetail(detail)
+                    ?: resolveTransportDetail(detail)
+                    ?: if (isTechnicalMessage(detail)) {
+                        stringResource(R.string.share_error_unknown)
+                    } else {
+                        detail
+                    }
             }
 
-            detail.contains("pairing code is not configured", ignoreCase = true) -> {
-                stringResource(R.string.share_error_set_password_first)
-            }
-
-            else -> {
-                if (isTechnicalMessage(detail)) {
-                    stringResource(R.string.share_error_unknown)
-                } else {
-                    detail
-                }
-            }
-        }
+        return resolvedMessage
     }
+
+    @Composable
+    private fun resolvePairingDetail(detail: String): String? =
+        when {
+            detail.equals("Please set an end-to-end encryption password first", ignoreCase = true) ->
+                stringResource(R.string.share_error_set_password_first)
+            detail.equals("Please set a LAN share pairing code first", ignoreCase = true) ->
+                stringResource(R.string.share_error_set_password_first)
+            detail.contains("pairing code is not configured on receiver", ignoreCase = true) ->
+                stringResource(R.string.share_error_receiver_password_not_set)
+            detail.contains("pairing code is not configured", ignoreCase = true) ->
+                stringResource(R.string.share_error_set_password_first)
+            LanSharePairingCodePolicy.userMessageKey(detail) ==
+                LanSharePairingCodePolicy.UserMessageKey.INVALID_PAIRING_CODE ->
+                stringResource(R.string.share_error_invalid_pairing_code)
+            else -> null
+        }
+
+    @Composable
+    private fun resolveAttachmentDetail(detail: String): String? =
+        when {
+            detail.equals("Invalid attachment size", ignoreCase = true) ->
+                stringResource(R.string.share_error_invalid_attachment_size)
+            detail.equals("Attachment too large", ignoreCase = true) ->
+                stringResource(R.string.share_error_attachment_too_large)
+            detail.startsWith("Failed to resolve", ignoreCase = true) ->
+                stringResource(R.string.share_error_attachment_resolve_failed)
+            detail.startsWith("Unsupported attachment type", ignoreCase = true) ->
+                stringResource(R.string.share_error_unsupported_attachment_type)
+            else -> null
+        }
+
+    @Composable
+    private fun resolveTransportDetail(detail: String): String? =
+        when {
+            detail.equals("Device unreachable", ignoreCase = true) ->
+                stringResource(R.string.share_error_device_unreachable)
+            detail.equals("Transfer failed", ignoreCase = true) ->
+                stringResource(R.string.share_error_transfer_failed)
+            detail.equals("Unknown error", ignoreCase = true) ->
+                stringResource(R.string.share_error_unknown)
+            else -> null
+        }
 }

@@ -19,7 +19,7 @@ class MainStartupCoordinator
         suspend fun initializeRootDirectory(): String? =
             startupMaintenanceUseCase
                 .initializeRootDirectory()
-                .also(audioPlayerManager::setRootLocation)
+                .also(audioPlayerManager.setRootLocation)
 
         suspend fun runDeferredStartupTasks(rootDir: String?) {
             startupMaintenanceUseCase.runDeferredStartupTasks(
@@ -32,10 +32,10 @@ class MainStartupCoordinator
             appConfigUiCoordinator
                 .rootDirectory()
                 .drop(1)
-                .onEach(audioPlayerManager::setRootLocation)
+                .onEach(audioPlayerManager.setRootLocation)
 
         fun observeVoiceDirectoryChanges(): Flow<String?> =
             appConfigUiCoordinator
                 .voiceDirectory()
-                .onEach(audioPlayerManager::setVoiceLocation)
+                .onEach(audioPlayerManager.setVoiceLocation)
     }

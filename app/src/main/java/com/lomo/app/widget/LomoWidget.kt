@@ -61,11 +61,9 @@ class LomoWidget : GlanceAppWidget() {
         // Fetch recent memos
         val recentMemos =
             withContext(Dispatchers.IO) {
-                try {
-                    memoRepository.getRecentMemos(3)
-                } catch (e: Exception) {
-                    emptyList()
-                }
+                runCatching {
+                    memoRepository.getRecentMemos(WIDGET_MEMO_LIMIT)
+                }.getOrElse { emptyList() }
             }
 
         provideContent {
@@ -80,7 +78,6 @@ class LomoWidget : GlanceAppWidget() {
         context: Context,
         memos: List<Memo>,
     ) {
-        // Main container with rounded corners and white background
         Box(
             modifier =
                 GlanceModifier
@@ -90,84 +87,93 @@ class LomoWidget : GlanceAppWidget() {
                     .padding(16.dp),
         ) {
             Column(modifier = GlanceModifier.fillMaxSize()) {
-                // Header Row
-                Row(
-                    modifier = GlanceModifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // App Icon
-                    Image(
-                        provider = ImageProvider(R.mipmap.ic_launcher),
-                        contentDescription = context.getString(R.string.app_name),
-                        modifier = GlanceModifier.size(48.dp),
-                    )
-                    Spacer(modifier = GlanceModifier.width(8.dp))
-                    // App Name
-                    Text(
-                        text = "Lomo",
-                        style =
-                            TextStyle(
-                                color = GlanceTheme.colors.primary,
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                    )
-                    Spacer(modifier = GlanceModifier.defaultWeight())
-                    // Add Button
-                    Box(
-                        modifier =
-                            GlanceModifier
-                                .size(32.dp)
-                                .cornerRadius(16.dp)
-                                .background(GlanceTheme.colors.primaryContainer)
-                                .clickable(
-                                    actionStartActivity(
-                                        Intent(context, MainActivity::class.java).apply {
-                                            action = MainActivity.ACTION_NEW_MEMO
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                        },
-                                    ),
-                                ),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "+",
-                            style =
-                                TextStyle(
-                                    color = GlanceTheme.colors.onPrimaryContainer,
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                ),
-                        )
-                    }
-                }
-
+                WidgetHeader(context)
                 Spacer(modifier = GlanceModifier.height(12.dp))
-
-                // Content Area
                 if (memos.isEmpty()) {
-                    // Empty State
-                    Box(
-                        modifier = GlanceModifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = context.getString(R.string.widget_no_memos),
-                            style =
-                                TextStyle(
-                                    color = GlanceTheme.colors.onSurfaceVariant,
-                                    fontSize = 14.sp,
-                                ),
-                        )
-                    }
+                    WidgetEmptyState(context)
                 } else {
-                    // Memo List
-                    Column(modifier = GlanceModifier.fillMaxWidth()) {
-                        memos.forEachIndexed { index, memo ->
-                            MemoItem(context, memo, isLast = index == memos.size - 1)
-                        }
-                    }
+                    WidgetMemoList(context, memos)
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun WidgetHeader(context: Context) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Image(
+                provider = ImageProvider(R.mipmap.ic_launcher),
+                contentDescription = context.getString(R.string.app_name),
+                modifier = GlanceModifier.size(48.dp),
+            )
+            Spacer(modifier = GlanceModifier.width(8.dp))
+            Text(
+                text = "Lomo",
+                style =
+                    TextStyle(
+                        color = GlanceTheme.colors.primary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
+            )
+            Spacer(modifier = GlanceModifier.defaultWeight())
+            Box(
+                modifier =
+                    GlanceModifier
+                        .size(32.dp)
+                        .cornerRadius(16.dp)
+                        .background(GlanceTheme.colors.primaryContainer)
+                        .clickable(
+                            actionStartActivity(
+                                Intent(context, MainActivity::class.java).apply {
+                                    action = MainActivity.ACTION_NEW_MEMO
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                },
+                            ),
+                        ),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = "+",
+                    style =
+                        TextStyle(
+                            color = GlanceTheme.colors.onPrimaryContainer,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun WidgetEmptyState(context: Context) {
+        Box(
+            modifier = GlanceModifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = context.getString(R.string.widget_no_memos),
+                style =
+                    TextStyle(
+                        color = GlanceTheme.colors.onSurfaceVariant,
+                        fontSize = 14.sp,
+                    ),
+            )
+        }
+    }
+
+    @Composable
+    private fun WidgetMemoList(
+        context: Context,
+        memos: List<Memo>,
+    ) {
+        Column(modifier = GlanceModifier.fillMaxWidth()) {
+            memos.forEachIndexed { index, memo ->
+                MemoItem(context, memo, isLast = index == memos.size - 1)
             }
         }
     }
@@ -216,8 +222,8 @@ class LomoWidget : GlanceAppWidget() {
             // Content preview
             Text(
                 text =
-                    processedContent.take(100).let {
-                        if (processedContent.length > 100) "$it..." else it
+                    processedContent.take(MEMO_PREVIEW_LENGTH).let {
+                        if (processedContent.length > MEMO_PREVIEW_LENGTH) "$it..." else it
                     },
                 style =
                     TextStyle(
@@ -235,4 +241,9 @@ class LomoWidget : GlanceAppWidget() {
     }
 
     private fun stripMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)
+
+    private companion object {
+        const val WIDGET_MEMO_LIMIT = 3
+        const val MEMO_PREVIEW_LENGTH = 100
+    }
 }

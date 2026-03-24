@@ -34,7 +34,7 @@ class SettingsDialogState {
     var showGitSyncIntervalDialog by mutableStateOf(false)
     var showGitResetConfirmDialog by mutableStateOf(false)
     var showGitConflictResolutionDialog by mutableStateOf(false)
-    var gitConflictMessage by mutableStateOf("")
+    var gitConflictError by mutableStateOf<SettingsOperationError.GitSync?>(null)
 
     var showWebDavProviderDialog by mutableStateOf(false)
     var showWebDavBaseUrlDialog by mutableStateOf(false)

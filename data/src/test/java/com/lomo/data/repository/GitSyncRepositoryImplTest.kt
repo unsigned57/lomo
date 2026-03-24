@@ -4,6 +4,7 @@ import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
@@ -51,6 +52,9 @@ class GitSyncRepositoryImplTest {
     private lateinit var gitMediaSyncBridge: GitMediaSyncBridge
 
     @MockK(relaxed = true)
+    private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
+
+    @MockK(relaxed = true)
     private lateinit var markdownParser: MarkdownParser
 
     @MockK(relaxed = true)
@@ -64,8 +68,8 @@ class GitSyncRepositoryImplTest {
         val tempFilesDir = Files.createTempDirectory("lomo-context-files").toFile()
         every { context.filesDir } returns tempFilesDir
         everyCommonConfig()
-        repository =
-            GitSyncRepositoryImpl(
+        val runtime =
+            GitSyncRepositoryContext(
                 context = context,
                 gitSyncEngine = gitSyncEngine,
                 credentialStore = credentialStore,
@@ -73,8 +77,53 @@ class GitSyncRepositoryImplTest {
                 memoSynchronizer = memoSynchronizer,
                 safGitMirrorBridge = safGitMirrorBridge,
                 gitMediaSyncBridge = gitMediaSyncBridge,
+                gitSyncQueryCoordinator = gitSyncQueryCoordinator,
                 markdownParser = markdownParser,
                 markdownStorageDataSource = markdownStorageDataSource,
+            )
+        val support = GitSyncRepositorySupport(runtime)
+        val memoMirror = GitSyncMemoMirror(runtime)
+        repository =
+            GitSyncRepositoryImpl(
+                configurationRepository = GitSyncConfigurationRepositoryImpl(dataStore),
+                configurationMutationRepository =
+                    GitSyncConfigurationMutationRepositoryImpl(
+                        dataStore = dataStore,
+                        credentialStore = credentialStore,
+                    ),
+                operationRepository =
+                    GitSyncOperationRepositoryImpl(
+                        runtime = runtime,
+                        initAndSyncExecutor =
+                            GitSyncInitAndSyncExecutor(
+                                runtime = runtime,
+                                support = support,
+                                memoMirror = memoMirror,
+                            ),
+                        statusExecutor =
+                            GitSyncStatusExecutor(
+                                runtime = runtime,
+                                support = support,
+                            ),
+                        maintenanceExecutor =
+                            GitSyncMaintenanceExecutor(
+                                runtime = runtime,
+                                support = support,
+                                memoMirror = memoMirror,
+                            ),
+                    ),
+                versionHistoryRepository =
+                    GitSyncVersionHistoryRepositoryImpl(
+                        runtime = runtime,
+                        support = support,
+                    ),
+                conflictRepository =
+                    GitSyncConflictRepositoryImpl(
+                        runtime = runtime,
+                        support = support,
+                        memoMirror = memoMirror,
+                    ),
+                stateRepository = GitSyncStateRepositoryImpl(gitSyncEngine),
             )
     }
 
@@ -82,7 +131,7 @@ class GitSyncRepositoryImplTest {
     fun `sync returns error when memo refresh fails after successful git sync`() =
         runTest {
             val rootDir = createRepoRootWithGitDir()
-            every { dataStore.rootDirectory } returns flowOf(rootDir.absolutePath)
+            stubSameDirectoryLayout(rootDir)
             coEvery { credentialStore.getToken() } returns "token"
             coEvery {
                 gitSyncEngine.sync(any(), REMOTE_URL)
@@ -113,7 +162,7 @@ class GitSyncRepositoryImplTest {
     fun `sync rethrows cancellation when memo refresh is cancelled`() =
         runTest {
             val rootDir = createRepoRootWithGitDir()
-            every { dataStore.rootDirectory } returns flowOf(rootDir.absolutePath)
+            stubSameDirectoryLayout(rootDir)
             val cancellation = CancellationException("cancelled")
             coEvery { credentialStore.getToken() } returns "token"
             coEvery {
@@ -151,6 +200,12 @@ class GitSyncRepositoryImplTest {
         val rootDir = Files.createTempDirectory("lomo-sync-repo").toFile()
         File(rootDir, ".git").mkdirs()
         return rootDir
+    }
+
+    private fun stubSameDirectoryLayout(rootDir: File) {
+        every { dataStore.rootDirectory } returns flowOf(rootDir.absolutePath)
+        every { dataStore.imageDirectory } returns flowOf(rootDir.absolutePath)
+        every { dataStore.voiceDirectory } returns flowOf(rootDir.absolutePath)
     }
 
     private companion object {

@@ -3,18 +3,22 @@ package com.lomo.app.feature.settings
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncState
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+
+private typealias ShareCardAndGitState = Pair<ShareCardSectionState, GitSectionState>
+private typealias LanShareAndShareCardState = Pair<LanShareSectionState, ShareCardAndGitState>
+private typealias DisplayAndLanShareState = Pair<DisplaySectionState, LanShareAndShareCardState>
+private typealias CoreWithoutWebDavState = Pair<StorageSectionState, DisplayAndLanShareState>
 
 class SettingsStateProvider(
     appConfigCoordinator: SettingsAppConfigCoordinator,
     lanShareCoordinator: SettingsLanShareCoordinator,
     gitCoordinator: SettingsGitCoordinator,
     webDavCoordinator: SettingsWebDavCoordinator,
-    val operationError: StateFlow<String?>,
+    val operationError: StateFlow<SettingsOperationError?>,
     scope: CoroutineScope,
 ) {
     private data class GitIdentityState(
@@ -74,7 +78,7 @@ class SettingsStateProvider(
             StorageSectionState(rootDirectory, imageDirectory, voiceDirectory, filenameFormat, timestampFormat)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 StorageSectionState(
                     rootDirectory = appConfigCoordinator.rootDirectory.value,
@@ -94,7 +98,7 @@ class SettingsStateProvider(
             DisplaySectionState(dateFormat, timeFormat, themeMode)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 DisplaySectionState(
                     appConfigCoordinator.dateFormat.value,
@@ -113,7 +117,7 @@ class SettingsStateProvider(
             LanShareSectionState(e2eEnabled, pairingConfigured, deviceName, pairingCodeError)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 LanShareSectionState(
                     e2eEnabled = lanShareCoordinator.lanShareE2eEnabled.value,
@@ -131,7 +135,7 @@ class SettingsStateProvider(
             ShareCardSectionState(showTime, showBrand)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 ShareCardSectionState(
                     appConfigCoordinator.shareCardShowTime.value,
@@ -150,7 +154,7 @@ class SettingsStateProvider(
             GitIdentityState(enabled, remoteUrl, patConfigured, authorName, authorEmail)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 GitIdentityState(
                     enabled = gitCoordinator.gitSyncEnabled.value,
@@ -172,7 +176,7 @@ class SettingsStateProvider(
             GitSyncSettingsState(autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 GitSyncSettingsState(
                     autoSyncEnabled = gitCoordinator.gitAutoSyncEnabled.value,
@@ -206,7 +210,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 GitSectionState(
                     enabled = gitIdentityState.value.enabled,
@@ -233,7 +237,7 @@ class SettingsStateProvider(
             Triple(enabled, provider, baseUrl)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 Triple(
                     webDavCoordinator.webDavSyncEnabled.value,
@@ -259,7 +263,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 WebDavIdentityState(
                     enabled = webDavCoordinator.webDavSyncEnabled.value,
@@ -282,7 +286,7 @@ class SettingsStateProvider(
             WebDavSyncSettingsState(autoSyncEnabled, autoSyncInterval, syncOnRefreshEnabled, lastSyncTime, syncState)
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 WebDavSyncSettingsState(
                     autoSyncEnabled = webDavCoordinator.webDavAutoSyncEnabled.value,
@@ -315,7 +319,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 WebDavSectionState(
                     enabled = webDavIdentityState.value.enabled,
@@ -352,7 +356,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 InteractionSectionState(
                     hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
@@ -369,18 +373,27 @@ class SettingsStateProvider(
             .map(::SystemSectionState)
             .stateIn(
                 scope = scope,
-                started = SharingStarted.WhileSubscribed(5000),
+                started = settingsWhileSubscribed(),
                 initialValue = SystemSectionState(appConfigCoordinator.checkUpdatesOnStartup.value),
             )
 
     private val coreWithoutWebDav:
-        StateFlow<Pair<StorageSectionState, Pair<DisplaySectionState, Pair<LanShareSectionState, Pair<ShareCardSectionState, GitSectionState>>>>> =
-        combine(storageState, displayState, lanShareState, shareCardState, gitState) { storage, display, lanShare, shareCard, git ->
+        StateFlow<CoreWithoutWebDavState> =
+        combine(
+            storageState,
+            displayState,
+            lanShareState,
+            shareCardState,
+            gitState,
+        ) { storage, display, lanShare, shareCard, git ->
             storage to (display to (lanShare to (shareCard to git)))
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = storageState.value to (displayState.value to (lanShareState.value to (shareCardState.value to gitState.value))),
+            started = settingsWhileSubscribed(),
+            initialValue =
+                storageState.value to
+                    (displayState.value to
+                        (lanShareState.value to (shareCardState.value to gitState.value))),
         )
 
     private val coreUiSections: StateFlow<CoreUiSections> =
@@ -395,7 +408,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 CoreUiSections(
                     storage = storageState.value,
@@ -408,7 +421,12 @@ class SettingsStateProvider(
         )
 
     val uiState: StateFlow<SettingsScreenUiState> =
-        combine(coreUiSections, interactionState, systemState, operationError) { core, interaction, system, operationError ->
+        combine(
+            coreUiSections,
+            interactionState,
+            systemState,
+            operationError,
+        ) { core, interaction, system, operationError ->
             SettingsScreenUiState(
                 storage = core.storage,
                 display = core.display,
@@ -422,7 +440,7 @@ class SettingsStateProvider(
             )
         }.stateIn(
             scope = scope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = settingsWhileSubscribed(),
             initialValue =
                 SettingsScreenUiState(
                     storage = coreUiSections.value.storage,

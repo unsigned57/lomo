@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.MemoEntity
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -14,7 +13,7 @@ import org.junit.Test
 
 class MemoRefreshDbApplierTest {
     @MockK(relaxed = true)
-    private lateinit var dao: MemoDao
+    private lateinit var dao: TestMemoDaoSuite
 
     @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
@@ -26,7 +25,11 @@ class MemoRefreshDbApplierTest {
         MockKAnnotations.init(this)
         applier =
             MemoRefreshDbApplier(
-                dao = dao,
+                memoDao = dao,
+                memoWriteDao = dao,
+                memoTagDao = dao,
+                memoFtsDao = dao,
+                memoTrashDao = dao,
                 localFileStateDao = localFileStateDao,
                 runInTransaction = { block -> block() },
             )
@@ -116,7 +119,11 @@ class MemoRefreshDbApplierTest {
             var transactionCalls = 0
             val transactionApplier =
                 MemoRefreshDbApplier(
-                    dao = dao,
+                    memoDao = dao,
+                    memoWriteDao = dao,
+                    memoTagDao = dao,
+                    memoFtsDao = dao,
+                    memoTrashDao = dao,
                     localFileStateDao = localFileStateDao,
                     runInTransaction = { block ->
                         transactionCalls += 1

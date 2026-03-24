@@ -96,56 +96,84 @@ fun rememberMainScreenActions(
         onRefreshMemos,
         onRefreshingChange,
     ) {
+        val closeDrawerIfNeeded = {
+            if (!isExpanded) {
+                scope.launch { drawerState.close() }
+            }
+        }
         MainScreenActions(
-            onSettings = {
-                if (!isExpanded) scope.launch { drawerState.close() }
-                onNavigateToSettings()
-            },
-            onTrash = {
-                if (!isExpanded) scope.launch { drawerState.close() }
-                onNavigateToTrash()
-            },
+            onSettings = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToSettings),
+            onTrash = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToTrash),
             onSearch = onNavigateToSearch,
             onSidebarMemoClick = {
                 onClearSidebarFilters()
-                if (!isExpanded) scope.launch { drawerState.close() }
+                closeDrawerIfNeeded()
             },
             onSidebarTagClick = { tag ->
-                if (!isExpanded) scope.launch { drawerState.close() }
+                closeDrawerIfNeeded()
                 onNavigateToTag(tag)
             },
             onNavigateToImage = onNavigateToImage,
             onClearFilter = onClearMainFilters,
             onOpenMemoFilterPanel = onOpenMemoFilterPanel,
             onMenuOpen = { scope.launch { drawerState.open() } },
-            onFabClick = {
-                haptic.longPress()
-                if (canCreateMemo) {
-                    onOpenCreateMemo()
-                } else {
-                    onNavigateToSettings()
-                }
-            },
-            onRefresh = {
-                scope.launch {
-                    onRefreshingChange(true)
-                    try {
-                        onRefreshMemos()
-                        delay(REFRESH_DELAY)
-                    } finally {
-                        onRefreshingChange(false)
-                    }
-                }
-            },
-            onDailyReviewClick = {
-                if (!isExpanded) scope.launch { drawerState.close() }
-                onNavigateToDailyReview()
-            },
-            onGalleryClick = {
-                if (!isExpanded) scope.launch { drawerState.close() }
-                onNavigateToGallery()
-            },
+            onFabClick =
+                createFabAction(
+                    haptic = haptic,
+                    canCreateMemo = canCreateMemo,
+                    onOpenCreateMemo = onOpenCreateMemo,
+                    onNavigateToSettings = onNavigateToSettings,
+                ),
+            onRefresh =
+                createRefreshAction(
+                    scope = scope,
+                    onRefreshMemos = onRefreshMemos,
+                    onRefreshingChange = onRefreshingChange,
+                ),
+            onDailyReviewClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToDailyReview),
+            onGalleryClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToGallery),
         )
+    }
+
+private fun closeDrawerNavigationAction(
+    closeDrawerIfNeeded: () -> Unit,
+    onNavigate: () -> Unit,
+): () -> Unit =
+    {
+        closeDrawerIfNeeded()
+        onNavigate()
+    }
+
+private fun createFabAction(
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    canCreateMemo: Boolean,
+    onOpenCreateMemo: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+): () -> Unit =
+    {
+        haptic.longPress()
+        if (canCreateMemo) {
+            onOpenCreateMemo()
+        } else {
+            onNavigateToSettings()
+        }
+    }
+
+private fun createRefreshAction(
+    scope: CoroutineScope,
+    onRefreshMemos: suspend () -> Unit,
+    onRefreshingChange: (Boolean) -> Unit,
+): () -> Unit =
+    {
+        scope.launch {
+            onRefreshingChange(true)
+            try {
+                onRefreshMemos()
+                delay(REFRESH_DELAY)
+            } finally {
+                onRefreshingChange(false)
+            }
+        }
     }
 
 data class MainScreenActions(

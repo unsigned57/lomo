@@ -8,6 +8,13 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
+private const val NONCE_BYTES = 12
+private const val TAG_BITS = 128
+private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
+private const val HEX_BYTE_PAIR_SIZE = 2
+private const val HEX_RADIX = 16
+private val secureRandom = SecureRandom()
+
 /**
  * Content encryption helpers for LAN share payloads.
  *
@@ -15,11 +22,6 @@ import kotlin.io.encoding.ExperimentalEncodingApi
  */
 @OptIn(ExperimentalEncodingApi::class)
 internal object ShareCryptoUtils {
-    private const val NONCE_BYTES = 12
-    private const val TAG_BITS = 128
-    private const val ENC_DOMAIN = "lomo-lan-share-enc-v1"
-    private val secureRandom = SecureRandom()
-
     data class EncryptedText(
         val ciphertextBase64: String,
         val nonceBase64: String,
@@ -89,59 +91,59 @@ internal object ShareCryptoUtils {
         } catch (_: Exception) {
             null
         }
+}
 
-    private fun encryptBytesInternal(
-        keyHex: String,
-        plaintext: ByteArray,
-        aad: String?,
-    ): EncryptedBytes {
-        val nonce = generateNonce()
-        val cipher = createEncryptCipher(keyHex, nonce, aad)
-        val encrypted = cipher.doFinal(plaintext)
-        return EncryptedBytes(
-            ciphertext = encrypted,
-            nonceBase64 = Base64.Default.encode(nonce),
-        )
-    }
+private fun encryptBytesInternal(
+    keyHex: String,
+    plaintext: ByteArray,
+    aad: String?,
+): ShareCryptoUtils.EncryptedBytes {
+    val nonce = ShareCryptoUtils.generateNonce()
+    val cipher = ShareCryptoUtils.createEncryptCipher(keyHex, nonce, aad)
+    val encrypted = cipher.doFinal(plaintext)
+    return ShareCryptoUtils.EncryptedBytes(
+        ciphertext = encrypted,
+        nonceBase64 = Base64.Default.encode(nonce),
+    )
+}
 
-    private fun decryptBytesInternal(
-        keyHex: String,
-        ciphertext: ByteArray,
-        nonceBase64: String,
-        aad: String?,
-    ): ByteArray? {
-        return try {
-            val nonce = decodeNonceBase64(nonceBase64) ?: return null
-            val cipher = createDecryptCipher(keyHex, nonce, aad)
-            cipher.doFinal(ciphertext)
-        } catch (_: Exception) {
-            null
-        }
+private fun decryptBytesInternal(
+    keyHex: String,
+    ciphertext: ByteArray,
+    nonceBase64: String,
+    aad: String?,
+): ByteArray? {
+    val nonce = ShareCryptoUtils.decodeNonceBase64(nonceBase64) ?: return null
+    return try {
+        val cipher = ShareCryptoUtils.createDecryptCipher(keyHex, nonce, aad)
+        cipher.doFinal(ciphertext)
+    } catch (_: Exception) {
+        null
     }
+}
 
-    private fun createCipher(
-        mode: Int,
-        keyHex: String,
-        nonce: ByteArray,
-        aad: String?,
-    ): Cipher {
-        require(nonce.size == NONCE_BYTES) { "Invalid nonce length" }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(mode, SecretKeySpec(deriveEncryptionKey(keyHex), "AES"), GCMParameterSpec(TAG_BITS, nonce))
-        if (!aad.isNullOrEmpty()) {
-            cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
-        }
-        return cipher
+private fun createCipher(
+    mode: Int,
+    keyHex: String,
+    nonce: ByteArray,
+    aad: String?,
+): Cipher {
+    require(nonce.size == NONCE_BYTES) { "Invalid nonce length" }
+    val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+    cipher.init(mode, SecretKeySpec(deriveEncryptionKey(keyHex), "AES"), GCMParameterSpec(TAG_BITS, nonce))
+    if (!aad.isNullOrEmpty()) {
+        cipher.updateAAD(aad.toByteArray(Charsets.UTF_8))
     }
+    return cipher
+}
 
-    private fun deriveEncryptionKey(keyHex: String): ByteArray {
-        val baseKey = keyHex.hexToBytes()
-        val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
-        return MessageDigest.getInstance("SHA-256").digest(input)
-    }
+private fun deriveEncryptionKey(keyHex: String): ByteArray {
+    val baseKey = keyHex.hexToBytes()
+    val input = ENC_DOMAIN.toByteArray(Charsets.UTF_8) + baseKey
+    return MessageDigest.getInstance("SHA-256").digest(input)
+}
 
-    private fun String.hexToBytes(): ByteArray {
-        require(length % 2 == 0) { "Invalid hex length" }
-        return chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-    }
+private fun String.hexToBytes(): ByteArray {
+    require(length % HEX_BYTE_PAIR_SIZE == 0) { "Invalid hex length" }
+    return chunked(HEX_BYTE_PAIR_SIZE).map { it.toInt(HEX_RADIX).toByte() }.toByteArray()
 }

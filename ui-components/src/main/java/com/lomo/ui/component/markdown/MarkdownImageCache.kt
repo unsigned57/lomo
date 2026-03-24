@@ -1,6 +1,8 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,11 +46,20 @@ import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
 import org.commonmark.node.Image
 
+private const val IMAGE_CACHE_LOAD_FACTOR = 0.75f
+private val MARKDOWN_IMAGE_CORNER_RADIUS = 8.dp
+private val MARKDOWN_IMAGE_VERTICAL_PADDING = 4.dp
+private val MARKDOWN_IMAGE_INDICATOR_ACTIVE_SIZE = 8.dp
+private val MARKDOWN_IMAGE_INDICATOR_INACTIVE_SIZE = 6.dp
+private val MARKDOWN_IMAGE_INDICATOR_SHAPE_RADIUS = 999.dp
+private const val MARKDOWN_IMAGE_INDICATOR_ACTIVE_ALPHA = 0.85f
+private const val MARKDOWN_IMAGE_INDICATOR_INACTIVE_ALPHA = 0.65f
+
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
     private val lock = Any()
     private val cache =
-        object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, 0.75f, true) {
+        object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, IMAGE_CACHE_LOAD_FACTOR, true) {
             override fun removeEldestEntry(eldest: Map.Entry<String, Float>): Boolean = size > MAX_CACHE_SIZE
         }
 
@@ -89,34 +100,25 @@ internal fun MarkdownImageBlock(
 
     @OptIn(ExperimentalSharedTransitionApi::class)
     val sharedModifier =
-        if (sharedTransitionScope != null && animatedVisibilityScope != null) {
-            with(sharedTransitionScope) {
-                Modifier.sharedElement(
-                    rememberSharedContentState(key = sharedElementKey),
-                    animatedVisibilityScope = animatedVisibilityScope,
-                )
-            }
-        } else {
-            Modifier
-        }
+        rememberSharedImageModifier(
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            sharedElementKey = sharedElementKey,
+        )
 
     val ratio = aspectRatio
     val modifier =
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .padding(vertical = 4.dp)
-            .let { base -> if (ratio != null) base.aspectRatio(ratio) else base }
-            .let { clickable -> if (onImageClick != null) clickable.clickable { onImageClick(destination) } else clickable }
-            .then(sharedModifier)
+        rememberImageBlockModifier(
+            ratio = ratio,
+            destination = destination,
+            onImageClick = onImageClick,
+            sharedModifier = sharedModifier,
+        )
 
     val painter = rememberAsyncImagePainter(model)
     val state by painter.state.collectAsState()
 
-    val newAspectRatio =
-        (state as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize?.let { size ->
-            if (size.width > 0f && size.height > 0f) size.width / size.height else null
-        }
+    val newAspectRatio = state.resolvedAspectRatio()
 
     LaunchedEffect(destination, newAspectRatio) {
         if (newAspectRatio != null && newAspectRatio != aspectRatio) {
@@ -197,24 +199,78 @@ internal fun MarkdownImagePager(
             horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
         ) {
             images.forEachIndexed { index, _ ->
-                val isActive = pagerState.currentPage == index
-                Box(
-                    modifier =
-                        Modifier
-                            .padding(horizontal = 3.dp)
-                            .size(if (isActive) 8.dp else 6.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(
-                                if (isActive) {
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                                } else {
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
-                                },
-                            ),
-                )
+                PagerIndicatorDot(isActive = pagerState.currentPage == index)
             }
         }
     }
+}
+
+@OptIn(ExperimentalSharedTransitionApi::class)
+@Composable
+private fun rememberSharedImageModifier(
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+    sharedElementKey: String,
+): Modifier =
+    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+        with(sharedTransitionScope) {
+            Modifier.sharedElement(
+                rememberSharedContentState(key = sharedElementKey),
+                animatedVisibilityScope = animatedVisibilityScope,
+            )
+        }
+    } else {
+        Modifier
+    }
+
+@Composable
+private fun rememberImageBlockModifier(
+    ratio: Float?,
+    destination: String,
+    onImageClick: ((String) -> Unit)?,
+    sharedModifier: Modifier,
+): Modifier {
+    val baseModifier =
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(MARKDOWN_IMAGE_CORNER_RADIUS))
+            .padding(vertical = MARKDOWN_IMAGE_VERTICAL_PADDING)
+    val ratioModifier = ratio?.let { baseModifier.aspectRatio(it) } ?: baseModifier
+    val clickableModifier =
+        onImageClick?.let { clickHandler ->
+            ratioModifier.clickable { clickHandler(destination) }
+        } ?: ratioModifier
+    return clickableModifier.then(sharedModifier)
+}
+
+private fun AsyncImagePainter.State.resolvedAspectRatio(): Float? =
+    (this as? AsyncImagePainter.State.Success)?.painter?.intrinsicSize?.let { size ->
+        if (size.width > 0f && size.height > 0f) {
+            size.width / size.height
+        } else {
+            null
+        }
+    }
+
+@Composable
+private fun PagerIndicatorDot(isActive: Boolean) {
+    val indicatorSize =
+        if (isActive) MARKDOWN_IMAGE_INDICATOR_ACTIVE_SIZE else MARKDOWN_IMAGE_INDICATOR_INACTIVE_SIZE
+    val indicatorColor =
+        if (isActive) {
+            MaterialTheme.colorScheme.primary.copy(alpha = MARKDOWN_IMAGE_INDICATOR_ACTIVE_ALPHA)
+        } else {
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = MARKDOWN_IMAGE_INDICATOR_INACTIVE_ALPHA)
+        }
+
+    Box(
+        modifier =
+            Modifier
+                .padding(horizontal = 3.dp)
+                .size(indicatorSize)
+                .clip(RoundedCornerShape(MARKDOWN_IMAGE_INDICATOR_SHAPE_RADIUS))
+                .background(indicatorColor),
+    )
 }
 
 @Composable

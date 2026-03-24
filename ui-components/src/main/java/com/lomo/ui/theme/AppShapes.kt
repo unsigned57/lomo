@@ -12,6 +12,8 @@ import androidx.compose.ui.unit.dp
  * to ensure visual consistency across the app.
  */
 object AppShapes {
+    private const val FULL_SHAPE_PERCENT = 50
+
     /** 4.dp - Used for checkboxes, small icons, indicators */
     val ExtraSmall = RoundedCornerShape(4.dp)
 
@@ -28,7 +30,7 @@ object AppShapes {
     val ExtraLarge = RoundedCornerShape(28.dp)
 
     /** Full circular/pill shape */
-    val Full = RoundedCornerShape(50)
+    val Full = RoundedCornerShape(FULL_SHAPE_PERCENT)
 }
 
 /**

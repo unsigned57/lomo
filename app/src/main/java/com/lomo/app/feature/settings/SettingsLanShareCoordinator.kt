@@ -1,12 +1,11 @@
 package com.lomo.app.feature.settings
 
-import com.lomo.app.feature.lanshare.LanSharePairingCodePolicy
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.LanShareService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -20,7 +19,7 @@ class SettingsLanShareCoordinator(
             .lanShareE2eEnabled
             .stateIn(
                 scope,
-                SharingStarted.WhileSubscribed(5000),
+                settingsWhileSubscribed(),
                 PreferenceDefaults.LAN_SHARE_E2E_ENABLED,
             )
 
@@ -29,7 +28,7 @@ class SettingsLanShareCoordinator(
             .lanSharePairingConfigured
             .stateIn(
                 scope,
-                SharingStarted.WhileSubscribed(5000),
+                settingsWhileSubscribed(),
                 false,
             )
 
@@ -38,7 +37,7 @@ class SettingsLanShareCoordinator(
             .lanShareDeviceName
             .stateIn(
                 scope,
-                SharingStarted.WhileSubscribed(5000),
+                settingsWhileSubscribed(),
                 "",
             )
 
@@ -50,12 +49,13 @@ class SettingsLanShareCoordinator(
     }
 
     suspend fun updateLanSharePairingCode(pairingCode: String) {
-        try {
+        runCatching {
             shareServiceManager.setLanSharePairingCode(pairingCode)
             _pairingCodeError.value = null
-        } catch (cancellation: CancellationException) {
-            throw cancellation
-        } catch (throwable: Exception) {
+        }.onFailure { throwable ->
+            if (throwable is CancellationException) {
+                throw throwable
+            }
             _pairingCodeError.value = LanSharePairingCodePolicy.saveFailureMessage(throwable)
         }
     }

@@ -17,6 +17,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.domain.model.SimpleLineDiff
 
+private const val DIFF_CHANGED_LINE_ALPHA = 0.2f
+private const val DIFF_LINE_NUMBER_WIDTH = 4
+private const val DIFF_LINE_NUMBER_FONT_SIZE = 11
+private const val DIFF_LINE_CONTENT_FONT_SIZE = 12
+
 @Composable
 fun DiffViewer(
     hunks: List<SimpleLineDiff.DiffHunk>,
@@ -42,8 +47,8 @@ fun DiffViewer(
 @Composable
 private fun DiffLineRow(line: SimpleLineDiff.DiffLine) {
     val bgColor = when (line.op) {
-        SimpleLineDiff.DiffOp.DELETE -> Color(0x30FF0000)
-        SimpleLineDiff.DiffOp.INSERT -> Color(0x3000FF00)
+        SimpleLineDiff.DiffOp.DELETE -> MaterialTheme.colorScheme.errorContainer.copy(alpha = DIFF_CHANGED_LINE_ALPHA)
+        SimpleLineDiff.DiffOp.INSERT -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = DIFF_CHANGED_LINE_ALPHA)
         SimpleLineDiff.DiffOp.EQUAL -> Color.Transparent
     }
     val prefix = when (line.op) {
@@ -56,9 +61,9 @@ private fun DiffLineRow(line: SimpleLineDiff.DiffLine) {
         else -> MaterialTheme.colorScheme.onSurface
     }
     val lineNoText = buildString {
-        append((line.oldLineNumber?.toString() ?: "").padStart(4))
+        append((line.oldLineNumber?.toString() ?: "").padStart(DIFF_LINE_NUMBER_WIDTH))
         append(" ")
-        append((line.newLineNumber?.toString() ?: "").padStart(4))
+        append((line.newLineNumber?.toString() ?: "").padStart(DIFF_LINE_NUMBER_WIDTH))
     }
 
     Row(
@@ -71,14 +76,14 @@ private fun DiffLineRow(line: SimpleLineDiff.DiffLine) {
         Text(
             text = lineNoText,
             fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
+            fontSize = DIFF_LINE_NUMBER_FONT_SIZE.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
             modifier = Modifier.padding(end = 4.dp),
         )
         Text(
             text = "$prefix ${line.text}",
             fontFamily = FontFamily.Monospace,
-            fontSize = 12.sp,
+            fontSize = DIFF_LINE_CONTENT_FONT_SIZE.sp,
             color = textColor,
             maxLines = 1,
         )

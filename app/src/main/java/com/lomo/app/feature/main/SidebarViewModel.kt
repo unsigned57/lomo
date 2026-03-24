@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.StorageFilenameFormats
@@ -9,7 +10,6 @@ import com.lomo.ui.component.navigation.SidebarStats
 import com.lomo.ui.component.navigation.SidebarTag
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
@@ -60,7 +60,7 @@ class SidebarViewModel
                             .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
                 )
             }.flowOn(Dispatchers.Default)
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SidebarUiState())
+                .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
 
         fun onSearch(query: String) {
             stateHolder.updateSearchQuery(query)

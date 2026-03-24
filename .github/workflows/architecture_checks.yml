@@ -27,4 +27,4 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run architecture checks and unit tests
-        run: ./gradlew architectureCheck testDebugUnitTest
+        run: ./gradlew qualityCheck testDebugUnitTest

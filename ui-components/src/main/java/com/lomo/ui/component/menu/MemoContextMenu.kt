@@ -49,6 +49,18 @@ data class MemoMenuState(
     val reference: MemoMenuReference = MemoMenuReference.None,
     val imageUrls: List<String> = emptyList(),
 ) {
+    // Legacy accessor kept for source compatibility. Prefer `memoAs<T>()` in new code.
+    val memo: Any?
+        get() = (reference as? MemoMenuReference.Payload<*>)?.value
+
+    val memoId: MemoMenuItemId?
+        get() =
+            when (reference) {
+                MemoMenuReference.None -> null
+                is MemoMenuReference.Id -> reference.id
+                is MemoMenuReference.Payload<*> -> reference.id
+            }
+
     constructor(
         wordCount: Int = 0,
         createdTime: String = "",
@@ -69,20 +81,6 @@ data class MemoMenuState(
             },
         imageUrls = imageUrls,
     )
-
-    // Legacy accessor kept for source compatibility. Prefer `memoAs<T>()` in new code.
-    val memo: Any?
-        get() = (reference as? MemoMenuReference.Payload<*>)?.value
-
-    val memoId: MemoMenuItemId?
-        get() =
-            when (reference) {
-                MemoMenuReference.None -> null
-                is MemoMenuReference.Id -> reference.id
-                is MemoMenuReference.Payload<*> -> reference.id
-            }
-
-    inline fun <reified T : Any> memoAs(): T? = (reference as? MemoMenuReference.Payload<*>)?.value as? T
 
     companion object {
         fun withId(
@@ -118,6 +116,9 @@ data class MemoMenuState(
     }
 }
 
+inline fun <reified T : Any> MemoMenuState.memoAs(): T? =
+    (reference as? MemoMenuReference.Payload<*>)?.value as? T
+
 @Composable
 fun MemoContextMenu(
     expanded: Boolean,
@@ -134,22 +135,20 @@ fun MemoContextMenu(
     val clipboardMemoLabel = stringResource(R.string.clipboard_label_memo)
 
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
-        // Copy - actually works
         DropdownMenuItem(
             text = { Text(copyLabel) },
             onClick = {
                 haptic.medium()
-                val clipboard =
-                    context.getSystemService(Context.CLIPBOARD_SERVICE) as
-                        ClipboardManager
-                val clip = ClipData.newPlainText(clipboardMemoLabel, state.content)
-                clipboard.setPrimaryClip(clip)
+                copyMemoToClipboard(
+                    context = context,
+                    label = clipboardMemoLabel,
+                    content = state.content,
+                )
                 onDismiss()
             },
             leadingIcon = { Icon(Icons.Outlined.FileCopy, contentDescription = copyLabel) },
         )
 
-        // Edit
         DropdownMenuItem(
             text = { Text(editLabel) },
             onClick = {
@@ -162,7 +161,6 @@ fun MemoContextMenu(
 
         HorizontalDivider()
 
-        // Delete
         DropdownMenuItem(
             text = { Text(deleteLabel, color = MaterialTheme.colorScheme.error) },
             onClick = {
@@ -181,18 +179,33 @@ fun MemoContextMenu(
 
         HorizontalDivider()
 
-        // Info
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(
-                text = stringResource(R.string.memo_info_characters_value, state.wordCount),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(R.string.memo_info_created_value, state.createdTime),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        MemoInfoSection(state = state)
+    }
+}
+
+private fun copyMemoToClipboard(
+    context: Context,
+    label: String,
+    content: String,
+) {
+    val clipboard =
+        context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val clip = ClipData.newPlainText(label, content)
+    clipboard.setPrimaryClip(clip)
+}
+
+@Composable
+private fun MemoInfoSection(state: MemoMenuState) {
+    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = stringResource(R.string.memo_info_characters_value, state.wordCount),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = stringResource(R.string.memo_info_created_value, state.createdTime),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

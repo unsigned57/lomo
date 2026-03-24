@@ -3,10 +3,10 @@ package com.lomo.data.media
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.AudioPlaybackResolverRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -35,37 +35,57 @@ class AudioPlaybackUriResolverImpl
         }
 
         override suspend fun resolve(source: String): String? {
-            if (source.startsWith("/") || source.startsWith("content:") || source.startsWith("http")) {
-                return source
+            val directSource = directSource(source)
+            val baseDir = directSource?.let { null } ?: resolveBaseDir(source)
+
+            val resolvedSource =
+                when {
+                    directSource != null -> directSource
+                    baseDir == null -> missingBaseDir(source)
+
+                    else ->
+                        withContext(Dispatchers.IO) {
+                            resolveRelativeSource(baseDir, source)
+                        }
+                }
+            return resolvedSource
+        }
+
+        private fun directSource(source: String): String? =
+            source.takeIf {
+                it.startsWith("/") || it.startsWith("content:") || it.startsWith("http")
             }
 
+        private fun missingBaseDir(source: String): String? {
+            Timber.e("Cannot resolve relative uri because base directory is missing: %s", source)
+            return null
+        }
+
+        private fun resolveBaseDir(source: String): String? {
             val isJustFilename = !source.contains("/")
-            val baseDir =
-                if (isJustFilename && voiceLocation != null) {
-                    voiceLocation?.raw
-                } else {
-                    rootLocation?.raw
-                }
-            if (baseDir == null) {
-                Timber.e("Cannot resolve relative uri because base directory is missing: %s", source)
-                return null
-            }
-
-            return withContext(Dispatchers.IO) {
-                if (baseDir.startsWith("content://")) {
-                    resolveSafUri(baseDir = baseDir, uri = source)
-                } else {
-                    val file = File(baseDir, source)
-                    if (file.exists()) file.absolutePath else null
-                }
+            return if (isJustFilename && voiceLocation != null) {
+                voiceLocation?.raw
+            } else {
+                rootLocation?.raw
             }
         }
+
+        private fun resolveRelativeSource(
+            baseDir: String,
+            source: String,
+        ): String? =
+            if (baseDir.startsWith("content://")) {
+                resolveSafUri(baseDir = baseDir, uri = source)
+            } else {
+                val file = File(baseDir, source)
+                if (file.exists()) file.absolutePath else null
+            }
 
         private fun resolveSafUri(
             baseDir: String,
             uri: String,
         ): String? =
-            try {
+            runNonFatalCatching {
                 val rootUri = Uri.parse(baseDir)
                 var document = DocumentFile.fromTreeUri(context, rootUri)
                 if (document == null || !document.isDirectory) {
@@ -77,10 +97,8 @@ class AudioPlaybackUriResolverImpl
                     }
                     document.uri.toString()
                 }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (throwable: Throwable) {
-                Timber.e(throwable, "Failed to resolve SAF uri=%s from baseDir=%s", uri, baseDir)
+            }.getOrElse { error ->
+                Timber.e(error, "Failed to resolve SAF uri=%s from baseDir=%s", uri, baseDir)
                 null
             }
     }

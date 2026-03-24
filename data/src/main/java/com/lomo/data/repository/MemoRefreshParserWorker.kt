@@ -22,8 +22,14 @@ internal data class MemoRefreshParseResult(
     val trashDatesToReplace: Set<String>,
 )
 
+private data class ParsedRefreshBatch<T>(
+    val memos: List<T>,
+    val metadata: List<LocalFileStateEntity>,
+    val datesToReplace: Set<String>,
+)
+
 class MemoRefreshParserWorker
-    constructor(
+(
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val dao: MemoDao,
         private val parser: MarkdownParser,
@@ -32,73 +38,59 @@ class MemoRefreshParserWorker
             mainFilesToUpdate: List<FileMetadataWithId>,
             trashFilesToUpdate: List<FileMetadataWithId>,
         ): MemoRefreshParseResult {
+            val mainBatch = parseMainFiles(mainFilesToUpdate)
+            val trashBatch = parseTrashFiles(trashFilesToUpdate)
+
+            return MemoRefreshParseResult(
+                mainMemos = mainBatch.memos,
+                trashMemos = trashBatch.memos,
+                metadataToUpdate = mainBatch.metadata + trashBatch.metadata,
+                mainDatesToReplace = mainBatch.datesToReplace,
+                trashDatesToReplace = trashBatch.datesToReplace,
+            )
+        }
+
+        private suspend fun parseMainFiles(files: List<FileMetadataWithId>): ParsedRefreshBatch<MemoEntity> {
             val mainMemos = mutableListOf<MemoEntity>()
-            val trashMemos = mutableListOf<TrashMemoEntity>()
-            val metadataToUpdate = mutableListOf<LocalFileStateEntity>()
-            val mainDatesToReplace = mutableSetOf<String>()
-            val trashDatesToReplace = mutableSetOf<String>()
+            val metadata = mutableListOf<LocalFileStateEntity>()
+            val datesToReplace = mutableSetOf<String>()
 
-            mainFilesToUpdate.chunked(10).forEach { chunk ->
-                val chunkResults =
-                    coroutineScope {
-                        chunk
-                            .map { meta ->
-                                async(Dispatchers.Default) {
-                                    parseMainFile(meta)
-                                }
-                            }.awaitAll()
+            files.chunked(FILE_PARSE_BATCH_SIZE).forEach { chunk ->
+                loadParsedResults(chunk, ::parseMainFile)
+                    .forEach { (memos, meta) ->
+                        datesToReplace.add(meta.filename.removeSuffix(".md"))
+                        mainMemos.addAll(memos)
+                        metadata.add(
+                            LocalFileStateEntity(
+                                filename = meta.filename,
+                                isTrash = false,
+                                safUri = meta.uriString,
+                                lastKnownModifiedTime = meta.lastModified,
+                            ),
+                        )
                     }
-
-                chunkResults.filterNotNull().forEach { (memos, meta) ->
-                    val dateStr = meta.filename.removeSuffix(".md")
-                    mainDatesToReplace.add(dateStr)
-                    mainMemos.addAll(memos)
-                    metadataToUpdate.add(
-                        LocalFileStateEntity(
-                            filename = meta.filename,
-                            isTrash = false,
-                            safUri = meta.uriString,
-                            lastKnownModifiedTime = meta.lastModified,
-                        ),
-                    )
-                }
             }
 
-            trashFilesToUpdate.chunked(10).forEach { chunk ->
-                val chunkResults =
-                    coroutineScope {
-                        chunk
-                            .map { meta ->
-                                async(Dispatchers.Default) {
-                                    parseTrashFile(meta)
-                                }
-                            }.awaitAll()
-                    }.filterNotNull()
+            return ParsedRefreshBatch(
+                memos = mainMemos,
+                metadata = metadata,
+                datesToReplace = datesToReplace,
+            )
+        }
 
-                val trashMemoIdsInChunk =
-                    chunkResults
-                        .flatMap { (memos, _) ->
-                            memos.map { it.id }
-                        }.distinct()
-                val activeMemoIdsInDb =
-                    if (trashMemoIdsInChunk.isNotEmpty()) {
-                        trashMemoIdsInChunk
-                            .chunked(500)
-                            .flatMap { ids ->
-                                dao.getMemosByIds(ids)
-                            }.asSequence()
-                            .map { it.id }
-                            .toSet()
-                    } else {
-                        emptySet()
-                    }
+        private suspend fun parseTrashFiles(files: List<FileMetadataWithId>): ParsedRefreshBatch<TrashMemoEntity> {
+            val trashMemos = mutableListOf<TrashMemoEntity>()
+            val metadata = mutableListOf<LocalFileStateEntity>()
+            val datesToReplace = mutableSetOf<String>()
+
+            files.chunked(FILE_PARSE_BATCH_SIZE).forEach { chunk ->
+                val chunkResults = loadParsedResults(chunk, ::parseTrashFile)
+                val activeMemoIdsInDb = resolveActiveMemoIds(chunkResults)
 
                 chunkResults.forEach { (memos, meta) ->
-                    val dateStr = meta.filename.removeSuffix(".md")
-                    val filteredMemos = memos.filter { it.id !in activeMemoIdsInDb }
-                    trashDatesToReplace.add(dateStr)
-                    trashMemos.addAll(filteredMemos)
-                    metadataToUpdate.add(
+                    datesToReplace.add(meta.filename.removeSuffix(".md"))
+                    trashMemos.addAll(memos.filter { it.id !in activeMemoIdsInDb })
+                    metadata.add(
                         LocalFileStateEntity(
                             filename = meta.filename,
                             isTrash = true,
@@ -108,13 +100,45 @@ class MemoRefreshParserWorker
                 }
             }
 
-            return MemoRefreshParseResult(
-                mainMemos = mainMemos,
-                trashMemos = trashMemos,
-                metadataToUpdate = metadataToUpdate,
-                mainDatesToReplace = mainDatesToReplace,
-                trashDatesToReplace = trashDatesToReplace,
+            return ParsedRefreshBatch(
+                memos = trashMemos,
+                metadata = metadata,
+                datesToReplace = datesToReplace,
             )
+        }
+
+        private suspend fun <T> loadParsedResults(
+            chunk: List<FileMetadataWithId>,
+            parserBlock: suspend (FileMetadataWithId) -> Pair<List<T>, FileMetadataWithId>?,
+        ): List<Pair<List<T>, FileMetadataWithId>> =
+            coroutineScope {
+                chunk
+                    .map { meta ->
+                        async(Dispatchers.Default) {
+                            parserBlock(meta)
+                        }
+                    }.awaitAll()
+            }.filterNotNull()
+
+        private suspend fun resolveActiveMemoIds(
+            chunkResults: List<Pair<List<TrashMemoEntity>, FileMetadataWithId>>,
+        ): Set<String> {
+            val trashMemoIdsInChunk =
+                chunkResults
+                    .flatMap { (memos, _) ->
+                        memos.map { it.id }
+                    }.distinct()
+            return if (trashMemoIdsInChunk.isNotEmpty()) {
+                trashMemoIdsInChunk
+                    .chunked(MEMO_LOOKUP_BATCH_SIZE)
+                    .flatMap { ids ->
+                        dao.getMemosByIds(ids)
+                    }.asSequence()
+                    .map { it.id }
+                    .toSet()
+            } else {
+                emptySet()
+            }
         }
 
         private suspend fun parseMainFile(meta: FileMetadataWithId): Pair<List<MemoEntity>, FileMetadataWithId>? {
@@ -170,3 +194,6 @@ class MemoRefreshParserWorker
             return memos to meta
         }
     }
+
+private const val FILE_PARSE_BATCH_SIZE = 10
+private const val MEMO_LOOKUP_BATCH_SIZE = 500

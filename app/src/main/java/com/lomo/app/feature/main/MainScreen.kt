@@ -1,95 +1,39 @@
 package com.lomo.app.feature.main
-import androidx.compose.animation.AnimatedContent
+
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.MutableTransitionState
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.systemBars
-import androidx.compose.foundation.layout.union
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FabPosition
-import androidx.compose.material3.ModalDrawerSheet
-import androidx.compose.material3.ModalNavigationDrawer
-import androidx.compose.material3.PermanentDrawerSheet
-import androidx.compose.material3.PermanentNavigationDrawer
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
-import androidx.compose.material3.rememberDrawerState
-import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
-import com.lomo.app.feature.memo.rememberMemoEditorController
+import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.MemoSortOption
-import com.lomo.ui.component.navigation.SidebarDrawer
+import com.lomo.domain.model.MemoVersion
+import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import java.time.LocalDate
 
-/**
- * MainScreen with comprehensive audit improvements.
- *
- * 1. Performance:
- * ```
- *    - Uses @Immutable wrappers for Lists to prevent over-recomposition.
- *    - Implements derivedStateOf for scroll-dependent UI logic (FAB visibility).
- *    - Optimized LazyColumn with content keys.
- * ```
- * 2. Architecture:
- * ```
- *    - Separation of concerns: UI Actions encapsulated in a clean interface.
- *    - Logic for image saving is handled via ViewModel callbacks, keeping UI clean.
- * ```
- * 3. UI/UX:
- * ```
- *    - Material 3 Design implementation.
- *    - Fluid AnimatedContent for state transitions.
- *    - Physics-based animations for FAB and Lists.
- * ```
- */
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
+internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
+internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
+internal const val MAIN_SCREEN_FAB_VISIBILITY_THRESHOLD = 0.9f
+internal const val MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION = 0.8f
+
 @Composable
 fun MainScreen(
     onNavigateToSettings: () -> Unit,
@@ -106,228 +50,100 @@ fun MainScreen(
     recordingViewModel: RecordingViewModel = hiltViewModel(),
     conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = hiltViewModel(),
 ) {
-    // Collect Flow state safely with Lifecycle awareness using collectAsStateWithLifecycle
-    // to ensure flows are paused when the app is in the background.
-    val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
-    val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
-    val selectedTag by sidebarViewModel.selectedTag.collectAsStateWithLifecycle()
-    val memoListFilter by viewModel.memoListFilter.collectAsStateWithLifecycle()
-    val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
-    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val dateFormat = appPreferences.dateFormat
-    val timeFormat = appPreferences.timeFormat
-    val showInputHints = appPreferences.showInputHints
-    val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
-    val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
-    val quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled
-    val shareCardShowTime = appPreferences.shareCardShowTime
-
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    // Manual pull-to-refresh is available for explicit data reload.
-    val hasItems = uiMemos.isNotEmpty()
-
-    // Host State
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
+    val screenState = collectMainScreenUiSnapshot(viewModel = viewModel, sidebarViewModel = sidebarViewModel)
+    val hostState = rememberMainScreenHostState()
     val unknownErrorMessage = stringResource(R.string.error_unknown)
-    val listState =
-        rememberSaveable(saver = androidx.compose.foundation.lazy.LazyListState.Saver) {
-            androidx.compose.foundation.lazy
-                .LazyListState()
-        }
-    val editorController = rememberMemoEditorController()
-
-    // Debounced draft save: when in create mode, save input text to DataStore
-    LaunchedEffect(editorController) {
-        snapshotFlow {
-            DraftAutosaveState(
-                editingMemoId = editorController.editingMemo?.id,
-                text = editorController.inputValue.text,
-                isVisible = editorController.isVisible,
-            )
-        }.debounce(500)
-            .distinctUntilChanged()
-            .filter { state ->
-                state.editingMemoId == null && state.isVisible
-            }.map { state -> state.text }
-            .collect { text ->
-                editorViewModel.saveDraft(text)
-            }
-    }
-
-    // Local UI State
     var isRefreshing by remember { mutableStateOf(false) }
-
-    // Adaptive Layout
-    val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
-    val isExpanded = windowSizeClass.isWidthAtLeastBreakpoint(WindowSizeClass.WIDTH_DP_EXPANDED_LOWER_BOUND)
-    val directoryGuideController = rememberMainDirectoryGuideController()
-
-    // Track scroll to top for new memo insertions
     var pendingNewMemoScroll by remember { mutableStateOf(false) }
 
-    // LaunchedEffect to scroll to top once the new memo is actually inserted in the data source
-    LaunchedEffect(uiMemos.size) {
-        if (pendingNewMemoScroll && uiMemos.isNotEmpty()) {
-            pendingNewMemoScroll = false
-            listState.animateScrollToItem(0)
-        }
-    }
+    MainScreenDraftAutosaveEffect(
+        editorController = hostState.editorController,
+        editorViewModel = editorViewModel,
+    )
+    MainScreenPendingScrollEffect(
+        uiMemos = screenState.uiMemos,
+        listState = hostState.listState,
+        pendingNewMemoScroll = pendingNewMemoScroll,
+        onPendingScrollConsumed = { pendingNewMemoScroll = false },
+    )
 
     MainScreenTransientEffects(
         viewModel = viewModel,
         editorViewModel = editorViewModel,
-        uiMemos = uiMemos,
-        listState = listState,
-        editorController = editorController,
-        directoryGuideController = directoryGuideController,
-        snackbarHostState = snackbarHostState,
+        uiMemos = screenState.uiMemos,
+        listState = hostState.listState,
+        editorController = hostState.editorController,
+        directoryGuideController = hostState.directoryGuideController,
+        snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
     )
-
-    val allTags = remember(sidebarUiState.tags) { sidebarUiState.tags.map { it.name }.sorted() }
-
-    com.lomo.app.feature.conflict.SyncConflictDialogHost(conflictViewModel = conflictViewModel)
-
-    LaunchedEffect(Unit) {
-        viewModel.syncConflictEvent.collect { conflictSet ->
-            conflictViewModel.showConflictDialog(conflictSet)
-        }
-    }
-
-    MainScreenInteractionBindings(
+    MainScreenConflictHost(viewModel = viewModel, conflictViewModel = conflictViewModel)
+    MainScreenContentHost(
+        screenState = screenState,
+        hostState = hostState,
         viewModel = viewModel,
+        sidebarViewModel = sidebarViewModel,
         editorViewModel = editorViewModel,
         recordingViewModel = recordingViewModel,
-        editorController = editorController,
-        directoryGuideController = directoryGuideController,
-        scope = scope,
-        snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
-        shareCardShowTime = shareCardShowTime,
-        quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-        availableTags = allTags,
-        showInputHints = showInputHints,
-        onNavigateToShare = onNavigateToShare,
+        isRefreshing = isRefreshing,
+        onRefreshingChange = { isRefreshing = it },
         onPendingNewMemoScroll = { pendingNewMemoScroll = true },
-    ) { showMenu, openEditor ->
-        var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
-
-        // Track previous filter values to detect actual changes (not recomposition)
-        var previousTag by rememberSaveable { mutableStateOf<String?>(null) }
-        var previousQuery by rememberSaveable { mutableStateOf("") }
-        var previousMemoFilter by remember { mutableStateOf(MemoListFilter()) }
-
-        // Scroll to top ONLY when filter actually changes (user action)
-        LaunchedEffect(selectedTag, searchQuery, memoListFilter) {
-            val filterChanged =
-                previousTag != selectedTag ||
-                    previousQuery != searchQuery ||
-                    previousMemoFilter != memoListFilter
-            // Only scroll if this is a real user-initiated filter change
-            // (not initial composition or navigation return)
-            if (filterChanged && (previousTag != null || previousQuery.isNotEmpty() || previousMemoFilter.isActive)) {
-                listState.scrollToItem(0)
-            }
-            previousTag = selectedTag
-            previousQuery = searchQuery
-            previousMemoFilter = memoListFilter
-        }
-
-        MainScreenNavigationActionHost(
-            scope = scope,
-            drawerState = drawerState,
-            isExpanded = isExpanded,
-            canCreateMemo = uiState is MainViewModel.MainScreenState.Ready,
-            onNavigateToSettings = onNavigateToSettings,
-            onNavigateToTrash = onNavigateToTrash,
-            onNavigateToSearch = onNavigateToSearch,
-            onNavigateToTag = onNavigateToTag,
-            onNavigateToImage = onNavigateToImage,
-            onNavigateToDailyReview = onNavigateToDailyReview,
-            onNavigateToGallery = onNavigateToGallery,
-            onClearSidebarFilters = sidebarViewModel::clearFilters,
-            onClearMainFilters = {
-                sidebarViewModel.onTagSelected(null)
-                viewModel.clearMemoDateRange()
-            },
-            onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
-            onOpenCreateMemo = { editorController.openForCreate(editorViewModel.draftText.value) },
-            onRefreshMemos = viewModel::refresh,
-            onRefreshingChange = { isRefreshing = it },
-        ) { actions ->
-            MainScreenRenderHost(
-                isExpanded = isExpanded,
-                drawerState = drawerState,
-                sidebarUiState = sidebarUiState,
-                actions = actions,
-                snackbarHostState = snackbarHostState,
-                scrollBehavior = scrollBehavior,
-                selectedTag = selectedTag,
-                searchQuery = searchQuery,
-                memoListFilter = memoListFilter,
-                isFilterActive = selectedTag != null || memoListFilter.hasDateRange,
-                isMemoFilterSheetVisible = isMemoFilterSheetVisible,
-                uiState = uiState,
-                hasItems = hasItems,
-                uiMemos = uiMemos,
-                deletingMemoIds = viewModel.deletingMemoIds,
-                listState = listState,
-                isRefreshing = isRefreshing,
-                onTodoClick = { memo, index, checked -> viewModel.updateMemo(memo, index, checked) },
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                onMemoDoubleClick = openEditor,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
-                onShowMemoMenu = showMenu,
-                onMemoSortOptionSelected = viewModel::updateMemoSortOption,
-                onMemoStartDateSelected = viewModel::updateMemoStartDate,
-                onMemoEndDateSelected = viewModel::updateMemoEndDate,
-                onClearMemoDateRange = viewModel::clearMemoDateRange,
-                onResetMemoFilter = viewModel::clearMemoListFilter,
-                onDismissMemoFilterSheet = { isMemoFilterSheetVisible = false },
-                onHeatmapDateLongPress = { date ->
-                    viewModel.filterMemosByDate(date)
-                    if (!isExpanded) {
-                        scope.launch { drawerState.close() }
-                    }
-                },
-                onScrollToTop = {
-                    scope.launch {
-                        if (listState.firstVisibleItemIndex > 10) {
-                            listState.scrollToItem(10)
-                        }
-                        listState.animateScrollToItem(0)
-                    }
-                },
-            )
-        }
-
-        MainDirectoryGuideHost(
-            controller = directoryGuideController,
-            actions =
-                MainDirectoryGuideActions(
-                    onConfirmCreate = { type ->
-                        viewModel.createDefaultDirectories(
-                            forImage = type == DirectorySetupType.Image,
-                            forVoice = type == DirectorySetupType.Voice,
-                        )
-                    },
-                    onBeforeGoToSettings = editorController::close,
-                    onGoToSettings = onNavigateToSettings,
-                ),
-        )
-    }
+        onNavigateToSettings = onNavigateToSettings,
+        onNavigateToTrash = onNavigateToTrash,
+        onNavigateToSearch = onNavigateToSearch,
+        onNavigateToTag = onNavigateToTag,
+        onNavigateToImage = onNavigateToImage,
+        onNavigateToDailyReview = onNavigateToDailyReview,
+        onNavigateToGallery = onNavigateToGallery,
+        onNavigateToShare = onNavigateToShare,
+    )
 }
 
-private data class DraftAutosaveState(
+internal data class DraftAutosaveState(
     val editingMemoId: String?,
     val text: String,
     val isVisible: Boolean,
+)
+
+internal data class MainScreenUiSnapshot(
+    val uiMemos: List<MemoUiModel>,
+    val searchQuery: String,
+    val selectedTag: String?,
+    val memoListFilter: MemoListFilter,
+    val sidebarUiState: SidebarViewModel.SidebarUiState,
+    val dateFormat: String,
+    val timeFormat: String,
+    val showInputHints: Boolean,
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val quickSaveOnBackEnabled: Boolean,
+    val shareCardShowTime: Boolean,
+    val uiState: MainViewModel.MainScreenState,
+    val hasItems: Boolean,
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+internal data class MainScreenHostState(
+    val drawerState: androidx.compose.material3.DrawerState,
+    val scope: CoroutineScope,
+    val snackbarHostState: SnackbarHostState,
+    val scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    val listState: androidx.compose.foundation.lazy.LazyListState,
+    val editorController: MemoEditorController,
+    val isExpanded: Boolean,
+    val directoryGuideController: MainDirectoryGuideController,
+)
+
+internal typealias MainScreenInteractionContent =
+    @Composable ((MemoMenuState) -> Unit, (Memo) -> Unit) -> Unit
+
+private data class MainScreenInteractionCallbacks(
+    val onCreateMemo: (String) -> Unit,
+    val onCameraCaptureError: (Throwable) -> Unit,
+    val onStartRecording: () -> Unit,
+    val onStopRecording: () -> Unit,
+    val onVersionHistory: (MemoMenuState) -> Unit,
 )
 
 @Composable
@@ -355,7 +171,7 @@ private fun MainScreenTransientEffects(
     editorViewModel: MemoEditorViewModel,
     uiMemos: List<MemoUiModel>,
     listState: androidx.compose.foundation.lazy.LazyListState,
-    editorController: com.lomo.app.feature.memo.MemoEditorController,
+    editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
@@ -391,25 +207,25 @@ private fun MainScreenTransientEffects(
                 false
             }
         },
-        onResolveMemoById = viewModel::resolveMemoById,
+        onResolveMemoById = viewModel.resolveMemoById,
         onSaveImage = { uri, onResult -> editorViewModel.saveImage(uri = uri, onResult = onResult) },
         onRequireImageDirectory = directoryGuideController::requestImage,
-        onConsumeSharedContentEvent = viewModel::consumeSharedContentEvent,
-        onConsumeAppActionEvent = viewModel::consumeAppActionEvent,
-        onConsumePendingSharedImageEvent = viewModel::consumePendingSharedImageEvent,
-        onClearMainError = viewModel::clearError,
+        onConsumeSharedContentEvent = viewModel.consumeSharedContentEvent,
+        onConsumeAppActionEvent = viewModel.consumeAppActionEvent,
+        onConsumePendingSharedImageEvent = viewModel.consumePendingSharedImageEvent,
+        onClearMainError = viewModel.clearError,
         onClearEditorError = editorViewModel::clearError,
     )
 }
 
 @Composable
-private fun MainScreenInteractionBindings(
+internal fun MainScreenInteractionBindings(
     viewModel: MainViewModel,
     editorViewModel: MemoEditorViewModel,
     recordingViewModel: RecordingViewModel,
-    editorController: com.lomo.app.feature.memo.MemoEditorController,
+    editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
-    scope: kotlinx.coroutines.CoroutineScope,
+    scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     shareCardShowTime: Boolean,
@@ -418,7 +234,7 @@ private fun MainScreenInteractionBindings(
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
     onPendingNewMemoScroll: () -> Unit,
-    content: @Composable ((com.lomo.ui.component.menu.MemoMenuState) -> Unit, (com.lomo.domain.model.Memo) -> Unit) -> Unit,
+    content: MainScreenInteractionContent,
 ) {
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
@@ -426,6 +242,19 @@ private fun MainScreenInteractionBindings(
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val voiceDirectory by viewModel.voiceDirectory.collectAsStateWithLifecycle()
     val inputHints = rememberInputHints(showInputHints = showInputHints)
+    val interactionCallbacks =
+        rememberMainScreenInteractionCallbacks(
+            viewModel = viewModel,
+            editorViewModel = editorViewModel,
+            recordingViewModel = recordingViewModel,
+            editorController = editorController,
+            directoryGuideController = directoryGuideController,
+            voiceDirectory = voiceDirectory,
+            scope = scope,
+            snackbarHostState = snackbarHostState,
+            unknownErrorMessage = unknownErrorMessage,
+            onPendingNewMemoScroll = onPendingNewMemoScroll,
+        )
 
     MemoInteractionHost(
         shareCardShowTime = shareCardShowTime,
@@ -433,280 +262,95 @@ private fun MainScreenInteractionBindings(
         imageDirectory = imageDirectory,
         controller = editorController,
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-        onDeleteMemo = viewModel::deleteMemo,
+        onDeleteMemo = viewModel.deleteMemo,
         onUpdateMemo = editorViewModel::updateMemo,
-        onCreateMemo = { contentText ->
-            editorViewModel.createMemo(contentText) {
-                onPendingNewMemoScroll()
-            }
-        },
+        onCreateMemo = interactionCallbacks.onCreateMemo,
         onSaveImage = editorViewModel::saveImage,
         onLanShare = onNavigateToShare,
         onDismiss = editorViewModel::discardInputs,
         onImageDirectoryMissing = directoryGuideController::requestImage,
-        onCameraCaptureError = { error ->
-            scope.launch {
-                snackbarHostState.showSnackbar(error.message ?: unknownErrorMessage)
-            }
-        },
+        onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
         availableTags = availableTags,
         isRecordingFlow = recordingViewModel.isRecording,
         recordingDurationFlow = recordingViewModel.recordingDuration,
         recordingAmplitudeFlow = recordingViewModel.recordingAmplitude,
-        onStartRecording = {
-            if (voiceDirectory == null) {
-                directoryGuideController.requestVoice()
-            } else {
-                recordingViewModel.startRecording()
-            }
-        },
+        onStartRecording = interactionCallbacks.onStartRecording,
         onCancelRecording = recordingViewModel::cancelRecording,
-        onStopRecording = {
-            recordingViewModel.stopRecording { markdown ->
-                editorController.appendMarkdownBlock(markdown)
-            }
-        },
+        onStopRecording = interactionCallbacks.onStopRecording,
         hints = inputHints,
-        onVersionHistory = { state ->
-            val memo = state.memo as? com.lomo.domain.model.Memo
-            if (memo != null) {
-                viewModel.loadVersionHistory(memo)
-            }
-        },
-        onTogglePin = viewModel::setMemoPinned,
+        onVersionHistory = interactionCallbacks.onVersionHistory,
+        onTogglePin = viewModel.setMemoPinned,
         showVersionHistory = gitSyncEnabled,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
-        VersionHistoryOverlay(
-            state = versionHistoryState,
-            onDismiss = viewModel::dismissVersionHistory,
-            onRestore = { memo, version -> viewModel.restoreVersion(memo, version) },
-        )
     }
+
+    VersionHistoryOverlay(
+        state = versionHistoryState,
+        onDismiss = viewModel.dismissVersionHistory,
+        onRestore = { memo, version -> viewModel.restoreVersion(memo, version) },
+    )
 }
 
-// Refactor: Sub-components extracted to separate files:
-// - MainTopBar -> MainScreenTopBar.kt
-// - MainFab -> MainScreenFab.kt
-// - MainEmptyState -> MainScreenEmptyState.kt
-// - MemoListContent, MemoItemContent -> MemoListContent.kt
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MainScreenRenderHost(
-    isExpanded: Boolean,
-    drawerState: androidx.compose.material3.DrawerState,
-    sidebarUiState: SidebarViewModel.SidebarUiState,
-    actions: MainScreenActions,
+private fun rememberMainScreenInteractionCallbacks(
+    viewModel: MainViewModel,
+    editorViewModel: MemoEditorViewModel,
+    recordingViewModel: RecordingViewModel,
+    editorController: MemoEditorController,
+    directoryGuideController: MainDirectoryGuideController,
+    voiceDirectory: String?,
+    scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-    selectedTag: String?,
-    searchQuery: String,
-    memoListFilter: MemoListFilter,
-    isFilterActive: Boolean,
-    isMemoFilterSheetVisible: Boolean,
-    uiState: MainViewModel.MainScreenState,
-    hasItems: Boolean,
-    uiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    isRefreshing: Boolean,
-    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
-    dateFormat: String,
-    timeFormat: String,
-    onMemoDoubleClick: (com.lomo.domain.model.Memo) -> Unit,
-    doubleTapEditEnabled: Boolean,
-    freeTextCopyEnabled: Boolean,
-    onShowMemoMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
-    onMemoSortOptionSelected: (MemoSortOption) -> Unit,
-    onMemoStartDateSelected: (LocalDate?) -> Unit,
-    onMemoEndDateSelected: (LocalDate?) -> Unit,
-    onClearMemoDateRange: () -> Unit,
-    onResetMemoFilter: () -> Unit,
-    onDismissMemoFilterSheet: () -> Unit,
-    onHeatmapDateLongPress: (LocalDate) -> Unit,
-    onScrollToTop: () -> Unit,
-) {
-    val sidebarContent: @Composable () -> Unit = {
-        SidebarDrawer(
-            username = "Lomo",
-            stats = sidebarUiState.stats,
-            memoCountByDate = sidebarUiState.memoCountByDate,
-            tags = sidebarUiState.tags,
-            onMemoClick = actions.onSidebarMemoClick,
-            onTagClick = actions.onSidebarTagClick,
-            onSettingsClick = actions.onSettings,
-            onTrashClick = actions.onTrash,
-            onDailyReviewClick = actions.onDailyReviewClick,
-            onGalleryClick = actions.onGalleryClick,
-            onHeatmapDateLongPress = onHeatmapDateLongPress,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
-
-    val screenContent: @Composable () -> Unit = {
-        val isFabVisible by remember {
-            androidx.compose.runtime.derivedStateOf { scrollBehavior.state.collapsedFraction < 0.9f }
-        }
-        Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-            snackbarHost = { SnackbarHost(snackbarHostState) },
-            contentWindowInsets =
-                WindowInsets.displayCutout
-                    .union(WindowInsets.systemBars)
-                    .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
-            topBar = {
-                MainTopBar(
-                    title = if (selectedTag != null) "#$selectedTag" else "Lomo",
-                    scrollBehavior = scrollBehavior,
-                    onMenu = actions.onMenuOpen,
-                    onSearch = actions.onSearch,
-                    onFilter = actions.onOpenMemoFilterPanel,
-                    onClearFilter = actions.onClearFilter,
-                    isFilterActive = isFilterActive,
-                    showNavigationIcon = !isExpanded,
-                )
-            },
-            floatingActionButton = {
-                MainFab(
-                    isVisible = isFabVisible,
-                    onClick = actions.onFabClick,
-                    modifier = Modifier.offset(y = (-16).dp),
-                    onLongClick = onScrollToTop,
-                )
-            },
-            floatingActionButtonPosition = FabPosition.Center,
-        ) { padding ->
-            Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-                AnimatedContent(
-                    targetState = uiState,
-                    transitionSpec = {
-                        (
-                            fadeIn(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationLong2,
-                                        easing = MotionTokens.EasingStandard,
-                                    ),
-                            ) +
-                                scaleIn(
-                                    initialScale = 0.92f,
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationLong2,
-                                            easing = MotionTokens.EasingEmphasizedDecelerate,
-                                        ),
-                                )
-                        ) togetherWith
-                            fadeOut(
-                                animationSpec =
-                                    tween(
-                                        durationMillis = MotionTokens.DurationLong2,
-                                        easing = MotionTokens.EasingStandard,
-                                    ),
-                            )
-                    },
-                    label = "MainScreenStateTransition",
-                ) { state ->
-                    when (state) {
-                        is MainViewModel.MainScreenState.Loading -> {
-                            com.lomo.ui.component.common.MemoListSkeleton(
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-
-                        is MainViewModel.MainScreenState.NoDirectory -> {
-                            MainEmptyState(
-                                searchQuery = searchQuery,
-                                selectedTag = selectedTag,
-                                hasDirectory = false,
-                                onSettings = actions.onSettings,
-                            )
-                        }
-
-                        is MainViewModel.MainScreenState.Ready -> {
-                            MainReadyStateEnterContainer {
-                                Crossfade(
-                                    targetState = hasItems,
-                                    animationSpec =
-                                        tween(
-                                            durationMillis = MotionTokens.DurationMedium2,
-                                            easing = MotionTokens.EasingStandard,
-                                        ),
-                                    label = "ReadyContentCrossfade",
-                                ) { showList ->
-                                    if (!showList) {
-                                        MainEmptyState(
-                                            searchQuery = searchQuery,
-                                            selectedTag = selectedTag,
-                                            hasDirectory = true,
-                                            onSettings = actions.onSettings,
-                                        )
-                                    } else {
-                                        MemoListContent(
-                                            memos = uiMemos,
-                                            deletingMemoIds = deletingMemoIds,
-                                            listState = listState,
-                                            isRefreshing = isRefreshing,
-                                            onRefresh = actions.onRefresh,
-                                            onTodoClick = onTodoClick,
-                                            dateFormat = dateFormat,
-                                            timeFormat = timeFormat,
-                                            onMemoDoubleClick = onMemoDoubleClick,
-                                            doubleTapEditEnabled = doubleTapEditEnabled,
-                                            freeTextCopyEnabled = freeTextCopyEnabled,
-                                            onTagClick = actions.onSidebarTagClick,
-                                            onImageClick = actions.onNavigateToImage,
-                                            onShowMemoMenu = onShowMemoMenu,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (isMemoFilterSheetVisible) {
-            MainMemoFilterSheet(
-                filter = memoListFilter,
-                onSortOptionSelected = onMemoSortOptionSelected,
-                onStartDateSelected = onMemoStartDateSelected,
-                onEndDateSelected = onMemoEndDateSelected,
-                onClearDateRange = onClearMemoDateRange,
-                onReset = onResetMemoFilter,
-                onDismiss = onDismissMemoFilterSheet,
-            )
-        }
-    }
-
-    if (isExpanded) {
-        PermanentNavigationDrawer(
-            drawerContent = {
-                PermanentDrawerSheet(
-                    modifier = Modifier.width(300.dp),
-                ) {
-                    sidebarContent()
+    unknownErrorMessage: String,
+    onPendingNewMemoScroll: () -> Unit,
+): MainScreenInteractionCallbacks =
+    remember(
+        viewModel,
+        editorViewModel,
+        recordingViewModel,
+        editorController,
+        directoryGuideController,
+        voiceDirectory,
+        scope,
+        snackbarHostState,
+        unknownErrorMessage,
+        onPendingNewMemoScroll,
+    ) {
+        MainScreenInteractionCallbacks(
+            onCreateMemo = { contentText ->
+                editorViewModel.createMemo(contentText) {
+                    onPendingNewMemoScroll()
                 }
             },
-            content = screenContent,
-        )
-    } else {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                ModalDrawerSheet(modifier = Modifier.fillMaxWidth(0.8f)) {
-                    sidebarContent()
+            onCameraCaptureError = { error ->
+                scope.launch {
+                    snackbarHostState.showSnackbar(error.message ?: unknownErrorMessage)
                 }
             },
-            content = screenContent,
+            onStartRecording = {
+                if (voiceDirectory == null) {
+                    directoryGuideController.requestVoice()
+                } else {
+                    recordingViewModel.startRecording()
+                }
+            },
+            onStopRecording = {
+                recordingViewModel.stopRecording { markdown ->
+                    editorController.appendMarkdownBlock(markdown)
+                }
+            },
+            onVersionHistory = { state ->
+                val memo = state.memo as? Memo
+                if (memo != null) {
+                    viewModel.loadVersionHistory(memo)
+                }
+            },
         )
     }
-}
 
 @Composable
-private fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
+internal fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
     val visibleState =
         remember {
             MutableTransitionState(false).apply {
@@ -728,7 +372,7 @@ private fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
 private fun VersionHistoryOverlay(
     state: MainVersionHistoryState,
     onDismiss: () -> Unit,
-    onRestore: (com.lomo.domain.model.Memo, com.lomo.domain.model.MemoVersion) -> Unit,
+    onRestore: (Memo, MemoVersion) -> Unit,
 ) {
     when (state) {
         is MainVersionHistoryState.Loading -> {

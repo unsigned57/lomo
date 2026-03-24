@@ -66,11 +66,10 @@ class ApplyMainMemoFilterUseCase {
         startDate: LocalDate?,
         endDate: LocalDate?,
     ): Boolean {
-        if (startDate == null && endDate == null) return true
         val memoDate = memo.localDate ?: memo.timestamp.toLocalDate()
-        if (startDate != null && memoDate < startDate) return false
-        if (endDate != null && memoDate > endDate) return false
-        return true
+        val afterStart = startDate == null || memoDate >= startDate
+        val beforeEnd = endDate == null || memoDate <= endDate
+        return afterStart && beforeEnd
     }
 
     private fun Long.toLocalDate(): LocalDate =

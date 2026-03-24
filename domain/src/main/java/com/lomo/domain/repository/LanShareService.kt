@@ -9,17 +9,7 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * Domain interface for LAN share operations: device discovery, memo transfer, and configuration.
  */
-interface LanShareService {
-    // Lifecycle
-    fun startServices()
-
-    fun stopServices()
-
-    fun startDiscovery()
-
-    fun stopDiscovery()
-
-    // Observable state
+interface LanShareStateRepository {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
     val incomingShare: StateFlow<IncomingShareState>
     val transferState: StateFlow<ShareTransferState>
@@ -27,8 +17,19 @@ interface LanShareService {
     val lanShareE2eEnabled: Flow<Boolean>
     val lanSharePairingConfigured: Flow<Boolean>
     val lanShareDeviceName: Flow<String>
+}
 
-    // Send / Receive
+interface LanShareLifecycleController {
+    fun startServices()
+
+    fun stopServices()
+
+    fun startDiscovery()
+
+    fun stopDiscovery()
+}
+
+interface LanShareTransferController {
     suspend fun sendMemo(
         device: DiscoveredDevice,
         content: String,
@@ -41,8 +42,9 @@ interface LanShareService {
     fun rejectIncoming()
 
     fun resetTransferState()
+}
 
-    // Configuration
+interface LanShareConfigurationController {
     suspend fun setLanShareE2eEnabled(enabled: Boolean)
 
     suspend fun setLanSharePairingCode(pairingCode: String)
@@ -53,3 +55,9 @@ interface LanShareService {
 
     suspend fun requiresPairingBeforeSend(): Boolean
 }
+
+interface LanShareService :
+    LanShareStateRepository,
+    LanShareLifecycleController,
+    LanShareTransferController,
+    LanShareConfigurationController

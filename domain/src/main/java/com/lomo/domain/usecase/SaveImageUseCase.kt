@@ -17,7 +17,7 @@ sealed interface SaveImageResult {
 }
 
 class SaveImageUseCase
-    constructor(
+(
         private val mediaRepository: MediaRepository,
     ) {
         suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult =

@@ -81,16 +81,13 @@ object SimpleLineDiff {
     }
 
     private fun groupIntoHunks(diffLines: List<DiffLine>): List<DiffHunk> {
-        if (diffLines.isEmpty()) return emptyList()
-
-        // Find ranges of changed lines with context
         val changeIndices = diffLines.indices.filter { diffLines[it].op != DiffOp.EQUAL }
-        if (changeIndices.isEmpty()) return emptyList()
+        if (diffLines.isEmpty() || changeIndices.isEmpty()) return emptyList()
 
         // Build spans: each change expands to include context
-        data class Span(
-            var start: Int,
-            var end: Int,
+        class Span(
+            val start: Int,
+            val end: Int,
         )
 
         val spans = mutableListOf<Span>()
@@ -98,7 +95,12 @@ object SimpleLineDiff {
             val start = maxOf(0, idx - CONTEXT_LINES)
             val end = minOf(diffLines.size - 1, idx + CONTEXT_LINES)
             if (spans.isNotEmpty() && start <= spans.last().end + 1) {
-                spans.last().end = end
+                val previousSpan = spans.last()
+                spans[spans.lastIndex] =
+                    Span(
+                        start = previousSpan.start,
+                        end = end,
+                    )
             } else {
                 spans.add(Span(start, end))
             }

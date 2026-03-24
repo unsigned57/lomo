@@ -28,7 +28,7 @@ class GitSyncWorker
 
                 is GitSyncResult.Error -> {
                     Timber.e("GitSyncWorker error: ${result.message}")
-                    if (runAttemptCount < 3) Result.retry() else Result.failure()
+                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
                 }
 
                 // NotConfigured or DirectPathRequired — nothing to do
@@ -40,6 +40,7 @@ class GitSyncWorker
         }
 
         companion object {
+            private const val MAX_RETRY_ATTEMPTS = 3
             const val WORK_NAME = "com.lomo.data.worker.GitSyncWorker"
         }
     }

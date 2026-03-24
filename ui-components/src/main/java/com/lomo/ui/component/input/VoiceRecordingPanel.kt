@@ -27,6 +27,19 @@ import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import java.util.Locale
 
+private const val MILLIS_PER_SECOND = 1000
+private const val SECONDS_PER_MINUTE = 60
+private const val MIN_RECORDING_AMPLITUDE = 0
+private const val MAX_RECORDING_AMPLITUDE = 32767
+private const val MIN_WAVEFORM_WIDTH = 50
+private const val WAVEFORM_WIDTH_RANGE = 200
+private val WAVEFORM_TRACK_HEIGHT = 48.dp
+private val WAVEFORM_HEIGHT = 4.dp
+private val CANCEL_BUTTON_SIZE = 56.dp
+private val CANCEL_ICON_SIZE = 32.dp
+private val STOP_BUTTON_SIZE = 72.dp
+private val STOP_ICON_SIZE = 36.dp
+
 data class VoiceRecordingPanelState(
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int = 0,
@@ -42,8 +55,10 @@ fun VoiceRecordingPanel(
     state: VoiceRecordingPanelState,
     callbacks: VoiceRecordingPanelCallbacks,
 ) {
-    val minutes = (state.recordingDuration / 1000) / 60
-    val seconds = (state.recordingDuration / 1000) % 60
+    val totalSeconds = state.recordingDuration / MILLIS_PER_SECOND
+    val minutes = totalSeconds / SECONDS_PER_MINUTE
+    val seconds = totalSeconds % SECONDS_PER_MINUTE
+    val waveformWidth = calculateWaveformWidth(state.recordingAmplitude)
 
     Column(
         modifier =
@@ -75,7 +90,7 @@ fun VoiceRecordingPanel(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(WAVEFORM_TRACK_HEIGHT)
                     .background(
                         MaterialTheme.colorScheme.surfaceContainerHigh,
                         AppShapes.Medium,
@@ -83,54 +98,72 @@ fun VoiceRecordingPanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Box(
-                modifier =
-                    Modifier
-                        .width((50 + (state.recordingAmplitude.coerceIn(0, 32767) / 32767f) * 200).dp)
-                        .height(4.dp)
-                        .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
-            )
+            RecordingAmplitudeBar(width = waveformWidth)
         }
 
         Spacer(modifier = Modifier.height(AppSpacing.Large))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = callbacks.onCancel,
-                modifier = Modifier.size(56.dp),
-            ) {
-                Icon(
-                    Icons.Rounded.Close,
-                    contentDescription =
-                        androidx.compose.ui.res.stringResource(
-                            com.lomo.ui.R.string.cd_cancel_recording,
-                        ),
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(32.dp),
-                )
-            }
+        VoiceRecordingControls(callbacks = callbacks)
+    }
+}
 
-            androidx.compose.material3.FilledIconButton(
-                onClick = callbacks.onStop,
-                modifier = Modifier.size(72.dp),
-                colors =
-                    androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
+@Composable
+private fun RecordingAmplitudeBar(width: Float) {
+    Box(
+        modifier =
+            Modifier
+                .width(width.dp)
+                .height(WAVEFORM_HEIGHT)
+                .background(MaterialTheme.colorScheme.primary, AppShapes.ExtraSmall),
+    )
+}
+
+@Composable
+private fun VoiceRecordingControls(callbacks: VoiceRecordingPanelCallbacks) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(
+            onClick = callbacks.onCancel,
+            modifier = Modifier.size(CANCEL_BUTTON_SIZE),
+        ) {
+            Icon(
+                Icons.Rounded.Close,
+                contentDescription =
+                    androidx.compose.ui.res.stringResource(
+                        com.lomo.ui.R.string.cd_cancel_recording,
                     ),
-            ) {
-                Icon(
-                    Icons.Rounded.Stop,
-                    contentDescription =
-                        androidx.compose.ui.res.stringResource(
-                            com.lomo.ui.R.string.cd_stop_recording,
-                        ),
-                    modifier = Modifier.size(36.dp),
-                )
-            }
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(CANCEL_ICON_SIZE),
+            )
+        }
+
+        androidx.compose.material3.FilledIconButton(
+            onClick = callbacks.onStop,
+            modifier = Modifier.size(STOP_BUTTON_SIZE),
+            colors =
+                androidx.compose.material3.IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                ),
+        ) {
+            Icon(
+                Icons.Rounded.Stop,
+                contentDescription =
+                    androidx.compose.ui.res.stringResource(
+                        com.lomo.ui.R.string.cd_stop_recording,
+                    ),
+                modifier = Modifier.size(STOP_ICON_SIZE),
+            )
         }
     }
+}
+
+private fun calculateWaveformWidth(recordingAmplitude: Int): Float {
+    val normalizedAmplitude =
+        recordingAmplitude
+            .coerceIn(MIN_RECORDING_AMPLITUDE, MAX_RECORDING_AMPLITUDE)
+            .toFloat() / MAX_RECORDING_AMPLITUDE.toFloat()
+    return MIN_WAVEFORM_WIDTH + (normalizedAmplitude * WAVEFORM_WIDTH_RANGE)
 }

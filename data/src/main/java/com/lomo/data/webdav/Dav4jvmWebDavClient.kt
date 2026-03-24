@@ -49,9 +49,9 @@ class Dav4jvmWebDavClient(
     private val httpClient =
         OkHttpClient
             .Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(IO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(IO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .followRedirects(false)
             .followSslRedirects(false)
             .addInterceptor { chain ->
@@ -71,7 +71,7 @@ class Dav4jvmWebDavClient(
         try {
             resource.propfind(0, ResourceType.NAME, callback = emptyMultiResponseCallback())
         } catch (error: HttpException) {
-            if (error.code != 404) throw error
+            if (error.code != HTTP_NOT_FOUND) throw error
             resource.mkCol(null, emptyResponseCallback())
         }
     }
@@ -107,7 +107,7 @@ class Dav4jvmWebDavClient(
                     },
             )
         } catch (error: HttpException) {
-            if (error.code != 404) throw error
+            if (error.code != HTTP_NOT_FOUND) throw error
             return emptyList()
         }
         return resources
@@ -149,7 +149,7 @@ class Dav4jvmWebDavClient(
         try {
             putOnce(normalizedPath, requestBody)
         } catch (error: HttpException) {
-            if (error.code != 404) throw error
+            if (error.code != HTTP_NOT_FOUND) throw error
             ensureDirectory(parentPath(normalizedPath))
             putOnce(normalizedPath, requestBody)
         }
@@ -192,46 +192,51 @@ class Dav4jvmWebDavClient(
     private fun parentPath(path: String): String = normalizePath(path).substringBeforeLast('/', "")
 
     private fun relativeToRoot(href: String): String? {
-        val resolvedUrl = rootUrl.resolve(href) ?: href.toHttpUrlOrNull() ?: return null
-        if (
-            resolvedUrl.scheme != rootUrl.scheme ||
-            resolvedUrl.host != rootUrl.host ||
-            resolvedUrl.port != rootUrl.port
-        ) {
-            return null
+        val resolvedUrl = rootUrl.resolve(href) ?: href.toHttpUrlOrNull()
+        val targetPathSegments = resolvedUrl?.pathSegments?.filter(String::isNotEmpty).orEmpty()
+        val isUnderRoot =
+            resolvedUrl != null &&
+                hasSameOrigin(resolvedUrl, rootUrl) &&
+                targetPathSegments.size >= rootPathSegments.size &&
+                targetPathSegments.take(rootPathSegments.size) == rootPathSegments
+        return if (isUnderRoot) {
+            targetPathSegments.drop(rootPathSegments.size).joinToString("/").takeIf(String::isNotEmpty)
+        } else {
+            null
         }
-        val targetPathSegments = resolvedUrl.pathSegments.filter { it.isNotEmpty() }
-        if (targetPathSegments.size < rootPathSegments.size) {
-            return null
-        }
-        if (targetPathSegments.subList(0, rootPathSegments.size) != rootPathSegments) {
-            return null
-        }
-        return targetPathSegments.drop(rootPathSegments.size).joinToString("/").takeIf { it.isNotEmpty() }
     }
 
-    private fun parseHttpDate(value: String?): Long? =
-        runCatching {
-            value ?: return null
-            ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
-        }.getOrNull()
-
-    private fun emptyResponseCallback() =
-        object : ResponseCallback {
-            override fun onResponse(response: OkHttpResponse) {
-                response.close()
-            }
-        }
-
-    private fun emptyMultiResponseCallback() =
-        object : MultiResponseCallback {
-            override fun onResponse(
-                response: Response,
-                relation: Response.HrefRelation,
-            ) = Unit
-        }
-
     private companion object {
+        private const val CONNECT_TIMEOUT_SECONDS = 30L
+        private const val HTTP_NOT_FOUND = 404
+        private const val IO_TIMEOUT_SECONDS = 60L
         private const val TAG = "Dav4jvmWebDavClient"
     }
 }
+
+private fun parseHttpDate(value: String?): Long? =
+    value?.let { httpDate ->
+        runCatching {
+            ZonedDateTime.parse(httpDate, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant().toEpochMilli()
+        }.getOrNull()
+    }
+
+private fun emptyResponseCallback() =
+    object : ResponseCallback {
+        override fun onResponse(response: OkHttpResponse) {
+            response.close()
+        }
+    }
+
+private fun emptyMultiResponseCallback() =
+    object : MultiResponseCallback {
+        override fun onResponse(
+            response: Response,
+            relation: Response.HrefRelation,
+        ) = Unit
+    }
+
+private fun hasSameOrigin(
+    targetUrl: HttpUrl,
+    rootUrl: HttpUrl,
+): Boolean = targetUrl.scheme == rootUrl.scheme && targetUrl.host == rootUrl.host && targetUrl.port == rootUrl.port

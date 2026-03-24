@@ -63,7 +63,7 @@ class MemoEditorViewModel
             onSuccess: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     createMemoUseCase(content = content, timestampMillis = System.currentTimeMillis())
                     onSuccess?.invoke()
                     clearTrackedImages()
@@ -71,10 +71,11 @@ class MemoEditorViewModel
                     viewModelScope.launch(Dispatchers.IO) {
                         runCatching { appWidgetRepository.updateAllWidgets() }
                     }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage()
                 }
             }
         }
@@ -84,14 +85,15 @@ class MemoEditorViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     updateMemoContentUseCase(memo, newContent)
                     appWidgetRepository.updateAllWidgets()
                     clearTrackedImages()
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage()
                 }
             }
         }
@@ -102,7 +104,7 @@ class MemoEditorViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val path =
                         when (
                             val result =
@@ -115,10 +117,11 @@ class MemoEditorViewModel
                         }
                     trackedImageFilenames += path
                     onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to save image")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }
@@ -126,14 +129,15 @@ class MemoEditorViewModel
 
         fun discardInputs() {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val toDelete = trackedImageFilenames.toList()
                     trackedImageFilenames.clear()
                     discardMemoDraftAttachmentsUseCase(toDelete)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to discard input")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to discard input")
                 }
             }
         }

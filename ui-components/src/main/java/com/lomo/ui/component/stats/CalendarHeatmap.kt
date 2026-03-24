@@ -55,6 +55,33 @@ import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 
+private val HEATMAP_CELL_SIZE = 10.dp
+private val HEATMAP_CELL_SPACING = 3.dp
+private val HEATMAP_MONTH_LABEL_HEIGHT = 14.dp
+private val HEATMAP_CELL_CORNER_RADIUS = 2.dp
+private const val HEATMAP_EMPTY_ALPHA = 0.5f
+private const val HEATMAP_LEVEL_THREE_ALPHA = 0.7f
+internal val HEATMAP_POPUP_SHAPE = 8.dp
+internal val HEATMAP_POPUP_ELEVATION = 3.dp
+internal val HEATMAP_POPUP_MARGIN = 4.dp
+internal val HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING = 12.dp
+internal val HEATMAP_POPUP_CONTENT_VERTICAL_PADDING = 8.dp
+internal val HEATMAP_POPUP_TEXT_SPACING = 2.dp
+private const val HEATMAP_MONTH_LABEL_TRAILING_WEEKS = 2
+private const val HEATMAP_MIN_LABEL_WEEKS = 3
+internal const val HEATMAP_LEVEL_ONE_MAX = 1
+internal const val HEATMAP_LEVEL_TWO_MAX = 3
+internal const val HEATMAP_LEVEL_THREE_MAX = 6
+private const val PREVIEW_DAY_RANGE = 120
+private const val PREVIEW_LEVEL_FOUR_INTERVAL = 17
+private const val PREVIEW_LEVEL_THREE_INTERVAL = 9
+private const val PREVIEW_LEVEL_TWO_INTERVAL = 4
+private const val PREVIEW_LEVEL_ONE_INTERVAL = 2
+private const val PREVIEW_LEVEL_FOUR_COUNT = 8
+private const val PREVIEW_LEVEL_THREE_COUNT = 5
+private const val PREVIEW_LEVEL_TWO_COUNT = 2
+private const val PREVIEW_LEVEL_ONE_COUNT = 1
+
 @Composable
 fun CalendarHeatmap(
     memoCountByDate: Map<LocalDate, Int>,
@@ -63,308 +90,195 @@ fun CalendarHeatmap(
 ) {
     val today = LocalDate.now()
     val datePattern = stringResource(R.string.calendar_heatmap_date_format)
-    val dateFormatter =
-        remember(datePattern) {
-            DateTimeFormatter.ofPattern(datePattern, Locale.getDefault())
-        }
-
-    // Config: Compact layout similar to original
+    val dateFormatter = remember(datePattern) { DateTimeFormatter.ofPattern(datePattern, Locale.getDefault()) }
     val density = LocalDensity.current
-    val cellSize = 10.dp
-    val spacing = 3.dp
-    val monthLabelHeight = 14.dp // Small label area
-
-    val cellSizePx = with(density) { cellSize.toPx() }
-    val spacingPx = with(density) { spacing.toPx() }
-    val monthLabelHeightPx = with(density) { monthLabelHeight.toPx() }
-    val cornerRadiusPx = with(density) { 2.dp.toPx() }
-
-    // Colors
-    val emptyColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) // Lighter for less visual weight
-    val level1Color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-    val level2Color = MaterialTheme.colorScheme.primaryContainer
-    val level3Color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-    val level4Color = MaterialTheme.colorScheme.primary
-
-    val textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
-    val densityScale = density.density
-    val fontScale = density.fontScale
+    val layout = rememberHeatmapLayout(density, today, memoCountByDate)
+    val colors = rememberHeatmapColors()
     val textPaint =
-        remember(textColor, densityScale, fontScale) {
-            Paint().apply {
-                color = textColor
-                textSize = with(density) { 9.sp.toPx() }
-                isAntiAlias = true
-                textAlign = android.graphics.Paint.Align.LEFT
-            }
-        }
-
-    // Interaction State
+        rememberHeatmapTextPaint(
+            density = density,
+            textColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb(),
+        )
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var popupOffset by remember { mutableStateOf(Offset.Zero) }
     val latestOnDateLongPress by rememberUpdatedState(onDateLongPress)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val horizontalScrollState = rememberScrollState()
-    Box(
-        modifier =
-            modifier
-                .padding(vertical = 4.dp),
-        // Reduce vertical padding
-        contentAlignment = Alignment.Center,
-    ) {
-        val weekWidth = cellSizePx + spacingPx
-        val earliestMemoDate = memoCountByDate.keys.minOrNull() ?: today
-        val totalWeeks =
-            calculateWeeksToCoverEarliestDate(
-                today = today,
-                earliestDate = earliestMemoDate,
-            ).coerceAtLeast(MIN_WEEKS)
 
-        // Calculate dimensions
-        val totalWidth = totalWeeks * weekWidth
-        val totalHeight = monthLabelHeightPx + 7 * (cellSizePx + spacingPx)
-
-        // Date Logic
-        // endDay is today. We want formatting to align such that today is in the last column, correct row.
-        val daysToSubtract = (totalWeeks - 1) * 7 + today.dayOfWeek.value % 7
-        val startDay = today.minusDays(daysToSubtract.toLong())
-        val latestStartDay by rememberUpdatedState(startDay)
-        val latestToday by rememberUpdatedState(today)
-        val latestSelectedDate by rememberUpdatedState(selectedDate)
-        val monthLabels =
-            remember(startDay, totalWeeks) {
-                buildMonthLabels(
-                    startDay = startDay,
-                    totalWeeks = totalWeeks,
-                )
-            }
-        val heatmapCells =
-            remember(startDay, today, totalWeeks, memoCountByDate) {
-                buildHeatmapCells(
-                    startDay = startDay,
-                    today = today,
-                    totalWeeks = totalWeeks,
-                    memoCountByDate = memoCountByDate,
-                )
-            }
-
-        LaunchedEffect(horizontalScrollState.maxValue, totalWeeks) {
-            if (horizontalScrollState.maxValue > 0 && horizontalScrollState.value < horizontalScrollState.maxValue) {
-                horizontalScrollState.scrollTo(horizontalScrollState.maxValue)
-            }
-        }
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(horizontalScrollState),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .width(with(density) { totalWidth.toDp() })
-                        .height(with(density) { totalHeight.toDp() }),
-            ) {
-                Canvas(
-                    modifier =
-                        Modifier
-                            .fillMaxSize()
-                            .pointerInput(totalWeeks, cellSizePx, spacingPx, monthLabelHeightPx) {
-                                fun resolveTappedCell(
-                                    offset: Offset,
-                                    currentStartDay: LocalDate,
-                                    currentToday: LocalDate,
-                                ): HeatmapCellHit? {
-                                    val y = offset.y - monthLabelHeightPx
-                                    if (y < 0 || y > 7 * (cellSizePx + spacingPx)) return null
-
-                                    val col = (offset.x / (cellSizePx + spacingPx)).toInt()
-                                    val row = (y / (cellSizePx + spacingPx)).toInt()
-                                    if (col !in 0 until totalWeeks || row !in 0..6) return null
-
-                                    val date = currentStartDay.plusWeeks(col.toLong()).plusDays(row.toLong())
-                                    if (date.isAfter(currentToday)) return null
-
-                                    return HeatmapCellHit(col = col, row = row, date = date)
-                                }
-
-                                detectTapGestures(
-                                    onTap = { offset ->
-                                        val currentStartDay = latestStartDay
-                                        val currentToday = latestToday
-                                        val currentSelectedDate = latestSelectedDate
-                                        val hit = resolveTappedCell(offset, currentStartDay, currentToday)
-
-                                        if (hit == null) {
-                                            selectedDate = null
-                                            return@detectTapGestures
-                                        }
-
-                                        if (currentSelectedDate == hit.date) {
-                                            selectedDate = null
-                                        } else {
-                                            selectedDate = hit.date
-                                            popupOffset =
-                                                Offset(
-                                                    hit.col * (cellSizePx + spacingPx) + cellSizePx / 2,
-                                                    monthLabelHeightPx + hit.row * (cellSizePx + spacingPx),
-                                                )
-                                        }
-                                    },
-                                    onLongPress = { offset ->
-                                        val currentStartDay = latestStartDay
-                                        val currentToday = latestToday
-                                        val hit = resolveTappedCell(offset, currentStartDay, currentToday) ?: return@detectTapGestures
-
-                                        haptic.longPress()
-                                        latestOnDateLongPress(hit.date)
-                                        selectedDate = null
-                                    },
-                                )
-                            },
-                ) {
-                    // Draw Month Labels
-                    monthLabels.forEach { label ->
-                        drawContext.canvas.nativeCanvas.drawText(
-                            label.text,
-                            label.week * (cellSizePx + spacingPx),
-                            monthLabelHeightPx - 4.dp.toPx(),
-                            textPaint,
-                        )
-                    }
-
-                    // Draw Grid
-                    heatmapCells.forEach { cell ->
-                        val color =
-                            when {
-                                cell.count == 0 -> emptyColor
-                                cell.count <= 1 -> level1Color
-                                cell.count <= 3 -> level2Color
-                                cell.count <= 6 -> level3Color
-                                else -> level4Color
-                            }
-                        val left = cell.week * (cellSizePx + spacingPx)
-                        val top = monthLabelHeightPx + cell.day * (cellSizePx + spacingPx)
-
-                        drawRoundRect(
-                            color = color,
-                            topLeft = Offset(left, top),
-                            size = Size(cellSizePx, cellSizePx),
-                            cornerRadius = CornerRadius(cornerRadiusPx),
-                        )
-
-                        if (cell.date == selectedDate) {
-                            drawRoundRect(
-                                color = level4Color,
-                                topLeft = Offset(left, top),
-                                size = Size(cellSizePx, cellSizePx),
-                                cornerRadius = CornerRadius(cornerRadiusPx),
-                                style =
-                                    androidx.compose.ui.graphics.drawscope
-                                        .Stroke(width = 2.dp.toPx()),
-                            )
-                        }
-                    }
-                }
-
-                // Tooltip using Popup with manual state handling for exit animations
-                // We keep specific data to render even when selectedDate becomes null (during fade-out)
-                var activePopupData by remember { mutableStateOf<Triple<LocalDate, Int, Offset>?>(null) }
-                var isPopupVisible by remember { mutableStateOf(false) }
-
-                // Sync state with selection changes
-                LaunchedEffect(selectedDate, memoCountByDate, popupOffset) {
-                    if (selectedDate != null) {
-                        val count = memoCountByDate[selectedDate] ?: 0
-                        activePopupData = Triple(selectedDate!!, count, popupOffset)
-                        isPopupVisible = true
-                    } else {
-                        isPopupVisible = false
-                    }
-                }
-
-                // Only render Popup if there is meaningful data to show (either active or fading out)
-                val currentData = activePopupData
-                if (currentData != null) {
-                    // Use a transition to track the visibility state
-                    val transition = updateTransition(targetState = isPopupVisible, label = "PopupVisibility")
-
-                    // Remove the data (and thus the Popup) only when fully invisible
-                    LaunchedEffect(transition.currentState, transition.targetState) {
-                        if (!transition.currentState && !transition.targetState) {
-                            activePopupData = null
-                        }
-                    }
-
-                    // If we are still animating or visible, show the popup
-                    if (transition.currentState || transition.targetState) {
-                        val (date, count, offset) = currentData
-                        val countLabel =
-                            pluralStringResource(
-                                R.plurals.calendar_heatmap_memo_count,
-                                count,
-                                count,
-                            )
-                        val popupPositionProvider =
-                            remember(offset, density) {
-                                HeatmapPopupPositionProvider(offset, density)
-                            }
-
-                        androidx.compose.ui.window.Popup(
-                            popupPositionProvider = popupPositionProvider,
-                            onDismissRequest = { selectedDate = null },
-                        ) {
-                            transition.AnimatedVisibility(
-                                visible = { it },
-                                enter =
-                                    fadeIn(
-                                        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-                                    ) +
-                                        scaleIn(
-                                            initialScale = 0.8f,
-                                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-                                        ),
-                                exit =
-                                    fadeOut(
-                                        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-                                    ) +
-                                        scaleOut(
-                                            targetScale = 0.8f,
-                                            animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-                                        ),
-                            ) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.surface,
-                                    tonalElevation = 3.dp,
-                                    shadowElevation = 3.dp,
-                                    modifier = Modifier.padding(4.dp),
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        Text(
-                                            text = date.format(dateFormatter),
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                        )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = countLabel,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+    LaunchedEffect(horizontalScrollState.maxValue, layout.totalWeeks) {
+        if (horizontalScrollState.maxValue > 0 && horizontalScrollState.value < horizontalScrollState.maxValue) {
+            horizontalScrollState.scrollTo(horizontalScrollState.maxValue)
         }
     }
+
+    HeatmapInteractiveContent(
+        modifier = modifier,
+        layout = layout,
+        colors = colors,
+        textPaint = textPaint,
+        density = density,
+        horizontalScrollState = horizontalScrollState,
+        selectedDate = selectedDate,
+        popupOffset = popupOffset,
+        memoCountByDate = memoCountByDate,
+        dateFormatter = dateFormatter,
+        onSelect = { hit ->
+            if (selectedDate == hit.date) {
+                selectedDate = null
+            } else {
+                selectedDate = hit.date
+                popupOffset = heatmapPopupOffset(layout, hit)
+            }
+        },
+        onClearSelection = { selectedDate = null },
+        onLongPress = { date ->
+            haptic.longPress()
+            latestOnDateLongPress(date)
+            selectedDate = null
+        },
+        onDismissPopup = { selectedDate = null },
+    )
+}
+
+internal data class HeatmapLayout(
+    val cellSizePx: Float,
+    val spacingPx: Float,
+    val monthLabelHeightPx: Float,
+    val cornerRadiusPx: Float,
+    val weekWidth: Float,
+    val totalWeeks: Int,
+    val totalWidth: Float,
+    val totalHeight: Float,
+    val startDay: LocalDate,
+    val today: LocalDate,
+    val monthLabels: List<MonthLabel>,
+    val heatmapCells: List<HeatmapCell>,
+)
+
+internal data class HeatmapColors(
+    val empty: Color,
+    val level1: Color,
+    val level2: Color,
+    val level3: Color,
+    val level4: Color,
+)
+
+internal data class HeatmapPopupData(
+    val date: LocalDate,
+    val count: Int,
+    val offset: Offset,
+)
+
+@Composable
+private fun rememberHeatmapLayout(
+    density: androidx.compose.ui.unit.Density,
+    today: LocalDate,
+    memoCountByDate: Map<LocalDate, Int>,
+): HeatmapLayout {
+    val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
+    val spacingPx = with(density) { HEATMAP_CELL_SPACING.toPx() }
+    val monthLabelHeightPx = with(density) { HEATMAP_MONTH_LABEL_HEIGHT.toPx() }
+    val cornerRadiusPx = with(density) { HEATMAP_CELL_CORNER_RADIUS.toPx() }
+    val earliestMemoDate = memoCountByDate.keys.minOrNull() ?: today
+    val totalWeeks =
+        calculateWeeksToCoverEarliestDate(
+            today = today,
+            earliestDate = earliestMemoDate,
+        ).coerceAtLeast(MIN_WEEKS)
+    val weekWidth = cellSizePx + spacingPx
+    val totalWidth = totalWeeks * weekWidth
+    val totalHeight = monthLabelHeightPx + DAYS_PER_WEEK * weekWidth
+    val daysToSubtract = (totalWeeks - 1) * DAYS_PER_WEEK + today.dayOfWeek.value % DAYS_PER_WEEK
+    val startDay = today.minusDays(daysToSubtract.toLong())
+    val monthLabels = remember(startDay, totalWeeks) { buildMonthLabels(startDay, totalWeeks) }
+    val heatmapCells =
+        remember(startDay, today, totalWeeks, memoCountByDate) {
+            buildHeatmapCells(startDay, today, totalWeeks, memoCountByDate)
+        }
+
+    return remember(
+        cellSizePx,
+        spacingPx,
+        monthLabelHeightPx,
+        cornerRadiusPx,
+        weekWidth,
+        totalWeeks,
+        totalWidth,
+        totalHeight,
+        startDay,
+        today,
+        monthLabels,
+        heatmapCells,
+    ) {
+        HeatmapLayout(
+            cellSizePx = cellSizePx,
+            spacingPx = spacingPx,
+            monthLabelHeightPx = monthLabelHeightPx,
+            cornerRadiusPx = cornerRadiusPx,
+            weekWidth = weekWidth,
+            totalWeeks = totalWeeks,
+            totalWidth = totalWidth,
+            totalHeight = totalHeight,
+            startDay = startDay,
+            today = today,
+            monthLabels = monthLabels,
+            heatmapCells = heatmapCells,
+        )
+    }
+}
+
+@Composable
+private fun rememberHeatmapColors(): HeatmapColors =
+    HeatmapColors(
+        empty = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = HEATMAP_EMPTY_ALPHA),
+        level1 = MaterialTheme.colorScheme.primaryContainer.copy(alpha = HEATMAP_EMPTY_ALPHA),
+        level2 = MaterialTheme.colorScheme.primaryContainer,
+        level3 = MaterialTheme.colorScheme.primary.copy(alpha = HEATMAP_LEVEL_THREE_ALPHA),
+        level4 = MaterialTheme.colorScheme.primary,
+    )
+
+@Composable
+private fun rememberHeatmapTextPaint(
+    density: androidx.compose.ui.unit.Density,
+    textColor: Int,
+): Paint {
+    val densityScale = density.density
+    val fontScale = density.fontScale
+    return remember(textColor, densityScale, fontScale) {
+        Paint().apply {
+            color = textColor
+            textSize = with(density) { 9.sp.toPx() }
+            isAntiAlias = true
+            textAlign = android.graphics.Paint.Align.LEFT
+        }
+    }
+}
+
+internal fun heatmapPopupOffset(
+    layout: HeatmapLayout,
+    hit: HeatmapCellHit,
+): Offset =
+    Offset(
+        hit.col * layout.weekWidth + layout.cellSizePx / 2,
+        layout.monthLabelHeightPx + hit.row * layout.weekWidth,
+    )
+
+internal fun resolveTappedCell(
+    offset: Offset,
+    layout: HeatmapLayout,
+): HeatmapCellHit? {
+    val y = offset.y - layout.monthLabelHeightPx
+    val hasValidRowOffset = y in 0f..(DAYS_PER_WEEK * layout.weekWidth)
+    val col = (offset.x / layout.weekWidth).toInt()
+    val row = (y / layout.weekWidth).toInt()
+    val isWithinHeatmapBounds = col in 0 until layout.totalWeeks && row in 0..LAST_WEEKDAY_INDEX
+
+    if (!hasValidRowOffset || !isWithinHeatmapBounds) {
+        return null
+    }
+
+    val date = layout.startDay.plusWeeks(col.toLong()).plusDays(row.toLong())
+    return if (date.isAfter(layout.today)) null else HeatmapCellHit(col = col, row = row, date = date)
 }
 
 private fun calculateWeeksToCoverEarliestDate(
@@ -382,18 +296,18 @@ private fun calculateWeeksToCoverEarliestDate(
     return (daysOutsideCurrentWeek + DAYS_PER_WEEK - 1) / DAYS_PER_WEEK + 1
 }
 
-private data class HeatmapCellHit(
+internal data class HeatmapCellHit(
     val col: Int,
     val row: Int,
     val date: LocalDate,
 )
 
-private data class MonthLabel(
+internal data class MonthLabel(
     val week: Int,
     val text: String,
 )
 
-private data class HeatmapCell(
+internal data class HeatmapCell(
     val week: Int,
     val day: Int,
     val date: LocalDate,
@@ -410,7 +324,10 @@ private fun buildMonthLabels(
         val dateOfWeekStart = startDay.plusWeeks(week.toLong())
         val month = dateOfWeekStart.monthValue
         if (month != currentMonth) {
-            if (week < totalWeeks - 2 || totalWeeks < 3) {
+            if (
+                week < totalWeeks - HEATMAP_MONTH_LABEL_TRAILING_WEEKS ||
+                totalWeeks < HEATMAP_MIN_LABEL_WEEKS
+            ) {
                 labels += MonthLabel(
                     week = week,
                     text = dateOfWeekStart.month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
@@ -446,7 +363,7 @@ private fun buildHeatmapCells(
     return cells
 }
 
-private class HeatmapPopupPositionProvider(
+internal class HeatmapPopupPositionProvider(
     private val contentOffset: Offset,
     private val density: androidx.compose.ui.unit.Density,
 ) : androidx.compose.ui.window.PopupPositionProvider {
@@ -473,6 +390,7 @@ private class HeatmapPopupPositionProvider(
 
 private const val MIN_WEEKS = 52
 private const val DAYS_PER_WEEK = 7
+private const val LAST_WEEKDAY_INDEX = DAYS_PER_WEEK - 1
 
 @Preview(showBackground = true, widthDp = 360)
 @Composable
@@ -481,14 +399,14 @@ private fun CalendarHeatmapPreview() {
     val sampleMemoCountByDate =
         remember(today) {
             buildMap {
-                for (dayOffset in 0..120) {
+                for (dayOffset in 0..PREVIEW_DAY_RANGE) {
                     val date = today.minusDays(dayOffset.toLong())
                     val count =
                         when {
-                            dayOffset % 17 == 0 -> 8
-                            dayOffset % 9 == 0 -> 5
-                            dayOffset % 4 == 0 -> 2
-                            dayOffset % 2 == 0 -> 1
+                            dayOffset % PREVIEW_LEVEL_FOUR_INTERVAL == 0 -> PREVIEW_LEVEL_FOUR_COUNT
+                            dayOffset % PREVIEW_LEVEL_THREE_INTERVAL == 0 -> PREVIEW_LEVEL_THREE_COUNT
+                            dayOffset % PREVIEW_LEVEL_TWO_INTERVAL == 0 -> PREVIEW_LEVEL_TWO_COUNT
+                            dayOffset % PREVIEW_LEVEL_ONE_INTERVAL == 0 -> PREVIEW_LEVEL_ONE_COUNT
                             else -> 0
                         }
                     if (count > 0) put(date, count)

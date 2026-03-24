@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
@@ -12,7 +13,6 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
@@ -47,14 +47,14 @@ class TrashViewModel
                 .imageDirectory()
                 .stateIn(
                     viewModelScope,
-                    SharingStarted.WhileSubscribed(5000),
+                    appWhileSubscribed(),
                     null,
                 )
 
         val trashMemos: StateFlow<List<Memo>> =
             memoUiCoordinator
                 .deletedMemos()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         init {
             // Keep deletion flags only for rows that still exist in current trash list.
@@ -69,12 +69,12 @@ class TrashViewModel
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
                 .appPreferences()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
+                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
         val rootDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .rootDirectory()
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+                .stateIn(viewModelScope, appWhileSubscribed(), null)
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
@@ -99,7 +99,7 @@ class TrashViewModel
                         imageMap = input.imageMap,
                     )
                 }
-                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         fun restoreMemo(memo: Memo) {
             viewModelScope.launch {

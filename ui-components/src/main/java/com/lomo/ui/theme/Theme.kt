@@ -39,12 +39,12 @@ private val DarkColorScheme =
     darkColorScheme(
         primary = IndigoPrimaryDark,
         onPrimary = Color.Black,
-        primaryContainer = Color(0xFF283275), // Dark Indigo
-        onPrimaryContainer = Color(0xFFDEE0FF),
+        primaryContainer = IndigoContainerDark,
+        onPrimaryContainer = IndigoContainerLight,
         secondary = SlateSecondaryDark,
         onSecondary = Color.Black,
-        secondaryContainer = Color(0xFF3B4656),
-        onSecondaryContainer = Color(0xFFDCE2F0),
+        secondaryContainer = SlateContainerDark,
+        onSecondaryContainer = SlateContainerLight,
         tertiary = CyanTertiaryDark,
         onTertiary = Color.Black,
         background = Neutral10,
@@ -68,12 +68,12 @@ private val LightColorScheme =
     lightColorScheme(
         primary = IndigoPrimaryLight,
         onPrimary = Color.White,
-        primaryContainer = Color(0xFFDEE0FF),
-        onPrimaryContainer = Color(0xFF00105C),
+        primaryContainer = IndigoContainerLight,
+        onPrimaryContainer = OnIndigoContainerLight,
         secondary = SlateSecondaryLight,
         onSecondary = Color.White,
-        secondaryContainer = Color(0xFFDCE2F0),
-        onSecondaryContainer = Color(0xFF131C2B),
+        secondaryContainer = SlateContainerLight,
+        onSecondaryContainer = OnSlateContainerLight,
         tertiary = CyanTertiaryLight,
         onTertiary = Color.White,
         background = Neutral99,
@@ -108,6 +108,66 @@ enum class ThemeMode(
         }
     }
 }
+
+private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
+private const val THEME_COLOR_ANIMATION_DURATION_MS = 220
+
+private data class AnimatedCoreColors(
+    val primary: Color,
+    val onPrimary: Color,
+    val primaryContainer: Color,
+    val onPrimaryContainer: Color,
+    val inversePrimary: Color,
+    val secondary: Color,
+    val onSecondary: Color,
+    val secondaryContainer: Color,
+    val onSecondaryContainer: Color,
+    val tertiary: Color,
+    val onTertiary: Color,
+    val tertiaryContainer: Color,
+    val onTertiaryContainer: Color,
+    val background: Color,
+    val onBackground: Color,
+    val error: Color,
+    val onError: Color,
+    val errorContainer: Color,
+    val onErrorContainer: Color,
+)
+
+private data class AnimatedSurfaceColors(
+    val surface: Color,
+    val onSurface: Color,
+    val surfaceVariant: Color,
+    val onSurfaceVariant: Color,
+    val surfaceTint: Color,
+    val inverseSurface: Color,
+    val inverseOnSurface: Color,
+    val outline: Color,
+    val outlineVariant: Color,
+    val scrim: Color,
+    val surfaceBright: Color,
+    val surfaceContainer: Color,
+    val surfaceContainerHigh: Color,
+    val surfaceContainerHighest: Color,
+    val surfaceContainerLow: Color,
+    val surfaceContainerLowest: Color,
+    val surfaceDim: Color,
+)
+
+private data class AnimatedFixedColors(
+    val primaryFixed: Color,
+    val primaryFixedDim: Color,
+    val onPrimaryFixed: Color,
+    val onPrimaryFixedVariant: Color,
+    val secondaryFixed: Color,
+    val secondaryFixedDim: Color,
+    val onSecondaryFixed: Color,
+    val onSecondaryFixedVariant: Color,
+    val tertiaryFixed: Color,
+    val tertiaryFixedDim: Color,
+    val onTertiaryFixed: Color,
+    val onTertiaryFixedVariant: Color,
+)
 
 @Composable
 fun LomoTheme(
@@ -148,9 +208,12 @@ fun LomoTheme(
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             configuration.fontWeightAdjustment
         } else {
-            0
+            FONT_WEIGHT_ADJUSTMENT_FALLBACK
         }
-    val typography = remember(systemFontWeightAdjustment) { Typography.withSystemFontWeightAdjustment(systemFontWeightAdjustment) }
+    val typography =
+        remember(systemFontWeightAdjustment) {
+            Typography.withSystemFontWeightAdjustment(systemFontWeightAdjustment)
+        }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -164,7 +227,12 @@ fun LomoTheme(
         }
     }
 
-    MaterialTheme(colorScheme = animatedColorScheme, typography = typography, shapes = Shapes, content = content)
+    MaterialTheme(
+        colorScheme = animatedColorScheme,
+        typography = typography,
+        shapes = Shapes,
+        content = content,
+    )
 }
 
 @Composable
@@ -183,132 +251,167 @@ fun LomoTheme(
 @Composable
 fun animateColorSchemeAsState(
     targetColorScheme: ColorScheme,
-    animationSpec: AnimationSpec<Color> = tween(durationMillis = 220),
+    animationSpec: AnimationSpec<Color> = tween(durationMillis = THEME_COLOR_ANIMATION_DURATION_MS),
 ): ColorScheme {
-    val primary by animateColorAsState(targetColorScheme.primary, animationSpec, label = "primary")
-    val onPrimary by animateColorAsState(targetColorScheme.onPrimary, animationSpec, label = "onPrimary")
-    val primaryContainer by animateColorAsState(targetColorScheme.primaryContainer, animationSpec, label = "primaryContainer")
-    val onPrimaryContainer by animateColorAsState(targetColorScheme.onPrimaryContainer, animationSpec, label = "onPrimaryContainer")
-    val inversePrimary by animateColorAsState(targetColorScheme.inversePrimary, animationSpec, label = "inversePrimary")
-    val secondary by animateColorAsState(targetColorScheme.secondary, animationSpec, label = "secondary")
-    val onSecondary by animateColorAsState(targetColorScheme.onSecondary, animationSpec, label = "onSecondary")
-    val secondaryContainer by animateColorAsState(targetColorScheme.secondaryContainer, animationSpec, label = "secondaryContainer")
-    val onSecondaryContainer by animateColorAsState(
-        targetColorScheme.onSecondaryContainer,
-        animationSpec,
-        label = "onSecondaryContainer",
-    )
-    val tertiary by animateColorAsState(targetColorScheme.tertiary, animationSpec, label = "tertiary")
-    val onTertiary by animateColorAsState(targetColorScheme.onTertiary, animationSpec, label = "onTertiary")
-    val tertiaryContainer by animateColorAsState(targetColorScheme.tertiaryContainer, animationSpec, label = "tertiaryContainer")
-    val onTertiaryContainer by animateColorAsState(targetColorScheme.onTertiaryContainer, animationSpec, label = "onTertiaryContainer")
-    val background by animateColorAsState(targetColorScheme.background, animationSpec, label = "background")
-    val onBackground by animateColorAsState(targetColorScheme.onBackground, animationSpec, label = "onBackground")
-    val surface by animateColorAsState(targetColorScheme.surface, animationSpec, label = "surface")
-    val onSurface by animateColorAsState(targetColorScheme.onSurface, animationSpec, label = "onSurface")
-    val surfaceVariant by animateColorAsState(targetColorScheme.surfaceVariant, animationSpec, label = "surfaceVariant")
-    val onSurfaceVariant by animateColorAsState(targetColorScheme.onSurfaceVariant, animationSpec, label = "onSurfaceVariant")
-    val surfaceTint by animateColorAsState(targetColorScheme.surfaceTint, animationSpec, label = "surfaceTint")
-    val inverseSurface by animateColorAsState(targetColorScheme.inverseSurface, animationSpec, label = "inverseSurface")
-    val inverseOnSurface by animateColorAsState(targetColorScheme.inverseOnSurface, animationSpec, label = "inverseOnSurface")
-    val error by animateColorAsState(targetColorScheme.error, animationSpec, label = "error")
-    val onError by animateColorAsState(targetColorScheme.onError, animationSpec, label = "onError")
-    val errorContainer by animateColorAsState(targetColorScheme.errorContainer, animationSpec, label = "errorContainer")
-    val onErrorContainer by animateColorAsState(targetColorScheme.onErrorContainer, animationSpec, label = "onErrorContainer")
-    val outline by animateColorAsState(targetColorScheme.outline, animationSpec, label = "outline")
-    val outlineVariant by animateColorAsState(targetColorScheme.outlineVariant, animationSpec, label = "outlineVariant")
-    val scrim by animateColorAsState(targetColorScheme.scrim, animationSpec, label = "scrim")
-    val surfaceBright by animateColorAsState(targetColorScheme.surfaceBright, animationSpec, label = "surfaceBright")
-    val surfaceContainer by animateColorAsState(targetColorScheme.surfaceContainer, animationSpec, label = "surfaceContainer")
-    val surfaceContainerHigh by animateColorAsState(targetColorScheme.surfaceContainerHigh, animationSpec, label = "surfaceContainerHigh")
-    val surfaceContainerHighest by animateColorAsState(
-        targetColorScheme.surfaceContainerHighest,
-        animationSpec,
-        label = "surfaceContainerHighest",
-    )
-    val surfaceContainerLow by animateColorAsState(targetColorScheme.surfaceContainerLow, animationSpec, label = "surfaceContainerLow")
-    val surfaceContainerLowest by animateColorAsState(
-        targetColorScheme.surfaceContainerLowest,
-        animationSpec,
-        label = "surfaceContainerLowest",
-    )
-    val surfaceDim by animateColorAsState(targetColorScheme.surfaceDim, animationSpec, label = "surfaceDim")
-    val primaryFixed by animateColorAsState(targetColorScheme.primaryFixed, animationSpec, label = "primaryFixed")
-    val primaryFixedDim by animateColorAsState(targetColorScheme.primaryFixedDim, animationSpec, label = "primaryFixedDim")
-    val onPrimaryFixed by animateColorAsState(targetColorScheme.onPrimaryFixed, animationSpec, label = "onPrimaryFixed")
-    val onPrimaryFixedVariant by animateColorAsState(
-        targetColorScheme.onPrimaryFixedVariant,
-        animationSpec,
-        label = "onPrimaryFixedVariant",
-    )
-    val secondaryFixed by animateColorAsState(targetColorScheme.secondaryFixed, animationSpec, label = "secondaryFixed")
-    val secondaryFixedDim by animateColorAsState(targetColorScheme.secondaryFixedDim, animationSpec, label = "secondaryFixedDim")
-    val onSecondaryFixed by animateColorAsState(targetColorScheme.onSecondaryFixed, animationSpec, label = "onSecondaryFixed")
-    val onSecondaryFixedVariant by animateColorAsState(
-        targetColorScheme.onSecondaryFixedVariant,
-        animationSpec,
-        label = "onSecondaryFixedVariant",
-    )
-    val tertiaryFixed by animateColorAsState(targetColorScheme.tertiaryFixed, animationSpec, label = "tertiaryFixed")
-    val tertiaryFixedDim by animateColorAsState(targetColorScheme.tertiaryFixedDim, animationSpec, label = "tertiaryFixedDim")
-    val onTertiaryFixed by animateColorAsState(targetColorScheme.onTertiaryFixed, animationSpec, label = "onTertiaryFixed")
-    val onTertiaryFixedVariant by animateColorAsState(
-        targetColorScheme.onTertiaryFixedVariant,
-        animationSpec,
-        label = "onTertiaryFixedVariant",
-    )
+    val coreColors = animatedCoreColors(targetColorScheme, animationSpec)
+    val surfaceColors = animatedSurfaceColors(targetColorScheme, animationSpec)
+    val fixedColors = animatedFixedColors(targetColorScheme, animationSpec)
 
     return ColorScheme(
-        primary = primary,
-        onPrimary = onPrimary,
-        primaryContainer = primaryContainer,
-        onPrimaryContainer = onPrimaryContainer,
-        inversePrimary = inversePrimary,
-        secondary = secondary,
-        onSecondary = onSecondary,
-        secondaryContainer = secondaryContainer,
-        onSecondaryContainer = onSecondaryContainer,
-        tertiary = tertiary,
-        onTertiary = onTertiary,
-        tertiaryContainer = tertiaryContainer,
-        onTertiaryContainer = onTertiaryContainer,
-        background = background,
-        onBackground = onBackground,
-        surface = surface,
-        onSurface = onSurface,
-        surfaceVariant = surfaceVariant,
-        onSurfaceVariant = onSurfaceVariant,
-        surfaceTint = surfaceTint,
-        inverseSurface = inverseSurface,
-        inverseOnSurface = inverseOnSurface,
-        error = error,
-        onError = onError,
-        errorContainer = errorContainer,
-        onErrorContainer = onErrorContainer,
-        outline = outline,
-        outlineVariant = outlineVariant,
-        scrim = scrim,
-        surfaceBright = surfaceBright,
-        surfaceContainer = surfaceContainer,
-        surfaceContainerHigh = surfaceContainerHigh,
-        surfaceContainerHighest = surfaceContainerHighest,
-        surfaceContainerLow = surfaceContainerLow,
-        surfaceContainerLowest = surfaceContainerLowest,
-        surfaceDim = surfaceDim,
-        primaryFixed = primaryFixed,
-        primaryFixedDim = primaryFixedDim,
-        onPrimaryFixed = onPrimaryFixed,
-        onPrimaryFixedVariant = onPrimaryFixedVariant,
-        secondaryFixed = secondaryFixed,
-        secondaryFixedDim = secondaryFixedDim,
-        onSecondaryFixed = onSecondaryFixed,
-        onSecondaryFixedVariant = onSecondaryFixedVariant,
-        tertiaryFixed = tertiaryFixed,
-        tertiaryFixedDim = tertiaryFixedDim,
-        onTertiaryFixed = onTertiaryFixed,
-        onTertiaryFixedVariant = onTertiaryFixedVariant,
+        primary = coreColors.primary,
+        onPrimary = coreColors.onPrimary,
+        primaryContainer = coreColors.primaryContainer,
+        onPrimaryContainer = coreColors.onPrimaryContainer,
+        inversePrimary = coreColors.inversePrimary,
+        secondary = coreColors.secondary,
+        onSecondary = coreColors.onSecondary,
+        secondaryContainer = coreColors.secondaryContainer,
+        onSecondaryContainer = coreColors.onSecondaryContainer,
+        tertiary = coreColors.tertiary,
+        onTertiary = coreColors.onTertiary,
+        tertiaryContainer = coreColors.tertiaryContainer,
+        onTertiaryContainer = coreColors.onTertiaryContainer,
+        background = coreColors.background,
+        onBackground = coreColors.onBackground,
+        surface = surfaceColors.surface,
+        onSurface = surfaceColors.onSurface,
+        surfaceVariant = surfaceColors.surfaceVariant,
+        onSurfaceVariant = surfaceColors.onSurfaceVariant,
+        surfaceTint = surfaceColors.surfaceTint,
+        inverseSurface = surfaceColors.inverseSurface,
+        inverseOnSurface = surfaceColors.inverseOnSurface,
+        error = coreColors.error,
+        onError = coreColors.onError,
+        errorContainer = coreColors.errorContainer,
+        onErrorContainer = coreColors.onErrorContainer,
+        outline = surfaceColors.outline,
+        outlineVariant = surfaceColors.outlineVariant,
+        scrim = surfaceColors.scrim,
+        surfaceBright = surfaceColors.surfaceBright,
+        surfaceContainer = surfaceColors.surfaceContainer,
+        surfaceContainerHigh = surfaceColors.surfaceContainerHigh,
+        surfaceContainerHighest = surfaceColors.surfaceContainerHighest,
+        surfaceContainerLow = surfaceColors.surfaceContainerLow,
+        surfaceContainerLowest = surfaceColors.surfaceContainerLowest,
+        surfaceDim = surfaceColors.surfaceDim,
+        primaryFixed = fixedColors.primaryFixed,
+        primaryFixedDim = fixedColors.primaryFixedDim,
+        onPrimaryFixed = fixedColors.onPrimaryFixed,
+        onPrimaryFixedVariant = fixedColors.onPrimaryFixedVariant,
+        secondaryFixed = fixedColors.secondaryFixed,
+        secondaryFixedDim = fixedColors.secondaryFixedDim,
+        onSecondaryFixed = fixedColors.onSecondaryFixed,
+        onSecondaryFixedVariant = fixedColors.onSecondaryFixedVariant,
+        tertiaryFixed = fixedColors.tertiaryFixed,
+        tertiaryFixedDim = fixedColors.tertiaryFixedDim,
+        onTertiaryFixed = fixedColors.onTertiaryFixed,
+        onTertiaryFixedVariant = fixedColors.onTertiaryFixedVariant,
     )
 }
+
+@Composable
+private fun animatedCoreColors(
+    targetColorScheme: ColorScheme,
+    animationSpec: AnimationSpec<Color>,
+): AnimatedCoreColors =
+    withAnimatedColor(animationSpec) { animateColor ->
+        AnimatedCoreColors(
+            primary = animateColor(targetColorScheme.primary, "primary"),
+            onPrimary = animateColor(targetColorScheme.onPrimary, "onPrimary"),
+            primaryContainer = animateColor(targetColorScheme.primaryContainer, "primaryContainer"),
+            onPrimaryContainer = animateColor(targetColorScheme.onPrimaryContainer, "onPrimaryContainer"),
+            inversePrimary = animateColor(targetColorScheme.inversePrimary, "inversePrimary"),
+            secondary = animateColor(targetColorScheme.secondary, "secondary"),
+            onSecondary = animateColor(targetColorScheme.onSecondary, "onSecondary"),
+            secondaryContainer = animateColor(targetColorScheme.secondaryContainer, "secondaryContainer"),
+            onSecondaryContainer = animateColor(targetColorScheme.onSecondaryContainer, "onSecondaryContainer"),
+            tertiary = animateColor(targetColorScheme.tertiary, "tertiary"),
+            onTertiary = animateColor(targetColorScheme.onTertiary, "onTertiary"),
+            tertiaryContainer = animateColor(targetColorScheme.tertiaryContainer, "tertiaryContainer"),
+            onTertiaryContainer = animateColor(targetColorScheme.onTertiaryContainer, "onTertiaryContainer"),
+            background = animateColor(targetColorScheme.background, "background"),
+            onBackground = animateColor(targetColorScheme.onBackground, "onBackground"),
+            error = animateColor(targetColorScheme.error, "error"),
+            onError = animateColor(targetColorScheme.onError, "onError"),
+            errorContainer = animateColor(targetColorScheme.errorContainer, "errorContainer"),
+            onErrorContainer = animateColor(targetColorScheme.onErrorContainer, "onErrorContainer"),
+        )
+    }
+
+@Composable
+private fun animatedSurfaceColors(
+    targetColorScheme: ColorScheme,
+    animationSpec: AnimationSpec<Color>,
+): AnimatedSurfaceColors =
+    withAnimatedColor(animationSpec) { animateColor ->
+        AnimatedSurfaceColors(
+            surface = animateColor(targetColorScheme.surface, "surface"),
+            onSurface = animateColor(targetColorScheme.onSurface, "onSurface"),
+            surfaceVariant = animateColor(targetColorScheme.surfaceVariant, "surfaceVariant"),
+            onSurfaceVariant = animateColor(targetColorScheme.onSurfaceVariant, "onSurfaceVariant"),
+            surfaceTint = animateColor(targetColorScheme.surfaceTint, "surfaceTint"),
+            inverseSurface = animateColor(targetColorScheme.inverseSurface, "inverseSurface"),
+            inverseOnSurface = animateColor(targetColorScheme.inverseOnSurface, "inverseOnSurface"),
+            outline = animateColor(targetColorScheme.outline, "outline"),
+            outlineVariant = animateColor(targetColorScheme.outlineVariant, "outlineVariant"),
+            scrim = animateColor(targetColorScheme.scrim, "scrim"),
+            surfaceBright = animateColor(targetColorScheme.surfaceBright, "surfaceBright"),
+            surfaceContainer = animateColor(targetColorScheme.surfaceContainer, "surfaceContainer"),
+            surfaceContainerHigh = animateColor(targetColorScheme.surfaceContainerHigh, "surfaceContainerHigh"),
+            surfaceContainerHighest =
+                animateColor(
+                    targetColorScheme.surfaceContainerHighest,
+                    "surfaceContainerHighest",
+                ),
+            surfaceContainerLow = animateColor(targetColorScheme.surfaceContainerLow, "surfaceContainerLow"),
+            surfaceContainerLowest = animateColor(targetColorScheme.surfaceContainerLowest, "surfaceContainerLowest"),
+            surfaceDim = animateColor(targetColorScheme.surfaceDim, "surfaceDim"),
+        )
+    }
+
+@Composable
+private fun animatedFixedColors(
+    targetColorScheme: ColorScheme,
+    animationSpec: AnimationSpec<Color>,
+): AnimatedFixedColors =
+    withAnimatedColor(animationSpec) { animateColor ->
+        AnimatedFixedColors(
+            primaryFixed = animateColor(targetColorScheme.primaryFixed, "primaryFixed"),
+            primaryFixedDim = animateColor(targetColorScheme.primaryFixedDim, "primaryFixedDim"),
+            onPrimaryFixed = animateColor(targetColorScheme.onPrimaryFixed, "onPrimaryFixed"),
+            onPrimaryFixedVariant = animateColor(targetColorScheme.onPrimaryFixedVariant, "onPrimaryFixedVariant"),
+            secondaryFixed = animateColor(targetColorScheme.secondaryFixed, "secondaryFixed"),
+            secondaryFixedDim = animateColor(targetColorScheme.secondaryFixedDim, "secondaryFixedDim"),
+            onSecondaryFixed = animateColor(targetColorScheme.onSecondaryFixed, "onSecondaryFixed"),
+            onSecondaryFixedVariant =
+                animateColor(
+                    targetColorScheme.onSecondaryFixedVariant,
+                    "onSecondaryFixedVariant",
+                ),
+            tertiaryFixed = animateColor(targetColorScheme.tertiaryFixed, "tertiaryFixed"),
+            tertiaryFixedDim = animateColor(targetColorScheme.tertiaryFixedDim, "tertiaryFixedDim"),
+            onTertiaryFixed = animateColor(targetColorScheme.onTertiaryFixed, "onTertiaryFixed"),
+            onTertiaryFixedVariant = animateColor(targetColorScheme.onTertiaryFixedVariant, "onTertiaryFixedVariant"),
+        )
+    }
+
+@Composable
+private inline fun <T> withAnimatedColor(
+    animationSpec: AnimationSpec<Color>,
+    block: (@Composable (Color, String) -> Color) -> T,
+): T {
+    val animateColor: @Composable (Color, String) -> Color = { targetColor, label ->
+        animatedThemeColor(targetColor, animationSpec, label).value
+    }
+    return block(animateColor)
+}
+
+@Composable
+private fun animatedThemeColor(
+    targetColor: Color,
+    animationSpec: AnimationSpec<Color>,
+    label: String,
+) = animateColorAsState(targetColor, animationSpec, label = label)
 
 private tailrec fun Context.findActivity(): Activity? =
     when (this) {

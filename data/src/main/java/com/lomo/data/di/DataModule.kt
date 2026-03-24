@@ -10,6 +10,14 @@ import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoIdentityDao
+import com.lomo.data.local.dao.MemoOutboxDao
+import com.lomo.data.local.dao.MemoPinDao
+import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoTagDao
+import com.lomo.data.local.dao.MemoTrashDao
+import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
@@ -28,6 +36,7 @@ import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
+import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
@@ -53,27 +62,25 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-object DataModule {
+object DatabaseModule {
     @Provides
     @Singleton
     fun provideMemoDatabase(
         @ApplicationContext context: Context,
     ): MemoDatabase {
-        val migrations = ALL_DATABASE_MIGRATIONS.toList()
         DatabaseTransitionStrategy.prepareBeforeOpen(
             context = context,
             targetVersion = MEMO_DATABASE_VERSION,
-            migrations = migrations,
         )
 
         val db = buildMemoDatabase(context)
-        return try {
+        return runNonFatalCatching {
             // Force database open now to trigger migration inside the provider.
             // If migration fails, the catch block recreates the database from scratch.
             db.openHelper.writableDatabase
             db
-        } catch (e: Exception) {
-            Timber.tag("DataModule").e(e, "Database open/migration failed, recreating from scratch")
+        }.getOrElse { error ->
+            Timber.tag("DataModule").e(error, "Database open/migration failed, recreating from scratch")
             runCatching { db.close() }
             context.deleteDatabase(DatabaseTransitionStrategy.DATABASE_NAME)
             buildMemoDatabase(context)
@@ -95,34 +102,97 @@ object DataModule {
 
     @Provides
     @Singleton
+    fun provideMemoPinDao(database: MemoDatabase): MemoPinDao = database.memoPinDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoSearchDao(database: MemoDatabase): MemoSearchDao = database.memoSearchDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoWriteDao(database: MemoDatabase): MemoWriteDao = database.memoWriteDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoTagDao(database: MemoDatabase): MemoTagDao = database.memoTagDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoFtsDao(database: MemoDatabase): MemoFtsDao = database.memoFtsDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoIdentityDao(database: MemoDatabase): MemoIdentityDao = database.memoIdentityDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoTrashDao(database: MemoDatabase): MemoTrashDao = database.memoTrashDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoOutboxDao(database: MemoDatabase): MemoOutboxDao = database.memoOutboxDao()
+
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DatabaseSupportModule {
+    @Provides
+    @Singleton
     fun provideLocalFileStateDao(database: MemoDatabase): LocalFileStateDao = database.localFileStateDao()
 
     @Provides
     @Singleton
     fun provideWebDavSyncMetadataDao(database: MemoDatabase): WebDavSyncMetadataDao = database.webDavSyncMetadataDao()
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object StorageDataSourceModule {
+    @Provides
+    @Singleton
+    fun provideWorkspaceConfigSource(
+        dataSource: FileDataSourceImpl,
+    ): com.lomo.data.source.WorkspaceConfigSource = dataSource
 
     @Provides
     @Singleton
-    fun provideWorkspaceConfigSource(dataSource: FileDataSourceImpl): com.lomo.data.source.WorkspaceConfigSource = dataSource
+    fun provideMarkdownStorageDataSource(
+        dataSource: FileDataSourceImpl,
+    ): com.lomo.data.source.MarkdownStorageDataSource = dataSource
 
     @Provides
     @Singleton
-    fun provideMarkdownStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MarkdownStorageDataSource = dataSource
+    fun provideMediaStorageDataSource(
+        dataSource: FileDataSourceImpl,
+    ): com.lomo.data.source.MediaStorageDataSource = dataSource
+}
 
+@Module
+@InstallIn(SingletonComponent::class)
+object MemoRefreshModule {
     @Provides
     @Singleton
-    fun provideMediaStorageDataSource(dataSource: FileDataSourceImpl): com.lomo.data.source.MediaStorageDataSource = dataSource
-
-    @Provides
-    @Singleton
-    fun provideWorkspaceTransitionRepositoryImpl(memoDao: MemoDao): WorkspaceTransitionRepositoryImpl =
+    fun provideWorkspaceTransitionRepositoryImpl(
+        memoWriteDao: MemoWriteDao,
+        memoOutboxDao: MemoOutboxDao,
+        memoTagDao: MemoTagDao,
+        memoFtsDao: MemoFtsDao,
+        memoTrashDao: MemoTrashDao,
+        localFileStateDao: LocalFileStateDao,
+    ): WorkspaceTransitionRepositoryImpl =
         WorkspaceTransitionRepositoryImpl(
-            memoDao = memoDao,
+            memoWriteDao = memoWriteDao,
+            memoOutboxDao = memoOutboxDao,
+            memoTagDao = memoTagDao,
+            memoFtsDao = memoFtsDao,
+            memoTrashDao = memoTrashDao,
+            localFileStateDao = localFileStateDao,
         )
 
     @Provides
     @Singleton
-    fun provideMemoRefreshPlanner(): MemoRefreshPlanner = MemoRefreshPlanner()
+    fun provideMemoRefreshPlanner(): MemoRefreshPlanner = MemoRefreshPlanner
 
     @Provides
     @Singleton
@@ -144,12 +214,20 @@ object DataModule {
     @Provides
     @Singleton
     fun provideMemoRefreshDbApplier(
-        dao: MemoDao,
+        memoDao: MemoDao,
+        memoWriteDao: MemoWriteDao,
+        memoTagDao: MemoTagDao,
+        memoFtsDao: MemoFtsDao,
+        memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
         database: MemoDatabase,
     ): MemoRefreshDbApplier =
         MemoRefreshDbApplier(
-            dao = dao,
+            memoDao = memoDao,
+            memoWriteDao = memoWriteDao,
+            memoTagDao = memoTagDao,
+            memoFtsDao = memoFtsDao,
+            memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
             runInTransaction = { block ->
                 database.withTransaction {
@@ -162,23 +240,33 @@ object DataModule {
     @Singleton
     fun provideMemoRefreshEngine(
         markdownStorageDataSource: com.lomo.data.source.MarkdownStorageDataSource,
-        dao: MemoDao,
+        memoWriteDao: MemoWriteDao,
+        memoTagDao: MemoTagDao,
+        memoFtsDao: MemoFtsDao,
+        memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
         parser: com.lomo.data.parser.MarkdownParser,
         planner: MemoRefreshPlanner,
         parserWorker: MemoRefreshParserWorker,
         dbApplier: MemoRefreshDbApplier,
-    ): MemoRefreshEngine =
+        ): MemoRefreshEngine =
         MemoRefreshEngine(
             markdownStorageDataSource = markdownStorageDataSource,
-            dao = dao,
+            memoWriteDao = memoWriteDao,
+            memoTagDao = memoTagDao,
+            memoFtsDao = memoFtsDao,
+            memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
             parser = parser,
             refreshPlanner = planner,
             refreshParserWorker = parserWorker,
             refreshDbApplier = dbApplier,
         )
+}
 
+@Module
+@InstallIn(SingletonComponent::class)
+object CoreRepositoryModule {
     @Provides
     @Singleton
     fun provideMemoRepository(impl: MemoRepositoryImpl): MemoRepository = impl
@@ -209,7 +297,9 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideWorkspaceTransitionRepository(impl: WorkspaceTransitionRepositoryImpl): WorkspaceTransitionRepository = impl
+    fun provideWorkspaceTransitionRepository(
+        impl: WorkspaceTransitionRepositoryImpl,
+    ): WorkspaceTransitionRepository = impl
 
     @Provides
     @Singleton
@@ -217,49 +307,27 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideGitSyncRepositoryImpl(
-        @dagger.hilt.android.qualifiers.ApplicationContext context: android.content.Context,
-        gitSyncEngine: com.lomo.data.git.GitSyncEngine,
-        credentialStore: com.lomo.data.git.GitCredentialStore,
-        dataStore: com.lomo.data.local.datastore.LomoDataStore,
-        memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
-        safGitMirrorBridge: com.lomo.data.git.SafGitMirrorBridge,
-        gitMediaSyncBridge: com.lomo.data.git.GitMediaSyncBridge,
-        markdownParser: com.lomo.data.parser.MarkdownParser,
-        markdownStorageDataSource: com.lomo.data.source.MarkdownStorageDataSource,
-    ): GitSyncRepositoryImpl =
-        GitSyncRepositoryImpl(
-            context,
-            gitSyncEngine,
-            credentialStore,
-            dataStore,
-            memoSynchronizer,
-            safGitMirrorBridge,
-            gitMediaSyncBridge,
-            markdownParser,
-            markdownStorageDataSource,
-        )
-
-    @Provides
-    @Singleton
     fun provideGitSyncRepository(impl: GitSyncRepositoryImpl): GitSyncRepository = impl
+}
 
+@Module
+@InstallIn(SingletonComponent::class)
+object SyncRepositoryModule {
     @Provides
     @Singleton
     fun provideWebDavSyncPlanner(): com.lomo.data.repository.WebDavSyncPlanner =
-        com.lomo.data.repository
-            .WebDavSyncPlanner()
+        com.lomo.data.repository.WebDavSyncPlanner()
 
     @Provides
     @Singleton
     fun provideGitMediaSyncPlanner(): com.lomo.data.git.GitMediaSyncPlanner =
-        com.lomo.data.git
-            .GitMediaSyncPlanner()
+        com.lomo.data.git.GitMediaSyncPlanner()
 
     @Provides
     @Singleton
-    fun provideWebDavClientFactory(factory: com.lomo.data.webdav.Dav4jvmWebDavClientFactory): com.lomo.data.webdav.WebDavClientFactory =
-        factory
+    fun provideWebDavClientFactory(
+        factory: com.lomo.data.webdav.Dav4jvmWebDavClientFactory,
+    ): com.lomo.data.webdav.WebDavClientFactory = factory
 
     @Provides
     @Singleton
@@ -269,51 +337,13 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideGitMediaSyncStateStore(impl: com.lomo.data.git.FileGitMediaSyncStateStore): com.lomo.data.git.GitMediaSyncStateStore = impl
-
-    @Provides
-    @Singleton
-    fun provideWebDavSyncRepositoryImpl(
-        dataStore: com.lomo.data.local.datastore.LomoDataStore,
-        credentialStore: com.lomo.data.webdav.WebDavCredentialStore,
-        endpointResolver: com.lomo.data.webdav.WebDavEndpointResolver,
-        clientFactory: com.lomo.data.webdav.WebDavClientFactory,
-        markdownStorageDataSource: com.lomo.data.source.MarkdownStorageDataSource,
-        localMediaSyncStore: com.lomo.data.webdav.LocalMediaSyncStore,
-        metadataDao: com.lomo.data.local.dao.WebDavSyncMetadataDao,
-        memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
-        planner: com.lomo.data.repository.WebDavSyncPlanner,
-    ): WebDavSyncRepositoryImpl =
-        WebDavSyncRepositoryImpl(
-            dataStore = dataStore,
-            credentialStore = credentialStore,
-            endpointResolver = endpointResolver,
-            clientFactory = clientFactory,
-            markdownStorageDataSource = markdownStorageDataSource,
-            localMediaSyncStore = localMediaSyncStore,
-            metadataDao = metadataDao,
-            memoSynchronizer = memoSynchronizer,
-            planner = planner,
-        )
+    fun provideGitMediaSyncStateStore(
+        impl: com.lomo.data.git.FileGitMediaSyncStateStore,
+    ): com.lomo.data.git.GitMediaSyncStateStore = impl
 
     @Provides
     @Singleton
     fun provideWebDavSyncRepository(impl: WebDavSyncRepositoryImpl): WebDavSyncRepository = impl
-
-    @Provides
-    @Singleton
-    fun provideVoiceRecorder(audioRecorder: com.lomo.data.media.AudioRecorder): com.lomo.domain.repository.VoiceRecordingRepository =
-        audioRecorder
-
-    @Provides
-    @Singleton
-    fun provideAudioPlaybackUriResolver(
-        impl: com.lomo.data.media.AudioPlaybackUriResolverImpl,
-    ): com.lomo.domain.repository.AudioPlaybackResolverRepository = impl
-
-    @Provides
-    @Singleton
-    fun provideLanShareService(impl: com.lomo.data.share.ShareServiceManager): com.lomo.domain.repository.LanShareService = impl
 
     @Provides
     @Singleton
@@ -326,4 +356,26 @@ object DataModule {
     @Provides
     @Singleton
     fun provideSyncConflictBackupRepository(impl: SyncConflictBackupManager): SyncConflictBackupRepository = impl
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object MediaShareModule {
+    @Provides
+    @Singleton
+    fun provideVoiceRecorder(
+        audioRecorder: com.lomo.data.media.AudioRecorder,
+    ): com.lomo.domain.repository.VoiceRecordingRepository = audioRecorder
+
+    @Provides
+    @Singleton
+    fun provideAudioPlaybackUriResolver(
+        impl: com.lomo.data.media.AudioPlaybackUriResolverImpl,
+    ): com.lomo.domain.repository.AudioPlaybackResolverRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideLanShareService(
+        impl: com.lomo.data.share.ShareServiceManager,
+    ): com.lomo.domain.repository.LanShareService = impl
 }

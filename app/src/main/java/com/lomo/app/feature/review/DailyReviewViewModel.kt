@@ -2,6 +2,7 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
@@ -51,21 +52,19 @@ class DailyReviewViewModel
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
                 .appPreferences()
-                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), AppPreferencesState.defaults())
+                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
                 .activeDayCount()
-                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), 0)
+                .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
         val rootDirectory: StateFlow<String?> =
             appConfigUiCoordinator
                 .rootDirectory()
                 .stateIn(
                     scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
+                    started = appWhileSubscribed(),
                     initialValue = null,
                 )
 
@@ -74,9 +73,7 @@ class DailyReviewViewModel
                 .imageDirectory()
                 .stateIn(
                     scope = viewModelScope,
-                    started =
-                        kotlinx.coroutines.flow.SharingStarted
-                            .WhileSubscribed(5000),
+                    started = appWhileSubscribed(),
                     initialValue = null,
                 )
 
@@ -90,7 +87,7 @@ class DailyReviewViewModel
             loadJob =
                 viewModelScope.launch {
                     _uiState.value = UiState.Loading
-                    try {
+                    runCatching {
                         val rawMemos = dailyReviewQueryUseCase()
 
                         if (rawMemos.isEmpty()) {
@@ -120,10 +117,11 @@ class DailyReviewViewModel
                             }.collect { uiModels ->
                                 _uiState.value = UiState.Success(uiModels)
                             }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        _uiState.value = UiState.Error("Failed to load daily review", e)
+                    }.onFailure { throwable ->
+                        if (throwable is kotlinx.coroutines.CancellationException) {
+                            throw throwable
+                        }
+                        _uiState.value = UiState.Error("Failed to load daily review", throwable)
                     }
                 }
         }
@@ -133,34 +131,30 @@ class DailyReviewViewModel
             newContent: String,
         ) {
             viewModelScope.launch {
-                var success = false
-                try {
+                runCatching {
                     updateMemoContentUseCase(memo, newContent)
-                    success = true
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to update memo")
-                }
-                if (success) {
+                }.onSuccess {
                     loadDailyReview()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update memo")
                 }
             }
         }
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                var success = false
-                try {
+                runCatching {
                     deleteMemoUseCase(memo)
-                    success = true
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to delete memo")
-                }
-                if (success) {
+                }.onSuccess {
                     loadDailyReview()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
                 }
             }
         }
@@ -171,7 +165,7 @@ class DailyReviewViewModel
             onError: (() -> Unit)? = null,
         ) {
             viewModelScope.launch {
-                try {
+                runCatching {
                     val path =
                         when (
                             val result =
@@ -183,10 +177,11 @@ class DailyReviewViewModel
                             is SaveImageResult.SavedButCacheSyncFailed -> throw result.cause
                         }
                     onResult(path)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _errorMessage.value = e.toUserMessage("Failed to save image")
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to save image")
                     onError?.invoke()
                 }
             }

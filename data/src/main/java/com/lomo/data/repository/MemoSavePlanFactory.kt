@@ -59,7 +59,9 @@ class MemoSavePlanFactory
                     timeStr = timeString,
                     fallbackTimestampMillis = timestamp,
                 )
-            val sameTimestampCount = precomputedSameTimestampCount ?: countTimestampOccurrences(existingFileContent, timeString)
+            val sameTimestampCount =
+                precomputedSameTimestampCount
+                    ?: countTimestampOccurrences(existingFileContent, timeString)
             val canonicalTimestamp =
                 memoIdentityPolicy.applyTimestampOffset(
                     baseTimestampMillis = baseCanonicalTimestamp,
@@ -104,7 +106,7 @@ class MemoSavePlanFactory
             timestamp: String,
         ): Int {
             if (fileContent.isBlank()) return 0
-            val pattern = Regex("^\\s*-\\s+${Regex.escape(timestamp)}(?:\\s|$).*")
+            val pattern = Regex("""^\s*-\s+${Regex.escape(timestamp)}(?:\s|$).*""")
             return fileContent.lineSequence().count(pattern::matches)
         }
 

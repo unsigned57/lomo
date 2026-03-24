@@ -2,7 +2,11 @@ package com.lomo.data.repository
 
 import android.net.Uri
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoSearchDao
+import com.lomo.data.local.dao.MemoTagDao
+import com.lomo.data.local.dao.MemoTrashDao
+import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFtsEntity
@@ -24,7 +28,11 @@ class MemoTrashMutationHandler
     constructor(
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val mediaStorageDataSource: MediaStorageDataSource,
-        private val dao: MemoDao,
+        private val memoWriteDao: MemoWriteDao,
+        private val memoTagDao: MemoTagDao,
+        private val memoFtsDao: MemoFtsDao,
+        private val memoTrashDao: MemoTrashDao,
+        private val memoSearchDao: MemoSearchDao,
         private val localFileStateDao: LocalFileStateDao,
         private val textProcessor: MemoTextProcessor,
     ) {
@@ -34,67 +42,61 @@ class MemoTrashMutationHandler
         }
 
         suspend fun moveToTrashInDb(memo: Memo) {
-            dao.deleteMemoById(memo.id)
-            dao.deleteTagRefsByMemoId(memo.id)
-            dao.deleteMemoFts(memo.id)
-            dao.insertTrashMemo(TrashMemoEntity.fromDomain(memo.copy(isDeleted = true)))
+            memoWriteDao.deleteMemoById(memo.id)
+            memoTagDao.deleteTagRefsByMemoId(memo.id)
+            memoFtsDao.deleteMemoFts(memo.id)
+            memoTrashDao.insertTrashMemo(TrashMemoEntity.fromDomain(memo.copy(isDeleted = true)))
         }
 
         suspend fun moveToTrashFileOnly(memo: Memo): Boolean {
             val filename = memo.dateKey + ".md"
             val cachedUriString = getMainSafUri(filename)
-            val currentFileContent =
-                if (cachedUriString != null) {
-                    markdownStorageDataSource.readFile(Uri.parse(cachedUriString))
-                        ?: markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
-                } else {
-                    markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+            val currentFileContent = readMainMemoContent(markdownStorageDataSource, cachedUriString, filename)
+            val removedBlock =
+                currentFileContent?.let { content ->
+                    removeMemoBlockFromContent(content, memo, textProcessor)
                 }
-            if (currentFileContent == null) return false
-            val lines = currentFileContent.lines().toMutableList()
-
-            val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)
-            if (start == -1 || end < start) return false
-
-            val linesToTrash = lines.subList(start, end + 1)
-            val trashContent = "\n" + linesToTrash.joinToString("\n") + "\n"
-
-            if (!textProcessor.removeMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)) return false
-
-            markdownStorageDataSource.saveFileIn(
-                directory = MemoDirectoryType.TRASH,
-                filename = filename,
-                content = trashContent,
-                append = true,
-            )
-
-            val remainingContent = lines.joinToString("\n").trim()
-            if (remainingContent.isEmpty()) {
-                val uriToDelete = if (cachedUriString != null) Uri.parse(cachedUriString) else null
-                markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, filename, uriToDelete)
-                localFileStateDao.deleteByFilename(filename, false)
+            return if (removedBlock == null) {
+                false
             } else {
-                val uriToSave = if (cachedUriString != null) Uri.parse(cachedUriString) else null
-                val savedUri =
-                    markdownStorageDataSource.saveFileIn(
-                        directory = MemoDirectoryType.MAIN,
-                        filename = filename,
-                        content = lines.joinToString("\n"),
-                        append = false,
-                        uri = uriToSave,
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.TRASH,
+                    filename = filename,
+                    content = removedBlock.blockContent,
+                    append = true,
+                )
+
+                val remainingContent = removedBlock.remainingLines.joinToString("\n").trim()
+                if (remainingContent.isEmpty()) {
+                    markdownStorageDataSource.deleteFileIn(
+                        MemoDirectoryType.MAIN,
+                        filename,
+                        cachedUriString.toUriOrNull(),
                     )
-
-                val metadata = markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
-                if (metadata != null) {
-                    upsertMainState(filename, metadata.lastModified, savedUri)
+                    localFileStateDao.deleteByFilename(filename, false)
+                } else {
+                    val savedUri =
+                        markdownStorageDataSource.saveFileIn(
+                            directory = MemoDirectoryType.MAIN,
+                            filename = filename,
+                            content = removedBlock.remainingLines.joinToString("\n"),
+                            append = false,
+                            uri = cachedUriString.toUriOrNull(),
+                        )
+                    markdownStorageDataSource
+                        .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+                        ?.let { metadata ->
+                            upsertMainState(filename, metadata.lastModified, savedUri)
+                        }
                 }
-            }
 
-            val trashMetadata = markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.TRASH, filename)
-            if (trashMetadata != null) {
-                upsertTrashState(filename, trashMetadata.lastModified)
+                markdownStorageDataSource
+                    .getFileMetadataIn(MemoDirectoryType.TRASH, filename)
+                    ?.let { trashMetadata ->
+                        upsertTrashState(filename, trashMetadata.lastModified)
+                    }
+                true
             }
-            return true
         }
 
         suspend fun restoreFromTrash(memo: Memo) {
@@ -103,66 +105,71 @@ class MemoTrashMutationHandler
         }
 
         suspend fun restoreFromTrashInDb(memo: Memo): Boolean {
-            val sourceMemo = dao.getTrashMemo(memo.id)?.toDomain()?.copy(isDeleted = false) ?: return false
+            val sourceMemo = memoTrashDao.getTrashMemo(memo.id)?.toDomain()?.copy(isDeleted = false) ?: return false
             persistMainMemo(sourceMemo)
-            dao.deleteTrashMemoById(sourceMemo.id)
+            memoTrashDao.deleteTrashMemoById(sourceMemo.id)
             return true
         }
 
         suspend fun restoreFromTrashFileOnly(memo: Memo): Boolean {
             val filename = memo.dateKey + ".md"
-            val trashContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.TRASH, filename) ?: return false
-            val trashLines = trashContent.lines().toMutableList()
-
-            val (start, end) =
-                textProcessor.findMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)
-            if (start == -1) return false
-
-            val restoredLines = trashLines.subList(start, end + 1).toList()
-            if (!textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
+            val removedBlock =
+                markdownStorageDataSource
+                    .readFileIn(MemoDirectoryType.TRASH, filename)
+                    ?.let { trashContent ->
+                        removeMemoBlockFromContent(trashContent, memo, textProcessor)
+                    }
+            return if (removedBlock == null) {
                 Timber.e("restoreMemo: Failed to find memo block in trash file for ${memo.id}")
-                return false
-            }
-
-            val restoredBlock = "\n" + restoredLines.joinToString("\n") + "\n"
-            markdownStorageDataSource.saveFileIn(
-                directory = MemoDirectoryType.MAIN,
-                filename = filename,
-                content = restoredBlock,
-                append = true,
-            )
-
-            val remainingTrash = trashLines.joinToString("\n").trim()
-            if (remainingTrash.isEmpty()) {
-                markdownStorageDataSource.deleteFileIn(MemoDirectoryType.TRASH, filename)
-                localFileStateDao.deleteByFilename(filename, true)
+                false
             } else {
                 markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.TRASH,
+                    directory = MemoDirectoryType.MAIN,
                     filename = filename,
-                    content = trashLines.joinToString("\n"),
-                    append = false,
+                    content = removedBlock.blockContent,
+                    append = true,
                 )
-                val trashMetadata = markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.TRASH, filename)
-                if (trashMetadata != null) {
-                    upsertTrashState(filename, trashMetadata.lastModified)
-                }
-            }
 
-            val metadata = markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
-            if (metadata != null) {
-                upsertMainState(filename, metadata.lastModified)
+                val remainingTrash = removedBlock.remainingLines.joinToString("\n").trim()
+                if (remainingTrash.isEmpty()) {
+                    markdownStorageDataSource.deleteFileIn(MemoDirectoryType.TRASH, filename)
+                    localFileStateDao.deleteByFilename(filename, true)
+                } else {
+                    markdownStorageDataSource.saveFileIn(
+                        directory = MemoDirectoryType.TRASH,
+                        filename = filename,
+                        content = removedBlock.remainingLines.joinToString("\n"),
+                        append = false,
+                    )
+                    markdownStorageDataSource
+                        .getFileMetadataIn(MemoDirectoryType.TRASH, filename)
+                        ?.let { trashMetadata ->
+                            upsertTrashState(filename, trashMetadata.lastModified)
+                        }
+                }
+
+                markdownStorageDataSource
+                    .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+                    ?.let { metadata ->
+                        upsertMainState(filename, metadata.lastModified)
+                    }
+                true
             }
-            return true
         }
 
         suspend fun deleteFromTrashPermanently(memo: Memo) {
             val filename = memo.dateKey + ".md"
-            val trashContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.TRASH, filename) ?: return
-            val trashLines = trashContent.lines().toMutableList()
+            val removedBlock =
+                markdownStorageDataSource
+                    .readFileIn(MemoDirectoryType.TRASH, filename)
+                    ?.let { trashContent ->
+                        removeMemoBlockFromContent(trashContent, memo, textProcessor)
+                    }
 
-            if (textProcessor.removeMemoBlock(trashLines, memo.rawContent, memo.timestamp, memo.id)) {
-                val remainingContent = trashLines.joinToString("\n").trim()
+            if (removedBlock == null) {
+                Timber.e("deletePermanently: Failed to find block for ${memo.id}")
+            } else {
+                val remainingContent = removedBlock.remainingLines.joinToString("\n").trim()
                 if (remainingContent.isEmpty()) {
                     markdownStorageDataSource.deleteFileIn(MemoDirectoryType.TRASH, filename)
                     localFileStateDao.deleteByFilename(filename, true)
@@ -170,41 +177,30 @@ class MemoTrashMutationHandler
                     markdownStorageDataSource.saveFileIn(
                         directory = MemoDirectoryType.TRASH,
                         filename = filename,
-                        content = trashLines.joinToString("\n"),
+                        content = removedBlock.remainingLines.joinToString("\n"),
                         append = false,
                     )
                 }
-
-                dao.deleteTrashMemoById(memo.id)
-            } else {
-                Timber.e("deletePermanently: Failed to find block for ${memo.id}")
+                memoTrashDao.deleteTrashMemoById(memo.id)
             }
 
-            if (memo.imageUrls.isNotEmpty()) {
-                memo.imageUrls.forEach { path ->
-                    if (path.isNotBlank()) {
-                        val count = dao.countMemosAndTrashWithImage(path, memo.id)
-                        if (count == 0) {
-                            if (isVoiceFile(path)) {
-                                mediaStorageDataSource.deleteVoiceFile(path)
-                            } else {
-                                mediaStorageDataSource.deleteImage(path)
-                            }
-                        }
-                    }
-                }
-            }
+            deleteUnreferencedAttachments(
+                memo = memo,
+                memoSearchDao = memoSearchDao,
+                mediaStorageDataSource = mediaStorageDataSource,
+            )
         }
 
         private suspend fun persistMainMemo(memo: Memo) {
             val entity = MemoEntity.fromDomain(memo)
-            dao.insertMemo(entity)
-            dao.replaceTagRefsForMemo(entity)
+            memoWriteDao.insertMemo(entity)
+            memoTagDao.replaceTagRefsForMemo(entity)
             val tokenized = SearchTokenizer.tokenize(entity.content)
-            dao.insertMemoFts(MemoFtsEntity(entity.id, tokenized))
+            memoFtsDao.insertMemoFts(MemoFtsEntity(entity.id, tokenized))
         }
 
-        private suspend fun getMainSafUri(filename: String): String? = localFileStateDao.getByFilename(filename, false)?.safUri
+        private suspend fun getMainSafUri(filename: String): String? =
+            localFileStateDao.getByFilename(filename, false)?.safUri
 
         private suspend fun upsertMainState(
             filename: String,
@@ -235,9 +231,81 @@ class MemoTrashMutationHandler
             )
         }
 
-        private fun isVoiceFile(filename: String): Boolean =
-            filename.endsWith(".m4a", ignoreCase = true) ||
-                filename.endsWith(".mp3", ignoreCase = true) ||
-                filename.endsWith(".aac", ignoreCase = true) ||
-                filename.startsWith("voice_", ignoreCase = true)
     }
+
+private data class RemovedMemoBlock(
+    val remainingLines: MutableList<String>,
+    val blockContent: String,
+)
+
+private suspend fun readMainMemoContent(
+    markdownStorageDataSource: MarkdownStorageDataSource,
+    cachedUriString: String?,
+    filename: String,
+): String? =
+    if (cachedUriString != null) {
+        markdownStorageDataSource.readFile(Uri.parse(cachedUriString))
+            ?: markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+    } else {
+        markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+    }
+
+private fun removeMemoBlockFromContent(
+    content: String,
+    memo: Memo,
+    textProcessor: MemoTextProcessor,
+): RemovedMemoBlock? {
+    val lines = content.lines().toMutableList()
+    val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)
+    if (start == -1 || end < start) {
+        return null
+    }
+
+    val blockLines = lines.subList(start, end + 1).toList()
+    val removed =
+        textProcessor.removeMemoBlock(
+            lines = lines,
+            rawContent = memo.rawContent,
+            timestamp = memo.timestamp,
+            memoId = memo.id,
+        )
+    return if (removed) {
+        RemovedMemoBlock(
+            remainingLines = lines,
+            blockContent =
+                buildString {
+                    appendLine()
+                    append(blockLines.joinToString("\n"))
+                    appendLine()
+                },
+        )
+    } else {
+        null
+    }
+}
+
+private suspend fun deleteUnreferencedAttachments(
+    memo: Memo,
+    memoSearchDao: MemoSearchDao,
+    mediaStorageDataSource: MediaStorageDataSource,
+) {
+    memo.imageUrls
+        .filter(String::isNotBlank)
+        .forEach { path ->
+            if (memoSearchDao.countMemosAndTrashWithImage(path, memo.id) == 0) {
+                if (path.isVoiceFile()) {
+                    mediaStorageDataSource.deleteVoiceFile(path)
+                } else {
+                    mediaStorageDataSource.deleteImage(path)
+                }
+            }
+        }
+}
+
+private fun String?.toUriOrNull(): Uri? = this?.let(Uri::parse)
+
+private fun String.isVoiceFile(): Boolean =
+    endsWith(".m4a", ignoreCase = true) ||
+        endsWith(".mp3", ignoreCase = true) ||
+        endsWith(".aac", ignoreCase = true) ||
+        startsWith("voice_", ignoreCase = true)

@@ -11,10 +11,6 @@ class ShareIncomingMemoSaver
         private val synchronizer: MemoSynchronizer,
         private val mediaRepository: MediaRepository,
     ) {
-        private companion object {
-            private const val TAG = "ShareIncomingMemoSaver"
-        }
-
         suspend fun saveReceivedMemo(
             content: String,
             timestamp: Long,
@@ -33,4 +29,8 @@ class ShareIncomingMemoSaver
             attachmentMappings.entries.fold(content) { acc, (originalName, newName) ->
                 acc.replace(originalName, newName)
             }
+
+        private companion object {
+            private const val TAG = "ShareIncomingMemoSaver"
+        }
     }

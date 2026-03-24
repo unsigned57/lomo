@@ -3,8 +3,27 @@ package com.lomo.data.local
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+const val SCHEMA_VERSION_18 = 18
+const val SCHEMA_VERSION_19 = 19
+const val SCHEMA_VERSION_20 = 20
+const val SCHEMA_VERSION_21 = 21
+const val SCHEMA_VERSION_22 = 22
+const val SCHEMA_VERSION_23 = 23
+const val SCHEMA_VERSION_24 = 24
+const val SCHEMA_VERSION_25 = 25
+const val SCHEMA_VERSION_26 = 26
+const val SCHEMA_VERSION_27 = 27
+
+const val MEMO_TABLE = "Lomo"
+const val TRASH_MEMO_TABLE = "LomoTrash"
+const val LOCAL_FILE_STATE_TABLE = "local_file_state"
+const val DROP_TABLE_IF_EXISTS = "DROP TABLE IF EXISTS"
+const val COLUMN_TIMESTAMP = "timestamp"
+const val COLUMN_CONTENT = "content"
+const val COLUMN_RAW_CONTENT = "rawContent"
+
 val MIGRATION_18_19: Migration =
-    object : Migration(18, 19) {
+    object : Migration(SCHEMA_VERSION_18, SCHEMA_VERSION_19) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
@@ -43,14 +62,14 @@ val MIGRATION_18_19: Migration =
     }
 
 val MIGRATION_19_20: Migration =
-    object : Migration(19, 20) {
+    object : Migration(SCHEMA_VERSION_19, SCHEMA_VERSION_20) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("DROP TABLE IF EXISTS image_cache")
         }
     }
 
 val MIGRATION_20_21: Migration =
-    object : Migration(20, 21) {
+    object : Migration(SCHEMA_VERSION_20, SCHEMA_VERSION_21) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL(
                 """
@@ -76,13 +95,13 @@ val MIGRATION_20_21: Migration =
     }
 
 val MIGRATION_21_22: Migration =
-    object : Migration(21, 22) {
+    object : Migration(SCHEMA_VERSION_21, SCHEMA_VERSION_22) {
         override fun migrate(db: SupportSQLiteDatabase) {
             // Normalize schema for users who may have diverged local schemas on v21 builds.
-            db.execSQL("DROP TABLE IF EXISTS `MemoTagCrossRef`")
+            db.execSQL("$DROP_TABLE_IF_EXISTS `MemoTagCrossRef`")
 
-            normalizeMemoTable(db, tableName = "Lomo", withContentIndex = true)
-            normalizeMemoTable(db, tableName = "LomoTrash", withContentIndex = false)
+            normalizeMemoTable(db, tableName = MEMO_TABLE, withContentIndex = true)
+            normalizeMemoTable(db, tableName = TRASH_MEMO_TABLE, withContentIndex = false)
             normalizeLocalFileStateTable(db)
             normalizeMemoFileOutboxTable(db)
             rebuildMemoFtsTable(db)
@@ -91,36 +110,36 @@ val MIGRATION_21_22: Migration =
     }
 
 val MIGRATION_22_23: Migration =
-    object : Migration(22, 23) {
+    object : Migration(SCHEMA_VERSION_22, SCHEMA_VERSION_23) {
         override fun migrate(db: SupportSQLiteDatabase) {
             db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
         }
     }
 
 val MIGRATION_23_24: Migration =
-    object : Migration(23, 24) {
+    object : Migration(SCHEMA_VERSION_23, SCHEMA_VERSION_24) {
         override fun migrate(db: SupportSQLiteDatabase) {
-            migrateMemoUpdatedAtColumn(db, tableName = "Lomo")
-            migrateMemoUpdatedAtColumn(db, tableName = "LomoTrash")
+            migrateMemoUpdatedAtColumn(db, tableName = MEMO_TABLE)
+            migrateMemoUpdatedAtColumn(db, tableName = TRASH_MEMO_TABLE)
         }
     }
 
 val MIGRATION_24_25: Migration =
-    object : Migration(24, 25) {
+    object : Migration(SCHEMA_VERSION_24, SCHEMA_VERSION_25) {
         override fun migrate(db: SupportSQLiteDatabase) {
             normalizeMemoFileOutboxTable(db)
         }
     }
 
 val MIGRATION_25_26: Migration =
-    object : Migration(25, 26) {
+    object : Migration(SCHEMA_VERSION_25, SCHEMA_VERSION_26) {
         override fun migrate(db: SupportSQLiteDatabase) {
             createMemoPinTable(db)
         }
     }
 
 val MIGRATION_26_27: Migration =
-    object : Migration(26, 27) {
+    object : Migration(SCHEMA_VERSION_26, SCHEMA_VERSION_27) {
         override fun migrate(db: SupportSQLiteDatabase) {
             createWebDavSyncMetadataTable(db)
         }
@@ -183,7 +202,7 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
     // ── Phase A: Bring all tables to v22 normalization baseline ──────
 
     // A1: Handle old "memos" table (v7-era) with isDeleted column.
-    val hadLegacyMemos = db.tableExists("memos")
+    val hadLegacyMemos = db.tableExists(LEGACY_MEMOS_TABLE)
     if (hadLegacyMemos) {
         migrateLegacyMemosTable(db)
     }
@@ -191,10 +210,10 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
     // A2: Normalize Lomo/LomoTrash.
     // If just created from "memos", skip (already correct v22 schema).
     // If existed from an intermediate version, normalize columns.
-    db.execSQL("DROP TABLE IF EXISTS `MemoTagCrossRef`")
+    db.execSQL("$DROP_TABLE_IF_EXISTS `MemoTagCrossRef`")
     if (!hadLegacyMemos) {
-        normalizeMemoTable(db, tableName = "Lomo", withContentIndex = true)
-        normalizeMemoTable(db, tableName = "LomoTrash", withContentIndex = false)
+        normalizeMemoTable(db, tableName = MEMO_TABLE, withContentIndex = true)
+        normalizeMemoTable(db, tableName = TRASH_MEMO_TABLE, withContentIndex = false)
     }
 
     // A3: Migrate file_sync_metadata → local_file_state.
@@ -212,11 +231,11 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
     dropLegacyTables(db)
 
     // ── Phase B: v22 → v23 (drop non-B-tree friendly content index) ──
-    db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
+    db.execSQL("DROP INDEX IF EXISTS `index_${MEMO_TABLE}_content`")
 
     // ── Phase C: v23 → v24 (add updatedAt column) ───────────────────
-    migrateMemoUpdatedAtColumn(db, tableName = "Lomo")
-    migrateMemoUpdatedAtColumn(db, tableName = "LomoTrash")
+    migrateMemoUpdatedAtColumn(db, tableName = MEMO_TABLE)
+    migrateMemoUpdatedAtColumn(db, tableName = TRASH_MEMO_TABLE)
 
     // ── Phase D: v24 → v25 (outbox claim columns) ───────────────────
     normalizeMemoFileOutboxTable(db)
@@ -226,477 +245,4 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase F: v26 → v27 (WebDAV sync metadata) ────────────────────
     createWebDavSyncMetadataTable(db)
-}
-
-private fun migrateLegacyMemosTable(db: SupportSQLiteDatabase) {
-    val columns = db.tableColumns("memos")
-
-    createMemoTable(db, "Lomo", withContentIndex = true)
-    createMemoTable(db, "LomoTrash", withContentIndex = false)
-
-    val idExpr =
-        if ("id" in columns) {
-            "COALESCE(CAST(`id` AS TEXT), 'legacy_' || rowid)"
-        } else {
-            "'legacy_' || rowid"
-        }
-    val timestampExpr = pickIntExpr(columns, "timestamp")
-    val contentExpr = pickTextExpr(columns, "content", "rawContent")
-    val rawContentExpr = pickTextExpr(columns, "rawContent", "content")
-    val dateExpr = pickTextExpr(columns, "date")
-    val tagsExpr = pickTextExpr(columns, "tags")
-    val imageUrlsExpr = pickTextExpr(columns, "imageUrls")
-
-    // Insert active memos into Lomo.
-    val activeFilter =
-        if ("isDeleted" in columns) {
-            "WHERE COALESCE(`isDeleted`, 0) = 0"
-        } else {
-            ""
-        }
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `Lomo` (
-            `id`, `timestamp`, `content`, `rawContent`, `date`, `tags`, `imageUrls`
-        )
-        SELECT
-            $idExpr,
-            $timestampExpr,
-            $contentExpr,
-            $rawContentExpr,
-            $dateExpr,
-            $tagsExpr,
-            $imageUrlsExpr
-        FROM `memos`
-        $activeFilter
-        """.trimIndent(),
-    )
-
-    // Insert deleted memos into LomoTrash.
-    if ("isDeleted" in columns) {
-        db.execSQL(
-            """
-            INSERT OR REPLACE INTO `LomoTrash` (
-                `id`, `timestamp`, `content`, `rawContent`, `date`, `tags`, `imageUrls`
-            )
-            SELECT
-                $idExpr,
-                $timestampExpr,
-                $contentExpr,
-                $rawContentExpr,
-                $dateExpr,
-                $tagsExpr,
-                $imageUrlsExpr
-            FROM `memos`
-            WHERE `isDeleted` = 1
-            """.trimIndent(),
-        )
-    }
-
-    db.execSQL("DROP TABLE IF EXISTS `memos`")
-}
-
-private fun migrateLegacyFileSyncMetadata(db: SupportSQLiteDatabase) {
-    if (!db.tableExists("file_sync_metadata")) return
-
-    if (!db.tableExists("local_file_state")) {
-        createLocalFileStateTable(db)
-    }
-
-    val columns = db.tableColumns("file_sync_metadata")
-    val filenameExpr = pickTextExpr(columns, "filename")
-    val isTrashExpr = pickIntExpr(columns, "isTrash")
-    val lastModifiedExpr = pickIntExpr(columns, "lastModified")
-
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `local_file_state` (
-            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`
-        )
-        SELECT
-            $filenameExpr,
-            $isTrashExpr,
-            NULL,
-            $lastModifiedExpr
-        FROM `file_sync_metadata`
-        """.trimIndent(),
-    )
-
-    db.execSQL("DROP TABLE IF EXISTS `file_sync_metadata`")
-}
-
-private fun dropLegacyTables(db: SupportSQLiteDatabase) {
-    db.execSQL("DROP TABLE IF EXISTS `memos`")
-    db.execSQL("DROP TABLE IF EXISTS `image_cache`")
-    db.execSQL("DROP TABLE IF EXISTS `tags`")
-    db.execSQL("DROP TABLE IF EXISTS `memo_tag_cross_ref`")
-    db.execSQL("DROP TABLE IF EXISTS `memos_fts`")
-    db.execSQL("DROP TABLE IF EXISTS `file_sync_metadata`")
-}
-
-private fun migrateMemoUpdatedAtColumn(
-    db: SupportSQLiteDatabase,
-    tableName: String,
-) {
-    if (!db.tableExists(tableName)) return
-
-    if ("updatedAt" !in db.tableColumns(tableName)) {
-        db.execSQL("ALTER TABLE `$tableName` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
-    }
-    db.execSQL("UPDATE `$tableName` SET `updatedAt` = `timestamp` WHERE `updatedAt` <= 0")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_updatedAt` ON `$tableName` (`updatedAt`)")
-}
-
-private fun normalizeMemoTable(
-    db: SupportSQLiteDatabase,
-    tableName: String,
-    withContentIndex: Boolean,
-) {
-    if (!db.tableExists(tableName)) {
-        createMemoTable(db, tableName, withContentIndex)
-        return
-    }
-
-    val legacyTable = "${tableName}_legacy_v22"
-    val columns = db.tableColumns(tableName)
-
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-    db.execSQL("ALTER TABLE `$tableName` RENAME TO `$legacyTable`")
-    createMemoTable(db, tableName, withContentIndex)
-
-    val idExpr =
-        if ("id" in columns) {
-            "COALESCE(CAST(`id` AS TEXT), 'legacy_' || rowid)"
-        } else {
-            "'legacy_' || rowid"
-        }
-    val timestampExpr = pickIntExpr(columns, "timestamp")
-    val contentExpr = pickTextExpr(columns, "content", "rawContent")
-    val rawContentExpr = pickTextExpr(columns, "rawContent", "content")
-    val dateExpr = pickTextExpr(columns, "date", "dateKey")
-    val tagsExpr = pickTextExpr(columns, "tags")
-    val imageUrlsExpr = pickTextExpr(columns, "imageUrls")
-
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `$tableName` (
-            `id`, `timestamp`, `content`, `rawContent`, `date`, `tags`, `imageUrls`
-        )
-        SELECT
-            $idExpr,
-            $timestampExpr,
-            $contentExpr,
-            $rawContentExpr,
-            $dateExpr,
-            $tagsExpr,
-            $imageUrlsExpr
-        FROM `$legacyTable`
-        """.trimIndent(),
-    )
-
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-}
-
-private fun createMemoTable(
-    db: SupportSQLiteDatabase,
-    tableName: String,
-    withContentIndex: Boolean,
-) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `$tableName` (
-            `id` TEXT NOT NULL,
-            `timestamp` INTEGER NOT NULL,
-            `content` TEXT NOT NULL,
-            `rawContent` TEXT NOT NULL,
-            `date` TEXT NOT NULL,
-            `tags` TEXT NOT NULL,
-            `imageUrls` TEXT NOT NULL,
-            PRIMARY KEY(`id`)
-        )
-        """.trimIndent(),
-    )
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_timestamp` ON `$tableName` (`timestamp`)")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_date` ON `$tableName` (`date`)")
-    if (withContentIndex) {
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_content` ON `$tableName` (`content`)")
-    }
-}
-
-private fun normalizeLocalFileStateTable(db: SupportSQLiteDatabase) {
-    if (!db.tableExists("local_file_state")) {
-        createLocalFileStateTable(db)
-        return
-    }
-
-    val legacyTable = "local_file_state_legacy_v22"
-    val columns = db.tableColumns("local_file_state")
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-    db.execSQL("ALTER TABLE `local_file_state` RENAME TO `$legacyTable`")
-    createLocalFileStateTable(db)
-
-    val filenameExpr = pickTextExpr(columns, "filename")
-    val isTrashExpr = pickIntExpr(columns, "isTrash", "is_trash")
-    val safUriExpr = pickNullableTextExpr(columns, "saf_uri", "safUri")
-    val lastKnownExpr = pickIntExpr(columns, "last_known_modified_time", "lastKnownModifiedTime", "lastModified")
-
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `local_file_state` (
-            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`
-        )
-        SELECT
-            $filenameExpr,
-            $isTrashExpr,
-            $safUriExpr,
-            $lastKnownExpr
-        FROM `$legacyTable`
-        """.trimIndent(),
-    )
-
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-}
-
-private fun createLocalFileStateTable(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `local_file_state` (
-            `filename` TEXT NOT NULL,
-            `isTrash` INTEGER NOT NULL,
-            `saf_uri` TEXT,
-            `last_known_modified_time` INTEGER NOT NULL,
-            PRIMARY KEY(`filename`, `isTrash`)
-        )
-        """.trimIndent(),
-    )
-}
-
-private fun normalizeMemoFileOutboxTable(db: SupportSQLiteDatabase) {
-    if (!db.tableExists("MemoFileOutbox")) {
-        createMemoFileOutboxTable(db)
-        return
-    }
-
-    val legacyTable = "MemoFileOutbox_legacy_v22"
-    val columns = db.tableColumns("MemoFileOutbox")
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-    db.execSQL("ALTER TABLE `MemoFileOutbox` RENAME TO `$legacyTable`")
-    createMemoFileOutboxTable(db)
-
-    val nowExpr = "(CAST(strftime('%s','now') AS INTEGER) * 1000)"
-    val idExpr = pickNullableIntExpr(columns, "id")
-    val operationExpr = pickTextExpr(columns, "operation", defaultExpr = "'UPDATE'")
-    val memoIdExpr = pickTextExpr(columns, "memoId", "id")
-    val memoDateExpr = pickTextExpr(columns, "memoDate", "date")
-    val memoTimestampExpr = pickIntExpr(columns, "memoTimestamp", "timestamp")
-    val memoRawContentExpr = pickTextExpr(columns, "memoRawContent", "rawContent", "content")
-    val newContentExpr = pickNullableTextExpr(columns, "newContent")
-    val createRawContentExpr = pickNullableTextExpr(columns, "createRawContent")
-    val createdAtExpr = pickIntExpr(columns, "createdAt", defaultExpr = nowExpr)
-    val updatedAtExpr = pickIntExpr(columns, "updatedAt", "createdAt", defaultExpr = nowExpr)
-    val retryCountExpr = pickIntExpr(columns, "retryCount")
-    val lastErrorExpr = pickNullableTextExpr(columns, "lastError")
-    val claimTokenExpr = pickNullableTextExpr(columns, "claimToken")
-    val claimUpdatedAtExpr = pickNullableIntExpr(columns, "claimUpdatedAt")
-
-    db.execSQL(
-        """
-        INSERT OR REPLACE INTO `MemoFileOutbox` (
-            `id`,
-            `operation`,
-            `memoId`,
-            `memoDate`,
-            `memoTimestamp`,
-            `memoRawContent`,
-            `newContent`,
-            `createRawContent`,
-            `createdAt`,
-            `updatedAt`,
-            `retryCount`,
-            `lastError`,
-            `claimToken`,
-            `claimUpdatedAt`
-        )
-        SELECT
-            $idExpr,
-            $operationExpr,
-            $memoIdExpr,
-            $memoDateExpr,
-            $memoTimestampExpr,
-            $memoRawContentExpr,
-            $newContentExpr,
-            $createRawContentExpr,
-            $createdAtExpr,
-            $updatedAtExpr,
-            $retryCountExpr,
-            $lastErrorExpr,
-            $claimTokenExpr,
-            $claimUpdatedAtExpr
-        FROM `$legacyTable`
-        """.trimIndent(),
-    )
-
-    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-}
-
-private fun createMemoFileOutboxTable(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `MemoFileOutbox` (
-            `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            `operation` TEXT NOT NULL,
-            `memoId` TEXT NOT NULL,
-            `memoDate` TEXT NOT NULL,
-            `memoTimestamp` INTEGER NOT NULL,
-            `memoRawContent` TEXT NOT NULL,
-            `newContent` TEXT,
-            `createRawContent` TEXT,
-            `createdAt` INTEGER NOT NULL,
-            `updatedAt` INTEGER NOT NULL,
-            `retryCount` INTEGER NOT NULL,
-            `lastError` TEXT,
-            `claimToken` TEXT,
-            `claimUpdatedAt` INTEGER
-        )
-        """.trimIndent(),
-    )
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_memoId` ON `MemoFileOutbox` (`memoId`)")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_createdAt` ON `MemoFileOutbox` (`createdAt`)")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_claimToken` ON `MemoFileOutbox` (`claimToken`)")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_claimUpdatedAt` ON `MemoFileOutbox` (`claimUpdatedAt`)")
-}
-
-private fun createMemoPinTable(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `MemoPin` (
-            `memoId` TEXT NOT NULL,
-            `pinnedAt` INTEGER NOT NULL,
-            PRIMARY KEY(`memoId`)
-        )
-        """.trimIndent(),
-    )
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoPin_pinnedAt` ON `MemoPin` (`pinnedAt`)")
-}
-
-private fun createWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `webdav_sync_metadata` (
-            `relative_path` TEXT NOT NULL,
-            `remote_path` TEXT NOT NULL,
-            `etag` TEXT,
-            `remote_last_modified` INTEGER,
-            `local_last_modified` INTEGER,
-            `last_synced_at` INTEGER NOT NULL,
-            `last_resolved_direction` TEXT NOT NULL,
-            `last_resolved_reason` TEXT NOT NULL,
-            PRIMARY KEY(`relative_path`)
-        )
-        """.trimIndent(),
-    )
-}
-
-private fun rebuildMemoFtsTable(db: SupportSQLiteDatabase) {
-    db.execSQL("DROP TABLE IF EXISTS `lomo_fts`")
-    db.execSQL(
-        """
-        CREATE VIRTUAL TABLE IF NOT EXISTS `lomo_fts`
-        USING FTS4(`memoId` TEXT NOT NULL, `content` TEXT NOT NULL, tokenize=unicode61)
-        """.trimIndent(),
-    )
-    if (db.tableExists("Lomo")) {
-        db.execSQL(
-            """
-            INSERT INTO `lomo_fts` (`memoId`, `content`)
-            SELECT `id`, `content`
-            FROM `Lomo`
-            """.trimIndent(),
-        )
-    }
-}
-
-private fun rebuildMemoTagCrossRefTable(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE TABLE IF NOT EXISTS `MemoTagCrossRef` (
-            `memoId` TEXT NOT NULL,
-            `tag` TEXT NOT NULL,
-            PRIMARY KEY(`memoId`, `tag`),
-            FOREIGN KEY(`memoId`) REFERENCES `Lomo`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE
-        )
-        """.trimIndent(),
-    )
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoTagCrossRef_memoId` ON `MemoTagCrossRef` (`memoId`)")
-    db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoTagCrossRef_tag` ON `MemoTagCrossRef` (`tag`)")
-    db.execSQL(
-        """
-        INSERT OR IGNORE INTO MemoTagCrossRef(memoId, tag)
-        WITH RECURSIVE split(memoId, rest, tag) AS (
-            SELECT id, tags || ',', ''
-            FROM Lomo
-            WHERE tags IS NOT NULL AND tags != ''
-            UNION ALL
-            SELECT memoId,
-                   substr(rest, instr(rest, ',') + 1),
-                   trim(substr(rest, 1, instr(rest, ',') - 1))
-            FROM split
-            WHERE rest != ''
-        )
-        SELECT memoId, tag
-        FROM split
-        WHERE tag != ''
-        """.trimIndent(),
-    )
-}
-
-private fun SupportSQLiteDatabase.tableExists(tableName: String): Boolean =
-    query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='$tableName' LIMIT 1").use { cursor ->
-        cursor.moveToFirst()
-    }
-
-private fun SupportSQLiteDatabase.tableColumns(tableName: String): Set<String> =
-    query("PRAGMA table_info(`$tableName`)").use { cursor ->
-        val columns = linkedSetOf<String>()
-        val nameIndex = cursor.getColumnIndex("name")
-        while (cursor.moveToNext()) {
-            if (nameIndex >= 0) {
-                cursor.getString(nameIndex)?.let(columns::add)
-            }
-        }
-        columns
-    }
-
-private fun pickTextExpr(
-    columns: Set<String>,
-    vararg candidates: String,
-    defaultExpr: String = "''",
-): String {
-    val column = candidates.firstOrNull { it in columns } ?: return defaultExpr
-    return "COALESCE(CAST(`$column` AS TEXT), $defaultExpr)"
-}
-
-private fun pickNullableTextExpr(
-    columns: Set<String>,
-    vararg candidates: String,
-): String {
-    val column = candidates.firstOrNull { it in columns } ?: return "NULL"
-    return "CAST(`$column` AS TEXT)"
-}
-
-private fun pickIntExpr(
-    columns: Set<String>,
-    vararg candidates: String,
-    defaultExpr: String = "0",
-): String {
-    val column = candidates.firstOrNull { it in columns } ?: return defaultExpr
-    return "COALESCE(CAST(`$column` AS INTEGER), $defaultExpr)"
-}
-
-private fun pickNullableIntExpr(
-    columns: Set<String>,
-    vararg candidates: String,
-): String {
-    val column = candidates.firstOrNull { it in columns } ?: return "NULL"
-    return "CAST(`$column` AS INTEGER)"
 }

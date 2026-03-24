@@ -33,7 +33,19 @@ class SettingsRepositoryImplTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        repository = SettingsRepositoryImpl(dataSource, dataStore)
+        repository =
+            SettingsRepositoryImpl(
+                directoryRepository = DirectorySettingsRepositoryImpl(dataSource, dataStore),
+                preferencesRepository =
+                    PreferencesRepositoryImpl(
+                        dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
+                        storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
+                        interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
+                        securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
+                        shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
+                        draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),
+                    ),
+            )
     }
 
     @Test

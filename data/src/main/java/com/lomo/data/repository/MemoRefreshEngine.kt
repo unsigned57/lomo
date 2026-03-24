@@ -1,7 +1,10 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoTagDao
+import com.lomo.data.local.dao.MemoTrashDao
+import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFtsEntity
@@ -10,14 +13,18 @@ import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.util.runNonFatalCatching
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 class MemoRefreshEngine
-    constructor(
+(
         private val markdownStorageDataSource: MarkdownStorageDataSource,
-        private val dao: MemoDao,
+        private val memoWriteDao: MemoWriteDao,
+        private val memoTagDao: MemoTagDao,
+        private val memoFtsDao: MemoFtsDao,
+        private val memoTrashDao: MemoTrashDao,
         private val localFileStateDao: LocalFileStateDao,
         private val parser: MarkdownParser,
         private val refreshPlanner: MemoRefreshPlanner,
@@ -26,41 +33,42 @@ class MemoRefreshEngine
     ) {
         suspend fun refresh(targetFilename: String? = null) =
             withContext(Dispatchers.IO) {
-                try {
+                runNonFatalCatching {
                     if (targetFilename != null) {
                         refreshTargetFile(targetFilename)
-                        return@withContext
-                    }
+                    } else {
+                        val syncMetadataMap =
+                            localFileStateDao.getAll().associateBy { it.filename to it.isTrash }
+                        val mainFilesMetadata =
+                            markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
+                        val trashFilesMetadata =
+                            markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH)
 
-                    val syncMetadataMap =
-                        localFileStateDao.getAll().associateBy { it.filename to it.isTrash }
-                    val mainFilesMetadata = markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
-                    val trashFilesMetadata = markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH)
+                        val plan =
+                            refreshPlanner.build(
+                                syncMetadataMap = syncMetadataMap,
+                                mainFilesMetadata = mainFilesMetadata,
+                                trashFilesMetadata = trashFilesMetadata,
+                            )
 
-                    val plan =
-                        refreshPlanner.build(
-                            syncMetadataMap = syncMetadataMap,
-                            mainFilesMetadata = mainFilesMetadata,
-                            trashFilesMetadata = trashFilesMetadata,
+                        if (plan.discoveredMainStates.isNotEmpty()) {
+                            localFileStateDao.upsertAll(plan.discoveredMainStates)
+                        }
+
+                        val parseResult =
+                            refreshParserWorker.parse(
+                                mainFilesToUpdate = plan.mainFilesToUpdate,
+                                trashFilesToUpdate = plan.trashFilesToUpdate,
+                            )
+
+                        refreshDbApplier.apply(
+                            parseResult = parseResult,
+                            filesToDeleteInDb = plan.filesToDeleteInDb,
                         )
-
-                    if (plan.discoveredMainStates.isNotEmpty()) {
-                        localFileStateDao.upsertAll(plan.discoveredMainStates)
                     }
-
-                    val parseResult =
-                        refreshParserWorker.parse(
-                            mainFilesToUpdate = plan.mainFilesToUpdate,
-                            trashFilesToUpdate = plan.trashFilesToUpdate,
-                        )
-
-                    refreshDbApplier.apply(
-                        parseResult = parseResult,
-                        filesToDeleteInDb = plan.filesToDeleteInDb,
-                    )
-                } catch (e: Exception) {
-                    Timber.e(e, "Error during refresh")
-                    throw e
+                }.getOrElse { error ->
+                    Timber.e(error, "Error during refresh")
+                    throw error
                 }
             }
 
@@ -102,7 +110,7 @@ class MemoRefreshEngine
                     )
                 }
                 if (allTrashMemos.isNotEmpty()) {
-                    dao.insertTrashMemos(allTrashMemos)
+                    memoTrashDao.insertTrashMemos(allTrashMemos)
                 }
             } else {
                 val allMemos = mutableListOf<MemoEntity>()
@@ -117,9 +125,9 @@ class MemoRefreshEngine
                     allMemos.addAll(domainMemos.map { MemoEntity.fromDomain(it) })
                 }
                 if (allMemos.isNotEmpty()) {
-                    dao.insertMemos(allMemos)
-                    dao.replaceTagRefsForMemos(allMemos)
-                    dao.replaceMemoFtsBatch(
+                    memoWriteDao.insertMemos(allMemos)
+                    memoTagDao.replaceTagRefsForMemos(allMemos)
+                    memoFtsDao.replaceMemoFtsBatch(
                         allMemos.map {
                             MemoFtsEntity(
                                 memoId = it.id,

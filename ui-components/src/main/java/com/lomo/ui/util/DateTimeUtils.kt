@@ -14,6 +14,12 @@ import java.util.Locale
  * Uses a thread-safe cache to avoid repeated DateTimeFormatter creation.
  */
 object DateTimeUtils {
+    private const val MIN_RELATIVE_UNIT = 1
+    private const val MILLIS_PER_MINUTE = 60_000L
+    private const val MILLIS_PER_HOUR = 3_600_000L
+    private const val MILLIS_PER_DAY = 86_400_000L
+    private const val MILLIS_PER_WEEK = 604_800_000L
+
     // Use lazy for thread-safe initialization
     private val cacheLock = Any()
     private val formatterCache by lazy { mutableMapOf<String, DateTimeFormatter>() }
@@ -29,7 +35,7 @@ object DateTimeUtils {
         timestamp: Long,
         pattern: String,
     ): String =
-        try {
+        runCatching {
             val formatter =
                 synchronized(cacheLock) {
                     formatterCache.getOrPut(pattern) {
@@ -37,10 +43,8 @@ object DateTimeUtils {
                     }
                 }
             formatter.format(Instant.ofEpochMilli(timestamp))
-        } catch (e: Exception) {
-            // Fallback to ISO format
-            formatIso(timestamp)
         }
+            .getOrElse { formatIso(timestamp) }
 
     /**
      * Format a timestamp using date and time patterns.
@@ -59,13 +63,12 @@ object DateTimeUtils {
      * Format timestamp to ISO local date-time format.
      */
     fun formatIso(timestamp: Long): String =
-        try {
+        runCatching {
             DateTimeFormatter.ISO_LOCAL_DATE_TIME
                 .withZone(defaultZone)
                 .format(Instant.ofEpochMilli(timestamp))
-        } catch (e: Exception) {
-            timestamp.toString()
         }
+            .getOrDefault(timestamp.toString())
 
     /**
      * Format timestamp to localized relative time (e.g., "2 hours ago").
@@ -87,22 +90,22 @@ object DateTimeUtils {
         val diff = (System.currentTimeMillis() - timestamp).coerceAtLeast(0L)
 
         return when {
-            diff < 60_000L -> {
+            diff < MILLIS_PER_MINUTE -> {
                 resources.getString(R.string.relative_time_just_now)
             }
 
-            diff < 3_600_000L -> {
-                val minutes = (diff / 60_000L).toInt().coerceAtLeast(1)
+            diff < MILLIS_PER_HOUR -> {
+                val minutes = (diff / MILLIS_PER_MINUTE).toInt().coerceAtLeast(MIN_RELATIVE_UNIT)
                 resources.getQuantityString(R.plurals.relative_time_minutes_ago, minutes, minutes)
             }
 
-            diff < 86_400_000L -> {
-                val hours = (diff / 3_600_000L).toInt().coerceAtLeast(1)
+            diff < MILLIS_PER_DAY -> {
+                val hours = (diff / MILLIS_PER_HOUR).toInt().coerceAtLeast(MIN_RELATIVE_UNIT)
                 resources.getQuantityString(R.plurals.relative_time_hours_ago, hours, hours)
             }
 
-            diff < 604_800_000L -> {
-                val days = (diff / 86_400_000L).toInt().coerceAtLeast(1)
+            diff < MILLIS_PER_WEEK -> {
+                val days = (diff / MILLIS_PER_DAY).toInt().coerceAtLeast(MIN_RELATIVE_UNIT)
                 resources.getQuantityString(R.plurals.relative_time_days_ago, days, days)
             }
 
@@ -116,7 +119,7 @@ object DateTimeUtils {
         timestamp: Long,
         resources: Resources,
     ): String =
-        try {
+        runCatching {
             val locales = resources.configuration.locales
             val locale = if (locales.isEmpty) Locale.getDefault() else locales[0]
 
@@ -125,9 +128,8 @@ object DateTimeUtils {
                 .withLocale(locale)
                 .withZone(defaultZone)
                 .format(Instant.ofEpochMilli(timestamp))
-        } catch (e: Exception) {
-            format(timestamp, "yyyy-MM-dd")
         }
+            .getOrElse { format(timestamp, "yyyy-MM-dd") }
 }
 
 // ===== Extension Functions for Idiomatic Kotlin =====

@@ -1,16 +1,16 @@
 package com.lomo.app.util
 
 internal object MarkdownCleanupFormatter {
-    private val headingPattern = Regex("(?m)^#{1,6}\\s+")
-    private val boldPattern = Regex("(\\*\\*|__)")
-    private val uncheckedTaskPattern = Regex("(?m)^\\s*[-*+]\\s*\\[ \\]")
-    private val checkedTaskPattern = Regex("(?m)^\\s*[-*+]\\s*\\[x\\]")
-    private val markdownImagePattern = Regex("!\\[.*?\\]\\(.*?\\)")
-    private val wikiImagePattern = Regex("!\\[\\[(.*?)\\]\\]")
-    private val markdownLinkPattern = Regex("(?<!!)\\[(.*?)\\]\\(.*?\\)")
-    private val listItemPattern = Regex("(?m)^\\s*[-*+]\\s+")
-    private val multiSpacePattern = Regex(" {2,}")
-    private val multiBlankLinePattern = Regex("\\n{3,}")
+    private val headingPattern = Regex("""(?m)^#{1,6}\s+""")
+    private val boldPattern = Regex("""(\*\*|__)""")
+    private val uncheckedTaskPattern = Regex("""(?m)^\s*[-*+]\s*\[ ]""")
+    private val checkedTaskPattern = Regex("""(?m)^\s*[-*+]\s*\[x]""")
+    private val markdownImagePattern = Regex("""!\[.*?]\(.*?\)""")
+    private val wikiImagePattern = Regex("""!\[\[(.*?)\]\]""")
+    private val markdownLinkPattern = Regex("""(?<!!)\[(.*?)\]\(.*?\)""")
+    private val listItemPattern = Regex("""(?m)^\s*[-*+]\s+""")
+    private val multiSpacePattern = Regex(""" {2,}""")
+    private val multiBlankLinePattern = Regex("""\n{3,}""")
 
     fun stripForPlainText(content: String): String {
         var str = content

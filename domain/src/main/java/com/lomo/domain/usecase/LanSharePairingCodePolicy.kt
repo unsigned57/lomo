@@ -1,4 +1,8 @@
-package com.lomo.app.feature.lanshare
+package com.lomo.domain.usecase
+
+class LanSharePairingCodeException(
+    override val message: String = LanSharePairingCodePolicy.INVALID_LENGTH_MESSAGE,
+) : IllegalArgumentException(message)
 
 object LanSharePairingCodePolicy {
     enum class UserMessageKey {
@@ -11,7 +15,15 @@ object LanSharePairingCodePolicy {
     const val INVALID_LENGTH_MESSAGE = "Pairing code must be 6-64 characters"
     const val INVALID_PASSWORD_MESSAGE = "Invalid password"
 
-    fun hasValidLength(code: String): Boolean = code.trim().length in MIN_LENGTH..MAX_LENGTH
+    fun normalize(code: String): String = code.trim()
+
+    fun hasValidLength(code: String): Boolean = normalize(code).length in MIN_LENGTH..MAX_LENGTH
+
+    fun requireValid(code: String) {
+        if (!hasValidLength(code)) {
+            throw LanSharePairingCodeException()
+        }
+    }
 
     fun shouldDismissDialogAfterSave(code: String): Boolean = hasValidLength(code)
 

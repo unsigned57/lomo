@@ -3,7 +3,24 @@ config:
   excludes:
     - "lomo-architecture.*"
     - "lomo-architecture>.*>.*"
+empty-blocks:
+  EmptyDefaultConstructor:
+    active: true
+naming:
+  FunctionNaming:
+    ignoreAnnotated:
+      - Composable
+      - Preview
 style:
+  ForbiddenComment:
+    active: true
+    comments:
+      - reason: "Resolve backlog markers before merge."
+        value: "TODO:"
+      - reason: "Resolve broken-behavior markers before merge."
+        value: "FIXME:"
+      - reason: "Release blockers must not stay in committed code."
+        value: "STOPSHIP:"
   ForbiddenImport:
     active: true
     forbiddenImports:
@@ -11,8 +28,14 @@ style:
       - com.lomo.app.*
       - com.lomo.domain.repository.*
       - com.lomo.domain.usecase.*
+  UnusedParameter:
+    active: true
 lomo-architecture:
   AppSourceBoundary:
     active: true
   UiComponentsLayerBoundary:
+    active: true
+  NoSourceSuppressions:
+    active: true
+  NoPlaceholderImplementation:
     active: true

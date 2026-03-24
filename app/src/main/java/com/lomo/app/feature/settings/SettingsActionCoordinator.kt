@@ -10,99 +10,119 @@ class SettingsActionCoordinator(
     private val gitCoordinator: SettingsGitCoordinator,
     private val webDavCoordinator: SettingsWebDavCoordinator,
     private val errorMapper: SettingsOperationErrorMapper,
-    private val onOperationError: (String) -> Unit,
+    private val onOperationError: (SettingsOperationError) -> Unit,
 ) {
-    fun refreshPatConfigured() = launchWithOperationResult { gitCoordinator.refreshPatConfigured() }
+    val refreshPatConfigured: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.refreshPatConfigured() } }
 
-    fun refreshWebDavPasswordConfigured() = launchWithOperationResult { webDavCoordinator.refreshPasswordConfigured() }
+    val refreshWebDavPasswordConfigured: () -> Unit =
+        { launchWithOperationResult { webDavCoordinator.refreshPasswordConfigured() } }
 
-    fun updateLanShareE2eEnabled(enabled: Boolean) {
-        launchWithError("Failed to update secure share setting") {
-            lanShareCoordinator.updateLanShareE2eEnabled(enabled)
-        }
-    }
-
-    fun updateLanSharePairingCode(pairingCode: String) {
-        scope.launch {
-            try {
-                lanShareCoordinator.updateLanSharePairingCode(pairingCode)
-            } catch (cancellation: CancellationException) {
-                throw cancellation
+    val updateLanShareE2eEnabled: (Boolean) -> Unit =
+        { enabled ->
+            launchWithError("Failed to update secure share setting") {
+                lanShareCoordinator.updateLanShareE2eEnabled(enabled)
             }
         }
-    }
 
-    fun clearLanSharePairingCode() {
-        launchWithError("Failed to clear pairing code") {
-            lanShareCoordinator.clearLanSharePairingCode()
+    val updateLanSharePairingCode: (String) -> Unit =
+        { pairingCode ->
+            scope.launch {
+                lanShareCoordinator.updateLanSharePairingCode(pairingCode)
+            }
         }
-    }
 
-    fun updateLanShareDeviceName(deviceName: String) {
-        launchWithError("Failed to update LAN share device name") {
-            lanShareCoordinator.updateLanShareDeviceName(deviceName)
+    val clearLanSharePairingCode: () -> Unit =
+        {
+            launchWithError("Failed to clear pairing code") {
+                lanShareCoordinator.clearLanSharePairingCode()
+            }
         }
-    }
 
-    fun updateGitSyncEnabled(enabled: Boolean) = launchWithOperationResult { gitCoordinator.updateGitSyncEnabled(enabled) }
+    val updateLanShareDeviceName: (String) -> Unit =
+        { deviceName ->
+            launchWithError("Failed to update LAN share device name") {
+                lanShareCoordinator.updateLanShareDeviceName(deviceName)
+            }
+        }
 
-    fun updateGitRemoteUrl(url: String) = launchWithOperationResult { gitCoordinator.updateGitRemoteUrl(url) }
+    val updateGitSyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { gitCoordinator.updateGitSyncEnabled(enabled) } }
 
-    fun updateGitPat(token: String) = launchWithOperationResult { gitCoordinator.updateGitPat(token) }
+    val updateGitRemoteUrl: (String) -> Unit =
+        { url -> launchWithOperationResult { gitCoordinator.updateGitRemoteUrl(url) } }
 
-    fun updateGitAuthorName(name: String) = launchWithOperationResult { gitCoordinator.updateGitAuthorName(name) }
+    val updateGitPat: (String) -> Unit =
+        { token -> launchWithOperationResult { gitCoordinator.updateGitPat(token) } }
 
-    fun updateGitAuthorEmail(email: String) = launchWithOperationResult { gitCoordinator.updateGitAuthorEmail(email) }
+    val updateGitAuthorName: (String) -> Unit =
+        { name -> launchWithOperationResult { gitCoordinator.updateGitAuthorName(name) } }
 
-    fun updateGitAutoSyncEnabled(enabled: Boolean) = launchWithOperationResult { gitCoordinator.updateGitAutoSyncEnabled(enabled) }
+    val updateGitAuthorEmail: (String) -> Unit =
+        { email -> launchWithOperationResult { gitCoordinator.updateGitAuthorEmail(email) } }
 
-    fun updateGitAutoSyncInterval(interval: String) = launchWithOperationResult { gitCoordinator.updateGitAutoSyncInterval(interval) }
+    val updateGitAutoSyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { gitCoordinator.updateGitAutoSyncEnabled(enabled) } }
 
-    fun updateGitSyncOnRefresh(enabled: Boolean) = launchWithOperationResult { gitCoordinator.updateGitSyncOnRefresh(enabled) }
+    val updateGitAutoSyncInterval: (String) -> Unit =
+        { interval -> launchWithOperationResult { gitCoordinator.updateGitAutoSyncInterval(interval) } }
 
-    fun triggerGitSyncNow() = launchWithOperationResult { gitCoordinator.triggerGitSyncNow() }
+    val updateGitSyncOnRefresh: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { gitCoordinator.updateGitSyncOnRefresh(enabled) } }
 
-    fun resolveGitConflictUsingRemote() = launchWithOperationResult { gitCoordinator.resolveGitConflictUsingRemote() }
+    val triggerGitSyncNow: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.triggerGitSyncNow() } }
 
-    fun resolveGitConflictUsingLocal() = launchWithOperationResult { gitCoordinator.resolveGitConflictUsingLocal() }
+    val resolveGitConflictUsingRemote: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingRemote() } }
 
-    fun testGitConnection() = launchWithOperationResult { gitCoordinator.testGitConnection() }
+    val resolveGitConflictUsingLocal: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.resolveGitConflictUsingLocal() } }
 
-    fun resetGitRepository() = launchWithOperationResult { gitCoordinator.resetGitRepository() }
+    val testGitConnection: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.testGitConnection() } }
 
-    fun updateWebDavSyncEnabled(enabled: Boolean) = launchWithOperationResult { webDavCoordinator.updateWebDavSyncEnabled(enabled) }
+    val resetGitRepository: () -> Unit =
+        { launchWithOperationResult { gitCoordinator.resetGitRepository() } }
 
-    fun updateWebDavProvider(provider: com.lomo.domain.model.WebDavProvider) =
-        launchWithOperationResult { webDavCoordinator.updateWebDavProvider(provider) }
+    val updateWebDavSyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavSyncEnabled(enabled) } }
 
-    fun updateWebDavBaseUrl(url: String) = launchWithOperationResult { webDavCoordinator.updateWebDavBaseUrl(url) }
+    val updateWebDavProvider: (com.lomo.domain.model.WebDavProvider) -> Unit =
+        { provider -> launchWithOperationResult { webDavCoordinator.updateWebDavProvider(provider) } }
 
-    fun updateWebDavEndpointUrl(url: String) = launchWithOperationResult { webDavCoordinator.updateWebDavEndpointUrl(url) }
+    val updateWebDavBaseUrl: (String) -> Unit =
+        { url -> launchWithOperationResult { webDavCoordinator.updateWebDavBaseUrl(url) } }
 
-    fun updateWebDavUsername(username: String) = launchWithOperationResult { webDavCoordinator.updateWebDavUsername(username) }
+    val updateWebDavEndpointUrl: (String) -> Unit =
+        { url -> launchWithOperationResult { webDavCoordinator.updateWebDavEndpointUrl(url) } }
 
-    fun updateWebDavPassword(password: String) = launchWithOperationResult { webDavCoordinator.updateWebDavPassword(password) }
+    val updateWebDavUsername: (String) -> Unit =
+        { username -> launchWithOperationResult { webDavCoordinator.updateWebDavUsername(username) } }
 
-    fun updateWebDavAutoSyncEnabled(enabled: Boolean) = launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncEnabled(enabled) }
+    val updateWebDavPassword: (String) -> Unit =
+        { password -> launchWithOperationResult { webDavCoordinator.updateWebDavPassword(password) } }
 
-    fun updateWebDavAutoSyncInterval(interval: String) =
-        launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncInterval(interval) }
+    val updateWebDavAutoSyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncEnabled(enabled) } }
 
-    fun updateWebDavSyncOnRefresh(enabled: Boolean) = launchWithOperationResult { webDavCoordinator.updateWebDavSyncOnRefresh(enabled) }
+    val updateWebDavAutoSyncInterval: (String) -> Unit =
+        { interval -> launchWithOperationResult { webDavCoordinator.updateWebDavAutoSyncInterval(interval) } }
 
-    fun triggerWebDavSyncNow() = launchWithOperationResult { webDavCoordinator.triggerWebDavSyncNow() }
+    val updateWebDavSyncOnRefresh: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { webDavCoordinator.updateWebDavSyncOnRefresh(enabled) } }
 
-    fun testWebDavConnection() = launchWithOperationResult { webDavCoordinator.testWebDavConnection() }
+    val triggerWebDavSyncNow: () -> Unit =
+        { launchWithOperationResult { webDavCoordinator.triggerWebDavSyncNow() } }
 
-    private fun launchWithOperationResult(action: suspend () -> String?) {
+    val testWebDavConnection: () -> Unit =
+        { launchWithOperationResult { webDavCoordinator.testWebDavConnection() } }
+
+    private fun launchWithOperationResult(action: suspend () -> SettingsOperationError?) {
         scope.launch {
-            try {
-                val message = action()
-                if (!message.isNullOrBlank()) {
-                    onOperationError(message)
-                }
-            } catch (cancellation: CancellationException) {
-                throw cancellation
+            val error = action()
+            if (error != null) {
+                onOperationError(error)
             }
         }
     }
@@ -112,13 +132,13 @@ class SettingsActionCoordinator(
         action: suspend () -> Unit,
     ) {
         scope.launch {
-            try {
-                action()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (throwable: Throwable) {
-                onOperationError(errorMapper.map(throwable, fallbackMessage))
-            }
+            runCatching { action() }
+                .onFailure { throwable ->
+                    if (throwable is CancellationException) {
+                        throw throwable
+                    }
+                    onOperationError(errorMapper.map(throwable, fallbackMessage))
+                }
         }
     }
 }

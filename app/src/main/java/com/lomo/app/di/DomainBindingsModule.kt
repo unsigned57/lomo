@@ -2,6 +2,7 @@ package com.lomo.app.di
 
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateRepository
+import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
@@ -50,16 +51,10 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-object DomainBindingsModule {
+object DomainCoreBindingsModule {
     @Provides
     @Singleton
     fun provideApplyMainMemoFilterUseCase(): ApplyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase()
-
-    @Provides
-    @Singleton
-    fun provideBackupSyncConflictFilesUseCase(
-        repository: SyncConflictBackupRepository,
-    ): BackupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(repository)
 
     @Provides
     @Singleton
@@ -76,6 +71,20 @@ object DomainBindingsModule {
     @Provides
     @Singleton
     fun provideGitSyncErrorUseCase(): GitSyncErrorUseCase = GitSyncErrorUseCase()
+
+    @Provides
+    @Singleton
+    fun provideResolveMainMemoQueryUseCase(): ResolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase()
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DomainMemoBindingsModule {
+    @Provides
+    @Singleton
+    fun provideDeleteMemoUseCase(
+        memoRepository: MemoRepository,
+    ): DeleteMemoUseCase = DeleteMemoUseCase(memoRepository)
 
     @Provides
     @Singleton
@@ -99,10 +108,6 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun provideDeleteMemoUseCase(memoRepository: MemoRepository): DeleteMemoUseCase = DeleteMemoUseCase(memoRepository)
-
-    @Provides
-    @Singleton
     fun provideToggleMemoCheckboxUseCase(
         memoRepository: MemoRepository,
         validateMemoContentUseCase: ValidateMemoContentUseCase,
@@ -117,10 +122,14 @@ object DomainBindingsModule {
     fun provideUpdateMemoContentUseCase(
         memoRepository: MemoRepository,
         validateMemoContentUseCase: ValidateMemoContentUseCase,
+        resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
+        deleteMemoUseCase: DeleteMemoUseCase,
     ): UpdateMemoContentUseCase =
         UpdateMemoContentUseCase(
             repository = memoRepository,
             validator = validateMemoContentUseCase,
+            resolveMemoUpdateActionUseCase = resolveMemoUpdateActionUseCase,
+            deleteMemoUseCase = deleteMemoUseCase,
         )
 
     @Provides
@@ -129,12 +138,40 @@ object DomainBindingsModule {
         memoRepository: MemoRepository,
         initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         validateMemoContentUseCase: ValidateMemoContentUseCase,
-    ): CreateMemoUseCase =
+        ): CreateMemoUseCase =
         CreateMemoUseCase(
             memoRepository = memoRepository,
             initializeWorkspaceUseCase = initializeWorkspaceUseCase,
             validator = validateMemoContentUseCase,
         )
+
+    @Provides
+    @Singleton
+    fun provideDailyReviewQueryUseCase(
+        memoRepository: MemoRepository,
+    ): DailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
+
+    @Provides
+    @Singleton
+    fun provideObserveDraftTextUseCase(
+        preferencesRepository: PreferencesRepository,
+    ): ObserveDraftTextUseCase = ObserveDraftTextUseCase(preferencesRepository)
+
+    @Provides
+    @Singleton
+    fun provideSetDraftTextUseCase(
+        preferencesRepository: PreferencesRepository,
+    ): SetDraftTextUseCase = SetDraftTextUseCase(preferencesRepository)
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object DomainWorkspaceBindingsModule {
+    @Provides
+    @Singleton
+    fun provideBackupSyncConflictFilesUseCase(
+        repository: SyncConflictBackupRepository,
+    ): BackupSyncConflictFilesUseCase = BackupSyncConflictFilesUseCase(repository)
 
     @Provides
     @Singleton
@@ -160,17 +197,36 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun provideSaveImageUseCase(mediaRepository: MediaRepository): SaveImageUseCase = SaveImageUseCase(mediaRepository)
+    fun provideSaveImageUseCase(
+        mediaRepository: MediaRepository,
+    ): SaveImageUseCase = SaveImageUseCase(mediaRepository)
 
     @Provides
     @Singleton
-    fun provideDiscardMemoDraftAttachmentsUseCase(mediaRepository: MediaRepository): DiscardMemoDraftAttachmentsUseCase =
+    fun provideDiscardMemoDraftAttachmentsUseCase(
+        mediaRepository: MediaRepository,
+    ): DiscardMemoDraftAttachmentsUseCase =
         DiscardMemoDraftAttachmentsUseCase(mediaRepository)
 
     @Provides
     @Singleton
-    fun provideDailyReviewQueryUseCase(memoRepository: MemoRepository): DailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
+    fun provideStartupMaintenanceUseCase(
+        mediaRepository: MediaRepository,
+        initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
+        syncAndRebuildUseCase: SyncAndRebuildUseCase,
+        appVersionRepository: AppVersionRepository,
+    ): StartupMaintenanceUseCase =
+        StartupMaintenanceUseCase(
+            mediaRepository = mediaRepository,
+            initializeWorkspaceUseCase = initializeWorkspaceUseCase,
+            syncAndRebuildUseCase = syncAndRebuildUseCase,
+            appVersionRepository = appVersionRepository,
+        )
+}
 
+@Module
+@InstallIn(SingletonComponent::class)
+object DomainShareBindingsModule {
     @Provides
     @Singleton
     fun providePrepareShareCardContentUseCase(): PrepareShareCardContentUseCase = PrepareShareCardContentUseCase()
@@ -181,20 +237,27 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun provideObserveDraftTextUseCase(
-        preferencesRepository: PreferencesRepository,
-    ): ObserveDraftTextUseCase = ObserveDraftTextUseCase(preferencesRepository)
+    fun providePersistShareImageUseCase(
+        repository: ShareImageRepository,
+    ): PersistShareImageUseCase = PersistShareImageUseCase(repository)
 
     @Provides
     @Singleton
-    fun provideSetDraftTextUseCase(
+    fun provideCheckStartupAppUpdateUseCase(
         preferencesRepository: PreferencesRepository,
-    ): SetDraftTextUseCase = SetDraftTextUseCase(preferencesRepository)
+        appUpdateRepository: AppUpdateRepository,
+        appRuntimeInfoRepository: AppRuntimeInfoRepository,
+    ): CheckStartupAppUpdateUseCase =
+        CheckStartupAppUpdateUseCase(
+            preferencesRepository = preferencesRepository,
+            appUpdateRepository = appUpdateRepository,
+            appRuntimeInfoRepository = appRuntimeInfoRepository,
+        )
+}
 
-    @Provides
-    @Singleton
-    fun provideResolveMainMemoQueryUseCase(): ResolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase()
-
+@Module
+@InstallIn(SingletonComponent::class)
+object DomainSyncBindingsModule {
     @Provides
     @Singleton
     fun provideGitSyncSettingsUseCase(
@@ -225,45 +288,17 @@ object DomainBindingsModule {
 
     @Provides
     @Singleton
-    fun provideStartupMaintenanceUseCase(
-        mediaRepository: MediaRepository,
-        initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
-        syncAndRebuildUseCase: SyncAndRebuildUseCase,
-        appVersionRepository: com.lomo.domain.repository.AppVersionRepository,
-    ): StartupMaintenanceUseCase =
-        StartupMaintenanceUseCase(
-            mediaRepository = mediaRepository,
-            initializeWorkspaceUseCase = initializeWorkspaceUseCase,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-            appVersionRepository = appVersionRepository,
-        )
-
-    @Provides
-    @Singleton
-    fun provideLoadMemoVersionHistoryUseCase(gitSyncRepository: GitSyncRepository): LoadMemoVersionHistoryUseCase =
+    fun provideLoadMemoVersionHistoryUseCase(
+        gitSyncRepository: GitSyncRepository,
+    ): LoadMemoVersionHistoryUseCase =
         LoadMemoVersionHistoryUseCase(gitSyncRepository)
 
     @Provides
     @Singleton
-    fun provideRestoreMemoVersionUseCase(memoRepository: MemoRepository): RestoreMemoVersionUseCase =
-        RestoreMemoVersionUseCase(memoRepository)
-
-    @Provides
-    @Singleton
-    fun providePersistShareImageUseCase(repository: ShareImageRepository): PersistShareImageUseCase = PersistShareImageUseCase(repository)
-
-    @Provides
-    @Singleton
-    fun provideCheckStartupAppUpdateUseCase(
-        preferencesRepository: PreferencesRepository,
-        appUpdateRepository: AppUpdateRepository,
-        appRuntimeInfoRepository: AppRuntimeInfoRepository,
-    ): CheckStartupAppUpdateUseCase =
-        CheckStartupAppUpdateUseCase(
-            preferencesRepository = preferencesRepository,
-            appUpdateRepository = appUpdateRepository,
-            appRuntimeInfoRepository = appRuntimeInfoRepository,
-        )
+    fun provideRestoreMemoVersionUseCase(
+        updateMemoContentUseCase: UpdateMemoContentUseCase,
+    ): RestoreMemoVersionUseCase =
+        RestoreMemoVersionUseCase(updateMemoContentUseCase)
 
     @Provides
     @Singleton

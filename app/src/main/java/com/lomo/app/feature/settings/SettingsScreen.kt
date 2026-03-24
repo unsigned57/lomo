@@ -1,94 +1,156 @@
 package com.lomo.app.feature.settings
 
-import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeTopAppBar
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.core.os.LocaleListCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
-import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
+import com.lomo.app.feature.conflict.SyncConflictDialogHost
+import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.WebDavSyncState
-import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.util.LocalAppHapticFeedback
-import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+private const val SYSTEM_LANGUAGE_TAG = "system"
+private const val ENGLISH_LANGUAGE_TAG = "en"
+private const val SIMPLIFIED_CHINESE_LANGUAGE_TAG = "zh-CN"
+private const val HANS_CHINESE_LANGUAGE_TAG = "zh-Hans-CN"
+internal const val GITHUB_URL = "https://github.com/unsigned57/lomo"
+
+private val DateFormatOptions = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
+private val TimeFormatOptions = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
+private val GitSyncIntervalOptions = listOf("30min", "1h", "6h", "12h", "24h")
+
+data class SettingsMessages(
+    val unknownErrorMessage: String,
+    val gitConflictSummary: String,
+    val gitDirectPathRequired: String,
+)
+
+data class SettingsResources(
+    val currentLanguageTag: String,
+    val dialogOptions: SettingsDialogOptions,
+    val messages: SettingsMessages,
+)
+
+data class SettingsFeatures(
+    val storage: SettingsStorageFeatureViewModel,
+    val display: SettingsDisplayFeatureViewModel,
+    val shareCard: SettingsShareCardFeatureViewModel,
+    val interaction: SettingsInteractionFeatureViewModel,
+    val system: SettingsSystemFeatureViewModel,
+    val lanShare: SettingsLanShareFeatureViewModel,
+    val git: SettingsGitFeatureViewModel,
+    val webDav: SettingsWebDavFeatureViewModel,
+)
+
+data class StoragePickerActions(
+    val openRoot: () -> Unit,
+    val openImage: () -> Unit,
+    val openVoice: () -> Unit,
+)
+
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
-    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = hiltViewModel(),
+    conflictViewModel: SyncConflictViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val storageFeature = viewModel.storageFeature
-    val displayFeature = viewModel.displayFeature
-    val shareCardFeature = viewModel.shareCardFeature
-    val interactionFeature = viewModel.interactionFeature
-    val systemFeature = viewModel.systemFeature
-    val lanShareFeature = viewModel.lanShareFeature
-    val gitFeature = viewModel.gitFeature
-    val webDavFeature = viewModel.webDavFeature
-
-    val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
-    val haptic = LocalAppHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val unknownErrorMessage = stringResource(R.string.error_unknown)
-    val gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary)
-    val gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required)
     val dialogState = rememberSettingsDialogState()
+    val resources = settingsResources()
+    val features = settingsFeatures(viewModel)
+    val storagePickers =
+        rememberStoragePickerActions(
+            storageFeature = features.storage,
+            snackbarHostState = snackbarHostState,
+            unknownErrorMessage = resources.messages.unknownErrorMessage,
+        )
 
-    val dateFormats = listOf("yyyy-MM-dd", "MM/dd/yyyy", "dd/MM/yyyy", "yyyy/MM/dd")
-    val timeFormats = listOf("HH:mm", "hh:mm a", "HH:mm:ss", "hh:mm:ss a")
-    val themeModes = ThemeMode.entries
-    val filenameFormats = StorageFilenameFormats.supportedPatterns
-    val timestampFormats = StorageTimestampFormats.supportedPatterns
-    val gitSyncIntervals = listOf("30min", "1h", "6h", "12h", "24h")
-    val webDavProviders = WebDavProvider.entries
+    HandleSettingsOperationError(
+        operationError = uiState.operationError,
+        gitFeature = features.git,
+        dialogState = dialogState,
+        snackbarHostState = snackbarHostState,
+        messages = resources.messages,
+        onClearOperationError = viewModel::clearOperationError,
+    )
+    HandleGitConflictState(
+        syncState = uiState.git.syncState,
+        gitFeature = features.git,
+        dialogState = dialogState,
+        conflictViewModel = conflictViewModel,
+    )
+    SettingsScreenScaffold(
+        uiState = uiState,
+        onBackClick = onBackClick,
+        snackbarHostState = snackbarHostState,
+        dialogState = dialogState,
+        features = features,
+        resources = resources,
+        storagePickers = storagePickers,
+    )
+    SyncConflictDialogHost(conflictViewModel = conflictViewModel)
+    SettingsDialogHost(
+        uiState = uiState,
+        storageFeature = features.storage,
+        displayFeature = features.display,
+        lanShareFeature = features.lanShare,
+        gitFeature = features.git,
+        webDavFeature = features.webDav,
+        dialogState = dialogState,
+        options = resources.dialogOptions,
+        onApplyLanguageTag = ::applyLanguageTag,
+    )
+}
 
+@Composable
+private fun settingsResources(): SettingsResources {
+    val currentLanguageTag = currentLanguageTag()
+    return SettingsResources(
+        currentLanguageTag = currentLanguageTag,
+        dialogOptions = settingsDialogOptions(currentLanguageTag),
+        messages = settingsMessages(),
+    )
+}
+
+@Composable
+private fun settingsMessages(): SettingsMessages =
+    SettingsMessages(
+        unknownErrorMessage = stringResource(R.string.error_unknown),
+        gitConflictSummary = stringResource(R.string.settings_git_sync_conflict_summary),
+        gitDirectPathRequired = stringResource(R.string.settings_git_sync_direct_path_required),
+    )
+
+private fun settingsFeatures(viewModel: SettingsViewModel): SettingsFeatures =
+    SettingsFeatures(
+        storage = viewModel.storageFeature,
+        display = viewModel.displayFeature,
+        shareCard = viewModel.shareCardFeature,
+        interaction = viewModel.interactionFeature,
+        system = viewModel.systemFeature,
+        lanShare = viewModel.lanShareFeature,
+        git = viewModel.gitFeature,
+        webDav = viewModel.webDavFeature,
+    )
+
+private fun currentLanguageTag(): String {
+    val locales = AppCompatDelegate.getApplicationLocales()
+    if (!locales.isEmpty) {
+        return locales[0]?.toLanguageTag() ?: SYSTEM_LANGUAGE_TAG
+    }
+    return SYSTEM_LANGUAGE_TAG
+}
+
+@Composable
+private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOptions {
     val themeModeLabels =
         mapOf(
             ThemeMode.SYSTEM to stringResource(R.string.settings_system),
@@ -97,10 +159,10 @@ fun SettingsScreen(
         )
     val languageLabels =
         mapOf(
-            "system" to stringResource(R.string.settings_system),
-            "en" to stringResource(R.string.settings_english),
-            "zh-CN" to stringResource(R.string.settings_simplified_chinese),
-            "zh-Hans-CN" to stringResource(R.string.settings_simplified_chinese),
+            SYSTEM_LANGUAGE_TAG to stringResource(R.string.settings_system),
+            ENGLISH_LANGUAGE_TAG to stringResource(R.string.settings_english),
+            SIMPLIFIED_CHINESE_LANGUAGE_TAG to stringResource(R.string.settings_simplified_chinese),
+            HANS_CHINESE_LANGUAGE_TAG to stringResource(R.string.settings_simplified_chinese),
         )
     val gitSyncIntervalLabels =
         mapOf(
@@ -110,389 +172,34 @@ fun SettingsScreen(
             "12h" to stringResource(R.string.settings_git_sync_interval_12h),
             "24h" to stringResource(R.string.settings_git_sync_interval_24h),
         )
-
     val webDavProviderLabels =
         mapOf(
             WebDavProvider.NUTSTORE to stringResource(R.string.settings_webdav_provider_nutstore),
             WebDavProvider.NEXTCLOUD to stringResource(R.string.settings_webdav_provider_nextcloud),
             WebDavProvider.CUSTOM to stringResource(R.string.settings_webdav_provider_custom),
         )
-
-    val currentLocales = AppCompatDelegate.getApplicationLocales()
-    val currentLanguageTag =
-        if (!currentLocales.isEmpty) {
-            currentLocales[0]?.toLanguageTag() ?: "system"
-        } else {
-            "system"
-        }
-
-    val rootLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            uri?.let {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(it, flags)
-                    storageFeature.updateRootUri(it.toString())
-                }.onFailure { throwable ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
-                        )
-                    }
-                }
-            }
-        }
-
-    val imageLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            uri?.let {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(it, flags)
-                    storageFeature.updateImageUri(it.toString())
-                }.onFailure { throwable ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
-                        )
-                    }
-                }
-            }
-        }
-
-    val voiceLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            uri?.let {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                runCatching {
-                    context.contentResolver.takePersistableUriPermission(it, flags)
-                    storageFeature.updateVoiceUri(it.toString())
-                }.onFailure { throwable ->
-                    scope.launch {
-                        snackbarHostState.showSnackbar(
-                            throwable.message?.takeIf { it.isNotBlank() } ?: unknownErrorMessage,
-                        )
-                    }
-                }
-            }
-        }
-
-    LaunchedEffect(uiState.operationError) {
-        val error = uiState.operationError ?: return@LaunchedEffect
-        if (gitFeature.shouldShowGitConflictDialog(error)) {
-            dialogState.gitConflictMessage = error
-            dialogState.showGitConflictResolutionDialog = true
-        } else {
-            snackbarHostState.showSnackbar(
-                gitFeature.presentGitSyncErrorMessage(
-                    message = error,
-                    conflictSummary = gitConflictSummary,
-                    directPathRequired = gitDirectPathRequired,
-                    unknownError = unknownErrorMessage,
-                ),
-            )
-        }
-        viewModel.clearOperationError()
-    }
-
-    LaunchedEffect(uiState.git.syncState) {
-        val errorState = uiState.git.syncState as? SyncEngineState.Error ?: run {
-            val conflictState = uiState.git.syncState as? SyncEngineState.ConflictDetected
-            if (conflictState != null) {
-                conflictViewModel.showConflictDialog(conflictState.conflicts)
-            }
-            return@LaunchedEffect
-        }
-        if (gitFeature.shouldShowGitConflictDialog(errorState.message) && !dialogState.showGitConflictResolutionDialog) {
-            dialogState.gitConflictMessage = errorState.message
-            dialogState.showGitConflictResolutionDialog = true
-        }
-    }
-
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-    AnimatedContent(
-        targetState = currentLanguageTag,
-        transitionSpec = {
-            (
-                fadeIn(
-                    animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationLong2,
-                            easing = MotionTokens.EasingEmphasized,
-                        ),
-                ) +
-                    scaleIn(
-                        initialScale = 0.92f,
-                        animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationLong2,
-                                easing = MotionTokens.EasingEmphasized,
-                            ),
-                    )
-            ).togetherWith(
-                fadeOut(
-                    animationSpec =
-                        tween(
-                            durationMillis = MotionTokens.DurationLong2,
-                            easing = MotionTokens.EasingEmphasized,
-                        ),
-                ),
-            )
-        },
-        label = "SettingsLanguageTransition",
-    ) { languageTag ->
-        Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-            snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
-            topBar = {
-                LargeTopAppBar(
-                    title = { Text(stringResource(R.string.settings_title)) },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                haptic.medium()
-                                onBackClick()
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = stringResource(R.string.back),
-                            )
-                        }
-                    },
-                    colors =
-                        TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.surface,
-                            scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                    scrollBehavior = scrollBehavior,
-                )
-            },
-        ) { padding ->
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .verticalScroll(rememberScrollState())
-                        .padding(
-                            horizontal = AppSpacing.ScreenHorizontalPadding,
-                            vertical = AppSpacing.MediumSmall,
-                        ),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
-            ) {
-                StorageSettingsSection(
-                    state = uiState.storage,
-                    onSelectRoot = { rootLauncher.launch(null) },
-                    onSelectImageRoot = { imageLauncher.launch(null) },
-                    onSelectVoiceRoot = { voiceLauncher.launch(null) },
-                    onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
-                    onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
-                )
-
-                DisplaySettingsSection(
-                    state = uiState.display,
-                    languageLabel = languageLabels[languageTag] ?: languageTag,
-                    themeLabel = themeModeLabels[uiState.display.themeMode] ?: uiState.display.themeMode.value,
-                    onOpenLanguageDialog = { dialogState.showLanguageDialog = true },
-                    onOpenThemeDialog = { dialogState.showThemeDialog = true },
-                    onOpenDateFormatDialog = { dialogState.showDateDialog = true },
-                    onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
-                )
-
-                LanShareSettingsSection(
-                    state = uiState.lanShare,
-                    onToggleE2e = { enabled ->
-                        lanShareFeature.updateLanShareE2eEnabled(enabled)
-                        if (
-                            LanSharePairingDialogTriggerPolicy.shouldShowOnE2eEnabled(
-                                enabled = enabled,
-                                pairingConfigured = uiState.lanShare.pairingConfigured,
-                            )
-                        ) {
-                            dialogState.lanPairingCodeInput = ""
-                            dialogState.lanPairingCodeVisible = false
-                            lanShareFeature.clearPairingCodeError()
-                            dialogState.showLanPairingDialog = true
-                        }
-                    },
-                    onOpenPairingDialog = {
-                        dialogState.lanPairingCodeVisible = false
-                        lanShareFeature.clearPairingCodeError()
-                        dialogState.showLanPairingDialog = true
-                    },
-                    onOpenDeviceNameDialog = {
-                        dialogState.deviceNameInput = uiState.lanShare.deviceName
-                        dialogState.showDeviceNameDialog = true
-                    },
-                )
-
-                ShareCardSettingsSection(
-                    state = uiState.shareCard,
-                    onToggleShowTime = shareCardFeature::updateShareCardShowTime,
-                    onToggleShowBrand = shareCardFeature::updateShareCardShowBrand,
-                )
-
-                GitSyncSettingsSection(
-                    state = uiState.git,
-                    syncIntervalLabel = gitSyncIntervalLabels[uiState.git.autoSyncInterval] ?: uiState.git.autoSyncInterval,
-                    syncNowSubtitle =
-                        SettingsErrorPresenter.gitSyncNowSubtitle(
-                            state = uiState.git.syncState,
-                            lastSyncTime = uiState.git.lastSyncTime,
-                            localizeError = { message ->
-                                gitFeature.presentGitSyncErrorMessage(
-                                    message = message,
-                                    conflictSummary = gitConflictSummary,
-                                    directPathRequired = gitDirectPathRequired,
-                                    unknownError = unknownErrorMessage,
-                                )
-                            },
-                        ),
-                    connectionSubtitle = connectionTestSubtitle(uiState.git.connectionTestState),
-                    onToggleEnabled = gitFeature::updateGitSyncEnabled,
-                    onOpenRemoteUrlDialog = {
-                        dialogState.gitRemoteUrlInput = uiState.git.remoteUrl
-                        dialogState.showGitRemoteUrlDialog = true
-                    },
-                    onOpenPatDialog = {
-                        dialogState.gitPatInput = ""
-                        dialogState.gitPatVisible = false
-                        dialogState.showGitPatDialog = true
-                    },
-                    onOpenAuthorNameDialog = {
-                        dialogState.gitAuthorNameInput = uiState.git.authorName
-                        dialogState.showGitAuthorNameDialog = true
-                    },
-                    onOpenAuthorEmailDialog = {
-                        dialogState.gitAuthorEmailInput = uiState.git.authorEmail
-                        dialogState.showGitAuthorEmailDialog = true
-                    },
-                    onToggleAutoSync = gitFeature::updateGitAutoSyncEnabled,
-                    onOpenSyncIntervalDialog = { dialogState.showGitSyncIntervalDialog = true },
-                    onToggleSyncOnRefresh = gitFeature::updateGitSyncOnRefresh,
-                    onSyncNow = {
-                        if (uiState.git.syncState !is SyncEngineState.Syncing &&
-                            uiState.git.syncState !is SyncEngineState.Initializing
-                        ) {
-                            gitFeature.triggerGitSyncNow()
-                        }
-                    },
-                    onTestConnection = {
-                        gitFeature.resetConnectionTestState()
-                        gitFeature.testGitConnection()
-                    },
-                    onOpenResetDialog = { dialogState.showGitResetConfirmDialog = true },
-                )
-
-                WebDavSyncSettingsSection(
-                    state = uiState.webDav,
-                    providerLabel = webDavProviderLabels[uiState.webDav.provider] ?: uiState.webDav.provider.name,
-                    syncIntervalLabel = gitSyncIntervalLabels[uiState.webDav.autoSyncInterval] ?: uiState.webDav.autoSyncInterval,
-                    syncNowSubtitle =
-                        SettingsErrorPresenter.webDavSyncNowSubtitle(
-                            state = uiState.webDav.syncState,
-                            lastSyncTime = uiState.webDav.lastSyncTime,
-                        ),
-                    connectionSubtitle = connectionTestSubtitle(uiState.webDav.connectionTestState),
-                    onToggleEnabled = webDavFeature::updateWebDavSyncEnabled,
-                    onOpenProviderDialog = { dialogState.showWebDavProviderDialog = true },
-                    onOpenBaseUrlDialog = {
-                        dialogState.webDavBaseUrlInput = uiState.webDav.baseUrl
-                        dialogState.showWebDavBaseUrlDialog = true
-                    },
-                    onOpenEndpointUrlDialog = {
-                        dialogState.webDavEndpointUrlInput = uiState.webDav.endpointUrl
-                        dialogState.showWebDavEndpointUrlDialog = true
-                    },
-                    onOpenUsernameDialog = {
-                        dialogState.webDavUsernameInput = uiState.webDav.username
-                        dialogState.showWebDavUsernameDialog = true
-                    },
-                    onOpenPasswordDialog = {
-                        dialogState.webDavPasswordInput = ""
-                        dialogState.webDavPasswordVisible = false
-                        dialogState.showWebDavPasswordDialog = true
-                    },
-                    onToggleAutoSync = webDavFeature::updateAutoSyncEnabled,
-                    onOpenSyncIntervalDialog = { dialogState.showWebDavSyncIntervalDialog = true },
-                    onToggleSyncOnRefresh = webDavFeature::updateSyncOnRefresh,
-                    onSyncNow = {
-                        if (uiState.webDav.syncState !is WebDavSyncState.Connecting &&
-                            uiState.webDav.syncState !is WebDavSyncState.Listing &&
-                            uiState.webDav.syncState !is WebDavSyncState.Uploading &&
-                            uiState.webDav.syncState !is WebDavSyncState.Downloading &&
-                            uiState.webDav.syncState !is WebDavSyncState.Deleting &&
-                            uiState.webDav.syncState !is WebDavSyncState.Initializing
-                        ) {
-                            webDavFeature.triggerSyncNow()
-                        }
-                    },
-                    onTestConnection = {
-                        webDavFeature.resetConnectionTestState()
-                        webDavFeature.testConnection()
-                    },
-                )
-
-                InteractionSettingsSection(
-                    state = uiState.interaction,
-                    onToggleHaptic = interactionFeature::updateHapticFeedback,
-                    onToggleInputHints = interactionFeature::updateShowInputHints,
-                    onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
-                    onToggleFreeTextCopy = interactionFeature::updateFreeTextCopyEnabled,
-                    onToggleAppLock = interactionFeature::updateAppLockEnabled,
-                    onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
-                )
-
-                SystemSettingsSection(
-                    state = uiState.system,
-                    onToggleCheckUpdates = systemFeature::updateCheckUpdatesOnStartup,
-                )
-
-                AboutSettingsSection(
-                    onOpenGithub = { uriHandler.openUri("https://github.com/unsigned57/lomo") },
-                )
-            }
-        }
-    }
-
-    com.lomo.app.feature.conflict.SyncConflictDialogHost(conflictViewModel = conflictViewModel)
-
-    SettingsDialogHost(
-        uiState = uiState,
-        storageFeature = storageFeature,
-        displayFeature = displayFeature,
-        lanShareFeature = lanShareFeature,
-        gitFeature = gitFeature,
-        webDavFeature = webDavFeature,
-        dialogState = dialogState,
-        options =
-            SettingsDialogOptions(
-                dateFormats = dateFormats,
-                timeFormats = timeFormats,
-                themeModes = themeModes,
-                filenameFormats = filenameFormats,
-                timestampFormats = timestampFormats,
-                gitSyncIntervals = gitSyncIntervals,
-                webDavProviders = webDavProviders,
-                languageTag = currentLanguageTag,
-                languageLabels = languageLabels,
-                themeModeLabels = themeModeLabels,
-                gitSyncIntervalLabels = gitSyncIntervalLabels,
-                webDavProviderLabels = webDavProviderLabels,
-            ),
-        onApplyLanguageTag = { tag ->
-            val locales =
-                if (tag == "system") {
-                    LocaleListCompat.getEmptyLocaleList()
-                } else {
-                    LocaleListCompat.forLanguageTags(tag)
-                }
-            AppCompatDelegate.setApplicationLocales(locales)
-        },
-        gitConflictSummary = gitConflictSummary,
-        gitDirectPathRequired = gitDirectPathRequired,
-        unknownErrorMessage = unknownErrorMessage,
+    return SettingsDialogOptions(
+        dateFormats = DateFormatOptions,
+        timeFormats = TimeFormatOptions,
+        themeModes = ThemeMode.entries,
+        filenameFormats = StorageFilenameFormats.supportedPatterns,
+        timestampFormats = StorageTimestampFormats.supportedPatterns,
+        gitSyncIntervals = GitSyncIntervalOptions,
+        webDavProviders = WebDavProvider.entries,
+        languageTag = currentLanguageTag,
+        languageLabels = languageLabels,
+        themeModeLabels = themeModeLabels,
+        gitSyncIntervalLabels = gitSyncIntervalLabels,
+        webDavProviderLabels = webDavProviderLabels,
     )
+}
+
+private fun applyLanguageTag(tag: String) {
+    val locales =
+        if (tag == SYSTEM_LANGUAGE_TAG) {
+            LocaleListCompat.getEmptyLocaleList()
+        } else {
+            LocaleListCompat.forLanguageTags(tag)
+        }
+    AppCompatDelegate.setApplicationLocales(locales)
 }

@@ -25,8 +25,10 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
 import com.lomo.app.feature.main.MainViewModel
+import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.AppUpdateViewModel
 import com.lomo.app.navigation.LomoNavHost
+import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.component.markdown.MarkdownRenderer
 
@@ -37,83 +39,10 @@ fun LomoAppRoot(
     appUpdateViewModel: AppUpdateViewModel = hiltViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
-    updateDialogState?.let { dialogState ->
-        val context = LocalContext.current
-        val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-        val updateVersion = dialogState.version
-        val updateUrl = dialogState.url
-        val updateReleaseNotes = dialogState.releaseNotes
-        val updateMessage =
-            if (updateVersion.isBlank()) {
-                stringResource(com.lomo.app.R.string.update_dialog_message)
-            } else {
-                stringResource(com.lomo.app.R.string.update_dialog_message_with_version, updateVersion)
-            }
-        val releaseNotes = updateReleaseNotes.takeIf { it.isNotBlank() }
-
-        AlertDialog(
-            onDismissRequest = { appUpdateViewModel.dismissUpdateDialog() },
-            title = {
-                Text(
-                    stringResource(com.lomo.app.R.string.update_dialog_title),
-                )
-            },
-            text = {
-                Column(
-                    modifier =
-                        Modifier
-                            .heightIn(max = 360.dp)
-                            .verticalScroll(rememberScrollState()),
-                ) {
-                    Text(updateMessage)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = stringResource(com.lomo.app.R.string.update_dialog_release_notes),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    if (releaseNotes.isNullOrBlank()) {
-                        Text(
-                            text = stringResource(com.lomo.app.R.string.update_dialog_release_notes_empty),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    } else {
-                        MarkdownRenderer(
-                            content = releaseNotes,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        haptic.medium()
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(updateUrl))
-                        context.startActivity(intent)
-                        appUpdateViewModel.dismissUpdateDialog()
-                    },
-                ) {
-                    Text(
-                        stringResource(com.lomo.app.R.string.action_download),
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        haptic.medium()
-                        appUpdateViewModel.dismissUpdateDialog()
-                    },
-                ) {
-                    Text(
-                        stringResource(com.lomo.app.R.string.action_cancel),
-                    )
-                }
-            },
-        )
-    }
+    LomoAppUpdateDialog(
+        dialogState = updateDialogState,
+        onDismiss = appUpdateViewModel::dismissUpdateDialog,
+    )
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -126,68 +55,160 @@ fun LomoAppRoot(
         )
 
         val incomingShare by shareServiceManager.incomingShare.collectAsStateWithLifecycle()
-        val currentIncoming = incomingShare
-        if (currentIncoming is com.lomo.domain.model.IncomingShareState.Pending) {
-            val payload = currentIncoming.payload
-            val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+        IncomingShareDialog(
+            incomingShare = incomingShare,
+            onAccept = shareServiceManager::acceptIncoming,
+            onReject = shareServiceManager::rejectIncoming,
+        )
+    }
+}
 
-            AlertDialog(
-                onDismissRequest = { shareServiceManager.rejectIncoming() },
-                title = { Text(stringResource(com.lomo.app.R.string.share_incoming_title)) },
-                text = {
-                    Column {
-                        Text(
-                            text = stringResource(com.lomo.app.R.string.share_incoming_from, payload.senderName),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(
-                            modifier = Modifier.height(8.dp),
-                        )
-                        Text(
-                            text = payload.content,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 8,
-                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        )
-                        if (payload.attachments.isNotEmpty()) {
-                            Spacer(
-                                modifier = Modifier.height(8.dp),
-                            )
-                            Text(
-                                text =
-                                    pluralStringResource(
-                                        com.lomo.app.R.plurals.share_incoming_attachments_count,
-                                        payload.attachments.size,
-                                        payload.attachments.size,
-                                    ),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    }
+@Composable
+private fun LomoAppUpdateDialog(
+    dialogState: AppUpdateDialogState?,
+    onDismiss: () -> Unit,
+) {
+    dialogState ?: return
+
+    val context = LocalContext.current
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val updateMessage =
+        if (dialogState.version.isBlank()) {
+            stringResource(com.lomo.app.R.string.update_dialog_message)
+        } else {
+            stringResource(com.lomo.app.R.string.update_dialog_message_with_version, dialogState.version)
+        }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(stringResource(com.lomo.app.R.string.update_dialog_title))
+        },
+        text = {
+            UpdateDialogTextContent(
+                updateMessage = updateMessage,
+                releaseNotes = dialogState.releaseNotes.takeIf { it.isNotBlank() },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptic.medium()
+                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(dialogState.url))
+                    context.startActivity(intent)
+                    onDismiss()
                 },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            haptic.medium()
-                            shareServiceManager.acceptIncoming()
-                        },
-                    ) {
-                        Text(stringResource(com.lomo.app.R.string.action_accept))
-                    }
+            ) {
+                Text(stringResource(com.lomo.app.R.string.action_download))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    haptic.medium()
+                    onDismiss()
                 },
-                dismissButton = {
-                    TextButton(
-                        onClick = {
-                            haptic.medium()
-                            shareServiceManager.rejectIncoming()
-                        },
-                    ) {
-                        Text(stringResource(com.lomo.app.R.string.action_reject))
-                    }
-                },
+            ) {
+                Text(stringResource(com.lomo.app.R.string.action_cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun UpdateDialogTextContent(
+    updateMessage: String,
+    releaseNotes: String?,
+) {
+    Column(
+        modifier =
+            Modifier
+                .heightIn(max = 360.dp)
+                .verticalScroll(rememberScrollState()),
+    ) {
+        Text(updateMessage)
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = stringResource(com.lomo.app.R.string.update_dialog_release_notes),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        if (releaseNotes.isNullOrBlank()) {
+            Text(
+                text = stringResource(com.lomo.app.R.string.update_dialog_release_notes_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            MarkdownRenderer(
+                content = releaseNotes,
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
+}
+
+@Composable
+private fun IncomingShareDialog(
+    incomingShare: IncomingShareState,
+    onAccept: () -> Unit,
+    onReject: () -> Unit,
+) {
+    val pendingShare = incomingShare as? IncomingShareState.Pending ?: return
+    val payload = pendingShare.payload
+    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+
+    AlertDialog(
+        onDismissRequest = onReject,
+        title = { Text(stringResource(com.lomo.app.R.string.share_incoming_title)) },
+        text = {
+            Column {
+                Text(
+                    text = stringResource(com.lomo.app.R.string.share_incoming_from, payload.senderName),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = payload.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 8,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                )
+                if (payload.attachments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text =
+                            pluralStringResource(
+                                com.lomo.app.R.plurals.share_incoming_attachments_count,
+                                payload.attachments.size,
+                                payload.attachments.size,
+                            ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    haptic.medium()
+                    onAccept()
+                },
+            ) {
+                Text(stringResource(com.lomo.app.R.string.action_accept))
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    haptic.medium()
+                    onReject()
+                },
+            ) {
+                Text(stringResource(com.lomo.app.R.string.action_reject))
+            }
+        },
+    )
 }

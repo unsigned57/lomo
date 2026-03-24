@@ -2,8 +2,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.ShareAttachmentExtractionResult
 
-class ExtractShareAttachmentsUseCase
-    constructor() {
+class ExtractShareAttachmentsUseCase {
         operator fun invoke(content: String): ShareAttachmentExtractionResult {
             val localAttachmentPaths = extractLocalAttachmentPaths(content)
             return ShareAttachmentExtractionResult(
@@ -31,12 +30,12 @@ class ExtractShareAttachmentsUseCase
         }
 
         private companion object {
-            private val MARKDOWN_IMAGE_PATTERN = Regex("!\\[.*?\\]\\((.*?)\\)")
-            private val WIKI_IMAGE_PATTERN = Regex("!\\[\\[(.*?)\\]\\]")
+            private val MARKDOWN_IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
+            private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
             private val AUDIO_LINK_PATTERN =
                 Regex(
-                    "(?<!!)\\[[^\\]]*\\]\\((.+?\\.(?:m4a|mp3|ogg|wav|aac))\\)",
+                    """(?<!!)\[[^\]]*]\((.+?\.(?:m4a|mp3|ogg|wav|aac))\)""",
                     RegexOption.IGNORE_CASE,
                 )
         }
-    }
+}

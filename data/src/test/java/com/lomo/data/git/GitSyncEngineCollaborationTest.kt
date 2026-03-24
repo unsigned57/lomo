@@ -23,6 +23,7 @@ class GitSyncEngineCollaborationTest {
     private lateinit var credentialStrategy: GitCredentialStrategy
     private lateinit var primitives: GitRepositoryPrimitives
     private lateinit var engine: GitSyncEngine
+    private lateinit var queryCoordinator: GitSyncQueryTestCoordinator
     private lateinit var tempRoot: File
 
     @Before
@@ -41,6 +42,11 @@ class GitSyncEngineCollaborationTest {
                 dataStore = dataStore,
                 credentialStrategy = credentialStrategy,
                 primitives = primitives,
+            )
+        queryCoordinator =
+            GitSyncQueryTestCoordinator(
+                credentialStrategy = credentialStrategy,
+                fileHistoryReader = GitFileHistoryReader(primitives),
             )
 
         tempRoot = Files.createTempDirectory("git-sync-engine-collab").toFile()
@@ -82,7 +88,7 @@ class GitSyncEngineCollaborationTest {
                 .call()
         }
 
-        val history = engine.getFileHistory(localRepo, "memo.md", maxCount = 1)
+        val history = queryCoordinator.getFileHistory(localRepo, "memo.md", maxCount = 1)
 
         assertTrue(history.isNotEmpty())
         verify(atLeast = 1) { primitives.readFileAtCommit(any(), any(), "memo.md") }

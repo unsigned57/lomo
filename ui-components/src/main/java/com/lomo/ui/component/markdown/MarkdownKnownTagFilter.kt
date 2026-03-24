@@ -13,6 +13,11 @@ import org.commonmark.node.SoftLineBreak
 import org.commonmark.node.Text
 
 object MarkdownKnownTagFilter {
+    private val HORIZONTAL_WHITESPACE_REGEX = Regex("[ \\t]{2,}")
+    private val SPACE_BEFORE_PUNCTUATION_REGEX = Regex("[ \\t]+(?=[.,!?;:，。！？；：、)\\]}】）])")
+    private val SPACE_BEFORE_NEWLINE_REGEX = Regex("[ \\t]+(?=\\n)")
+    private val LEADING_EMPTY_LINES_REGEX = Regex("^(?:[ \\t]*\\n)+")
+
     fun eraseKnownTags(
         root: ImmutableNode,
         tags: Iterable<String>,
@@ -73,34 +78,36 @@ object MarkdownKnownTagFilter {
         input: String,
         tagPatterns: List<Regex>,
     ): String {
-        if (tagPatterns.isEmpty() || '#' !in input) return input
+        val shouldStrip = tagPatterns.isNotEmpty() && '#' in input
+        if (!shouldStrip) return input
 
         var stripped = input
         var changed = false
 
         tagPatterns.forEach { pattern ->
-            val updated =
+            stripped =
                 stripped.replace(pattern) { match ->
                     changed = true
                     match.groupValues[1]
                 }
-            stripped = updated
         }
 
-        if (!changed) return input
-
-        return stripped
-            .replace(HORIZONTAL_WHITESPACE_REGEX, " ")
-            .replace(SPACE_BEFORE_PUNCTUATION_REGEX, "")
-            .replace(SPACE_BEFORE_NEWLINE_REGEX, "\n")
-            .replace(LEADING_EMPTY_LINES_REGEX, "")
+        return if (changed) {
+            stripped
+                .replace(HORIZONTAL_WHITESPACE_REGEX, " ")
+                .replace(SPACE_BEFORE_PUNCTUATION_REGEX, "")
+                .replace(SPACE_BEFORE_NEWLINE_REGEX, "\n")
+                .replace(LEADING_EMPTY_LINES_REGEX, "")
+        } else {
+            input
+        }
     }
 
     private fun createTagPattern(tag: String): Regex =
-        Regex("(^|\\s)#${Regex.escape(tag)}(?:/)?(?=\\s|$|[.,!?;:，。！？；：、)\\]}】）])")
+        Regex("""(^|\s)#${Regex.escape(tag)}(?:/)?(?=\s|$|[.,!?;:，。！？；：、)\]}】）])""")
 
     private fun trimParagraphEdges(root: Node) {
-        traverse(root) { node ->
+        traverseNodeTree(root) { node ->
             if (node is Paragraph) {
                 trimParagraphEdge(node, fromStart = true)
                 trimParagraphEdge(node, fromStart = false)
@@ -127,67 +134,43 @@ object MarkdownKnownTagFilter {
 
     private fun pruneEmptyParagraphs(root: Node) {
         val emptyParagraphs = mutableListOf<Paragraph>()
-        traverse(root) { node ->
+        traverseNodeTree(root) { node ->
             if (node is Paragraph && !hasRenderableContent(node)) {
                 emptyParagraphs += node
             }
         }
         emptyParagraphs.forEach { it.unlink() }
     }
+}
 
-    private fun hasRenderableContent(node: Node): Boolean =
-        when (node) {
-            is Text -> {
-                node.literal?.any { !it.isWhitespace() } == true
+private fun hasRenderableContent(node: Node): Boolean =
+    when (node) {
+        is Text -> node.literal?.any { !it.isWhitespace() } == true
+        is SoftLineBreak, is HardLineBreak -> false
+        is Code -> !node.literal.isNullOrBlank()
+        is FencedCodeBlock -> !node.literal.isNullOrBlank()
+        is IndentedCodeBlock -> !node.literal.isNullOrBlank()
+        is Image -> true
+        else -> {
+            var child = node.firstChild
+            var hasContent = false
+            while (child != null && !hasContent) {
+                hasContent = hasRenderableContent(child)
+                child = child.next
             }
-
-            is SoftLineBreak, is HardLineBreak -> {
-                false
-            }
-
-            is Code -> {
-                !node.literal.isNullOrBlank()
-            }
-
-            is FencedCodeBlock -> {
-                !node.literal.isNullOrBlank()
-            }
-
-            is IndentedCodeBlock -> {
-                !node.literal.isNullOrBlank()
-            }
-
-            is Image -> {
-                true
-            }
-
-            else -> {
-                var child = node.firstChild
-                while (child != null) {
-                    if (hasRenderableContent(child)) {
-                        return true
-                    }
-                    child = child.next
-                }
-                false
-            }
-        }
-
-    private fun traverse(
-        root: Node,
-        visit: (Node) -> Unit,
-    ) {
-        visit(root)
-        var child = root.firstChild
-        while (child != null) {
-            val next = child.next
-            traverse(child, visit)
-            child = next
+            hasContent
         }
     }
 
-    private val HORIZONTAL_WHITESPACE_REGEX = Regex("[ \\t]{2,}")
-    private val SPACE_BEFORE_PUNCTUATION_REGEX = Regex("[ \\t]+(?=[.,!?;:，。！？；：、)\\]}】）])")
-    private val SPACE_BEFORE_NEWLINE_REGEX = Regex("[ \\t]+(?=\\n)")
-    private val LEADING_EMPTY_LINES_REGEX = Regex("^(?:[ \\t]*\\n)+")
+private fun traverseNodeTree(
+    root: Node,
+    visit: (Node) -> Unit,
+) {
+    visit(root)
+    var child = root.firstChild
+    while (child != null) {
+        val next = child.next
+        traverseNodeTree(child, visit)
+        child = next
+    }
 }

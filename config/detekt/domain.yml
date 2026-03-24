@@ -3,7 +3,19 @@ config:
   excludes:
     - "lomo-architecture.*"
     - "lomo-architecture>.*>.*"
+empty-blocks:
+  EmptyDefaultConstructor:
+    active: true
 style:
+  ForbiddenComment:
+    active: true
+    comments:
+      - reason: "Resolve backlog markers before merge."
+        value: "TODO:"
+      - reason: "Resolve broken-behavior markers before merge."
+        value: "FIXME:"
+      - reason: "Release blockers must not stay in committed code."
+        value: "STOPSHIP:"
   ForbiddenImport:
     active: true
     forbiddenImports:
@@ -16,10 +28,16 @@ style:
       - io.ktor.*
       - org.eclipse.jgit.*
       - com.lomo.data.*
+  UnusedParameter:
+    active: true
 lomo-architecture:
   DomainLayerIsolation:
     active: true
   DomainPackageShape:
     active: true
   UseCaseLocation:
+    active: true
+  NoSourceSuppressions:
+    active: true
+  NoPlaceholderImplementation:
     active: true

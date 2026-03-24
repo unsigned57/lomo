@@ -1,10 +1,11 @@
 package com.lomo.app.feature.main
 
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -19,8 +20,8 @@ import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
@@ -35,9 +36,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.imageLoader
 import coil3.request.ImageRequest
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
@@ -53,6 +54,18 @@ private const val PRELOAD_LOOKAHEAD_COUNT = 5
 private const val PRELOAD_EVENT_THROTTLE_MS = 150L
 private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
+
+private val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
+private val MEMO_LIST_TOP_PADDING = 16.dp
+private val MEMO_LIST_BOTTOM_PADDING = 88.dp
+private val MEMO_LIST_ITEM_SPACING = 12.dp
+private const val MEMO_ITEM_HIDDEN_ALPHA = 0f
+private const val MEMO_ITEM_VISIBLE_ALPHA = 1f
+private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f
+private const val MEMO_DELETE_ANIMATION_DURATION_MILLIS = 300
+private const val MEMO_DELETE_FADE_DELAY_MILLIS = 300
+private const val MEMO_INSERT_ANIMATION_DURATION_MILLIS = 600
+private const val MEMO_INSERT_FADE_DELAY_MILLIS = 300
 
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
@@ -77,11 +90,41 @@ internal fun MemoListContent(
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
+    val deletingIds by deletingMemoIds.collectAsStateWithLifecycle()
+
+    MemoListPreloadEffect(
+        memos = memos,
+        listState = listState,
+    )
+
+    MemoListBody(
+        memos = memos,
+        deletingIds = deletingIds,
+        listState = listState,
+        pullState = pullState,
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        onTodoClick = onTodoClick,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+        onMemoDoubleClick = onMemoDoubleClick,
+        doubleTapEditEnabled = doubleTapEditEnabled,
+        freeTextCopyEnabled = freeTextCopyEnabled,
+        onTagClick = onTagClick,
+        onImageClick = onImageClick,
+        onShowMemoMenu = onShowMemoMenu,
+    )
+}
+
+@Composable
+private fun MemoListPreloadEffect(
+    memos: List<MemoUiModel>,
+    listState: LazyListState,
+) {
     val context = LocalContext.current
     val imageLoader = context.imageLoader
     val preloadGate = remember { ImagePreloadGate() }
     val latestMemos by rememberUpdatedState(memos)
-    val deletingIds by deletingMemoIds.collectAsStateWithLifecycle()
 
     LaunchedEffect(listState, context, imageLoader, preloadGate) {
         snapshotFlow {
@@ -101,17 +144,37 @@ internal fun MemoListContent(
                                 .toList()
                         preloadGate.selectUrlsToEnqueue(preloadCandidates)
                     }
-            urlsToPreload.forEach { url ->
-                val request =
-                    ImageRequest
-                        .Builder(context)
-                        .data(url)
-                        .build()
-                imageLoader.enqueue(request)
-            }
+                urlsToPreload.forEach { url ->
+                    val request =
+                        ImageRequest
+                            .Builder(context)
+                            .data(url)
+                            .build()
+                    imageLoader.enqueue(request)
+                }
             }
     }
+}
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MemoListBody(
+    memos: List<MemoUiModel>,
+    deletingIds: Set<String>,
+    listState: LazyListState,
+    pullState: PullToRefreshState,
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    dateFormat: String,
+    timeFormat: String,
+    onMemoDoubleClick: (Memo) -> Unit,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    onTagClick: (String) -> Unit,
+    onImageClick: (ImageViewerRequest) -> Unit,
+    onShowMemoMenu: (MemoMenuState) -> Unit,
+) {
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         state = pullState,
@@ -131,93 +194,161 @@ internal fun MemoListContent(
                 description = stringResource(R.string.empty_no_memos_subtitle),
                 modifier = Modifier.fillMaxSize(),
             )
+            return@PullToRefreshBox
         }
 
-        LazyColumn(
-            state = listState,
-            contentPadding =
-                PaddingValues(
-                    top = 16.dp,
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom =
-                        WindowInsets.navigationBars
-                            .asPaddingValues()
-                            .calculateBottomPadding() + 88.dp,
-                ),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            items(
-                items = memos,
-                key = { it.memo.id },
-                contentType = { "memo" },
-            ) { uiModel ->
-                val isDeleting = uiModel.memo.id in deletingIds
-                val deleteAlpha by androidx.compose.animation.core.animateFloatAsState(
-                    targetValue = if (isDeleting) 0f else 1f,
-                    animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = 300,
-                            easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
-                        ),
-                    label = "DeleteAlpha",
-                )
-                val stableTodoClick =
-                    remember(uiModel.memo, onTodoClick) {
-                        { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
-                    }
-                val stableImageClick =
-                    remember(uiModel.imageUrls, onImageClick) {
-                        { url: String ->
-                            onImageClick(
-                                createImageViewerRequest(
-                                    imageUrls = uiModel.imageUrls,
-                                    clickedUrl = url,
-                                ),
-                            )
-                        }
-                    }
+        MemoListColumn(
+            memos = memos,
+            deletingIds = deletingIds,
+            listState = listState,
+            onTodoClick = onTodoClick,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            onMemoDoubleClick = onMemoDoubleClick,
+            doubleTapEditEnabled = doubleTapEditEnabled,
+            freeTextCopyEnabled = freeTextCopyEnabled,
+            onTagClick = onTagClick,
+            onImageClick = onImageClick,
+            onShowMemoMenu = onShowMemoMenu,
+        )
+    }
+}
 
-                MemoCardEntry(
-                    uiModel = uiModel,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                    onTodoClick = stableTodoClick,
-                    onTagClick = onTagClick,
-                    onMemoEdit = onMemoDoubleClick,
-                    doubleTapEditEnabled = doubleTapEditEnabled,
-                    freeTextCopyEnabled = freeTextCopyEnabled,
-                    onImageClick = stableImageClick,
-                    onShowMenu = onShowMemoMenu,
-                    modifier =
-                        Modifier
-                            .animateItem(
-                                fadeInSpec =
-                                    keyframes {
-                                        durationMillis = 600
-                                        0f at 0
-                                        0f at 300
-                                        1f at 600 using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                    },
-                                fadeOutSpec = null,
-                                placementSpec = spring(stiffness = Spring.StiffnessLow),
-                            ).fillMaxWidth()
-                            .then(
-                                if (deleteAlpha < 0.999f) {
-                                    Modifier.graphicsLayer {
-                                        alpha = deleteAlpha
-                                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                                    }
-                                } else {
-                                    Modifier
+@Composable
+private fun MemoListColumn(
+    memos: List<MemoUiModel>,
+    deletingIds: Set<String>,
+    listState: LazyListState,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    dateFormat: String,
+    timeFormat: String,
+    onMemoDoubleClick: (Memo) -> Unit,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    onTagClick: (String) -> Unit,
+    onImageClick: (ImageViewerRequest) -> Unit,
+    onShowMemoMenu: (MemoMenuState) -> Unit,
+) {
+    LazyColumn(
+        state = listState,
+        contentPadding =
+            PaddingValues(
+                top = MEMO_LIST_TOP_PADDING,
+                start = MEMO_LIST_HORIZONTAL_PADDING,
+                end = MEMO_LIST_HORIZONTAL_PADDING,
+                bottom =
+                    WindowInsets.navigationBars
+                        .asPaddingValues()
+                        .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
+            ),
+        verticalArrangement = Arrangement.spacedBy(MEMO_LIST_ITEM_SPACING),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        items(
+            items = memos,
+            key = { it.memo.id },
+            contentType = { "memo" },
+        ) { uiModel ->
+            MemoListItem(
+                uiModel = uiModel,
+                isDeleting = uiModel.memo.id in deletingIds,
+                onTodoClick = onTodoClick,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                onMemoDoubleClick = onMemoDoubleClick,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                onTagClick = onTagClick,
+                onImageClick = onImageClick,
+                onShowMemoMenu = onShowMemoMenu,
+                modifier =
+                    Modifier
+                        .animateItem(
+                            fadeInSpec =
+                                keyframes {
+                                    durationMillis = MEMO_INSERT_ANIMATION_DURATION_MILLIS
+                                    MEMO_ITEM_HIDDEN_ALPHA at 0
+                                    MEMO_ITEM_HIDDEN_ALPHA at MEMO_INSERT_FADE_DELAY_MILLIS
+                                    MEMO_ITEM_VISIBLE_ALPHA at MEMO_INSERT_ANIMATION_DURATION_MILLIS using
+                                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
                                 },
-                            ),
-                )
-            }
+                            fadeOutSpec = null,
+                            placementSpec = spring(stiffness = Spring.StiffnessLow),
+                        ).fillMaxWidth(),
+            )
         }
     }
 }
+
+@Composable
+private fun MemoListItem(
+    uiModel: MemoUiModel,
+    isDeleting: Boolean,
+    onTodoClick: (Memo, Int, Boolean) -> Unit,
+    dateFormat: String,
+    timeFormat: String,
+    onMemoDoubleClick: (Memo) -> Unit,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
+    onTagClick: (String) -> Unit,
+    onImageClick: (ImageViewerRequest) -> Unit,
+    onShowMemoMenu: (MemoMenuState) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val deleteAlpha by animateFloatAsState(
+        targetValue =
+            if (isDeleting) {
+                MEMO_ITEM_HIDDEN_ALPHA
+            } else {
+                MEMO_ITEM_VISIBLE_ALPHA
+            },
+        animationSpec =
+            androidx.compose.animation.core.tween(
+                durationMillis = MEMO_DELETE_ANIMATION_DURATION_MILLIS,
+                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+            ),
+        label = "DeleteAlpha",
+    )
+    val stableTodoClick =
+        remember(uiModel.memo, onTodoClick) {
+            { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
+        }
+    val stableImageClick =
+        remember(uiModel.imageUrls, onImageClick) {
+            { url: String ->
+                onImageClick(
+                    createImageViewerRequest(
+                        imageUrls = uiModel.imageUrls,
+                        clickedUrl = url,
+                    ),
+                )
+            }
+        }
+
+    MemoCardEntry(
+        uiModel = uiModel,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+        onTodoClick = stableTodoClick,
+        onTagClick = onTagClick,
+        onMemoEdit = onMemoDoubleClick,
+        doubleTapEditEnabled = doubleTapEditEnabled,
+        freeTextCopyEnabled = freeTextCopyEnabled,
+        onImageClick = stableImageClick,
+        onShowMenu = onShowMemoMenu,
+        modifier = modifier.then(memoDeletingModifier(deleteAlpha)),
+    )
+}
+
+private fun memoDeletingModifier(deleteAlpha: Float): Modifier =
+    if (deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD) {
+        Modifier.graphicsLayer {
+            alpha = deleteAlpha
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+        }
+    } else {
+        Modifier
+    }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable

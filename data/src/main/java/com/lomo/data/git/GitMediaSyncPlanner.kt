@@ -84,8 +84,12 @@ class GitMediaSyncPlanner(
 
         return when {
             !localChanged && !repoChanged -> null
-            localChanged && !repoChanged -> GitMediaSyncAction(path, GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY)
-            !localChanged && repoChanged -> GitMediaSyncAction(path, GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY)
+            localChanged && !repoChanged ->
+                GitMediaSyncAction(path, GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY)
+
+            !localChanged && repoChanged ->
+                GitMediaSyncAction(path, GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY)
+
             else -> newerWins(path, local.lastModified, repo.lastModified)
         }
     }
@@ -154,9 +158,10 @@ class GitMediaSyncPlanner(
     private fun changed(
         current: Long?,
         previous: Long?,
-    ): Boolean {
-        if (current == null && previous == null) return false
-        if (current == null || previous == null) return true
-        return abs(current - previous) > timestampToleranceMs
-    }
+    ): Boolean =
+        if (current == null || previous == null) {
+            current != previous
+        } else {
+            abs(current - previous) > timestampToleranceMs
+        }
 }

@@ -87,8 +87,9 @@ class WebDavSyncRepositoryImplTest {
         every { credentialStore.getUsername() } returns null
         every { credentialStore.getPassword() } returns "secret"
         every { clientFactory.create("https://dav.example.com/root/", "alice", "secret") } returns client
-        repository =
-            WebDavSyncRepositoryImpl(
+        val stateHolder = WebDavSyncStateHolder()
+        val runtime =
+            WebDavSyncRepositoryContext(
                 dataStore = dataStore,
                 credentialStore = credentialStore,
                 endpointResolver = endpointResolver,
@@ -98,6 +99,44 @@ class WebDavSyncRepositoryImplTest {
                 metadataDao = metadataDao,
                 memoSynchronizer = memoSynchronizer,
                 planner = planner,
+                stateHolder = stateHolder,
+            )
+        val support = WebDavSyncRepositorySupport(runtime)
+        val fileBridge = WebDavSyncFileBridge(runtime)
+        repository =
+            WebDavSyncRepositoryImpl(
+                configurationRepository = WebDavSyncConfigurationRepositoryImpl(dataStore),
+                configurationMutationRepository =
+                    WebDavSyncConfigurationMutationRepositoryImpl(
+                        dataStore = dataStore,
+                        credentialStore = credentialStore,
+                    ),
+                operationRepository =
+                    WebDavSyncOperationRepositoryImpl(
+                        syncExecutor =
+                            WebDavSyncExecutor(
+                                runtime = runtime,
+                                support = support,
+                                fileBridge = fileBridge,
+                                actionApplier = WebDavSyncActionApplier(runtime, fileBridge),
+                            ),
+                        statusTester =
+                            WebDavSyncStatusTester(
+                                runtime = runtime,
+                                support = support,
+                                fileBridge = fileBridge,
+                            ),
+                    ),
+                conflictRepository =
+                    WebDavSyncConflictRepositoryImpl(
+                        resolver =
+                            WebDavConflictResolver(
+                                runtime = runtime,
+                                support = support,
+                                fileBridge = fileBridge,
+                            ),
+                    ),
+                stateRepository = WebDavSyncStateRepositoryImpl(stateHolder),
             )
     }
 

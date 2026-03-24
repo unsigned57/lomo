@@ -81,6 +81,8 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
+
 data class InputSheetState(
     val inputValue: TextFieldValue,
     val availableTags: List<String> = emptyList(),
@@ -114,7 +116,7 @@ object TripleEnterSubmitInterceptor : InputInterceptor {
     ): InputInterceptionResult {
         val oldText = previousValue.text
         val newText = newValue.text
-        val shouldSubmit = newText.length > oldText.length && newText.endsWith("\n\n\n")
+        val shouldSubmit = newText.length > oldText.length && newText.endsWith("""\n\n\n""")
         return if (shouldSubmit) {
             InputInterceptionResult.SubmitContent(newText.trim())
         } else {
@@ -155,210 +157,260 @@ fun InputSheet(
     slots: InputSheetSlots = InputSheetSlots(),
 ) {
     val inputValue = state.inputValue
-    val availableTags = state.availableTags
-    val isRecording = state.isRecording
-    val recordingDuration = state.recordingDuration
-    val recordingAmplitude = state.recordingAmplitude
-    val hints = state.hints
-
-    val onInputValueChange = callbacks.onInputValueChange
-    val onDismiss = callbacks.onDismiss
-    val onSubmit = callbacks.onSubmit
-    val onImageClick = callbacks.onImageClick
-    val onCameraClick = callbacks.onCameraClick
-    val onStartRecording = callbacks.onStartRecording
-    val onStopRecording = callbacks.onStopRecording
-    val onCancelRecording = callbacks.onCancelRecording
-    val inputInterceptor = callbacks.inputInterceptor
-    val autoSubmitOnDismiss = callbacks.autoSubmitOnDismiss
-    val hasDraftPersistence = callbacks.hasDraftPersistence
-
-    var showTagSelector by remember { mutableStateOf(false) }
-    var isSubmitting by remember { mutableStateOf(false) }
-    var pendingSubmissionTriggerText by remember { mutableStateOf<String?>(null) }
-    var submissionLockSourceText by remember { mutableStateOf<String?>(null) }
-    var showDiscardDialog by remember { mutableStateOf(false) }
-
-    val hintText = remember(hints) { hints.randomOrNull().orEmpty() }
+    val hintText = remember(state.hints) { state.hints.randomOrNull().orEmpty() }
     val currentInputValue by rememberUpdatedState(inputValue)
-    val initialInputText = remember { inputValue.text }
-
+    val sessionState = rememberInputSheetSessionState(inputValue.text)
     val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
-    var isSheetVisible by remember { mutableStateOf(false) }
-    var isDismissing by remember { mutableStateOf(false) }
+    val dismissSheet =
+        rememberDismissSheetAction(
+            isDismissing = sessionState.isDismissing,
+            onDismissingChange = { sessionState.isDismissing = it },
+            onSheetVisibleChange = { sessionState.isSheetVisible = it },
+            keyboardController = keyboardController,
+            scope = scope,
+            onDismiss = callbacks.onDismiss,
+        )
+    val submitWithLock = rememberSubmitWithLock(sessionState, callbacks.onSubmit)
+    val requestDismiss =
+        rememberRequestDismiss(
+            sessionState = sessionState,
+            currentInputText = currentInputValue.text,
+            autoSubmitOnDismiss = callbacks.autoSubmitOnDismiss,
+            hasDraftPersistence = callbacks.hasDraftPersistence,
+            dismissSheet = dismissSheet,
+            submitWithLock = submitWithLock,
+        )
 
-    val dismissSheet: () -> Unit = dismiss@{
+    InputSheetLifecycle(
+        sessionState = sessionState,
+        state = state,
+        inputText = inputValue.text,
+        focusRequester = focusRequester,
+        keyboardController = keyboardController,
+        onRequestDismiss = requestDismiss,
+    )
+
+    val handleTextChange =
+        rememberInputTextChangeHandler(
+            sessionState = sessionState,
+            currentValue = inputValue,
+            inputInterceptor = callbacks.inputInterceptor,
+            onInputValueChange = callbacks.onInputValueChange,
+            submitWithLock = submitWithLock,
+            haptic = haptic,
+        )
+
+    InputSheetContent(
+        state = state,
+        callbacks = callbacks,
+        slots = slots,
+        sessionState = sessionState,
+        inputValue = inputValue,
+        hintText = hintText,
+        focusRequester = focusRequester,
+        haptic = haptic,
+        dismissSheet = dismissSheet,
+        requestDismiss = requestDismiss,
+        handleTextChange = handleTextChange,
+        submitWithLock = submitWithLock,
+    )
+}
+
+@Composable
+private fun rememberInputSheetSessionState(initialInputText: String): InputSheetSessionState =
+    remember { InputSheetSessionState(initialInputText) }
+
+internal class InputSheetSessionState(
+    val initialInputText: String,
+) {
+    var showTagSelector by mutableStateOf(false)
+    var isSubmitting by mutableStateOf(false)
+    var pendingSubmissionTriggerText by mutableStateOf<String?>(null)
+    var submissionLockSourceText by mutableStateOf<String?>(null)
+    var showDiscardDialog by mutableStateOf(false)
+    var isSheetVisible by mutableStateOf(false)
+    var isDismissing by mutableStateOf(false)
+
+    fun clearSubmissionLock() {
+        isSubmitting = false
+        pendingSubmissionTriggerText = null
+        submissionLockSourceText = null
+    }
+}
+
+@Composable
+private fun rememberSubmitWithLock(
+    sessionState: InputSheetSessionState,
+    onSubmit: (String) -> Unit,
+): (String, String, String) -> Unit =
+    remember(sessionState, onSubmit) {
+        submit@{ content, triggerText, sourceText ->
+            if (sessionState.isSubmitting && sessionState.pendingSubmissionTriggerText == triggerText) {
+                return@submit
+            }
+            sessionState.isSubmitting = true
+            sessionState.pendingSubmissionTriggerText = triggerText
+            sessionState.submissionLockSourceText = sourceText
+            onSubmit(content)
+        }
+    }
+
+@Composable
+private fun rememberRequestDismiss(
+    sessionState: InputSheetSessionState,
+    currentInputText: String,
+    autoSubmitOnDismiss: Boolean,
+    hasDraftPersistence: Boolean,
+    dismissSheet: () -> Unit,
+    submitWithLock: (String, String, String) -> Unit,
+): () -> Unit =
+    remember(
+        sessionState,
+        currentInputText,
+        autoSubmitOnDismiss,
+        hasDraftPersistence,
+        dismissSheet,
+        submitWithLock,
+    ) {
+        {
+            val hasUnsavedChanges = currentInputText != sessionState.initialInputText
+            when {
+                autoSubmitOnDismiss && currentInputText.isNotBlank() -> {
+                    submitWithLock(currentInputText.trim(), currentInputText, currentInputText)
+                }
+
+                hasDraftPersistence -> dismissSheet()
+                hasUnsavedChanges -> sessionState.showDiscardDialog = true
+                else -> dismissSheet()
+            }
+        }
+    }
+
+@Composable
+private fun rememberInputTextChangeHandler(
+    sessionState: InputSheetSessionState,
+    currentValue: TextFieldValue,
+    inputInterceptor: InputInterceptor,
+    onInputValueChange: (TextFieldValue) -> Unit,
+    submitWithLock: (String, String, String) -> Unit,
+    haptic: AppHapticFeedback,
+): (TextFieldValue) -> Unit =
+    remember(sessionState, currentValue, inputInterceptor, onInputValueChange, submitWithLock, haptic) {
+        handler@{ newValue ->
+            if (sessionState.isSubmitting) {
+                if (newValue.text == sessionState.pendingSubmissionTriggerText) {
+                    return@handler
+                }
+                sessionState.clearSubmissionLock()
+            }
+
+            when (val interception = inputInterceptor.intercept(currentValue, newValue)) {
+                is InputInterceptionResult.SubmitContent -> {
+                    haptic.heavy()
+                    submitWithLock(interception.content, newValue.text, currentValue.text)
+                }
+
+                is InputInterceptionResult.UpdateValue -> {
+                    onInputValueChange(interception.value)
+                }
+            }
+        }
+    }
+
+@Composable
+private fun rememberDismissSheetAction(
+    isDismissing: Boolean,
+    onDismissingChange: (Boolean) -> Unit,
+    onSheetVisibleChange: (Boolean) -> Unit,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    onDismiss: () -> Unit,
+): () -> Unit =
+    dismiss@{
         if (isDismissing) return@dismiss
-        isDismissing = true
+        onDismissingChange(true)
         scope.launch {
             keyboardController?.hide()
-            delay(150)
-            isSheetVisible = false
+            delay(INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS)
+            onSheetVisibleChange(false)
             delay(MotionTokens.DurationLong2.toLong())
             onDismiss()
         }
     }
 
+@Composable
+private fun InputSheetVisibilityEffects(
+    isSheetVisible: Boolean,
+    isRecording: Boolean,
+    isDismissing: Boolean,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onSheetVisibleChange: (Boolean) -> Unit,
+) {
     LaunchedEffect(Unit) {
         withFrameNanos { }
-        isSheetVisible = true
+        onSheetVisibleChange(true)
     }
 
     LaunchedEffect(isSheetVisible, isRecording, isDismissing) {
         if (!isSheetVisible || isDismissing) return@LaunchedEffect
-
         if (isRecording) {
             keyboardController?.hide()
             return@LaunchedEffect
         }
-
         delay(MotionTokens.DurationLong2.toLong())
         focusRequester.requestFocus()
         keyboardController?.show()
     }
+}
 
-    val clearSubmissionLock = {
-        isSubmitting = false
-        pendingSubmissionTriggerText = null
-        submissionLockSourceText = null
-    }
+@Composable
+private fun InputSheetLifecycle(
+    sessionState: InputSheetSessionState,
+    state: InputSheetState,
+    inputText: String,
+    focusRequester: FocusRequester,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onRequestDismiss: () -> Unit,
+) {
+    InputSheetVisibilityEffects(
+        isSheetVisible = sessionState.isSheetVisible,
+        isRecording = state.isRecording,
+        isDismissing = sessionState.isDismissing,
+        focusRequester = focusRequester,
+        keyboardController = keyboardController,
+        onSheetVisibleChange = { sessionState.isSheetVisible = it },
+    )
+    BackHandler(enabled = true) { onRequestDismiss() }
+    InputSheetSubmissionResetEffect(
+        inputText = inputText,
+        isSubmitting = sessionState.isSubmitting,
+        submissionLockSourceText = sessionState.submissionLockSourceText,
+        onClearSubmissionLock = sessionState::clearSubmissionLock,
+    )
+}
 
-    val submitWithLock: (content: String, triggerText: String, sourceText: String) -> Unit = submit@{ content, triggerText, sourceText ->
-        if (isSubmitting && pendingSubmissionTriggerText == triggerText) {
-            return@submit
-        }
-        isSubmitting = true
-        pendingSubmissionTriggerText = triggerText
-        submissionLockSourceText = sourceText
-        onSubmit(content)
-    }
-
-    val requestDismiss: () -> Unit = {
-        val hasUnsavedChanges = currentInputValue.text != initialInputText
-        if (autoSubmitOnDismiss && currentInputValue.text.isNotBlank()) {
-            submitWithLock(
-                currentInputValue.text.trim(),
-                currentInputValue.text,
-                currentInputValue.text,
-            )
-        } else if (hasDraftPersistence) {
-            dismissSheet()
-        } else if (hasUnsavedChanges) {
-            showDiscardDialog = true
-        } else {
-            dismissSheet()
-        }
-    }
-
-    BackHandler(enabled = true) {
-        requestDismiss()
-    }
-
-    LaunchedEffect(inputValue.text, isSubmitting, submissionLockSourceText) {
+@Composable
+private fun InputSheetSubmissionResetEffect(
+    inputText: String,
+    isSubmitting: Boolean,
+    submissionLockSourceText: String?,
+    onClearSubmissionLock: () -> Unit,
+) {
+    LaunchedEffect(inputText, isSubmitting, submissionLockSourceText) {
         val sourceText = submissionLockSourceText ?: return@LaunchedEffect
-        if (isSubmitting && inputValue.text != sourceText) {
-            clearSubmissionLock()
-        }
-    }
-
-    if (showDiscardDialog) {
-        InputDiscardDialog(
-            onDismiss = { showDiscardDialog = false },
-            onConfirmDiscard = {
-                showDiscardDialog = false
-                dismissSheet()
-            },
-        )
-    }
-
-    val handleTextChange: (TextFieldValue) -> Unit = handleTextChange@{ newValue ->
-        if (isSubmitting) {
-            if (newValue.text == pendingSubmissionTriggerText) {
-                return@handleTextChange
-            }
-            clearSubmissionLock()
-        }
-
-        when (val interception = inputInterceptor.intercept(inputValue, newValue)) {
-            is InputInterceptionResult.SubmitContent -> {
-                haptic.heavy()
-                submitWithLock(interception.content, newValue.text, inputValue.text)
-            }
-
-            is InputInterceptionResult.UpdateValue -> {
-                onInputValueChange(interception.value)
-            }
-        }
-    }
-
-    InputSheetScaffold(
-        isSheetVisible = isSheetVisible,
-        scrimAlpha = if (isSheetVisible) 0.32f else 0f,
-        onRequestDismiss = requestDismiss,
-    ) {
-        AnimatedContent(
-            targetState = isRecording,
-            transitionSpec = { fadeScaleContentTransition() },
-            label = "RecordingStateTransition",
-        ) { recording ->
-            if (recording) {
-                slots.voiceRecordingPanel(
-                    VoiceRecordingPanelState(
-                        recordingDuration = recordingDuration,
-                        recordingAmplitude = recordingAmplitude,
-                    ),
-                    VoiceRecordingPanelCallbacks(
-                        onCancel = {
-                            haptic.medium()
-                            onCancelRecording()
-                        },
-                        onStop = {
-                            haptic.heavy()
-                            onStopRecording()
-                        },
-                    ),
-                )
-            } else {
-                InputEditorPanel(
-                    inputValue = inputValue,
-                    hintText = hintText,
-                    availableTags = availableTags,
-                    showTagSelector = showTagSelector,
-                    focusRequester = focusRequester,
-                    onTextChange = handleTextChange,
-                    onTagSelected = { tag ->
-                        haptic.medium()
-                        val newText = "${inputValue.text} #$tag "
-                        onInputValueChange(TextFieldValue(newText, TextRange(newText.length)))
-                        showTagSelector = false
-                    },
-                    onToggleTagSelector = { showTagSelector = !showTagSelector },
-                    onCameraClick = onCameraClick,
-                    onImageClick = onImageClick,
-                    onStartRecording = onStartRecording,
-                    onInsertTodo = {
-                        val start = inputValue.text
-                        val newText = if (start.isEmpty()) "- [ ] " else "$start\n- [ ] "
-                        onInputValueChange(TextFieldValue(newText, TextRange(newText.length)))
-                    },
-                    onSubmit = {
-                        if (inputValue.text.isNotBlank()) {
-                            submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
-                        }
-                    },
-                    slots = slots,
-                    haptic = haptic,
-                )
-            }
+        if (isSubmitting && inputText != sourceText) {
+            onClearSubmissionLock()
         }
     }
 }
 
+
 @Composable
-private fun InputDiscardDialog(
+internal fun InputDiscardDialog(
     onDismiss: () -> Unit,
     onConfirmDiscard: () -> Unit,
 ) {
@@ -378,352 +430,3 @@ private fun InputDiscardDialog(
         },
     )
 }
-
-@Composable
-private fun InputSheetScaffold(
-    isSheetVisible: Boolean,
-    scrimAlpha: Float,
-    onRequestDismiss: () -> Unit,
-    content: @Composable () -> Unit,
-) {
-    val animatedScrimAlpha by animateFloatAsState(
-        targetValue = scrimAlpha,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationLong2,
-                easing = androidx.compose.animation.core.LinearEasing,
-            ),
-        label = "InputSheetScrimAlpha",
-    )
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = animatedScrimAlpha))
-                    .pointerInput(Unit) {
-                        detectTapGestures(onTap = { onRequestDismiss() })
-                    },
-        ) {
-            // consume
-        }
-
-        AnimatedVisibility(
-            visible = isSheetVisible,
-            modifier =
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .imePadding(),
-            enter =
-                slideInVertically(
-                    initialOffsetY = { height -> height },
-                    animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationLong2,
-                            easing = MotionTokens.EasingStandard,
-                        ),
-                ),
-            exit =
-                slideOutVertically(
-                    targetOffsetY = { height -> height },
-                    animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationLong2,
-                            easing = MotionTokens.EasingStandard,
-                        ),
-                ),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(
-                            RoundedCornerShape(
-                                topStart = 28.dp,
-                                topEnd = 28.dp,
-                            ),
-                        ).background(MaterialTheme.colorScheme.surface)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onTap = { /* consume */ })
-                        },
-            ) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    InputSheetDragHandle(modifier = Modifier.align(Alignment.CenterHorizontally))
-                    content()
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InputSheetDragHandle(modifier: Modifier = Modifier) {
-    Box(
-        modifier =
-            modifier
-                .padding(vertical = 22.dp)
-                .width(32.dp)
-                .height(4.dp)
-                .clip(AppShapes.ExtraSmall)
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                .clearAndSetSemantics { },
-    )
-}
-
-@Composable
-private fun InputEditorPanel(
-    inputValue: TextFieldValue,
-    hintText: String,
-    availableTags: List<String>,
-    showTagSelector: Boolean,
-    focusRequester: FocusRequester,
-    onTextChange: (TextFieldValue) -> Unit,
-    onTagSelected: (String) -> Unit,
-    onToggleTagSelector: () -> Unit,
-    onCameraClick: () -> Unit,
-    onImageClick: () -> Unit,
-    onStartRecording: () -> Unit,
-    onInsertTodo: () -> Unit,
-    onSubmit: () -> Unit,
-    slots: InputSheetSlots,
-    haptic: AppHapticFeedback,
-) {
-    Column(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(AppSpacing.Medium),
-    ) {
-        val bodyLargeStyle = MaterialTheme.typography.bodyLarge
-        val inputTextStyle = remember(inputValue.text, bodyLargeStyle) { bodyLargeStyle.scriptAwareFor(inputValue.text) }
-
-        TextField(
-            value = inputValue,
-            onValueChange = onTextChange,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-            minLines = 3,
-            maxLines = 10,
-            colors =
-                TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                ),
-            shape = AppShapes.Large,
-            textStyle = inputTextStyle,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            keyboardActions = KeyboardActions(),
-            placeholder = { InputHintPlaceholder(hintText = hintText) },
-        )
-
-        Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
-
-        AnimatedVisibility(
-            visible = showTagSelector && availableTags.isNotEmpty(),
-            enter =
-                expandVertically(
-                    animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                            easing = MotionTokens.EasingEmphasized,
-                        ),
-                ) +
-                    fadeIn(
-                        animationSpec =
-                            androidx.compose.animation.core.tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                            ),
-                    ),
-            exit =
-                shrinkVertically(
-                    animationSpec =
-                        androidx.compose.animation.core.tween(
-                            durationMillis = MotionTokens.DurationMedium2,
-                            easing = MotionTokens.EasingEmphasized,
-                        ),
-                ) +
-                    fadeOut(
-                        animationSpec =
-                            androidx.compose.animation.core.tween(
-                                durationMillis = MotionTokens.DurationShort4,
-                            ),
-                    ),
-        ) {
-            slots.tagSelectorBar(
-                TagSelectorBarState(availableTags = availableTags),
-                TagSelectorBarCallbacks(onTagSelected = onTagSelected),
-            )
-        }
-
-        InputEditorToolbar(
-            showTagSelector = showTagSelector,
-            isSubmitEnabled = inputValue.text.isNotBlank(),
-            onCameraClick = onCameraClick,
-            onImageClick = onImageClick,
-            onStartRecording = onStartRecording,
-            onToggleTagSelector = onToggleTagSelector,
-            onInsertTodo = onInsertTodo,
-            onSubmit = onSubmit,
-            haptic = haptic,
-        )
-    }
-}
-
-@Composable
-private fun InputEditorToolbar(
-    showTagSelector: Boolean,
-    isSubmitEnabled: Boolean,
-    onCameraClick: () -> Unit,
-    onImageClick: () -> Unit,
-    onStartRecording: () -> Unit,
-    onToggleTagSelector: () -> Unit,
-    onInsertTodo: () -> Unit,
-    onSubmit: () -> Unit,
-    haptic: AppHapticFeedback,
-    modifier: Modifier = Modifier,
-) {
-    val permissionLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-            if (isGranted) {
-                onStartRecording()
-            }
-        }
-
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(
-            onClick = {
-                haptic.medium()
-                onCameraClick()
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.PhotoCamera,
-                contentDescription = stringResource(R.string.cd_take_photo),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        IconButton(
-            onClick = {
-                haptic.medium()
-                onImageClick()
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Image,
-                contentDescription = stringResource(R.string.cd_add_image),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        IconButton(
-            onClick = {
-                haptic.medium()
-                permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Mic,
-                contentDescription = stringResource(R.string.cd_add_voice_memo),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        IconButton(
-            onClick = {
-                haptic.medium()
-                onToggleTagSelector()
-            },
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Label,
-                contentDescription = stringResource(R.string.cd_add_tag),
-                tint =
-                    if (showTagSelector) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-            )
-        }
-
-        IconButton(
-            onClick = {
-                haptic.medium()
-                onInsertTodo()
-            },
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.CheckBox,
-                contentDescription = stringResource(R.string.cd_add_checkbox),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        FilledTonalButton(
-            onClick = {
-                haptic.heavy()
-                onSubmit()
-            },
-            enabled = isSubmitEnabled,
-        ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Rounded.Send,
-                contentDescription = stringResource(R.string.cd_send),
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun InputHintPlaceholder(hintText: String) {
-    if (hintText.isEmpty()) return
-
-    AnimatedContent(
-        targetState = hintText,
-        transitionSpec = { fadeScaleContentTransition() },
-        label = "HintAnimation",
-    ) { targetHint ->
-        Text(
-            text = targetHint,
-            style = MaterialTheme.typography.bodyLarge.scriptAwareFor(targetHint),
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-        )
-    }
-}
-
-private fun fadeScaleContentTransition(): ContentTransform =
-    (
-        fadeIn(
-            animationSpec =
-                androidx.compose.animation.core
-                    .tween(MotionTokens.DurationMedium2),
-        ) +
-            scaleIn(
-                initialScale = 0.95f,
-                animationSpec =
-                    androidx.compose.animation.core.tween(
-                        MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
-    ).togetherWith(
-        fadeOut(
-            animationSpec =
-                androidx.compose.animation.core
-                    .tween(durationMillis = MotionTokens.DurationShort4),
-        ),
-    )

@@ -10,8 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
 
-interface GitSyncRepository {
-    // Configuration
+interface GitSyncConfigurationRepository {
     fun isGitSyncEnabled(): Flow<Boolean>
 
     fun getRemoteUrl(): Flow<String?>
@@ -22,10 +21,15 @@ interface GitSyncRepository {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeLastSyncInstant(): Flow<Instant?> = observeLastSyncTimeMillis().map { value -> value?.let(Instant::ofEpochMilli) }
+    fun observeLastSyncInstant(): Flow<Instant?> =
+        observeLastSyncTimeMillis().map { value ->
+            value?.let(Instant::ofEpochMilli)
+        }
 
     fun getSyncOnRefreshEnabled(): Flow<Boolean>
+}
 
+interface GitSyncConfigurationMutationRepository {
     suspend fun setGitSyncEnabled(enabled: Boolean)
 
     suspend fun setRemoteUrl(url: String)
@@ -48,8 +52,9 @@ interface GitSyncRepository {
     suspend fun setAutoSyncInterval(interval: String)
 
     suspend fun setSyncOnRefreshEnabled(enabled: Boolean)
+}
 
-    // Operations
+interface GitSyncOperationRepository {
     suspend fun initOrClone(): GitSyncResult
 
     /**
@@ -68,19 +73,30 @@ interface GitSyncRepository {
     suspend fun resetLocalBranchToRemote(): GitSyncResult
 
     suspend fun forcePushLocalToRemote(): GitSyncResult
+}
 
-    // Version History
+interface GitSyncVersionHistoryRepository {
     suspend fun getMemoVersionHistory(
         dateKey: String,
         memoTimestamp: Long,
     ): List<MemoVersion>
+}
 
-    // Conflict resolution
+interface GitSyncConflictRepository {
     suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
         conflictSet: SyncConflictSet,
     ): GitSyncResult
+}
 
-    // State observation
+interface GitSyncStateRepository {
     fun syncState(): Flow<SyncEngineState>
 }
+
+interface GitSyncRepository :
+    GitSyncConfigurationRepository,
+    GitSyncConfigurationMutationRepository,
+    GitSyncOperationRepository,
+    GitSyncVersionHistoryRepository,
+    GitSyncConflictRepository,
+    GitSyncStateRepository

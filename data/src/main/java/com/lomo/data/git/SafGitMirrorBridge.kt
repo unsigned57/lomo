@@ -25,10 +25,10 @@ class SafGitMirrorBridge
         suspend fun mirrorDirectoryFor(rootUriString: String): File =
             withContext(Dispatchers.IO) {
                 val baseDir = File(context.filesDir, "git_sync_mirror")
-                if (!baseDir.exists()) baseDir.mkdirs()
+                ensureDirectoryExists(baseDir)
 
                 val mirrorDir = File(baseDir, sha256(rootUriString))
-                if (!mirrorDir.exists()) mirrorDir.mkdirs()
+                ensureDirectoryExists(mirrorDir)
                 mirrorDir
             }
 
@@ -38,12 +38,12 @@ class SafGitMirrorBridge
         ) {
             withContext(Dispatchers.IO) {
                 val root = resolveRootDocument(rootUriString)
-                if (!mirrorDir.exists()) mirrorDir.mkdirs()
+                ensureDirectoryExists(mirrorDir)
 
                 val safPaths = mutableSetOf<String>()
                 root.listFiles().forEach { child ->
                     val name = child.name ?: return@forEach
-                    if (name == ".git") return@forEach
+                    if (isGitMetadataPath(name)) return@forEach
                     copySafDocumentToLocal(child, mirrorDir, name, safPaths)
                 }
                 pruneLocalMirror(mirrorDir, safPaths)
@@ -56,14 +56,14 @@ class SafGitMirrorBridge
         ) {
             withContext(Dispatchers.IO) {
                 val root = resolveRootDocument(rootUriString)
-                if (!mirrorDir.exists()) mirrorDir.mkdirs()
+                ensureDirectoryExists(mirrorDir)
 
                 val localPaths = mutableSetOf<String>()
                 mirrorDir.walkTopDown().forEach { local ->
                     if (local == mirrorDir) return@forEach
 
                     val relativePath = local.relativeTo(mirrorDir).invariantSeparatorsPath
-                    if (relativePath == ".git" || relativePath.startsWith(".git/")) return@forEach
+                    if (isGitMetadataPath(relativePath)) return@forEach
 
                     localPaths.add(relativePath)
                     if (local.isDirectory) {
@@ -92,36 +92,60 @@ class SafGitMirrorBridge
             relativePath: String,
             safPaths: MutableSet<String>,
         ) {
-            if (document.isDirectory) {
-                safPaths.add(relativePath)
-                val localDir = File(mirrorDir, relativePath)
-                if (!localDir.exists()) localDir.mkdirs()
-
-                document.listFiles().forEach { child ->
-                    val name = child.name ?: return@forEach
-                    if (name == ".git") return@forEach
-                    copySafDocumentToLocal(
-                        child,
-                        mirrorDir,
-                        "$relativePath/$name",
-                        safPaths,
+            when {
+                document.isDirectory -> {
+                    copySafDirectoryToLocal(
+                        directory = document,
+                        mirrorDir = mirrorDir,
+                        relativePath = relativePath,
+                        safPaths = safPaths,
                     )
                 }
-                return
+
+                document.isFile -> {
+                    copySafFileToLocal(
+                        document = document,
+                        mirrorDir = mirrorDir,
+                        relativePath = relativePath,
+                        safPaths = safPaths,
+                    )
+                }
             }
+        }
 
-            if (!document.isFile) return
+        private fun copySafDirectoryToLocal(
+            directory: DocumentFile,
+            mirrorDir: File,
+            relativePath: String,
+            safPaths: MutableSet<String>,
+        ) {
+            safPaths.add(relativePath)
+            val localDir = File(mirrorDir, relativePath)
+            ensureDirectoryExists(localDir)
 
+            directory.listFiles().forEach { child ->
+                val name = child.name ?: return@forEach
+                if (isGitMetadataPath(name)) return@forEach
+                copySafDocumentToLocal(
+                    document = child,
+                    mirrorDir = mirrorDir,
+                    relativePath = "$relativePath/$name",
+                    safPaths = safPaths,
+                )
+            }
+        }
+
+        private fun copySafFileToLocal(
+            document: DocumentFile,
+            mirrorDir: File,
+            relativePath: String,
+            safPaths: MutableSet<String>,
+        ) {
             safPaths.add(relativePath)
             val localFile = File(mirrorDir, relativePath)
-            localFile.parentFile?.mkdirs()
+            localFile.parentFile?.let(::ensureDirectoryExists)
 
-            // Incremental copy: skip if lastModified and length match
-            val docModified = document.lastModified()
-            val docLength = document.length()
-            if (localFile.exists() && docModified > 0 &&
-                localFile.lastModified() == docModified && localFile.length() == docLength
-            ) {
+            if (isUnchangedLocalCopy(localFile, document)) {
                 return
             }
 
@@ -140,25 +164,6 @@ class SafGitMirrorBridge
             }
         }
 
-        private fun pruneLocalMirror(
-            mirrorDir: File,
-            safPaths: Set<String>,
-        ) {
-            mirrorDir.walkBottomUp().forEach { local ->
-                if (local == mirrorDir) return@forEach
-
-                val relativePath = local.relativeTo(mirrorDir).invariantSeparatorsPath
-                if (relativePath == ".git" || relativePath.startsWith(".git/")) return@forEach
-
-                if (!safPaths.contains(relativePath)) {
-                    val deleted = local.deleteRecursively()
-                    if (!deleted) {
-                        Timber.w("Failed to delete stale mirror path: %s", relativePath)
-                    }
-                }
-            }
-        }
-
         private fun writeLocalFileToSaf(
             root: DocumentFile,
             relativePath: String,
@@ -173,16 +178,8 @@ class SafGitMirrorBridge
                 deleteRecursively(target)
                 target = null
             }
-
-            // Incremental write: skip if lastModified and length match
-            if (target != null && target.isFile) {
-                val safModified = target.lastModified()
-                val safLength = target.length()
-                if (safModified > 0 && localFile.lastModified() > 0 &&
-                    safModified == localFile.lastModified() && safLength == localFile.length()
-                ) {
-                    return
-                }
+            if (target != null && target.isFile && isUnchangedSafCopy(target, localFile)) {
+                return
             }
 
             if (target == null) {
@@ -206,10 +203,12 @@ class SafGitMirrorBridge
             root: DocumentFile,
             relativePath: String,
         ): DocumentFile {
-            if (relativePath.isBlank()) return root
+            if (relativePath.isBlank()) {
+                return root
+            }
 
             var current = root
-            relativePath.split('/').filter { it.isNotBlank() }.forEach { segment ->
+            relativePath.split('/').filter(String::isNotBlank).forEach { segment ->
                 var child = current.findFile(segment)
                 if (child != null && !child.isDirectory) {
                     child.delete()
@@ -224,54 +223,107 @@ class SafGitMirrorBridge
             }
             return current
         }
+    }
 
-        private fun pruneSaf(
-            root: DocumentFile,
-            localPaths: Set<String>,
-        ) {
-            val safEntries = mutableListOf<Pair<String, DocumentFile>>()
-            collectSafEntries(root, "", safEntries)
+private fun ensureDirectoryExists(directory: File) {
+    if (!directory.exists()) {
+        directory.mkdirs()
+    }
+}
 
-            safEntries
-                .sortedByDescending { (path, _) -> path.count { it == '/' } }
-                .forEach { (path, doc) ->
-                    if (path == ".git" || path.startsWith(".git/")) return@forEach
-                    if (!localPaths.contains(path)) {
-                        deleteRecursively(doc)
-                    }
-                }
-        }
+private fun isGitMetadataPath(relativePath: String): Boolean =
+    relativePath == GIT_METADATA_DIRECTORY || relativePath.startsWith("$GIT_METADATA_DIRECTORY/")
 
-        private fun collectSafEntries(
-            parent: DocumentFile,
-            basePath: String,
-            sink: MutableList<Pair<String, DocumentFile>>,
-        ) {
-            parent.listFiles().forEach { child ->
-                val name = child.name ?: return@forEach
-                val path = if (basePath.isBlank()) name else "$basePath/$name"
-                sink.add(path to child)
-                if (child.isDirectory) {
-                    collectSafEntries(child, path, sink)
-                }
+private fun isUnchangedLocalCopy(
+    localFile: File,
+    document: DocumentFile,
+): Boolean {
+    val documentModified = document.lastModified()
+    val documentLength = document.length()
+    return localFile.exists() &&
+        documentModified > 0 &&
+        localFile.lastModified() == documentModified &&
+        localFile.length() == documentLength
+}
+
+private fun isUnchangedSafCopy(
+    target: DocumentFile,
+    localFile: File,
+): Boolean {
+    val safModified = target.lastModified()
+    val safLength = target.length()
+    return safModified > 0 &&
+        localFile.lastModified() > 0 &&
+        safModified == localFile.lastModified() &&
+        safLength == localFile.length()
+}
+
+private fun pruneLocalMirror(
+    mirrorDir: File,
+    safPaths: Set<String>,
+) {
+    mirrorDir.walkBottomUp().forEach { local ->
+        if (local == mirrorDir) return@forEach
+
+        val relativePath = local.relativeTo(mirrorDir).invariantSeparatorsPath
+        if (isGitMetadataPath(relativePath)) return@forEach
+
+        if (!safPaths.contains(relativePath)) {
+            val deleted = local.deleteRecursively()
+            if (!deleted) {
+                Timber.w("Failed to delete stale mirror path: %s", relativePath)
             }
-        }
-
-        private fun deleteRecursively(document: DocumentFile) {
-            if (document.isDirectory) {
-                document.listFiles().forEach { child ->
-                    deleteRecursively(child)
-                }
-            }
-            if (!document.delete()) {
-                Timber.w("Failed to delete SAF document: %s", document.uri)
-            }
-        }
-
-        private fun mimeTypeFor(filename: String): String = URLConnection.guessContentTypeFromName(filename) ?: "application/octet-stream"
-
-        private fun sha256(input: String): String {
-            val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
-            return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
         }
     }
+}
+
+private fun pruneSaf(
+    root: DocumentFile,
+    localPaths: Set<String>,
+) {
+    val safEntries = mutableListOf<Pair<String, DocumentFile>>()
+    collectSafEntries(root, "", safEntries)
+
+    safEntries
+        .sortedByDescending { (path, _) -> path.count { it == '/' } }
+        .forEach { (path, doc) ->
+            if (isGitMetadataPath(path)) return@forEach
+            if (!localPaths.contains(path)) {
+                deleteRecursively(doc)
+            }
+        }
+}
+
+private fun collectSafEntries(
+    parent: DocumentFile,
+    basePath: String,
+    sink: MutableList<Pair<String, DocumentFile>>,
+) {
+    parent.listFiles().forEach { child ->
+        val name = child.name ?: return@forEach
+        val path = if (basePath.isBlank()) name else "$basePath/$name"
+        sink.add(path to child)
+        if (child.isDirectory) {
+            collectSafEntries(child, path, sink)
+        }
+    }
+}
+
+private fun deleteRecursively(document: DocumentFile) {
+    if (document.isDirectory) {
+        document.listFiles().forEach(::deleteRecursively)
+    }
+    if (!document.delete()) {
+        Timber.w("Failed to delete SAF document: %s", document.uri)
+    }
+}
+
+private fun mimeTypeFor(filename: String): String =
+    URLConnection.guessContentTypeFromName(filename) ?: "application/octet-stream"
+
+private fun sha256(input: String): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(input.toByteArray(Charsets.UTF_8))
+    return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+}
+
+private const val GIT_METADATA_DIRECTORY = ".git"

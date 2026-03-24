@@ -15,7 +15,7 @@ import kotlin.random.Random
  * storage can provide indexed access efficiently.
  */
 class DailyReviewQueryUseCase
-    constructor(
+(
         private val repository: MemoRepository,
     ) {
         suspend operator fun invoke(): List<Memo> =
@@ -28,11 +28,7 @@ class DailyReviewQueryUseCase
             limit: Int,
             seedDate: LocalDate,
         ): List<Memo> {
-            if (limit <= 0) return emptyList()
-
-            val totalMemoCount = repository.getMemoCount()
-            if (totalMemoCount <= 0) return emptyList()
-
+            val totalMemoCount = if (limit > 0) repository.getMemoCount() else 0
             val safeLimit = limit.coerceAtMost(totalMemoCount)
             if (safeLimit <= 0) return emptyList()
 
@@ -44,8 +40,11 @@ class DailyReviewQueryUseCase
                     sampleIndicesWithoutReplacement(totalMemoCount, safeLimit, dailyRandom)
                 }
 
-            if (sampledIndices.isEmpty()) return emptyList()
-            return fetchMemosByIndices(sampledIndices)
+            return if (sampledIndices.isEmpty()) {
+                emptyList()
+            } else {
+                fetchMemosByIndices(sampledIndices)
+            }
         }
 
         private suspend fun fetchMemosByIndices(indices: IntArray): List<Memo> {

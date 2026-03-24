@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MediaStorageDataSource
+import com.lomo.data.util.runNonFatalCatching
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -20,10 +21,6 @@ class ShareAttachmentStorage
         private val dataSource: MediaStorageDataSource,
         private val dataStore: LomoDataStore,
     ) {
-        private companion object {
-            private const val TAG = "ShareAttachmentStorage"
-        }
-
         /**
          * Saves a received attachment and returns the stored filename for memo remapping.
          */
@@ -33,7 +30,7 @@ class ShareAttachmentStorage
             payloadFile: File,
         ): String? {
             val safeName = sanitizeAttachmentFilename(name)
-            return try {
+            return runNonFatalCatching {
                 val tempUri = Uri.fromFile(payloadFile)
                 when (type) {
                     "image" -> {
@@ -58,8 +55,8 @@ class ShareAttachmentStorage
                         null
                     }
                 }
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Failed to save attachment: $safeName")
+            }.getOrElse { error ->
+                Timber.tag(TAG).e(error, "Failed to save attachment: $safeName")
                 null
             }
         }
@@ -113,15 +110,12 @@ class ShareAttachmentStorage
         private fun fileExistsInTree(
             treeUriString: String?,
             filename: String,
-        ): Boolean {
-            if (treeUriString.isNullOrBlank()) return false
-            return try {
-                val tree = DocumentFile.fromTreeUri(context, Uri.parse(treeUriString)) ?: return false
-                tree.findFile(filename)?.isFile == true
-            } catch (_: Exception) {
-                false
-            }
-        }
+        ): Boolean =
+            treeUriString
+                ?.takeIf(String::isNotBlank)
+                ?.let { runCatching { DocumentFile.fromTreeUri(context, Uri.parse(it)) }.getOrNull() }
+                ?.findFile(filename)
+                ?.isFile == true
 
         private fun sanitizeAttachmentFilename(name: String): String {
             val base =
@@ -132,11 +126,16 @@ class ShareAttachmentStorage
             val sanitized =
                 base
                     .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    .take(96)
+                    .take(MAX_SANITIZED_FILENAME_CHARS)
             return if (sanitized.isBlank()) {
                 "attachment_${System.currentTimeMillis()}"
             } else {
                 sanitized
             }
+        }
+
+        private companion object {
+            private const val MAX_SANITIZED_FILENAME_CHARS = 96
+            private const val TAG = "ShareAttachmentStorage"
         }
     }

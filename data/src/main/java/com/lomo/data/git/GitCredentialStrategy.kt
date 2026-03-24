@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.util.runNonFatalCatching
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
 import timber.log.Timber
 import javax.inject.Inject
@@ -32,24 +33,27 @@ class GitCredentialStrategy
         ): T {
             val cached = cachedCredentialIndex
             if (cached in providers.indices) {
-                try {
-                    return block(providers[cached])
-                } catch (e: Exception) {
-                    Timber.w(e, "$operation failed with cached credential strategy #${cached + 1}, resetting cache")
+                val attempt = runNonFatalCatching { block(providers[cached]) }
+                if (attempt.isSuccess) {
+                    return attempt.getOrThrow()
+                }
+                attempt.exceptionOrNull()?.let { error ->
+                    Timber.w(error, "$operation failed with cached credential strategy #${cached + 1}, resetting cache")
                     cachedCredentialIndex = -1
                 }
             }
 
-            var lastError: Exception? = null
+            var lastError: Throwable? = null
             providers.forEachIndexed { index, provider ->
                 if (index == cached) return@forEachIndexed
-                try {
-                    val result = block(provider)
+                val attempt = runNonFatalCatching { block(provider) }
+                if (attempt.isSuccess) {
                     cachedCredentialIndex = index
-                    return result
-                } catch (e: Exception) {
-                    lastError = e
-                    Timber.w(e, "$operation failed with credential strategy #${index + 1}")
+                    return attempt.getOrThrow()
+                }
+                attempt.exceptionOrNull()?.let { error ->
+                    lastError = error
+                    Timber.w(error, "$operation failed with credential strategy #${index + 1}")
                 }
             }
 

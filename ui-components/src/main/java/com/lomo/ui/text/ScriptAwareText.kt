@@ -8,6 +8,8 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 
+private const val NORMALIZED_TEXT_BUFFER_PADDING = 8
+
 fun CharSequence.isCjkDominant(): Boolean {
     var cjkCount = 0
     var alphaNumericCount = 0
@@ -21,9 +23,9 @@ fun CharSequence.isCjkDominant(): Boolean {
         }
     }
 
-    if (cjkCount == 0) return false
-    if (alphaNumericCount == 0) return true
-    return cjkCount >= alphaNumericCount
+    val hasCjk = cjkCount > 0
+    val cjkOnly = alphaNumericCount == 0
+    return hasCjk && (cjkOnly || cjkCount >= alphaNumericCount)
 }
 
 fun CharSequence.scriptAwareTextAlign(): TextAlign = if (containsCjkScript()) TextAlign.Justify else TextAlign.Start
@@ -54,21 +56,25 @@ fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
  * - Convert half-width punctuation to full-width when adjacent to CJK.
  */
 fun CharSequence.normalizeCjkMixedSpacingForDisplay(): String {
-    if (!containsCjkScript()) return toString()
-    if (isEmpty()) return ""
+    if (isEmpty() || !containsCjkScript()) return toString()
 
     val source = toString()
-    val out = StringBuilder(source.length + 8)
+    val out = StringBuilder(source.length + NORMALIZED_TEXT_BUFFER_PADDING)
     var previousOut: Char? = null
 
     source.forEachIndexed { index, rawChar ->
         val current = normalizeHalfWidthPunctuation(rawChar)
 
         val left = previousOut
-        if (left != null && shouldInsertCjkLatinBoundarySpace(left, current)) {
-            if (left != ' ' && left != '\n' && left != '\t' && current != ' ') {
-                out.append(' ')
-            }
+        val canInsertBoundarySpace =
+            left != null && shouldInsertCjkLatinBoundarySpace(left, current)
+        val hasBoundaryWhitespace =
+            left == ' ' || left == '\n' || left == '\t' || current == ' '
+        if (
+            canInsertBoundarySpace &&
+            !hasBoundaryWhitespace
+        ) {
+            out.append(' ')
         }
 
         out.append(current)
@@ -99,16 +105,6 @@ private fun Char.isCjkScript(): Boolean {
         block == Character.UnicodeBlock.HANGUL_SYLLABLES
 }
 
-private fun Char.isJapaneseScript(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.HIRAGANA || block == Character.UnicodeBlock.KATAKANA
-}
-
-private fun Char.isKoreanScript(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.HANGUL_SYLLABLES
-}
-
 private fun normalizeHalfWidthPunctuation(char: Char): Char {
     val mapped = char.toFullWidthPunctuationOrNull() ?: return char
     return mapped
@@ -123,16 +119,6 @@ private fun shouldInsertCjkLatinBoundarySpace(
 
 private fun Char.isLatinAlphaNumeric(): Boolean = isLetterOrDigit() && !isCjkScript()
 
-private fun Char.toFullWidthPunctuationOrNull(): Char? {
-    if (code !in ASCII_PUNCTUATION_START..ASCII_PUNCTUATION_END) return null
-    if (isLetterOrDigit()) return null
-    return (code + FULLWIDTH_ASCII_OFFSET).toChar()
-}
-
 private val ZH_LOCALE_LIST = LocaleList(Locale("zh-CN"))
 private val JA_LOCALE_LIST = LocaleList(Locale("ja-JP"))
 private val KO_LOCALE_LIST = LocaleList(Locale("ko-KR"))
-
-private const val ASCII_PUNCTUATION_START = 0x21
-private const val ASCII_PUNCTUATION_END = 0x7E
-private const val FULLWIDTH_ASCII_OFFSET = 0xFEE0

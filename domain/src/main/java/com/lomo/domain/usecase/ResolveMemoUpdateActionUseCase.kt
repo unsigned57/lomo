@@ -8,12 +8,11 @@ enum class MemoUpdateAction {
 /**
  * Single source for update-intent resolution.
  */
-class ResolveMemoUpdateActionUseCase
-    constructor() {
+class ResolveMemoUpdateActionUseCase {
         operator fun invoke(newContent: String): MemoUpdateAction =
             if (newContent.isBlank()) {
                 MemoUpdateAction.MOVE_TO_TRASH
             } else {
                 MemoUpdateAction.UPDATE_CONTENT
             }
-    }
+}

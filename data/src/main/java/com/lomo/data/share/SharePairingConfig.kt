@@ -2,6 +2,7 @@ package com.lomo.data.share
 
 import android.os.Build
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -15,27 +16,27 @@ class SharePairingConfig
     constructor(
         private val dataStore: LomoDataStore,
     ) {
-        companion object {
-            private const val MAX_DEVICE_NAME_CHARS = 32
-            private const val DEFAULT_DEVICE_NAME = "Android Device"
-        }
-
         private val pairingCodeInputState = MutableStateFlow("")
 
         val lanShareE2eEnabled: Flow<Boolean> = dataStore.lanShareE2eEnabled
-        val lanSharePairingConfigured: Flow<Boolean> = dataStore.lanSharePairingKeyHex.map { ShareAuthUtils.isValidKeyHex(it) }
+        val lanSharePairingConfigured: Flow<Boolean> =
+            dataStore.lanSharePairingKeyHex.map(::isValidKeyHex)
         val lanSharePairingCode: StateFlow<String> = pairingCodeInputState.asStateFlow()
-        val lanShareDeviceName: Flow<String> = dataStore.lanShareDeviceName.map { sanitizeDeviceName(it) ?: getFallbackDeviceName() }
+        val lanShareDeviceName: Flow<String> =
+            dataStore.lanShareDeviceName.map {
+                sanitizeDeviceName(it) ?: getFallbackDeviceName()
+            }
 
         suspend fun setLanShareE2eEnabled(enabled: Boolean) {
             dataStore.updateLanShareE2eEnabled(enabled)
         }
 
         suspend fun setLanSharePairingCode(pairingCode: String) {
-            val normalized = pairingCode.trim()
+            val normalized = LanSharePairingCodePolicy.normalize(pairingCode)
+            LanSharePairingCodePolicy.requireValid(normalized)
             val keyMaterial =
                 ShareAuthUtils.deriveKeyMaterialFromPairingCode(normalized)
-                    ?: throw IllegalArgumentException("Pairing code must be 6-64 characters")
+                    ?: throw IllegalStateException("Failed to derive pairing key material")
             dataStore.updateLanSharePairingKeyHex(keyMaterial)
             pairingCodeInputState.value = normalized
         }
@@ -53,7 +54,7 @@ class SharePairingConfig
         suspend fun requiresPairingBeforeSend(): Boolean {
             val e2eEnabled = dataStore.lanShareE2eEnabled.first()
             if (!e2eEnabled) return false
-            return !ShareAuthUtils.isValidKeyHex(dataStore.lanSharePairingKeyHex.first())
+            return !isValidKeyHex(dataStore.lanSharePairingKeyHex.first())
         }
 
         suspend fun getEffectivePairingKeyHex(): String? = dataStore.lanSharePairingKeyHex.first()
@@ -74,10 +75,15 @@ class SharePairingConfig
             val normalized =
                 name
                     ?.trim()
-                    ?.replace(Regex("[\\u0000-\\u001F\\u007F]"), "")
-                    ?.replace(Regex("\\s+"), " ")
-                    ?: return null
-            if (normalized.isBlank()) return null
-            return normalized.take(MAX_DEVICE_NAME_CHARS)
+                    ?.replace(Regex("""[\u0000-\u001F\u007F]"""), "")
+                    ?.replace(Regex("""\s+"""), " ")
+            return normalized
+                ?.takeUnless(String::isBlank)
+                ?.take(MAX_DEVICE_NAME_CHARS)
+        }
+
+        companion object {
+            private const val MAX_DEVICE_NAME_CHARS = 32
+            private const val DEFAULT_DEVICE_NAME = "Android Device"
         }
     }

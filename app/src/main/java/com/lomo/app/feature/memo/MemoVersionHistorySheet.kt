@@ -68,78 +68,116 @@ fun MemoVersionHistorySheet(
                     .padding(horizontal = 20.dp, vertical = 4.dp)
                     .padding(bottom = 24.dp),
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            MemoVersionHistoryHeader(
+                isLoading = isLoading,
+                versionCount = versions.size,
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            MemoVersionHistoryBody(
+                versions = versions,
+                isLoading = isLoading,
+                onRestore = onRestore,
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemoVersionHistoryHeader(
+    isLoading: Boolean,
+    versionCount: Int,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.memo_version_history),
+            style = MaterialTheme.typography.titleLarge,
+        )
+        if (!isLoading && versionCount > 0) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHighest,
             ) {
                 Text(
-                    text = stringResource(R.string.memo_version_history),
-                    style = MaterialTheme.typography.titleLarge,
+                    text = versionCount.toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                 )
-                if (!isLoading && versions.isNotEmpty()) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    ) {
-                        Text(
-                            text = versions.size.toString(),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
-                }
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.height(12.dp))
+@Composable
+private fun MemoVersionHistoryBody(
+    versions: List<MemoVersion>,
+    isLoading: Boolean,
+    onRestore: (MemoVersion) -> Unit,
+) {
+    when {
+        isLoading -> {
+            MemoVersionHistoryPlaceholder(
+                text = stringResource(R.string.memo_version_loading),
+                showLoadingIndicator = true,
+            )
+        }
 
-            if (isLoading) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(132.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        ExpressiveContainedLoadingIndicator(modifier = Modifier.size(48.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = stringResource(R.string.memo_version_loading),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            } else if (versions.isEmpty()) {
-                Box(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .height(132.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.memo_version_history_empty),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        versions.isEmpty() -> {
+            MemoVersionHistoryPlaceholder(
+                text = stringResource(R.string.memo_version_history_empty),
+                showLoadingIndicator = false,
+            )
+        }
+
+        else -> {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                itemsIndexed(versions, key = { _, version -> version.commitHash }) { _, version ->
+                    VersionItem(
+                        version = version,
+                        formattedTime = formatCommitTime(version.commitTime),
+                        onRestore = { onRestore(version) },
                     )
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    itemsIndexed(versions, key = { _, version -> version.commitHash }) { _, version ->
-                        VersionItem(
-                            version = version,
-                            formattedTime = formatCommitTime(version.commitTime),
-                            onRestore = { onRestore(version) },
-                        )
-                    }
-                }
             }
+        }
+    }
+}
+
+@Composable
+private fun MemoVersionHistoryPlaceholder(
+    text: String,
+    showLoadingIndicator: Boolean,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(132.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (showLoadingIndicator) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                ExpressiveContainedLoadingIndicator(modifier = Modifier.size(48.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        } else {
+            Text(
+                text = text,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -182,33 +220,10 @@ private fun VersionItem(
                     )
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                if (version.isCurrent) {
-                    AssistChip(
-                        onClick = {},
-                        enabled = false,
-                        label = {
-                            Text(
-                                text = stringResource(R.string.memo_version_current),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        },
-                        colors =
-                            AssistChipDefaults.assistChipColors(
-                                disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                disabledLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ),
-                    )
-                } else {
-                    TextButton(
-                        onClick = onRestore,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.memo_version_restore),
-                            style = MaterialTheme.typography.labelMedium,
-                        )
-                    }
-                }
+                VersionItemAction(
+                    isCurrent = version.isCurrent,
+                    onRestore = onRestore,
+                )
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -218,6 +233,40 @@ private fun VersionItem(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 4,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun VersionItemAction(
+    isCurrent: Boolean,
+    onRestore: () -> Unit,
+) {
+    if (isCurrent) {
+        AssistChip(
+            onClick = {},
+            enabled = false,
+            label = {
+                Text(
+                    text = stringResource(R.string.memo_version_current),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            },
+            colors =
+                AssistChipDefaults.assistChipColors(
+                    disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    disabledLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                ),
+        )
+    } else {
+        TextButton(
+            onClick = onRestore,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.memo_version_restore),
+                style = MaterialTheme.typography.labelMedium,
             )
         }
     }

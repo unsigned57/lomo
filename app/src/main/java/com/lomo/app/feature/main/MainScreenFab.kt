@@ -1,12 +1,24 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.*
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,47 +65,52 @@ internal fun MainFab(
                     androidx.compose.ui.res
                         .stringResource(R.string.fab_new_memo),
             )
-            AnimatedVisibility(
-                visible = isVisible,
-                enter =
-                    expandHorizontally(
-                        animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasized,
-                            ),
-                    ) +
-                        fadeIn(
-                            animationSpec =
-                                tween(
-                                    durationMillis = MotionTokens.DurationMedium2,
-                                ),
+            MainFabAnimatedLabel(isVisible = isVisible)
+        }
+    }
+}
+
+@Composable
+private fun MainFabAnimatedLabel(isVisible: Boolean) {
+    AnimatedVisibility(
+        visible = isVisible,
+        enter =
+            expandHorizontally(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationMedium2,
+                        easing = MotionTokens.EasingEmphasized,
+                    ),
+            ) +
+                fadeIn(
+                    animationSpec =
+                        tween(
+                            durationMillis = MotionTokens.DurationMedium2,
                         ),
-                exit =
-                    shrinkHorizontally(
-                        animationSpec =
-                            tween(
-                                durationMillis = MotionTokens.DurationMedium2,
-                                easing = MotionTokens.EasingEmphasized,
-                            ),
-                    ) +
-                        fadeOut(
-                            animationSpec =
-                                tween(
-                                    durationMillis = MotionTokens.DurationMedium2,
-                                ),
+                ),
+        exit =
+            shrinkHorizontally(
+                animationSpec =
+                    tween(
+                        durationMillis = MotionTokens.DurationMedium2,
+                        easing = MotionTokens.EasingEmphasized,
+                    ),
+            ) +
+                fadeOut(
+                    animationSpec =
+                        tween(
+                            durationMillis = MotionTokens.DurationMedium2,
                         ),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(Modifier.width(12.dp))
-                    Text(
-                        text =
-                            androidx.compose.ui.res
-                                .stringResource(R.string.fab_new_memo),
-                        style = MaterialTheme.typography.labelLarge,
-                    )
-                }
-            }
+                ),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text =
+                    androidx.compose.ui.res
+                        .stringResource(R.string.fab_new_memo),
+                style = MaterialTheme.typography.labelLarge,
+            )
         }
     }
 }

@@ -1,7 +1,6 @@
 package com.lomo.domain.usecase
 
-class GitSyncErrorUseCase
-    constructor() {
+class GitSyncErrorUseCase {
         enum class ErrorKind {
             CONFLICT,
             DIRECT_PATH_REQUIRED,
@@ -29,11 +28,13 @@ class GitSyncErrorUseCase
 
         fun classify(message: String?): ErrorKind {
             val normalized = message?.trim().orEmpty()
-            if (normalized.isBlank()) return ErrorKind.EMPTY
-            if (isConflictMessage(normalized)) return ErrorKind.CONFLICT
-            if (normalized.startsWith(DIRECT_PATH_REQUIRED_PREFIX, ignoreCase = true)) return ErrorKind.DIRECT_PATH_REQUIRED
-            if (looksTechnicalMessage(normalized)) return ErrorKind.TECHNICAL
-            return ErrorKind.USER_FACING
+            return when {
+                normalized.isBlank() -> ErrorKind.EMPTY
+                isConflictMessage(normalized) -> ErrorKind.CONFLICT
+                normalized.startsWith(DIRECT_PATH_REQUIRED_PREFIX, ignoreCase = true) -> ErrorKind.DIRECT_PATH_REQUIRED
+                looksTechnicalMessage(normalized) -> ErrorKind.TECHNICAL
+                else -> ErrorKind.USER_FACING
+            }
         }
 
         fun isConflictMessage(message: String): Boolean =
@@ -45,16 +46,18 @@ class GitSyncErrorUseCase
                 )
 
         fun looksTechnicalMessage(message: String): Boolean =
-            message.length > 200 ||
+            message.length > TECHNICAL_MESSAGE_LENGTH_THRESHOLD ||
                 message.contains('\n') ||
                 message.contains('\r') ||
                 message.contains("exception", ignoreCase = true) ||
                 message.contains("java.", ignoreCase = true) ||
                 message.contains("kotlin.", ignoreCase = true) ||
                 message.contains("stacktrace", ignoreCase = true) ||
-                message.contains("\tat")
+                message.contains(STACK_TRACE_LINE_PREFIX)
 
         private companion object {
             private const val DIRECT_PATH_REQUIRED_PREFIX = "Git sync requires direct path mode"
+            private const val STACK_TRACE_LINE_PREFIX = "\tat"
+            private const val TECHNICAL_MESSAGE_LENGTH_THRESHOLD = 200
         }
-    }
+}

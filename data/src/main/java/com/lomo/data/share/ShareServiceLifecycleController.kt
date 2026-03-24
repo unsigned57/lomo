@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.io.File
 import javax.inject.Inject
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -22,10 +23,6 @@ class ShareServiceLifecycleController
         @ApplicationContext private val context: Context,
         private val pairingConfig: SharePairingConfig,
     ) {
-        private companion object {
-            private const val TAG = "ShareServiceLifecycle"
-        }
-
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val nsdService = NsdDiscoveryService(context)
         private val server = LomoShareServer()
@@ -72,12 +69,13 @@ class ShareServiceLifecycleController
             acquireMulticastLock()
 
             scope.launch {
-                try {
+                runCatching {
                     serverPort = server.start()
                     val deviceName = pairingConfig.resolveDeviceName()
                     nsdService.registerService(serverPort, deviceName, localUuid)
                     Timber.tag(TAG).d("Services started: server=$serverPort, device=$deviceName")
-                } catch (e: Exception) {
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
                     synchronized(serviceStateLock) {
                         servicesStarted = false
                     }
@@ -86,7 +84,7 @@ class ShareServiceLifecycleController
                         .onFailure { Timber.tag(TAG).e(it, "Failed to clean NSD registration after start failure") }
                     runCatching { server.stop() }
                         .onFailure { Timber.tag(TAG).e(it, "Failed to stop server after start failure") }
-                    Timber.tag(TAG).e(e, "Failed to start services")
+                    Timber.tag(TAG).e(error, "Failed to start services")
                 }
             }
         }
@@ -141,36 +139,43 @@ class ShareServiceLifecycleController
             if (!shouldRefresh) return
 
             scope.launch {
-                try {
+                runCatching {
                     val deviceName = pairingConfig.resolveDeviceName()
                     nsdService.unregisterService()
                     nsdService.registerService(serverPort, deviceName, localUuid)
                     Timber.tag(TAG).d("Refreshed NSD service name: $deviceName")
-                } catch (e: Exception) {
-                    Timber.tag(TAG).e(e, "Failed to refresh NSD registration")
+                }.onFailure { error ->
+                    if (error is CancellationException) throw error
+                    Timber.tag(TAG).e(error, "Failed to refresh NSD registration")
                 }
             }
         }
 
         private fun acquireMulticastLock() {
-            try {
+            runCatching {
                 if (multicastLock == null) {
                     multicastLock = wifiManager?.createMulticastLock("lomo_share_lock")
                     multicastLock?.setReferenceCounted(true)
                 }
                 multicastLock?.acquire()
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Failed to acquire multicast lock")
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Timber.tag(TAG).e(error, "Failed to acquire multicast lock")
             }
         }
 
         private fun releaseMulticastLockSafely() {
-            try {
+            runCatching {
                 if (multicastLock?.isHeld == true) {
                     multicastLock?.release()
                 }
-            } catch (e: Exception) {
-                Timber.tag(TAG).e(e, "Failed to release multicast lock")
+            }.onFailure { error ->
+                if (error is CancellationException) throw error
+                Timber.tag(TAG).e(error, "Failed to release multicast lock")
             }
+        }
+
+        private companion object {
+            private const val TAG = "ShareServiceLifecycle"
         }
     }

@@ -43,8 +43,10 @@ class MemoIdentityPolicy {
     ): Boolean = memoId == baseId || memoId.startsWith("${baseId}_")
 
     companion object {
-        fun contentHashHex(content: String): String = abs(content.trim().hashCode()).toString(16)
-
         private const val MAX_TIMESTAMP_OFFSET_MS = 999
+        private const val HEX_RADIX = 16
+
+        fun contentHashHex(content: String): String =
+            abs(content.trim().hashCode()).toString(HEX_RADIX)
     }
 }

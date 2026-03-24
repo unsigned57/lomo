@@ -28,7 +28,7 @@ class WebDavSyncWorker
 
                 is WebDavSyncResult.Error -> {
                     Timber.e("WebDavSyncWorker error: ${result.message}")
-                    if (runAttemptCount < 3) Result.retry() else Result.failure()
+                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
                 }
 
                 is WebDavSyncResult.Conflict -> {
@@ -43,6 +43,7 @@ class WebDavSyncWorker
         }
 
         companion object {
+            private const val MAX_RETRY_ATTEMPTS = 3
             const val WORK_NAME = "com.lomo.data.worker.WebDavSyncWorker"
         }
     }

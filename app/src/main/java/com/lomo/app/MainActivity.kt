@@ -36,6 +36,7 @@ import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
+import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.app.util.ShareUtils
@@ -60,119 +61,16 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
 
-    companion object {
-        const val ACTION_NEW_MEMO = "com.lomo.app.ACTION_NEW_MEMO"
-        const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
-        const val EXTRA_MEMO_ID = "memo_id"
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        splashScreen.setKeepOnScreenCondition {
-            viewModel.uiState.value is MainViewModel.MainScreenState.Loading || viewModel.appLockEnabled.value == null
-        }
-
+        splashScreen.setKeepOnScreenCondition(::shouldKeepSplashScreenVisible)
         enableEdgeToEdge()
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
-
-        setContent {
-            val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-
-            LaunchedEffect(appPreferences.themeMode) {
-                applyAppNightMode(this@MainActivity, appPreferences.themeMode)
-            }
-
-            val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
-
-            var hasUnlockedThisLaunch by remember { mutableStateOf(false) }
-            var hasRequestedAutoUnlock by remember { mutableStateOf(false) }
-            var unlockPromptInProgress by remember { mutableStateOf(false) }
-            var unlockErrorMessage by remember { mutableStateOf<String?>(null) }
-
-            LaunchedEffect(appLockEnabled) {
-                if (appLockEnabled == false) {
-                    hasUnlockedThisLaunch = true
-                    hasRequestedAutoUnlock = true
-                    unlockPromptInProgress = false
-                    unlockErrorMessage = null
-                }
-            }
-
-            fun requestUnlock() {
-                unlockPromptInProgress = true
-                unlockErrorMessage = null
-                requestAppUnlock(
-                    onSuccess = {
-                        hasUnlockedThisLaunch = true
-                        unlockPromptInProgress = false
-                        unlockErrorMessage = null
-                    },
-                    onFailure = { message ->
-                        unlockPromptInProgress = false
-                        unlockErrorMessage = message
-                    },
-                )
-            }
-
-            LaunchedEffect(
-                appLockEnabled,
-                hasUnlockedThisLaunch,
-                hasRequestedAutoUnlock,
-                unlockPromptInProgress,
-            ) {
-                if (appLockEnabled == true &&
-                    !hasUnlockedThisLaunch &&
-                    !hasRequestedAutoUnlock &&
-                    !unlockPromptInProgress
-                ) {
-                    hasRequestedAutoUnlock = true
-                    requestUnlock()
-                }
-            }
-
-            val showLockGate = appLockEnabled == true && !hasUnlockedThisLaunch
-
-            LomoTheme(themeMode = appPreferences.themeMode.value) {
-                androidx.activity.compose.ReportDrawnWhen { !showLockGate }
-                com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
-                    AnimatedContent(
-                        targetState = showLockGate,
-                        label = "AppLockGateTransition",
-                        transitionSpec = {
-                            MotionTokens.enterContent togetherWith MotionTokens.exitContent
-                        },
-                    ) { isLockGateVisible ->
-                        if (isLockGateVisible) {
-                            AppLockGate(
-                                isConfigLoading = false,
-                                isUnlockInProgress = unlockPromptInProgress,
-                                errorMessage = unlockErrorMessage,
-                                onRetry = {
-                                    if (appLockEnabled == true && !unlockPromptInProgress) {
-                                        requestUnlock()
-                                    }
-                                },
-                            )
-                        } else {
-                            androidx.compose.runtime.CompositionLocalProvider(
-                                LocalAudioPlayerManager provides audioPlayerController,
-                                LocalShareUtils provides shareUtils,
-                            ) {
-                                LomoAppRoot(
-                                    viewModel = viewModel,
-                                    shareServiceManager = shareServiceManager,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+        setMainContent()
         // Network service bootstrap is not required for first frame rendering.
         window.decorView.post {
             shareServiceManager.startServices()
@@ -209,16 +107,16 @@ class MainActivity : AppCompatActivity() {
     private fun handleShareIntent(intent: Intent) {
         val type = intent.type.orEmpty()
         if (type.startsWith("text/")) {
-            extractSharedTexts(intent).forEach(viewModel::handleSharedText)
+            extractSharedTexts(intent).forEach(viewModel.handleSharedText)
             return
         }
         if (type.startsWith("image/")) {
-            extractSharedImageUris(intent).forEach(viewModel::handleSharedImage)
+            extractSharedImageUris(intent).forEach(viewModel.handleSharedImage)
             return
         }
         // Fallback for mixed or missing MIME type.
-        extractSharedTexts(intent).forEach(viewModel::handleSharedText)
-        extractSharedImageUris(intent).forEach(viewModel::handleSharedImage)
+        extractSharedTexts(intent).forEach(viewModel.handleSharedText)
+        extractSharedImageUris(intent).forEach(viewModel.handleSharedImage)
     }
 
     private fun extractSharedTexts(intent: Intent): List<String> {
@@ -322,31 +220,190 @@ class MainActivity : AppCompatActivity() {
 
     private fun resolveSupportedAuthenticators(): Int? {
         val biometricManager = BiometricManager.from(this)
-        val combined =
-            BiometricManager.Authenticators.BIOMETRIC_WEAK or
-                BiometricManager.Authenticators.DEVICE_CREDENTIAL
-
-        if (biometricManager.canAuthenticate(combined) == BiometricManager.BIOMETRIC_SUCCESS) {
-            return combined
+        return SUPPORTED_AUTHENTICATOR_OPTIONS.firstOrNull { authenticators ->
+            biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
         }
-        if (
-            biometricManager.canAuthenticate(BiometricManager.Authenticators.DEVICE_CREDENTIAL) ==
-            BiometricManager.BIOMETRIC_SUCCESS
-        ) {
-            return BiometricManager.Authenticators.DEVICE_CREDENTIAL
-        }
-        if (
-            biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK) ==
-            BiometricManager.BIOMETRIC_SUCCESS
-        ) {
-            return BiometricManager.Authenticators.BIOMETRIC_WEAK
-        }
-        return null
     }
 
     override fun onDestroy() {
         super.onDestroy()
         shareServiceManager.stopServices()
+    }
+
+    private fun shouldKeepSplashScreenVisible(): Boolean =
+        viewModel.uiState.value is MainViewModel.MainScreenState.Loading || viewModel.appLockEnabled.value == null
+
+    private fun setMainContent() {
+        setContent {
+            MainActivityScreen(
+                viewModel = viewModel,
+                audioPlayerController = audioPlayerController,
+                shareUtils = shareUtils,
+                shareServiceManager = shareServiceManager,
+                onThemeModeChanged = { applyAppNightMode(this@MainActivity, it) },
+                onRequestUnlock = ::requestAppUnlock,
+            )
+        }
+    }
+
+    companion object {
+        const val ACTION_NEW_MEMO = "com.lomo.app.ACTION_NEW_MEMO"
+        const val ACTION_OPEN_MEMO = "com.lomo.app.ACTION_OPEN_MEMO"
+        const val EXTRA_MEMO_ID = "memo_id"
+    }
+}
+
+@Composable
+private fun MainActivityScreen(
+    viewModel: MainViewModel,
+    audioPlayerController: AudioPlayerController,
+    shareUtils: ShareUtils,
+    shareServiceManager: LanShareService,
+    onThemeModeChanged: (com.lomo.domain.model.ThemeMode) -> Unit,
+    onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+) {
+    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
+    val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
+    val appLockUiState =
+        rememberAppLockUiState(
+            appLockEnabled = appLockEnabled,
+            onRequestUnlock = onRequestUnlock,
+        )
+
+    LaunchedEffect(appPreferences.themeMode) {
+        onThemeModeChanged(appPreferences.themeMode)
+    }
+
+    MainActivityRoot(
+        appPreferences = appPreferences,
+        appLockEnabled = appLockEnabled,
+        appLockUiState = appLockUiState,
+        viewModel = viewModel,
+        audioPlayerController = audioPlayerController,
+        shareUtils = shareUtils,
+        shareServiceManager = shareServiceManager,
+    )
+}
+
+@Composable
+private fun rememberAppLockUiState(
+    appLockEnabled: Boolean?,
+    onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+): AppLockUiState {
+    var hasUnlockedThisLaunch by remember { mutableStateOf(false) }
+    var hasRequestedAutoUnlock by remember { mutableStateOf(false) }
+    var unlockPromptInProgress by remember { mutableStateOf(false) }
+    var unlockErrorMessage by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(appLockEnabled) {
+        if (appLockEnabled == false) {
+            hasUnlockedThisLaunch = true
+            hasRequestedAutoUnlock = true
+            unlockPromptInProgress = false
+            unlockErrorMessage = null
+        }
+    }
+
+    fun requestUnlock() {
+        unlockPromptInProgress = true
+        unlockErrorMessage = null
+        onRequestUnlock(
+            {
+                hasUnlockedThisLaunch = true
+                unlockPromptInProgress = false
+                unlockErrorMessage = null
+            },
+            { message ->
+                unlockPromptInProgress = false
+                unlockErrorMessage = message
+            },
+        )
+    }
+
+    LaunchedEffect(
+        appLockEnabled,
+        hasUnlockedThisLaunch,
+        hasRequestedAutoUnlock,
+        unlockPromptInProgress,
+    ) {
+        if (
+            shouldAutoRequestUnlock(
+                appLockEnabled = appLockEnabled,
+                hasUnlockedThisLaunch = hasUnlockedThisLaunch,
+                hasRequestedAutoUnlock = hasRequestedAutoUnlock,
+                unlockPromptInProgress = unlockPromptInProgress,
+            )
+        ) {
+            hasRequestedAutoUnlock = true
+            requestUnlock()
+        }
+    }
+
+    return AppLockUiState(
+        isGateVisible = appLockEnabled == true && !hasUnlockedThisLaunch,
+        isUnlockInProgress = unlockPromptInProgress,
+        errorMessage = unlockErrorMessage,
+        requestUnlock = ::requestUnlock,
+    )
+}
+
+@Composable
+private fun MainActivityRoot(
+    appPreferences: AppPreferencesState,
+    appLockEnabled: Boolean?,
+    appLockUiState: AppLockUiState,
+    viewModel: MainViewModel,
+    audioPlayerController: AudioPlayerController,
+    shareUtils: ShareUtils,
+    shareServiceManager: LanShareService,
+) {
+    LomoTheme(themeMode = appPreferences.themeMode.value) {
+        androidx.activity.compose.ReportDrawnWhen { !appLockUiState.isGateVisible }
+        com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
+            AnimatedContent(
+                targetState = appLockUiState.isGateVisible,
+                label = "AppLockGateTransition",
+                transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
+            ) { isLockGateVisible ->
+                if (isLockGateVisible) {
+                    AppLockGate(
+                        isConfigLoading = false,
+                        isUnlockInProgress = appLockUiState.isUnlockInProgress,
+                        errorMessage = appLockUiState.errorMessage,
+                        onRetry = {
+                            if (appLockEnabled == true && !appLockUiState.isUnlockInProgress) {
+                                appLockUiState.requestUnlock()
+                            }
+                        },
+                    )
+                } else {
+                    UnlockedAppRoot(
+                        viewModel = viewModel,
+                        audioPlayerController = audioPlayerController,
+                        shareUtils = shareUtils,
+                        shareServiceManager = shareServiceManager,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnlockedAppRoot(
+    viewModel: MainViewModel,
+    audioPlayerController: AudioPlayerController,
+    shareUtils: ShareUtils,
+    shareServiceManager: LanShareService,
+) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalAudioPlayerManager provides audioPlayerController,
+        LocalShareUtils provides shareUtils,
+    ) {
+        LomoAppRoot(
+            viewModel = viewModel,
+            shareServiceManager = shareServiceManager,
+        )
     }
 }
 
@@ -357,20 +414,9 @@ private fun AppLockGate(
     errorMessage: String?,
     onRetry: () -> Unit,
 ) {
-    val statusMessage =
-        when {
-            isConfigLoading -> stringResource(R.string.app_lock_status_loading)
-            isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
-            !errorMessage.isNullOrBlank() -> errorMessage
-            else -> stringResource(R.string.app_lock_status_waiting)
-        }
-    val statusColor =
-        if (!errorMessage.isNullOrBlank() && !isConfigLoading && !isUnlockInProgress) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
-
+    val showError = !errorMessage.isNullOrBlank() && !isConfigLoading && !isUnlockInProgress
+    val showLoadingIndicator = isConfigLoading || isUnlockInProgress
+    val showRetryButton = !showLoadingIndicator
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
@@ -393,44 +439,103 @@ private fun AppLockGate(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
                 ) {
-                    Text(
-                        text = stringResource(R.string.app_lock_gate_title),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
+                    AppLockGateContent(
+                        statusMessage = appLockStatusMessage(isConfigLoading, isUnlockInProgress, errorMessage),
+                        statusColor =
+                            if (showError) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        showLoadingIndicator = showLoadingIndicator,
+                        showRetryButton = showRetryButton,
+                        onRetry = onRetry,
                     )
-                    Text(
-                        text = stringResource(R.string.app_lock_gate_subtitle),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    if (isConfigLoading || isUnlockInProgress) {
-                        ExpressiveContainedLoadingIndicator()
-                    }
-
-                    Text(
-                        text = statusMessage,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = statusColor,
-                        textAlign = TextAlign.Center,
-                    )
-
-                    if (!isConfigLoading && !isUnlockInProgress) {
-                        Button(
-                            onClick = onRetry,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = MaterialTheme.shapes.medium,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.app_lock_action_retry),
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                        }
-                    }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun AppLockGateContent(
+    statusMessage: String,
+    statusColor: androidx.compose.ui.graphics.Color,
+    showLoadingIndicator: Boolean,
+    showRetryButton: Boolean,
+    onRetry: () -> Unit,
+) {
+    Text(
+        text = stringResource(R.string.app_lock_gate_title),
+        style = MaterialTheme.typography.headlineSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        textAlign = TextAlign.Center,
+    )
+    Text(
+        text = stringResource(R.string.app_lock_gate_subtitle),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
+
+    if (showLoadingIndicator) {
+        ExpressiveContainedLoadingIndicator()
+    }
+
+    Text(
+        text = statusMessage,
+        style = MaterialTheme.typography.bodySmall,
+        color = statusColor,
+        textAlign = TextAlign.Center,
+    )
+
+    if (showRetryButton) {
+        Button(
+            onClick = onRetry,
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.medium,
+        ) {
+            Text(
+                text = stringResource(R.string.app_lock_action_retry),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
+}
+
+private data class AppLockUiState(
+    val isGateVisible: Boolean,
+    val isUnlockInProgress: Boolean,
+    val errorMessage: String?,
+    val requestUnlock: () -> Unit,
+)
+
+private fun shouldAutoRequestUnlock(
+    appLockEnabled: Boolean?,
+    hasUnlockedThisLaunch: Boolean,
+    hasRequestedAutoUnlock: Boolean,
+    unlockPromptInProgress: Boolean,
+): Boolean = appLockEnabled == true &&
+    !hasUnlockedThisLaunch &&
+    !hasRequestedAutoUnlock &&
+    !unlockPromptInProgress
+
+private val SUPPORTED_AUTHENTICATOR_OPTIONS =
+    listOf(
+        BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+        BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+        BiometricManager.Authenticators.BIOMETRIC_WEAK,
+    )
+
+@Composable
+private fun appLockStatusMessage(
+    isConfigLoading: Boolean,
+    isUnlockInProgress: Boolean,
+    errorMessage: String?,
+): String =
+    when {
+        isConfigLoading -> stringResource(R.string.app_lock_status_loading)
+        isUnlockInProgress -> stringResource(R.string.app_lock_status_unlocking)
+        !errorMessage.isNullOrBlank() -> errorMessage
+        else -> stringResource(R.string.app_lock_status_waiting)
+    }

@@ -1,7 +1,6 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.FileContent
@@ -11,7 +10,6 @@ import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.usecase.MemoIdentityPolicy
-import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -31,7 +29,7 @@ import java.time.ZoneId
 class MemoSynchronizerTest {
     @MockK private lateinit var fileDataSource: FileDataSource
 
-    @MockK private lateinit var memoDao: MemoDao
+    @MockK private lateinit var memoDao: TestMemoDaoSuite
 
     @MockK private lateinit var localFileStateDao: LocalFileStateDao
 
@@ -46,7 +44,7 @@ class MemoSynchronizerTest {
         val mutationHandler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
-                dao = memoDao,
+                daoBundle = testMemoMutationDaoBundle(memoDao),
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = MemoSavePlanFactory(parser, processor, memoIdentityPolicy),
                 textProcessor = processor,
@@ -55,22 +53,36 @@ class MemoSynchronizerTest {
                     MemoTrashMutationHandler(
                         markdownStorageDataSource = fileDataSource,
                         mediaStorageDataSource = fileDataSource,
-                        dao = memoDao,
+                        memoWriteDao = memoDao,
+                        memoTagDao = memoDao,
+                        memoFtsDao = memoDao,
+                        memoTrashDao = memoDao,
+                        memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
                         textProcessor = processor,
                     ),
-                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
                 memoIdentityPolicy = memoIdentityPolicy,
             )
         val refreshEngine =
             MemoRefreshEngine(
                 markdownStorageDataSource = fileDataSource,
-                dao = memoDao,
+                memoWriteDao = memoDao,
+                memoTagDao = memoDao,
+                memoFtsDao = memoDao,
+                memoTrashDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 parser = parser,
-                refreshPlanner = MemoRefreshPlanner(),
+                refreshPlanner = MemoRefreshPlanner,
                 refreshParserWorker = MemoRefreshParserWorker(markdownStorageDataSource = fileDataSource, dao = memoDao, parser = parser),
-                refreshDbApplier = MemoRefreshDbApplier(memoDao, localFileStateDao) { block -> block() },
+                refreshDbApplier =
+                    MemoRefreshDbApplier(
+                        memoDao = memoDao,
+                        memoWriteDao = memoDao,
+                        memoTagDao = memoDao,
+                        memoFtsDao = memoDao,
+                        memoTrashDao = memoDao,
+                        localFileStateDao = localFileStateDao,
+                    ) { block -> block() },
             )
 
         return MemoSynchronizer(

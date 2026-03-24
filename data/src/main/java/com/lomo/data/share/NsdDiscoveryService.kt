@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
+import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -20,12 +21,6 @@ import java.util.concurrent.ConcurrentHashMap
 class NsdDiscoveryService(
     private val context: Context,
 ) {
-    companion object {
-        const val SERVICE_TYPE = "_lomo-share._tcp."
-        const val SERVICE_NAME_PREFIX = "Lomo-"
-        private const val TAG = "NsdDiscovery"
-    }
-
     private val nsdManager: NsdManager by lazy {
         context.getSystemService(Context.NSD_SERVICE) as NsdManager
     }
@@ -37,6 +32,7 @@ class NsdDiscoveryService(
     private var discoveryListener: NsdManager.DiscoveryListener? = null
     private var registeredServiceName: String? = null
     private val serviceInfoCallbacks = ConcurrentHashMap<String, NsdManager.ServiceInfoCallback>()
+    private var localUuid: String? = null
 
     // --- Service Registration ---
 
@@ -79,30 +75,22 @@ class NsdDiscoveryService(
                 }
             }
 
-        try {
+        runCatching {
             nsdManager.registerService(
                 serviceInfo,
                 NsdManager.PROTOCOL_DNS_SD,
                 registrationListener,
             )
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to register NSD service")
-        }
+        }.onFailure { error -> logOperationFailure(error, "Failed to register NSD service") }
     }
 
     fun unregisterService() {
-        try {
+        runCatching {
             registrationListener?.let { nsdManager.unregisterService(it) }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to unregister NSD service")
-        }
+        }.onFailure { error -> logOperationFailure(error, "Failed to unregister NSD service") }
         registrationListener = null
         registeredServiceName = null
     }
-
-    // --- Service Discovery ---
-
-    private var localUuid: String? = null
 
     fun startDiscovery(uuid: String) {
         this.localUuid = uuid
@@ -156,23 +144,19 @@ class NsdDiscoveryService(
                 }
             }
 
-        try {
+        runCatching {
             nsdManager.discoverServices(
                 SERVICE_TYPE,
                 NsdManager.PROTOCOL_DNS_SD,
                 discoveryListener,
             )
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to start NSD discovery")
-        }
+        }.onFailure { error -> logOperationFailure(error, "Failed to start NSD discovery") }
     }
 
     fun stopDiscovery() {
-        try {
+        runCatching {
             discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to stop NSD discovery")
-        }
+        }.onFailure { error -> logOperationFailure(error, "Failed to stop NSD discovery") }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             serviceInfoCallbacks.values.toList().forEach { callback ->
                 runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
@@ -208,7 +192,9 @@ class NsdDiscoveryService(
                 }
 
                 override fun onServiceInfoCallbackRegistrationFailed(errorCode: Int) {
-                    Timber.tag(TAG).e("ServiceInfo callback registration failed for ${serviceInfo.serviceName}: $errorCode")
+                    Timber
+                        .tag(TAG)
+                        .e("ServiceInfo callback registration failed for ${serviceInfo.serviceName}: $errorCode")
                     serviceInfoCallbacks.remove(key, this)
                 }
 
@@ -221,14 +207,14 @@ class NsdDiscoveryService(
             return
         }
 
-        try {
+        runCatching {
             nsdManager.registerServiceInfoCallback(
                 serviceInfo,
                 ContextCompat.getMainExecutor(context),
                 callback,
             )
-        } catch (e: Exception) {
-            Timber.tag(TAG).e(e, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
+        }.onFailure { error ->
+            logOperationFailure(error, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
             serviceInfoCallbacks.remove(key, callback)
         }
     }
@@ -261,7 +247,16 @@ class NsdDiscoveryService(
         }
     }
 
-    private fun callbackKey(serviceInfo: NsdServiceInfo): String = "${serviceInfo.serviceName}|${serviceInfo.serviceType}"
+    private fun callbackKey(serviceInfo: NsdServiceInfo): String =
+        "${serviceInfo.serviceName}|${serviceInfo.serviceType}"
+
+    private fun logOperationFailure(
+        error: Throwable,
+        message: String,
+    ) {
+        if (error is CancellationException) throw error
+        Timber.tag(TAG).e(error, message)
+    }
 
     private fun handleResolvedService(info: NsdServiceInfo) {
         val hostAddress: java.net.InetAddress? =
@@ -275,41 +270,48 @@ class NsdDiscoveryService(
                 }.getOrNull()
             }
 
-        if (hostAddress !is java.net.Inet4Address) {
-            Timber.tag(TAG).d("Ignored non-IPv4 host: $hostAddress")
-            return
-        }
-
-        val host =
-            hostAddress.hostAddress
-                ?: run {
-                    Timber.tag(TAG).d("Ignored null hostAddress string for ${info.serviceName}")
-                    return
-                }
+        val host = (hostAddress as? java.net.Inet4Address)?.hostAddress
         val port = info.port
         val name = info.serviceName.removePrefix(SERVICE_NAME_PREFIX)
 
         val uuidBytes = info.attributes["uuid"]
         val remoteUuid = uuidBytes?.let { String(it, Charsets.UTF_8) }
 
-        if (localUuid != null && remoteUuid == localUuid) {
-            Timber.tag(TAG).d("Ignored self: $name ($remoteUuid)")
-            return
+        when {
+            hostAddress !is java.net.Inet4Address -> {
+                Timber.tag(TAG).d("Ignored non-IPv4 host: $hostAddress")
+            }
+
+            host == null -> {
+                Timber.tag(TAG).d("Ignored null hostAddress string for ${info.serviceName}")
+            }
+
+            localUuid != null && remoteUuid == localUuid -> {
+                Timber.tag(TAG).d("Ignored self: $name ($remoteUuid)")
+            }
+
+            else -> {
+                Timber.tag(TAG).d("Resolved: $name at $host:$port (uuid=$remoteUuid)")
+
+                val device =
+                    DiscoveredDevice(
+                        name = name,
+                        host = host,
+                        port = port,
+                    )
+
+                _discoveredDevices.update { list ->
+                    // Deduplicate by host to prevent multiple entries for the same device (e.g. after rename)
+                    val existing = list.filter { it.host != host }
+                    existing + device
+                }
+            }
         }
+    }
 
-        Timber.tag(TAG).d("Resolved: $name at $host:$port (uuid=$remoteUuid)")
-
-        val device =
-            DiscoveredDevice(
-                name = name,
-                host = host,
-                port = port,
-            )
-
-        _discoveredDevices.update { list ->
-            // Deduplicate by host to prevent multiple entries for the same device (e.g. after rename)
-            val existing = list.filter { it.host != host }
-            existing + device
-        }
+    companion object {
+        const val SERVICE_TYPE = "_lomo-share._tcp."
+        const val SERVICE_NAME_PREFIX = "Lomo-"
+        private const val TAG = "NsdDiscovery"
     }
 }

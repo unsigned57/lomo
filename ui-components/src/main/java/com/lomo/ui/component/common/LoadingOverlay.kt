@@ -17,6 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lomo.ui.R
 
+private const val LOADING_OVERLAY_Z_INDEX = 100f
+private const val LOADING_OVERLAY_BACKGROUND_ALPHA = 0.9f
+private val LOADING_OVERLAY_MESSAGE_SPACING = 16.dp
+
 @Composable
 fun LoadingOverlay(
     modifier: Modifier = Modifier,
@@ -24,8 +28,8 @@ fun LoadingOverlay(
 ) {
     val resolvedMessage = message ?: stringResource(R.string.loading_message)
     Surface(
-        modifier = modifier.fillMaxSize().zIndex(100f),
-        color = MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
+        modifier = modifier.fillMaxSize().zIndex(LOADING_OVERLAY_Z_INDEX),
+        color = MaterialTheme.colorScheme.background.copy(alpha = LOADING_OVERLAY_BACKGROUND_ALPHA),
     ) {
         Box(contentAlignment = Alignment.Center) {
             Column(
@@ -36,7 +40,7 @@ fun LoadingOverlay(
                     indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(LOADING_OVERLAY_MESSAGE_SPACING))
                 Text(
                     text = resolvedMessage,
                     style = MaterialTheme.typography.bodyLarge,

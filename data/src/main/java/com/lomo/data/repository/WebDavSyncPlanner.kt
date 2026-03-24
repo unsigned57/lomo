@@ -84,8 +84,12 @@ class WebDavSyncPlanner(
 
         return when {
             !localChanged && !remoteChanged -> null
-            localChanged && !remoteChanged -> WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)
-            !localChanged && remoteChanged -> WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_ONLY)
+            localChanged && !remoteChanged ->
+                WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)
+
+            !localChanged && remoteChanged ->
+                WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_ONLY)
+
             else -> WebDavSyncAction(path, WebDavSyncDirection.CONFLICT, WebDavSyncReason.CONFLICT)
         }
     }
@@ -154,11 +158,12 @@ class WebDavSyncPlanner(
     private fun changed(
         current: Long?,
         previous: Long?,
-    ): Boolean {
-        if (current == null && previous == null) return false
-        if (current == null || previous == null) return true
-        return abs(current - previous) > timestampToleranceMs
-    }
+    ): Boolean =
+        when {
+            current == null && previous == null -> false
+            current == null || previous == null -> true
+            else -> abs(current - previous) > timestampToleranceMs
+        }
 }
 
 internal fun WebDavSyncAction.toOutcome(): WebDavSyncOutcome =

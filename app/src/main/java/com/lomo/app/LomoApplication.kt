@@ -44,16 +44,16 @@ class LomoApplication :
 
         // Defer non-critical worker registration off the main thread.
         appScope.launch {
-            try {
+            runCatching {
                 syncPolicyRepository.ensureCoreSyncActive()
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to schedule sync")
+            }.onFailure { error ->
+                Timber.e(error, "Failed to schedule sync")
             }
 
-            try {
+            runCatching {
                 syncPolicyRepository.applyRemoteSyncPolicy()
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to schedule remote sync")
+            }.onFailure { error ->
+                Timber.e(error, "Failed to schedule remote sync")
             }
         }
     }

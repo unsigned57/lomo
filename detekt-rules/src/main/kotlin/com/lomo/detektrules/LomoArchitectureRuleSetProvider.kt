@@ -8,6 +8,7 @@ import dev.detekt.api.RuleName
 import dev.detekt.api.RuleSet
 import dev.detekt.api.RuleSetId
 import dev.detekt.api.RuleSetProvider
+import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFile
@@ -33,6 +34,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("DataLayerUiDependency") to ::DataLayerUiDependencyRule,
                 RuleName("P0HotspotRepositoryBoundary") to ::P0HotspotRepositoryBoundaryRule,
                 RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
+                RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
+                RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
             ),
         )
 }
@@ -421,6 +424,46 @@ private class UiComponentsLayerBoundaryRule(
                 ?: file.findForbiddenQualifiedReference(forbiddenPrefixes)
         if (forbidden != null) {
             reportFile(file, "Forbidden ui-components layer dependency: $forbidden")
+        }
+    }
+}
+
+private class NoSourceSuppressionsRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not use @Suppress to bypass static checks.") {
+    override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
+        super.visitAnnotationEntry(annotationEntry)
+        val file = annotationEntry.containingKtFile
+        if (!file.path().contains("/src/main/")) return
+
+        val shortName = annotationEntry.shortName?.asString()
+        if (shortName == "Suppress" || shortName == "SuppressWarnings") {
+            report(
+                Finding(
+                    Entity.from(annotationEntry),
+                    "Do not use @Suppress in production source. Refactor the code or tighten Detekt centrally.",
+                ),
+            )
+        }
+    }
+}
+
+private class NoPlaceholderImplementationRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not commit placeholder implementations like TODO() or NotImplementedError().") {
+    private val placeholderPatterns =
+        listOf(
+            Regex("""\bTODO\s*\("""),
+            Regex("""\bNotImplementedError\s*\("""),
+        )
+
+    override fun visitKtFile(file: KtFile) {
+        super.visitKtFile(file)
+        if (!file.path().contains("/src/main/")) return
+
+        val placeholder = placeholderPatterns.firstOrNull { it.containsMatchIn(file.bodyText()) }
+        if (placeholder != null) {
+            reportFile(file, "Placeholder implementation detected. Replace TODO()/NotImplementedError() with real logic.")
         }
     }
 }

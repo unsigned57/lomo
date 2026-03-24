@@ -54,10 +54,8 @@ internal object ShareImageCacheCleaner {
         maxAgeMs: Long,
         nowMs: Long = System.currentTimeMillis(),
     ) {
-        val files = directory.listFiles()?.filter { it.isFile } ?: return
-        if (files.isEmpty()) {
-            return
-        }
+        val files = directory.listFiles()?.filter { it.isFile }.orEmpty()
+        if (files.isEmpty()) return
 
         val staleThreshold = nowMs - maxAgeMs
         files
@@ -71,15 +69,10 @@ internal object ShareImageCacheCleaner {
             directory
                 .listFiles()
                 ?.filter { it.isFile }
-                ?.sortedByDescending { it.lastModified() }
-                ?: return
-
-        if (remainingFiles.size <= maxFiles) {
-            return
-        }
-
+                .orEmpty()
+                .sortedByDescending { it.lastModified() }
         remainingFiles
-            .drop(maxFiles)
+            .drop(maxFiles.coerceAtMost(remainingFiles.size))
             .forEach { file ->
                 runCatching { file.delete() }
             }

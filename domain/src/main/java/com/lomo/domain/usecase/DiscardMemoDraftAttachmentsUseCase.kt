@@ -5,7 +5,7 @@ import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 
 class DiscardMemoDraftAttachmentsUseCase
-    constructor(
+(
         private val mediaRepository: MediaRepository,
     ) {
         suspend operator fun invoke(filenames: Collection<String>) {

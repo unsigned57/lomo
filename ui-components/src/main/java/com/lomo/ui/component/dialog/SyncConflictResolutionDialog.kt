@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -73,61 +74,90 @@ fun SyncConflictResolutionDialog(
             color = MaterialTheme.colorScheme.background,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    // Top bar
-                    TopBar(
-                        fileCount = conflictSet.files.size,
-                        onDismiss = onDismiss,
-                    )
-
-                    // Global action row
-                    GlobalActionRow(
-                        onAllChoicesChanged = onAllChoicesChanged,
-                        modifier = Modifier.padding(
-                            horizontal = AppSpacing.ScreenHorizontalPadding,
-                        ),
-                    )
-
-                    Spacer(modifier = Modifier.height(AppSpacing.Small))
-
-                    // File list
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = AppSpacing.ScreenHorizontalPadding),
-                        verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-                    ) {
-                        items(
-                            items = conflictSet.files,
-                            key = { it.relativePath },
-                        ) { file ->
-                            ConflictFileCard(
-                                file = file,
-                                choice = perFileChoices[file.relativePath],
-                                isExpanded = expandedFilePath == file.relativePath,
-                                onChoiceChanged = { choice ->
-                                    onFileChoiceChanged(file.relativePath, choice)
-                                },
-                                onToggleExpanded = {
-                                    onToggleExpanded(file.relativePath)
-                                },
-                            )
-                        }
-                    }
-
-                    // Bottom section
-                    BottomSection(
-                        allFilesChosen = allFilesChosen,
-                        onApply = onApply,
-                    )
-                }
-
-                // Loading overlay
+                ConflictDialogContent(
+                    conflictSet = conflictSet,
+                    perFileChoices = perFileChoices,
+                    expandedFilePath = expandedFilePath,
+                    allFilesChosen = allFilesChosen,
+                    onAllChoicesChanged = onAllChoicesChanged,
+                    onFileChoiceChanged = onFileChoiceChanged,
+                    onToggleExpanded = onToggleExpanded,
+                    onApply = onApply,
+                    onDismiss = onDismiss,
+                )
                 if (isResolving) {
                     ResolvingOverlay()
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ConflictDialogContent(
+    conflictSet: SyncConflictSet,
+    perFileChoices: Map<String, SyncConflictResolutionChoice>,
+    expandedFilePath: String?,
+    allFilesChosen: Boolean,
+    onAllChoicesChanged: (SyncConflictResolutionChoice) -> Unit,
+    onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
+    onToggleExpanded: (path: String) -> Unit,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        TopBar(
+            fileCount = conflictSet.files.size,
+            onDismiss = onDismiss,
+        )
+        GlobalActionRow(
+            onAllChoicesChanged = onAllChoicesChanged,
+            modifier = Modifier.padding(horizontal = AppSpacing.ScreenHorizontalPadding),
+        )
+        Spacer(modifier = Modifier.height(AppSpacing.Small))
+        ConflictFileList(
+            files = conflictSet.files,
+            perFileChoices = perFileChoices,
+            expandedFilePath = expandedFilePath,
+            onFileChoiceChanged = onFileChoiceChanged,
+            onToggleExpanded = onToggleExpanded,
+        )
+        BottomSection(
+            allFilesChosen = allFilesChosen,
+            onApply = onApply,
+        )
+    }
+}
+
+@Composable
+private fun ColumnScope.ConflictFileList(
+    files: List<SyncConflictFile>,
+    perFileChoices: Map<String, SyncConflictResolutionChoice>,
+    expandedFilePath: String?,
+    onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
+    onToggleExpanded: (path: String) -> Unit,
+) {
+    LazyColumn(
+        modifier =
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.ScreenHorizontalPadding),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+    ) {
+        items(
+            items = files,
+            key = { it.relativePath },
+        ) { file ->
+            ConflictFileCard(
+                file = file,
+                choice = perFileChoices[file.relativePath],
+                isExpanded = expandedFilePath == file.relativePath,
+                onChoiceChanged = { choice ->
+                    onFileChoiceChanged(file.relativePath, choice)
+                },
+                onToggleExpanded = { onToggleExpanded(file.relativePath) },
+            )
         }
     }
 }
@@ -206,81 +236,107 @@ private fun ConflictFileCard(
         ),
     ) {
         Column(modifier = Modifier.padding(AppSpacing.CardPadding)) {
-            // Header row: filename + choice toggles
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Expand/collapse for text files
-                if (!file.isBinary) {
-                    Icon(
-                        imageVector = if (isExpanded) {
-                            Icons.Default.KeyboardArrowUp
-                        } else {
-                            Icons.Default.KeyboardArrowDown
-                        },
-                        contentDescription = if (isExpanded) "Collapse" else "Expand",
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clickable { onToggleExpanded() },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.width(AppSpacing.ExtraSmall))
-                }
+            ConflictFileHeader(
+                file = file,
+                choice = choice,
+                isExpanded = isExpanded,
+                onChoiceChanged = onChoiceChanged,
+                onToggleExpanded = onToggleExpanded,
+            )
+            ConflictDiffSection(
+                file = file,
+                isExpanded = isExpanded,
+            )
+        }
+    }
+}
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = file.relativePath.substringAfterLast('/'),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (file.isBinary) {
-                        Text(
-                            text = "(binary)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
+@Composable
+private fun ConflictFileHeader(
+    file: SyncConflictFile,
+    choice: SyncConflictResolutionChoice?,
+    isExpanded: Boolean,
+    onChoiceChanged: (SyncConflictResolutionChoice) -> Unit,
+    onToggleExpanded: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (!file.isBinary) {
+            Icon(
+                imageVector =
+                    if (isExpanded) {
+                        Icons.Default.KeyboardArrowUp
+                    } else {
+                        Icons.Default.KeyboardArrowDown
+                    },
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                modifier =
+                    Modifier
+                        .size(24.dp)
+                        .clickable { onToggleExpanded() },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.width(AppSpacing.ExtraSmall))
+        }
 
-                // Local / Remote toggle buttons
-                ChoiceToggle(
-                    choice = choice,
-                    onChoiceChanged = onChoiceChanged,
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = file.relativePath.substringAfterLast('/'),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (file.isBinary) {
+                Text(
+                    text = "(binary)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
 
-            // Diff section for text files
-            if (!file.isBinary) {
-                AnimatedVisibility(
-                    visible = isExpanded,
-                    enter = expandVertically(),
-                    exit = shrinkVertically(),
-                ) {
-                    val hunks = remember(file.localContent, file.remoteContent) {
-                        SimpleLineDiff.diff(
-                            file.localContent ?: "",
-                            file.remoteContent ?: "",
-                        )
-                    }
-                    if (hunks.isNotEmpty()) {
-                        DiffViewer(
-                            hunks = hunks,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = AppSpacing.Small),
-                        )
-                    } else {
-                        Text(
-                            text = "No text differences found.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = AppSpacing.Small),
-                        )
-                    }
-                }
-            }
+        ChoiceToggle(
+            choice = choice,
+            onChoiceChanged = onChoiceChanged,
+        )
+    }
+}
+
+@Composable
+private fun ConflictDiffSection(
+    file: SyncConflictFile,
+    isExpanded: Boolean,
+) {
+    if (file.isBinary) return
+
+    AnimatedVisibility(
+        visible = isExpanded,
+        enter = expandVertically(),
+        exit = shrinkVertically(),
+    ) {
+        val hunks = remember(file.localContent, file.remoteContent) {
+            SimpleLineDiff.diff(
+                file.localContent ?: "",
+                file.remoteContent ?: "",
+            )
+        }
+        if (hunks.isNotEmpty()) {
+            DiffViewer(
+                hunks = hunks,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(top = AppSpacing.Small),
+            )
+        } else {
+            Text(
+                text = "No text differences found.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = AppSpacing.Small),
+            )
         }
     }
 }

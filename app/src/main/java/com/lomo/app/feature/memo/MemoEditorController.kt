@@ -109,48 +109,14 @@ fun MemoEditorSheetHost(
     val isRecordingValue = isRecordingFlow?.collectAsStateWithLifecycle()?.value ?: isRecording
     val recordingDurationValue = recordingDurationFlow?.collectAsStateWithLifecycle()?.value ?: recordingDuration
     val recordingAmplitudeValue = recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value ?: recordingAmplitude
-
-    val context = LocalContext.current
-    val settingsNotSetMessage = stringResource(R.string.settings_not_set)
-    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
-    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
-
-    fun clearPendingCapture() {
-        runCatching { pendingCameraFile?.delete() }
-        pendingCameraFile = null
-        pendingCameraUri = null
-    }
-
-    val imagePicker =
-        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            uri?.let {
-                onSaveImage(
-                    it,
-                    controller::appendImageMarkdown,
-                    null,
-                )
-            }
-        }
-
-    val cameraLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { isSuccess ->
-            val file = pendingCameraFile
-            val uri = pendingCameraUri
-            if (isSuccess && uri != null) {
-                onSaveImage(
-                    uri,
-                    { path ->
-                        controller.appendImageMarkdown(path)
-                        runCatching { file?.delete() }
-                        pendingCameraFile = null
-                        pendingCameraUri = null
-                    },
-                    ::clearPendingCapture,
-                )
-            } else {
-                clearPendingCapture()
-            }
-        }
+    val mediaActions =
+        rememberMemoEditorMediaActions(
+            controller = controller,
+            imageDirectory = imageDirectory,
+            onSaveImage = onSaveImage,
+            onImageDirectoryMissing = onImageDirectoryMissing,
+            onCameraCaptureError = onCameraCaptureError,
+        )
 
     com.lomo.ui.component.input.InputSheet(
         state =
@@ -175,53 +141,119 @@ fun MemoEditorSheetHost(
                 },
                 autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
                 hasDraftPersistence = controller.editingMemo == null,
-                onImageClick = {
-                    if (imageDirectory == null) {
-                        if (onImageDirectoryMissing != null) {
-                            onImageDirectoryMissing()
-                        } else {
-                            Toast
-                                .makeText(
-                                    context,
-                                    settingsNotSetMessage,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                        }
-                    } else {
-                        imagePicker.launch(
-                            PickVisualMediaRequest(
-                                ActivityResultContracts.PickVisualMedia.ImageOnly,
-                            ),
-                        )
-                    }
-                },
-                onCameraClick = {
-                    if (imageDirectory == null) {
-                        if (onImageDirectoryMissing != null) {
-                            onImageDirectoryMissing()
-                        } else {
-                            Toast
-                                .makeText(
-                                    context,
-                                    settingsNotSetMessage,
-                                    Toast.LENGTH_SHORT,
-                                ).show()
-                        }
-                    } else {
-                        runCatching {
-                            val (file, uri) = CameraCaptureUtils.createTempCaptureUri(context)
-                            pendingCameraFile = file
-                            pendingCameraUri = uri
-                            cameraLauncher.launch(uri)
-                        }.onFailure {
-                            clearPendingCapture()
-                            onCameraCaptureError?.invoke(it)
-                        }
-                    }
-                },
+                onImageClick = mediaActions.onImageClick,
+                onCameraClick = mediaActions.onCameraClick,
                 onStartRecording = onStartRecording,
                 onStopRecording = onStopRecording,
                 onCancelRecording = onCancelRecording,
             ),
     )
+}
+
+private data class MemoEditorMediaActions(
+    val onImageClick: () -> Unit,
+    val onCameraClick: () -> Unit,
+)
+
+@Composable
+private fun rememberMemoEditorMediaActions(
+    controller: MemoEditorController,
+    imageDirectory: String?,
+    onSaveImage: (
+        uri: Uri,
+        onResult: (String) -> Unit,
+        onError: (() -> Unit)?,
+    ) -> Unit,
+    onImageDirectoryMissing: (() -> Unit)?,
+    onCameraCaptureError: ((Throwable) -> Unit)?,
+): MemoEditorMediaActions {
+    val context = LocalContext.current
+    val settingsNotSetMessage = stringResource(R.string.settings_not_set)
+    var pendingCameraFile by remember { mutableStateOf<File?>(null) }
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+
+    fun clearPendingCapture() {
+        runCatching { pendingCameraFile?.delete() }
+        pendingCameraFile = null
+        pendingCameraUri = null
+    }
+
+    fun requireImageDirectory(action: () -> Unit) {
+        if (imageDirectory == null) {
+            showImageDirectoryMissingToast(
+                context = context,
+                message = settingsNotSetMessage,
+                onImageDirectoryMissing = onImageDirectoryMissing,
+            )
+        } else {
+            action()
+        }
+    }
+
+    val imagePicker =
+        rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            uri?.let { selectedUri ->
+                onSaveImage(selectedUri, controller::appendImageMarkdown, null)
+            }
+        }
+    val cameraLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { isSuccess ->
+            val file = pendingCameraFile
+            val uri = pendingCameraUri
+            if (isSuccess && uri != null) {
+                onSaveImage(
+                    uri,
+                    { path ->
+                        controller.appendImageMarkdown(path)
+                        runCatching { file?.delete() }
+                        pendingCameraFile = null
+                        pendingCameraUri = null
+                    },
+                    ::clearPendingCapture,
+                )
+            } else {
+                clearPendingCapture()
+            }
+        }
+
+    return MemoEditorMediaActions(
+        onImageClick = {
+            requireImageDirectory {
+                imagePicker.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            }
+        },
+        onCameraClick = {
+            requireImageDirectory {
+                runCatching {
+                    val (file, uri) = CameraCaptureUtils.createTempCaptureUri(context)
+                    pendingCameraFile = file
+                    pendingCameraUri = uri
+                    cameraLauncher.launch(uri)
+                }.onFailure {
+                    clearPendingCapture()
+                    onCameraCaptureError?.invoke(it)
+                }
+            }
+        },
+    )
+}
+
+private fun showImageDirectoryMissingToast(
+    context: android.content.Context,
+    message: String,
+    onImageDirectoryMissing: (() -> Unit)?,
+) {
+    if (onImageDirectoryMissing != null) {
+        onImageDirectoryMissing()
+        return
+    }
+
+    Toast
+        .makeText(
+            context,
+            message,
+            Toast.LENGTH_SHORT,
+        ).show()
 }

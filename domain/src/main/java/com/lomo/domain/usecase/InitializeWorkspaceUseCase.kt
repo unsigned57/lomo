@@ -6,7 +6,7 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.MediaRepository
 
 class InitializeWorkspaceUseCase
-    constructor(
+(
         private val directorySettingsRepository: DirectorySettingsRepository,
         private val mediaRepository: MediaRepository,
     ) {

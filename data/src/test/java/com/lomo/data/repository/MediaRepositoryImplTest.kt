@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import android.net.Uri
 import com.lomo.data.source.FileDataSource
+import com.lomo.data.source.StorageRootType
 import com.lomo.domain.model.MediaCategory
 import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.model.StorageLocation
@@ -36,7 +37,7 @@ class MediaRepositoryImplTest {
     @Test
     fun `refreshImageLocations emits file-backed image map`() =
         runTest {
-            coEvery { dataSource.getImageRootFlow() } returns flowOf("content://images")
+            coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf("content://images")
             coEvery { dataSource.listImageFiles() } returns
                 listOf(
                     "keep.jpg" to "uri://keep",
@@ -58,7 +59,7 @@ class MediaRepositoryImplTest {
     @Test
     fun `refreshImageLocations clears map when image root is missing`() =
         runTest {
-            coEvery { dataSource.getImageRootFlow() } returns flowOf(null)
+            coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf(null)
 
             repository.refreshImageLocations()
 
@@ -92,7 +93,7 @@ class MediaRepositoryImplTest {
     @Test
     fun `removeImage removes cached entry incrementally`() =
         runTest {
-            coEvery { dataSource.getImageRootFlow() } returns flowOf("content://images")
+            coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf("content://images")
             coEvery { dataSource.listImageFiles() } returns
                 listOf(
                     "keep.jpg" to "content://images/keep.jpg",
@@ -118,7 +119,7 @@ class MediaRepositoryImplTest {
             val result = repository.ensureCategoryWorkspace(MediaCategory.IMAGE)
 
             assertNull(result)
-            coVerify(exactly = 0) { dataSource.setImageRoot(any()) }
+            coVerify(exactly = 0) { dataSource.setRoot(StorageRootType.IMAGE, any()) }
         }
 
     @Test
@@ -129,6 +130,6 @@ class MediaRepositoryImplTest {
             val result = repository.ensureCategoryWorkspace(MediaCategory.VOICE)
 
             assertNull(result)
-            coVerify(exactly = 0) { dataSource.setVoiceRoot(any()) }
+            coVerify(exactly = 0) { dataSource.setRoot(StorageRootType.VOICE, any()) }
         }
 }

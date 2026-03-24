@@ -103,20 +103,8 @@ fun MarkdownRenderer(
     }
 
     val latestOnTotalBlocks by rememberUpdatedState(onTotalBlocks)
-    val totalBlocks =
-        remember(root, onTotalBlocks != null) {
-            if (onTotalBlocks == null) {
-                null
-            } else {
-                var count = 0
-                var blockNode = root?.node?.firstChild
-                while (blockNode != null) {
-                    count++
-                    blockNode = blockNode.next
-                }
-                count
-            }
-        }
+    val totalBlocks = remember(root, onTotalBlocks != null) { countMarkdownBlocks(root, onTotalBlocks != null) }
+    val renderedItems = remember(root, maxVisibleBlocks) { buildMarkdownRenderItems(root, maxVisibleBlocks) }
 
     LaunchedEffect(totalBlocks) {
         totalBlocks?.let { latestOnTotalBlocks?.invoke(it) }
@@ -124,35 +112,20 @@ fun MarkdownRenderer(
 
     val renderedContent: @Composable () -> Unit = {
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            var node = root?.node?.firstChild
-            var childIndex = 0
-            while (node != null && childIndex < maxVisibleBlocks) {
-                val firstImage = node.toImageOnlyParagraphOrNull()
-                if (firstImage != null) {
-                    val galleryImages = mutableListOf<Image>()
-                    var cursor: Node? = node
-                    while (cursor != null) {
-                        val image = cursor.toImageOnlyParagraphOrNull() ?: break
-                        galleryImages.add(image)
-                        cursor = cursor.next
+            renderedItems.forEach { item ->
+                when (item) {
+                    is MarkdownRenderItem.Block -> {
+                        MDBlock(
+                            node = item.node,
+                            onTodoClick = onTodoClick,
+                            todoOverrides = todoOverrides,
+                            onImageClick = onImageClick,
+                            enableTextSelection = enableTextSelection,
+                        )
                     }
-                    if (galleryImages.size > 1) {
-                        MDImageGallery(galleryImages, onImageClick)
-                        node = cursor
-                        childIndex++
-                        continue
-                    }
-                }
 
-                MDBlock(
-                    ImmutableNode(node),
-                    onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
-                    onImageClick = onImageClick,
-                    enableTextSelection = enableTextSelection,
-                )
-                node = node.next
-                childIndex++
+                    is MarkdownRenderItem.Gallery -> MDImageGallery(item.images, onImageClick)
+                }
             }
         }
     }
@@ -197,7 +170,7 @@ private fun MarkdownRendererFallback(
 }
 
 @Composable
-private fun MDBlock(
+internal fun MDBlock(
     node: ImmutableNode,
     modifier: Modifier = Modifier,
     baseStyle: TextStyle? = null,
@@ -208,7 +181,7 @@ private fun MDBlock(
 ) {
     when (val n = node.node) {
         is Heading -> MDHeading(ImmutableNode(n), modifier)
-        is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick, enableTextSelection)
+        is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick)
         is FencedCodeBlock -> MDCodeBlock(ImmutableNode(n), modifier)
         is IndentedCodeBlock -> MDIndentedCodeBlock(ImmutableNode(n), modifier)
         is BlockQuote -> MDBlockQuote(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
@@ -226,27 +199,27 @@ private fun MDHeading(
     val node = heading.node as Heading
     val style =
         when (node.level) {
-            1 -> {
+            HEADING_LEVEL_1 -> {
                 MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold)
             }
 
-            2 -> {
+            HEADING_LEVEL_2 -> {
                 MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
             }
 
-            3 -> {
+            HEADING_LEVEL_3 -> {
                 MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             }
 
-            4 -> {
+            HEADING_LEVEL_4 -> {
                 MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
             }
 
-            5 -> {
+            HEADING_LEVEL_5 -> {
                 MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold)
             }
 
-            6 -> {
+            HEADING_LEVEL_6 -> {
                 MaterialTheme.typography.bodyMedium.copy(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -264,130 +237,29 @@ private fun MDHeading(
     Text(text = text, style = style, modifier = modifier.padding(top = 12.dp, bottom = 4.dp))
 }
 
+private const val HEADING_LEVEL_1 = 1
+private const val HEADING_LEVEL_2 = 2
+private const val HEADING_LEVEL_3 = 3
+private const val HEADING_LEVEL_4 = 4
+private const val HEADING_LEVEL_5 = 5
+private const val HEADING_LEVEL_6 = 6
+
 @Composable
 private fun MDParagraph(
     paragraph: ImmutableNode,
     modifier: Modifier = Modifier,
     baseStyle: TextStyle? = null,
     onImageClick: ((String) -> Unit)? = null,
-    enableTextSelection: Boolean = false,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val items =
-        remember(paragraph, colorScheme) {
-            val p = paragraph.node as Paragraph
-            val result = mutableListOf<Any>()
-            var currentTextBuilder = AnnotatedString.Builder()
-            var hasText = false
-            val currentGalleryImages = mutableListOf<Image>()
-
-            fun flushText() {
-                if (hasText) {
-                    result.add(currentTextBuilder.toAnnotatedString())
-                    currentTextBuilder = AnnotatedString.Builder()
-                    hasText = false
-                }
-            }
-
-            fun flushGallery() {
-                if (currentGalleryImages.isEmpty()) return
-                if (currentGalleryImages.size == 1) {
-                    result.add(currentGalleryImages.first())
-                } else {
-                    result.add(ImageGalleryItem(currentGalleryImages.toList()))
-                }
-                currentGalleryImages.clear()
-            }
-
-            var nodeInside = p.firstChild
-            while (nodeInside != null) {
-                if (nodeInside is Image) {
-                    val dest = nodeInside.destination
-                    if (dest != null &&
-                        (dest.endsWith(".m4a") || dest.endsWith(".mp3") || dest.endsWith(".aac") || dest.endsWith(".wav"))
-                    ) {
-                        flushText()
-                        flushGallery()
-                        result.add(VoiceMemoItem(dest))
-                    } else {
-                        flushText()
-                        currentGalleryImages.add(nodeInside)
-                    }
-                } else if (nodeInside is SoftLineBreak || nodeInside is HardLineBreak) {
-                    if (currentGalleryImages.isEmpty()) {
-                        currentTextBuilder.appendNode(nodeInside, colorScheme)
-                        if (currentTextBuilder.length > 0) hasText = true
-                    }
-                } else if (nodeInside is Text && nodeInside.literal?.isBlank() == true && currentGalleryImages.isNotEmpty()) {
-                    // Ignore pure whitespace separators between adjacent image nodes.
-                } else {
-                    flushGallery()
-                    currentTextBuilder.appendNode(nodeInside, colorScheme)
-                    if (currentTextBuilder.length > 0) hasText = true
-                }
-                nodeInside = nodeInside.next
-            }
-            flushGallery()
-            flushText()
-            result
-        }
+    val items = remember(paragraph, colorScheme) { buildParagraphItems(paragraph, colorScheme) }
 
     if (items.isEmpty()) return
 
     Column(modifier = modifier.fillMaxWidth()) {
         items.forEach { item ->
-            when (item) {
-                is AnnotatedString -> {
-                    MDText(item, baseStyle)
-                }
-
-                is Image -> {
-                    MDImage(item, onImageClick)
-                }
-
-                is ImageGalleryItem -> {
-                    MDImageGallery(item.images, onImageClick)
-                }
-
-                is VoiceMemoItem -> {
-                    com.lomo.ui.component.media
-                        .AudioPlayerCard(relativeFilePath = item.url)
-                }
-            }
+            ParagraphItemContent(item = item, baseStyle = baseStyle, onImageClick = onImageClick)
         }
-    }
-}
-
-@Composable
-private fun MDText(
-    text: AnnotatedString,
-    style: TextStyle?,
-) {
-    if (text.isNotEmpty()) {
-        val plainText = text.isPlainTextContent()
-        val displayText = if (plainText) text.text.normalizeCjkMixedSpacingForDisplay() else null
-        val layoutSample: CharSequence = displayText ?: text
-        val baseStyle = style ?: MaterialTheme.typography.bodyMedium
-        val finalStyle = baseStyle.copy(color = style?.color ?: MaterialTheme.colorScheme.onSurface).scriptAwareFor(layoutSample)
-        val textAlign = layoutSample.scriptAwareTextAlign()
-        val textContent: @Composable () -> Unit = {
-            if (displayText != null) {
-                Text(
-                    text = displayText,
-                    style = finalStyle,
-                    textAlign = textAlign,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                Text(
-                    text = text,
-                    style = finalStyle,
-                    textAlign = textAlign,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        textContent()
     }
 }
 
@@ -528,241 +400,21 @@ private fun MDListItem(
     enableTextSelection: Boolean = false,
 ) {
     val listItem = listItemNode.node as ListItem
-    val taskMarker = listItem.firstChild as? TaskListItemMarker
-    val isTask = taskMarker != null
-    val sourceLine = listItem.sourceSpans.firstOrNull()?.lineIndex
-    // Use override if available, otherwise use parsed state
-    val parsedChecked = taskMarker?.isChecked == true
-    val effectiveChecked =
-        if (sourceLine != null && todoOverrides.containsKey(sourceLine)) {
-            todoOverrides[sourceLine] ?: parsedChecked
-        } else {
-            parsedChecked
-        }
-
-    // Determine style based on checked state
-    val itemStyle =
-        if (effectiveChecked) {
-            MaterialTheme.typography.bodyMedium.copy(
-                textDecoration = TextDecoration.LineThrough,
-                color = MaterialTheme.colorScheme.outline,
-            )
-        } else {
-            MaterialTheme.typography.bodyMedium
-        }
+    val presentation = rememberListItemPresentation(listItem, todoOverrides)
 
     Row(modifier = modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-        if (isTask) {
-            val appHaptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-
-            // Scale animation for checkbox interaction feedback
-            val scale by androidx.compose.animation.core.animateFloatAsState(
-                targetValue = if (effectiveChecked) 1.0f else 0.92f,
-                animationSpec =
-                    androidx.compose.animation.core.spring(
-                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium,
-                    ),
-                label = "checkbox_scale",
-            )
-
-            Checkbox(
-                checked = effectiveChecked,
-                onCheckedChange = { checked ->
-                    appHaptic.medium()
-                    if (sourceLine != null) {
-                        onTodoClick?.invoke(sourceLine, checked)
-                    }
-                },
-                modifier =
-                    Modifier
-                        .size(24.dp)
-                        .padding(end = 8.dp)
-                        .graphicsLayer {
-                            scaleX = scale
-                            scaleY = scale
-                        },
-            )
-        } else {
-            if (bullet == "•") {
-                Box(
-                    modifier =
-                        Modifier
-                            .width(24.dp)
-                            .height(24.dp) // Align with line height
-                            .padding(end = 4.dp),
-                    contentAlignment = androidx.compose.ui.Alignment.Center,
-                ) {
-                    val dotColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    Canvas(modifier = Modifier.size(6.dp)) { drawCircle(color = dotColor) }
-                }
-            } else {
-                Text(
-                    text = bullet,
-                    style =
-                        MaterialTheme.typography.bodyMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                        ),
-                    modifier = Modifier.width(20.dp).padding(end = 4.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        Column(modifier = Modifier.weight(1f)) {
-            var node = listItem.firstChild
-            while (node != null) {
-                if (node is TaskListItemMarker) {
-                    node = node.next
-                    continue
-                }
-                MDBlock(
-                    ImmutableNode(node),
-                    baseStyle = itemStyle,
-                    onTodoClick = onTodoClick,
-                    todoOverrides = todoOverrides,
-                    enableTextSelection = enableTextSelection,
-                )
-                node = node.next
-            }
-        }
+        MDListItemLeading(
+            bullet = bullet,
+            presentation = presentation,
+            onTodoClick = onTodoClick,
+        )
+        MDListItemContent(
+            modifier = Modifier.weight(1f),
+            listItem = listItem,
+            itemStyle = presentation.itemStyle,
+            onTodoClick = onTodoClick,
+            todoOverrides = todoOverrides,
+            enableTextSelection = enableTextSelection,
+        )
     }
-}
-
-@Composable
-private fun MDImage(
-    image: Image,
-    onImageClick: ((String) -> Unit)? = null,
-) {
-    MarkdownImageBlock(
-        image = image,
-        onImageClick = onImageClick,
-    )
-}
-
-@Composable
-private fun MDImageGallery(
-    images: List<Image>,
-    onImageClick: ((String) -> Unit)? = null,
-) {
-    MarkdownImagePager(
-        images = images,
-        onImageClick = onImageClick,
-    )
-}
-
-// Helper to build AnnotatedString from inline nodes
-private fun AnnotatedString.Builder.appendNode(
-    node: Node,
-    colorScheme: ColorScheme,
-) {
-    when (node) {
-        is Text -> {
-            append(node.literal)
-        }
-
-        is Code -> {
-            withStyle(
-                SpanStyle(
-                    fontFamily = FontFamily.Monospace,
-                    background = colorScheme.surfaceVariant,
-                ),
-            ) { append(node.literal) }
-        }
-
-        is Emphasis -> {
-            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { visitChildren(node, colorScheme) }
-        }
-
-        is StrongEmphasis -> {
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { visitChildren(node, colorScheme) }
-        }
-
-        is Strikethrough -> {
-            withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                visitChildren(node, colorScheme)
-            }
-        }
-
-        is Link -> {
-            pushLink(LinkAnnotation.Url(node.destination))
-            withStyle(
-                SpanStyle(
-                    color = colorScheme.primary,
-                    textDecoration = TextDecoration.Underline,
-                ),
-            ) { visitChildren(node, colorScheme) }
-            pop()
-        }
-
-        is Image -> {
-            // Inline image in text context (e.g. inside link).
-            append("[Image: ${node.title ?: "View"}]")
-        }
-
-        is SoftLineBreak -> {
-            append("\n")
-        }
-
-        is HardLineBreak -> {
-            append("\n")
-        }
-
-        else -> {
-            visitChildren(node, colorScheme)
-        }
-    }
-}
-
-private fun AnnotatedString.Builder.visitChildren(
-    parent: Node,
-    colorScheme: ColorScheme,
-) {
-    var child = parent.firstChild
-    while (child != null) {
-        appendNode(child, colorScheme)
-        child = child.next
-    }
-}
-
-private data class VoiceMemoItem(
-    val url: String,
-)
-
-private data class ImageGalleryItem(
-    val images: List<Image>,
-)
-
-private fun AnnotatedString.isPlainTextContent(): Boolean = spanStyles.isEmpty() && paragraphStyles.isEmpty()
-
-private fun Node.toImageOnlyParagraphOrNull(): Image? {
-    if (this !is Paragraph) return null
-    var imageNode: Image? = null
-    var child = firstChild
-    while (child != null) {
-        when (child) {
-            is Image -> {
-                if (imageNode != null) return null
-                imageNode = child
-            }
-
-            is SoftLineBreak,
-            is HardLineBreak,
-            -> {
-                Unit
-            }
-
-            is Text -> {
-                if (!child.literal.isNullOrBlank()) {
-                    return null
-                }
-            }
-
-            else -> {
-                return null
-            }
-        }
-        child = child.next
-    }
-    return imageNode
 }
