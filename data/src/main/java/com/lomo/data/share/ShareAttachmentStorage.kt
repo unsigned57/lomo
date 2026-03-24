@@ -2,6 +2,7 @@ package com.lomo.data.share
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MediaStorageDataSource
@@ -113,7 +114,7 @@ class ShareAttachmentStorage
         ): Boolean =
             treeUriString
                 ?.takeIf(String::isNotBlank)
-                ?.let { runCatching { DocumentFile.fromTreeUri(context, Uri.parse(it)) }.getOrNull() }
+                ?.let { runCatching { DocumentFile.fromTreeUri(context, it.toUri()) }.getOrNull() }
                 ?.findFile(filename)
                 ?.isFile == true
 

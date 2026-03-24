@@ -53,7 +53,7 @@ fun ImageViewerScreen(
     val contentState = rememberImageViewerContentState(imageUrls, initialIndex)
     val zoomFractions = remember(contentState.urls) { mutableStateMapOf<Int, Float>() }
     val sharedModifier =
-        rememberImageViewerSharedModifier(
+        Modifier.rememberImageViewerSharedModifier(
             urls = contentState.urls,
             initialIndex = contentState.initialIndex,
         )
@@ -68,7 +68,7 @@ fun ImageViewerScreen(
             ImageViewerPager(
                 contentState = contentState,
                 zoomFractions = zoomFractions,
-                sharedModifier = sharedModifier,
+                modifier = sharedModifier,
                 onBackClick = onBackClick,
             )
         }
@@ -103,7 +103,7 @@ private fun rememberImageViewerContentState(
 }
 
 @Composable
-private fun rememberImageViewerSharedModifier(
+private fun Modifier.rememberImageViewerSharedModifier(
     urls: List<String>,
     initialIndex: Int,
 ): Modifier {
@@ -113,13 +113,13 @@ private fun rememberImageViewerSharedModifier(
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
     return if (sharedTransitionScope != null && animatedVisibilityScope != null) {
         with(sharedTransitionScope) {
-            Modifier.sharedElement(
+            this@rememberImageViewerSharedModifier.sharedElement(
                 rememberSharedContentState(key = urls.getOrNull(initialIndex).orEmpty()),
                 animatedVisibilityScope = animatedVisibilityScope,
             )
         }
     } else {
-        Modifier
+        this
     }
 }
 
@@ -127,7 +127,7 @@ private fun rememberImageViewerSharedModifier(
 private fun BoxScope.ImageViewerPager(
     contentState: ImageViewerContentState,
     zoomFractions: MutableMap<Int, Float>,
-    sharedModifier: Modifier,
+    modifier: Modifier,
     onBackClick: () -> Unit,
 ) {
     val pagerState =
@@ -149,7 +149,7 @@ private fun BoxScope.ImageViewerPager(
             page = page,
             imageUrl = contentState.urls[page],
             isInitiallyShared = page == contentState.initialIndex,
-            sharedModifier = sharedModifier,
+            modifier = modifier,
             zoomFractions = zoomFractions,
             onBackClick = onBackClick,
         )
@@ -174,7 +174,7 @@ private fun ImageViewerPage(
     page: Int,
     imageUrl: String,
     isInitiallyShared: Boolean,
-    sharedModifier: Modifier,
+    modifier: Modifier,
     zoomFractions: MutableMap<Int, Float>,
     onBackClick: () -> Unit,
 ) {
@@ -196,7 +196,7 @@ private fun ImageViewerPage(
                 .fillMaxSize()
                 .then(
                     if (isInitiallyShared) {
-                        sharedModifier
+                        modifier
                     } else {
                         Modifier
                     },

@@ -8,6 +8,8 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Shader
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.withClip
 import android.text.Layout
 import kotlin.math.max
 import kotlin.math.roundToInt
@@ -110,7 +112,7 @@ internal fun renderShareCardBitmap(
     footer: ShareCardFooterContent,
     shouldUseCenteredBody: Boolean,
 ): Bitmap {
-    val bitmap = Bitmap.createBitmap(spec.canvasWidth, composition.bitmapHeight, Bitmap.Config.ARGB_8888)
+    val bitmap = createBitmap(spec.canvasWidth, composition.bitmapHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(bitmap)
     val cardRect = drawBackgroundAndCard(canvas, spec, palette, composition.bitmapHeight)
     val contentLeft = cardRect.left + spec.cardPadding
@@ -296,29 +298,28 @@ private fun drawBodyLines(
     val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     var cursorY = startY
 
-    canvas.save()
-    canvas.clipRect(contentLeft, cursorY, contentLeft + spec.contentWidth, footerTop)
-    bodyRenderLines.forEachIndexed { index, line ->
-        when (line.type) {
-            ShareBodyLineType.Blank -> cursorY += line.height
-            ShareBodyLineType.Code -> {
-                drawCodeLine(canvas, line, spec, contentLeft, cursorY, codeBackgroundPaint)
-                cursorY += line.height
+    canvas.withClip(contentLeft, cursorY, contentLeft + spec.contentWidth, footerTop) {
+        bodyRenderLines.forEachIndexed { index, line ->
+            when (line.type) {
+                ShareBodyLineType.Blank -> cursorY += line.height
+                ShareBodyLineType.Code -> {
+                    drawCodeLine(this, line, spec, contentLeft, cursorY, codeBackgroundPaint)
+                    cursorY += line.height
+                }
+                ShareBodyLineType.Image -> {
+                    drawImageLine(this, line, spec, contentLeft, cursorY, imagePaint)
+                    cursorY += line.height
+                }
+                else -> {
+                    drawLayout(this, line.layout, contentLeft, cursorY)
+                    cursorY += line.height
+                }
             }
-            ShareBodyLineType.Image -> {
-                drawImageLine(canvas, line, spec, contentLeft, cursorY, imagePaint)
-                cursorY += line.height
+            if (index != bodyRenderLines.lastIndex) {
+                cursorY += spec.lineSpacing
             }
-            else -> {
-                drawLayout(canvas, line.layout, contentLeft, cursorY)
-                cursorY += line.height
-            }
-        }
-        if (index != bodyRenderLines.lastIndex) {
-            cursorY += spec.lineSpacing
         }
     }
-    canvas.restore()
 }
 
 private fun drawCodeLine(
@@ -366,10 +367,9 @@ private fun drawImageLine(
         addRoundRect(destinationRect, spec.imageCorner, spec.imageCorner, Path.Direction.CW)
     }
 
-    canvas.save()
-    canvas.clipPath(clipPath)
-    canvas.drawBitmap(bitmap, null, destinationRect, imagePaint)
-    canvas.restore()
+    canvas.withClip(clipPath) {
+        drawBitmap(bitmap, null, destinationRect, imagePaint)
+    }
 }
 
 private fun drawFooter(

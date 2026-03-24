@@ -1,7 +1,7 @@
 package com.lomo.data.git
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -78,7 +78,7 @@ class SafGitMirrorBridge
         }
 
         private fun resolveRootDocument(rootUriString: String): DocumentFile {
-            val rootUri = Uri.parse(rootUriString)
+            val rootUri = rootUriString.toUri()
             val root = DocumentFile.fromTreeUri(context, rootUri)
             if (root == null || !root.exists() || !root.isDirectory) {
                 throw IOException("Invalid SAF root URI: $rootUriString")

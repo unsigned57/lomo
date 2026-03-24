@@ -9,6 +9,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.TypedValue
+import androidx.core.graphics.withTranslation
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -139,10 +140,9 @@ internal fun drawLayout(
     x: Float,
     y: Float,
 ) {
-    canvas.save()
-    canvas.translate(x, y)
-    layout.draw(canvas)
-    canvas.restore()
+    canvas.withTranslation(x, y) {
+        layout.draw(this)
+    }
 }
 
 internal fun dp(

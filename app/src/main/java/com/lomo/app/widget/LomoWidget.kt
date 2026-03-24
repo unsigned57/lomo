@@ -105,13 +105,13 @@ class LomoWidget : GlanceAppWidget() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Image(
-                provider = ImageProvider(R.mipmap.ic_launcher),
+                provider = ImageProvider(R.drawable.ic_launcher_legacy),
                 contentDescription = context.getString(R.string.app_name),
                 modifier = GlanceModifier.size(48.dp),
             )
             Spacer(modifier = GlanceModifier.width(8.dp))
             Text(
-                text = "Lomo",
+                text = context.getString(R.string.app_name),
                 style =
                     TextStyle(
                         color = GlanceTheme.colors.primary,

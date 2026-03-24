@@ -3,7 +3,8 @@ package com.lomo.app.util
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.net.Uri
+import androidx.core.graphics.scale
+import androidx.core.net.toUri
 import timber.log.Timber
 import java.net.HttpURLConnection
 import java.net.URI
@@ -67,7 +68,7 @@ private fun decodeBitmap(
     return when {
         path.isRemotePath() -> loadRemoteBitmap(path, options)
         path.startsWith(CONTENT_URI_PREFIX) -> {
-            val uri = Uri.parse(path)
+            val uri = path.toUri()
             context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, options) }
         }
         fileUriPath != null -> BitmapFactory.decodeFile(fileUriPath, options)
@@ -107,7 +108,7 @@ private fun scaleBitmapToWidth(
     }
 
     val scaledHeight = (rawBitmap.height * scale).roundToInt().coerceAtLeast(MIN_RENDER_DIMENSION_PX)
-    val scaledBitmap = Bitmap.createScaledBitmap(rawBitmap, targetWidth, scaledHeight, true)
+    val scaledBitmap = rawBitmap.scale(targetWidth, scaledHeight, filter = true)
     if (scaledBitmap !== rawBitmap) {
         rawBitmap.recycle()
     }

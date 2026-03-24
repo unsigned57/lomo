@@ -27,6 +27,8 @@ This file helps future AI agents build project context quickly and avoid repeati
   - Reusable UI components and theme system (Markdown renderers, cards, menus, navigation UI, theming)
 - `:detekt-rules`
   - Repo-level Detekt custom rules enforcing MVVM + Clean Architecture guardrails
+- `quality/`
+  - Repository quality tooling hub (Detekt config, custom rule sources, meaningful-test policy, CI scripts)
 - `:benchmark`
   - Baseline Profile generation and benchmark module (Macrobenchmark)
 
@@ -77,6 +79,7 @@ This file helps future AI agents build project context quickly and avoid repeati
 - Unit tests: `./gradlew testDebugUnitTest`
 - Architecture checks: `./gradlew architectureCheck`
 - Format Kotlin: `./gradlew detektFormat`
+- Quality tooling overview: `quality/README.md`
 - Release Kotlin compile only: `./gradlew :app:compileReleaseKotlin`
 - Release build: `./gradlew :app:assembleRelease`
 - Generate baseline profile: `./gradlew :app:generateBaselineProfile`
@@ -156,7 +159,10 @@ This file helps future AI agents build project context quickly and avoid repeati
 - Navigation host: `app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
 - Main VM: `app/src/main/java/com/lomo/app/feature/main/MainViewModel.kt`
 - Data DI: `data/src/main/java/com/lomo/data/di/DataModule.kt`
-- Detekt rules module: `detekt-rules/src/main/kotlin/com/lomo/detektrules/LomoArchitectureRuleSetProvider.kt`
+- Quality guide: `quality/README.md`
+- Detekt config root: `quality/detekt/config`
+- Meaningful test policy: `quality/testing/ai-meaningful-tests.md`
+- Detekt rules module: `quality/detekt-rules/src/main/kotlin/com/lomo/detektrules/LomoArchitectureRuleSetProvider.kt`
 - Memo repository impl: `data/src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt`
 - Git sync engine: `data/src/main/java/com/lomo/data/git/GitSyncEngine.kt`
 - Baseline generator: `benchmark/src/main/java/com/lomo/benchmark/BaselineProfileGenerator.kt`

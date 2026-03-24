@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.jetbrainsKotlinJvm)
+    alias(libs.plugins.kover)
 }
 
 val jvmVersion = 25
@@ -20,5 +21,13 @@ kotlin {
                 .fromTarget(jvmVersion.toString()),
         )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
+    }
+}
+
+kover {
+    currentProject {
+        createVariant("quality") {
+            add("jvm")
+        }
     }
 }

@@ -2,6 +2,7 @@ package com.lomo.data.webdav
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -266,7 +267,7 @@ private fun resolveRoot(
 ): MediaRoot? =
     when {
         !directory.isNullOrBlank() -> MediaRoot.Direct(category, directory)
-        !uri.isNullOrBlank() -> MediaRoot.Saf(category, Uri.parse(uri))
+        !uri.isNullOrBlank() -> MediaRoot.Saf(category, uri.toUri())
         else -> null
     }
 

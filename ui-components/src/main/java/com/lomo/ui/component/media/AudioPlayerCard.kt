@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,7 +39,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
-import java.util.Locale
 
 private const val AUDIO_TIME_MILLIS_PER_SECOND = 1000
 private const val AUDIO_TIME_SECONDS_PER_MINUTE = 60
@@ -167,9 +167,10 @@ private fun PlaybackTimestamp(positionMs: Long) {
     val totalSeconds = positionMs / AUDIO_TIME_MILLIS_PER_SECOND
     val minutes = totalSeconds / AUDIO_TIME_SECONDS_PER_MINUTE
     val seconds = totalSeconds % AUDIO_TIME_SECONDS_PER_MINUTE
+    val locale = LocalLocale.current.platformLocale
 
     Text(
-        text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
+        text = String.format(locale, "%02d:%02d", minutes, seconds),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )

@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
@@ -94,7 +95,7 @@ private fun LomoAppUpdateDialog(
             TextButton(
                 onClick = {
                     haptic.medium()
-                    val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(dialogState.url))
+                    val intent = Intent(Intent.ACTION_VIEW, dialogState.url.toUri())
                     context.startActivity(intent)
                     onDismiss()
                 },

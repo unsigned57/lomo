@@ -100,7 +100,7 @@ internal fun MarkdownImageBlock(
 
     @OptIn(ExperimentalSharedTransitionApi::class)
     val sharedModifier =
-        rememberSharedImageModifier(
+        Modifier.rememberSharedImageModifier(
             sharedTransitionScope = sharedTransitionScope,
             animatedVisibilityScope = animatedVisibilityScope,
             sharedElementKey = sharedElementKey,
@@ -108,7 +108,7 @@ internal fun MarkdownImageBlock(
 
     val ratio = aspectRatio
     val modifier =
-        rememberImageBlockModifier(
+        Modifier.rememberImageBlockModifier(
             ratio = ratio,
             destination = destination,
             onImageClick = onImageClick,
@@ -207,31 +207,31 @@ internal fun MarkdownImagePager(
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
-private fun rememberSharedImageModifier(
+private fun Modifier.rememberSharedImageModifier(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
     sharedElementKey: String,
 ): Modifier =
     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
         with(sharedTransitionScope) {
-            Modifier.sharedElement(
+            this@rememberSharedImageModifier.sharedElement(
                 rememberSharedContentState(key = sharedElementKey),
                 animatedVisibilityScope = animatedVisibilityScope,
             )
         }
     } else {
-        Modifier
+        this
     }
 
 @Composable
-private fun rememberImageBlockModifier(
+private fun Modifier.rememberImageBlockModifier(
     ratio: Float?,
     destination: String,
     onImageClick: ((String) -> Unit)?,
     sharedModifier: Modifier,
 ): Modifier {
     val baseModifier =
-        Modifier
+        this
             .fillMaxWidth()
             .clip(RoundedCornerShape(MARKDOWN_IMAGE_CORNER_RADIUS))
             .padding(vertical = MARKDOWN_IMAGE_VERTICAL_PADDING)

@@ -22,7 +22,7 @@
         android:theme="@style/Theme.Lomo"
         android:enableOnBackInvokedCallback="true"
         android:usesCleartextTraffic="true"
-        tools:targetApi="31">
+        tools:targetApi="33">
         
         <activity
             android:name=".MainActivity"
@@ -81,7 +81,8 @@
 
         <receiver
             android:name=".benchmark.BenchmarkSetupReceiver"
-            android:exported="true">
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="com.lomo.app.action.BENCHMARK_PREPARE" />
             </intent-filter>

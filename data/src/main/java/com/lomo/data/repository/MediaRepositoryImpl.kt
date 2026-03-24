@@ -1,6 +1,6 @@
 package com.lomo.data.repository
 
-import android.net.Uri
+import androidx.core.net.toUri
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
@@ -26,7 +26,7 @@ class MediaRepositoryImpl
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
         override suspend fun importImage(source: StorageLocation): StorageLocation {
-            val filename = mediaStorageDataSource.saveImage(Uri.parse(source.raw))
+            val filename = mediaStorageDataSource.saveImage(source.raw.toUri())
             mediaStorageDataSource.getImageLocation(filename)?.let { location ->
                 imageLocationMap.update { currentMap ->
                     currentMap + (MediaEntryId(filename) to StorageLocation(location))

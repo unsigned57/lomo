@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import androidx.core.content.edit
 import java.security.KeyStore
 import java.util.Base64
 import javax.crypto.Cipher
@@ -23,7 +24,7 @@ internal class KeystoreBackedPreferences(
     fun getString(key: String): String? {
         val encryptedValue = prefs.getString(key, null) ?: return null
         return runCatching { decrypt(encryptedValue) }
-            .onFailure { prefs.edit().remove(key).apply() }
+            .onFailure { prefs.edit { remove(key) } }
             .getOrNull()
     }
 

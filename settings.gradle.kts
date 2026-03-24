@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Lomo"
 include(":app", ":domain", ":data", ":ui-components", ":benchmark", ":detekt-rules")
+project(":detekt-rules").projectDir = file("quality/detekt-rules")

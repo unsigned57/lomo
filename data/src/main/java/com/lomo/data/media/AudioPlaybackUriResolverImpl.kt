@@ -2,6 +2,7 @@ package com.lomo.data.media
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.StorageLocation
@@ -86,7 +87,7 @@ class AudioPlaybackUriResolverImpl
             uri: String,
         ): String? =
             runNonFatalCatching {
-                val rootUri = Uri.parse(baseDir)
+                val rootUri = baseDir.toUri()
                 var document = DocumentFile.fromTreeUri(context, rootUri)
                 if (document == null || !document.isDirectory) {
                     null

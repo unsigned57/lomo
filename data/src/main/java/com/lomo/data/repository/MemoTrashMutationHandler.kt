@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import android.net.Uri
+import androidx.core.net.toUri
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoFtsDao
 import com.lomo.data.local.dao.MemoSearchDao
@@ -244,7 +245,7 @@ private suspend fun readMainMemoContent(
     filename: String,
 ): String? =
     if (cachedUriString != null) {
-        markdownStorageDataSource.readFile(Uri.parse(cachedUriString))
+        markdownStorageDataSource.readFile(cachedUriString.toUri())
             ?: markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
     } else {
         markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename)

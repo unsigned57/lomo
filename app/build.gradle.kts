@@ -14,6 +14,7 @@ plugins {
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.kover)
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.androidxBaselineProfile)
@@ -193,6 +194,14 @@ android {
 
 baselineProfile {
     dexLayoutOptimization = true
+}
+
+kover {
+    currentProject {
+        createVariant("quality") {
+            add("debug")
+        }
+    }
 }
 
 val releaseVersionName = android.defaultConfig.versionName ?: "0.0.0"

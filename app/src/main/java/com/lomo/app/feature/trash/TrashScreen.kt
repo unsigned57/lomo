@@ -319,8 +319,7 @@ private fun TrashMemoCardItem(
 
     Box(
         modifier =
-            modifier
-                .then(trashItemDeleteModifier(deleteAlpha)),
+            modifier.trashItemDeleteModifier(deleteAlpha),
     ) {
         MemoCard(
             content = uiModel.memo.content,
@@ -337,14 +336,16 @@ private fun TrashMemoCardItem(
     }
 }
 
-private fun trashItemDeleteModifier(deleteAlpha: Float): Modifier =
+private fun Modifier.trashItemDeleteModifier(deleteAlpha: Float): Modifier =
     if (deleteAlpha < TRASH_ITEM_ALPHA_THRESHOLD) {
-        Modifier.graphicsLayer {
-            alpha = deleteAlpha
-            compositingStrategy = CompositingStrategy.ModulateAlpha
-        }
+        then(
+            Modifier.graphicsLayer {
+                alpha = deleteAlpha
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
+        )
     } else {
-        Modifier
+        this
     }
 
 @Composable

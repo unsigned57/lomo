@@ -10,6 +10,13 @@
 - Any new boundary exception:
 - Why the change still respects `UI -> Domain -> Data`:
 
+## Meaningful Test Notes
+
+- Meaningful test targets or "not applicable":
+- Behaviors and observable outcomes covered:
+- Failure, cancellation, or conflict paths covered:
+- Why the assertions remain valid after refactors:
+
 ## Verification
 
 - Commands run:

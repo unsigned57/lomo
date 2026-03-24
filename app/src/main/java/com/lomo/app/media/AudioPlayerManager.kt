@@ -1,7 +1,6 @@
 package com.lomo.app.media
 
 import android.content.Context
-import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -23,6 +22,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import timber.log.Timber
 
 private const val AUDIO_PLAYER_MANAGER_TAG = "AudioPlayerManager"
 
@@ -233,8 +233,8 @@ private fun logAudioPlayerError(
     throwable: Throwable? = null,
 ) {
     if (throwable == null) {
-        Log.e(AUDIO_PLAYER_MANAGER_TAG, message)
+        Timber.tag(AUDIO_PLAYER_MANAGER_TAG).e(message)
     } else {
-        Log.e(AUDIO_PLAYER_MANAGER_TAG, message, throwable)
+        Timber.tag(AUDIO_PLAYER_MANAGER_TAG).e(throwable, message)
     }
 }

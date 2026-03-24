@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.composeCompiler)
+    alias(libs.plugins.kover)
 }
 
 android {
@@ -72,5 +73,13 @@ kotlin {
                 .fromTarget("25"),
         )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
+    }
+}
+
+kover {
+    currentProject {
+        createVariant("quality") {
+            add("debug")
+        }
     }
 }

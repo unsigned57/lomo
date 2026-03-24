@@ -1,6 +1,7 @@
 package com.lomo.data.sync
 
 import android.net.Uri
+import androidx.core.net.toUri
 import com.lomo.data.local.datastore.LomoDataStore
 import kotlinx.coroutines.flow.first
 
@@ -71,7 +72,7 @@ data class SyncDirectoryLayout(
                 ?.let { path ->
                     val normalizedPath =
                         if (path.startsWith("content://")) {
-                            val decoded = Uri.decode(Uri.parse(path).lastPathSegment.orEmpty())
+                            val decoded = Uri.decode(path.toUri().lastPathSegment.orEmpty())
                             decoded.substringAfter(':', decoded)
                         } else {
                             path
@@ -87,7 +88,7 @@ data class SyncDirectoryLayout(
                 ?.takeUnless(String::isBlank)
                 ?.let { path ->
                     if (path.startsWith("content://")) {
-                        Uri.parse(path).toString().trimEnd('/')
+                        path.toUri().toString().trimEnd('/')
                     } else {
                         path.trimEnd('/')
                     }

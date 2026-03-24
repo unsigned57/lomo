@@ -38,10 +38,10 @@ fun MemoCardList(
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
-    freeTextCopyEnabled: Boolean = false,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     modifier: Modifier = Modifier,
+    freeTextCopyEnabled: Boolean = false,
     onImageClick: (ImageViewerRequest) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
@@ -95,7 +95,12 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
                 )
             }
         }
-    val itemModifier = rememberMemoCardItemModifier(animation = animation, memoId = uiModel.memo.id)
+    val itemModifier =
+        Modifier.rememberMemoCardItemModifier(
+            lazyItemScope = this,
+            animation = animation,
+            memoId = uiModel.memo.id,
+        )
 
     Box(modifier = itemModifier) {
         MemoCardEntry(
@@ -113,12 +118,13 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-private fun androidx.compose.foundation.lazy.LazyItemScope.rememberMemoCardItemModifier(
+private fun Modifier.rememberMemoCardItemModifier(
+    lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
     animation: MemoCardListAnimation,
     memoId: String,
 ): Modifier =
     when (animation) {
-        MemoCardListAnimation.None -> Modifier
+        MemoCardListAnimation.None -> this
 
         MemoCardListAnimation.FadeIn -> {
             val animatedAlpha = remember { Animatable(0f) }
@@ -132,24 +138,26 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.rememberMemoCardItemM
                         ),
                 )
             }
-            Modifier.graphicsLayer {
+            this.graphicsLayer {
                 alpha = animatedAlpha.value
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             }
         }
 
         MemoCardListAnimation.Placement -> {
-            Modifier.animateItem(
-                fadeInSpec =
-                    keyframes {
-                        durationMillis = PLACEMENT_FADE_IN_DURATION_MS
-                        0f at 0
-                        0f at MotionTokens.DurationLong2
-                        1f at PLACEMENT_FADE_IN_DURATION_MS using MotionTokens.EasingEmphasizedDecelerate
-                    },
-                fadeOutSpec = snap(),
-                placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-            )
+            with(lazyItemScope) {
+                this@rememberMemoCardItemModifier.animateItem(
+                    fadeInSpec =
+                        keyframes {
+                            durationMillis = PLACEMENT_FADE_IN_DURATION_MS
+                            0f at 0
+                            0f at MotionTokens.DurationLong2
+                            1f at PLACEMENT_FADE_IN_DURATION_MS using MotionTokens.EasingEmphasizedDecelerate
+                        },
+                    fadeOutSpec = snap(),
+                    placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                )
+            }
         }
     }
 

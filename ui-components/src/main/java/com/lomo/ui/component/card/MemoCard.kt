@@ -85,7 +85,7 @@ fun MemoCard(
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
     val interactionModifier =
-        rememberMemoCardInteractionModifier(
+        Modifier.rememberMemoCardInteractionModifier(
             allowFreeTextCopy = allowFreeTextCopy,
             haptic = haptic,
             onClick = onClick,
@@ -139,7 +139,7 @@ fun MemoCard(
 }
 
 @Composable
-private fun rememberMemoCardInteractionModifier(
+private fun Modifier.rememberMemoCardInteractionModifier(
     allowFreeTextCopy: Boolean,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     onClick: () -> Unit,
@@ -147,9 +147,9 @@ private fun rememberMemoCardInteractionModifier(
     onMenuClick: (() -> Unit)?,
 ): Modifier =
     if (allowFreeTextCopy) {
-        Modifier.clip(AppShapes.Medium)
+        clip(AppShapes.Medium)
     } else {
-        Modifier
+        this
             .clip(AppShapes.Medium)
             .combinedClickable(
                 onClick = {

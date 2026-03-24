@@ -39,7 +39,7 @@
     <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
     <string name="settings_lan_share_pairing_dialog_title">设置配对密码</string>
     <string name="settings_lan_share_pairing_dialog_message">请在需要互信的设备上使用同一个配对密码。</string>
-    <string name="settings_lan_share_pairing_hint">6-64 个字符</string>
+    <string name="settings_lan_share_pairing_hint">6–64 个字符</string>
 
     <string name="input_hint_1">长按 + 号回到顶部</string>
     <string name="input_hint_2">回车三次快捷发送</string>
@@ -56,18 +56,12 @@
     <string name="settings_select_time_format">选择时间格式</string>
     <string name="settings_select_filename_format">选择文件名格式</string>
     <string name="settings_select_timestamp_format">选择时间戳格式</string>
-    <string name="settings_select_share_card_style">选择分享卡片样式</string>
     <string name="settings_group_share_card">分享卡片</string>
-    <string name="settings_share_card_style">卡片样式</string>
     <string name="settings_share_card_show_time">显示时间</string>
     <string name="settings_share_card_show_time_subtitle">在分享图片上显示分享时间</string>
     <string name="settings_share_card_show_brand">显示应用署名</string>
     <string name="settings_share_card_show_brand_subtitle">在分享图片上显示 Lomo 署名</string>
-    <string name="share_card_style_warm">暖色便签</string>
-    <string name="share_card_style_clean">简洁卡片</string>
-    <string name="share_card_style_dark">深色石板</string>
     <plurals name="share_card_recorded_days">
-        <item quantity="one">累计记录 %1$d 天</item>
         <item quantity="other">累计记录 %1$d 天</item>
     </plurals>
     <string name="share_card_placeholder_image">[图片]</string>
@@ -79,20 +73,22 @@
     <!-- Widget -->
     <string name="widget_description">查看最近备忘录并快速创建</string>
     <string name="widget_no_memos">暂无备忘录。点击 + 创建！</string>
+    <string name="widget_preview_recent_time">2 分钟前</string>
+    <string name="widget_preview_placeholder">最近的备忘录会显示在这里…</string>
     
     <!-- Share -->
-    <string name="share">分享</string>
-    <string name="copy_to_clipboard">复制到剪贴板</string>
     <string name="copied_to_clipboard">已复制到剪贴板</string>
     <string name="share_lan_title">局域网分享</string>
     <string name="share_nearby_devices">附近设备</string>
-    <string name="share_devices_count">%1$d 台设备</string>
+    <plurals name="share_devices_count">
+        <item quantity="other">%1$d 台设备</item>
+    </plurals>
     <string name="share_memo_preview_title">待分享备忘录</string>
-    <string name="share_status_connecting">连接中...</string>
-    <string name="share_status_waiting_approval">等待 %1$s 接收...</string>
-    <string name="share_status_transferring">传输中...</string>
+    <string name="share_status_connecting">连接中…</string>
+    <string name="share_status_waiting_approval">等待 %1$s 接收…</string>
+    <string name="share_status_transferring">传输中…</string>
     <string name="share_status_sent">已发送到 %1$s</string>
-    <string name="share_searching_devices">正在搜索附近设备...</string>
+    <string name="share_searching_devices">正在搜索附近设备…</string>
     <string name="share_searching_hint">请确保两台设备连接到同一 WiFi</string>
     <string name="share_e2e_enabled_title">端对端加密</string>
     <string name="share_e2e_enabled_subtitle">在局域网传输中加密备忘录内容和附件</string>
@@ -104,7 +100,7 @@
     <string name="share_e2e_password_not_set">未设置（开启加密时必填）</string>
     <string name="share_e2e_password_dialog_title">设置端对端密码</string>
     <string name="share_e2e_password_dialog_message">请在所有受信任的 LAN 分享设备上使用同一个密码。</string>
-    <string name="share_e2e_password_hint">6-64 个字符</string>
+    <string name="share_e2e_password_hint">6–64 个字符</string>
     <string name="share_password_show">显示</string>
     <string name="share_password_hide">隐藏</string>
     <string name="share_device_name_label">设备名称</string>
@@ -122,11 +118,10 @@
     <string name="share_error_attachment_resolve_failed">无法解析附件文件路径</string>
     <string name="share_error_unsupported_attachment_type">不支持的附件类型</string>
     <string name="share_error_device_unreachable">目标设备不可达</string>
-    <string name="share_error_invalid_pairing_code">密码需为 6-64 个字符</string>
+    <string name="share_error_invalid_pairing_code">密码需为 6–64 个字符</string>
     <string name="share_incoming_title">收到备忘录</string>
     <string name="share_incoming_from">来自：%1$s</string>
     <plurals name="share_incoming_attachments_count">
-        <item quantity="one">%1$d 个附件</item>
         <item quantity="other">%1$d 个附件</item>
     </plurals>
 
@@ -142,35 +137,21 @@
     <string name="settings_simplified_chinese">简体中文</string>
 
     <!-- Sidebar and Navigation -->
-    <string name="sidebar_tags">标签</string>
-    <string name="sidebar_trash">回收站</string>
     <string name="sidebar_daily_review">每日回顾</string>
-    <string name="sidebar_nav_memo">备忘录</string>
-    
-    <!-- Stats -->
-    <string name="stat_memo">记录</string>
-    <string name="stat_tag">标签</string>
-    <string name="stat_day">天数</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">菜单</string>
-    <string name="cd_settings">设置</string>
     <string name="cd_close">关闭</string>
     <string name="cd_image_viewer_fullscreen">全屏图片</string>
     <string name="cd_search">搜索</string>
     <string name="cd_filter">筛选</string>
     <string name="cd_clear_filter">清除筛选</string>
-    <string name="cd_expand">展开</string>
-    <string name="cd_collapse">折叠</string>
 
     <!-- Main Filter -->
     <string name="main_filter_title">筛选与排序</string>
     <string name="main_filter_sort_created_time">按创建时间</string>
     <string name="main_filter_sort_updated_time">按更新时间</string>
-    <string name="main_filter_summary_none">当前没有启用筛选</string>
-    <string name="main_filter_summary_active">已启用 %1$d 项筛选</string>
     <string name="main_filter_section_time_range">日期范围</string>
-    <string name="main_filter_date_section_hint">开始和结束日期可分别单独设置。</string>
     <string name="main_filter_start_date">开始日期</string>
     <string name="main_filter_end_date">结束日期</string>
     <string name="main_filter_pick_start_date">选择开始日期</string>
@@ -194,11 +175,10 @@
     <string name="review_no_memos_desc">添加一些备忘录以开始回顾。</string>
 
     <!-- Search Screen -->
-    <string name="search_hint">搜索备忘录...</string>
+    <string name="search_hint">搜索备忘录…</string>
     <string name="cd_clear_search">清除搜索</string>
     <string name="search_empty_initial_title">输入以搜索</string>
     <string name="search_empty_initial_desc">搜索内容或标签</string>
-    <string name="search_error_generic">错误</string>
     <string name="search_no_results_title">未找到结果</string>
     <string name="search_no_results_desc">尝试调整搜索词</string>
 
@@ -214,9 +194,7 @@
     <string name="trash_clear_confirm_title">清空回收站？</string>
     <string name="trash_clear_confirm_message">此操作会永久删除回收站中的所有备忘录。</string>
     <string name="action_restore">恢复</string>
-    <string name="cd_restore_memo">恢复备忘录</string>
     <string name="action_delete_permanently">永久删除</string>
-    <string name="cd_delete_permanently">永久删除</string>
     <string name="cd_clear_trash">清空回收站</string>
     <string name="error_unknown">未知错误</string>
 
@@ -270,7 +248,7 @@
     <string name="settings_git_pat_not_set">未配置</string>
     <string name="settings_git_pat_dialog_title">设置个人访问令牌</string>
     <string name="settings_git_pat_dialog_message">在 GitHub Settings > Developer settings > Personal access tokens 创建令牌，需要 repo 权限。</string>
-    <string name="settings_git_pat_hint">ghp_...</string>
+    <string name="settings_git_pat_hint">ghp_…</string>
     <string name="settings_git_author_name">作者名称</string>
     <string name="settings_git_author_name_hint">Git 提交使用的名称</string>
     <string name="settings_git_author_email">作者邮箱</string>
@@ -282,15 +260,12 @@
     <string name="settings_git_sync_now">立即同步</string>
     <string name="settings_git_sync_now_subtitle">上次同步：%1$s</string>
     <string name="settings_git_sync_never">从未同步</string>
-    <string name="settings_git_sync_status_idle">空闲</string>
-    <string name="settings_git_sync_status_syncing">同步中...</string>
-    <string name="settings_git_sync_status_pulling">拉取中...</string>
-    <string name="settings_git_sync_status_committing">提交中...</string>
-    <string name="settings_git_sync_status_pushing">推送中...</string>
-    <string name="settings_git_sync_status_success">已同步</string>
+    <string name="settings_git_sync_status_pulling">拉取中…</string>
+    <string name="settings_git_sync_status_committing">提交中…</string>
+    <string name="settings_git_sync_status_pushing">推送中…</string>
     <string name="settings_git_sync_status_error">错误：%1$s</string>
     <string name="settings_git_sync_status_not_configured">未配置</string>
-    <string name="settings_git_sync_status_initializing">初始化中...</string>
+    <string name="settings_git_sync_status_initializing">初始化中…</string>
     <string name="settings_git_sync_direct_path_required">Git 同步需要直接路径模式，请使用文件路径而非 SAF 设置备忘录目录。</string>
     <string name="settings_git_not_configured_message">Git 同步尚未配置。</string>
     <string name="settings_git_pat_required_message">尚未配置个人访问令牌。</string>
@@ -303,7 +278,7 @@
     <string name="settings_git_sync_interval_12h">12 小时</string>
     <string name="settings_git_sync_interval_24h">24 小时</string>
     <string name="settings_git_test_connection">测试连接</string>
-    <string name="settings_git_test_connection_testing">测试中...</string>
+    <string name="settings_git_test_connection_testing">测试中…</string>
     <string name="settings_git_test_connection_success">连接成功</string>
     <string name="settings_git_test_connection_failed">连接失败：%1$s</string>
     <string name="settings_git_reset_repo">重置 Git 仓库</string>
@@ -351,17 +326,17 @@
     <string name="settings_webdav_sync_now">立即同步</string>
     <string name="settings_webdav_sync_now_subtitle">上次同步：%1$s</string>
     <string name="settings_webdav_sync_never">从未同步</string>
-    <string name="settings_webdav_sync_status_initializing">初始化中...</string>
-    <string name="settings_webdav_sync_status_connecting">连接中...</string>
-    <string name="settings_webdav_sync_status_listing">扫描文件中...</string>
-    <string name="settings_webdav_sync_status_uploading">上传中...</string>
-    <string name="settings_webdav_sync_status_downloading">下载中...</string>
-    <string name="settings_webdav_sync_status_deleting">删除中...</string>
+    <string name="settings_webdav_sync_status_initializing">初始化中…</string>
+    <string name="settings_webdav_sync_status_connecting">连接中…</string>
+    <string name="settings_webdav_sync_status_listing">扫描文件中…</string>
+    <string name="settings_webdav_sync_status_uploading">上传中…</string>
+    <string name="settings_webdav_sync_status_downloading">下载中…</string>
+    <string name="settings_webdav_sync_status_deleting">删除中…</string>
     <string name="settings_webdav_sync_status_error">错误：%1$s</string>
     <string name="settings_webdav_sync_status_not_configured">未配置</string>
     <string name="settings_webdav_not_configured_message">WebDAV 同步尚未配置。</string>
     <string name="settings_webdav_test_connection">测试连接</string>
-    <string name="settings_webdav_test_connection_testing">测试中...</string>
+    <string name="settings_webdav_test_connection_testing">测试中…</string>
     <string name="settings_webdav_test_connection_success">连接成功</string>
     <string name="settings_webdav_test_connection_failed">连接失败：%1$s</string>
     <string name="settings_webdav_sync_on_refresh">刷新同步</string>
@@ -371,17 +346,5 @@
     <string name="memo_version_restore">恢复</string>
     <string name="memo_version_current">当前版本</string>
     <string name="memo_version_loading">加载版本历史…</string>
-
-    <!-- Sync Conflict Resolution -->
-    <string name="sync_conflict_dialog_title">解决同步冲突</string>
-    <string name="sync_conflict_keep_all_local">全部保留本地</string>
-    <string name="sync_conflict_keep_all_remote">全部使用远程</string>
-    <string name="sync_conflict_keep_local">本地</string>
-    <string name="sync_conflict_keep_remote">远程</string>
-    <string name="sync_conflict_apply">应用</string>
-    <string name="sync_conflict_file_binary">二进制文件</string>
-    <string name="sync_conflict_file_count">%d 个文件存在冲突</string>
-    <string name="sync_conflict_backup_notice">冲突文件将在解决前自动备份</string>
-    <string name="sync_conflict_resolved">冲突已解决</string>
 
 </resources>

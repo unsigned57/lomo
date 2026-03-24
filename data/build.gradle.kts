@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.androidLibrary)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.kover)
     alias(libs.plugins.kotlinSerialization)
 }
 
@@ -90,5 +91,13 @@ kotlin {
                 .fromTarget("25"),
         )
         freeCompilerArgs.add("-Xannotation-default-target=param-property")
+    }
+}
+
+kover {
+    currentProject {
+        createVariant("quality") {
+            add("debug")
+        }
     }
 }

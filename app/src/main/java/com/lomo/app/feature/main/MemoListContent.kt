@@ -336,18 +336,20 @@ private fun MemoListItem(
         freeTextCopyEnabled = freeTextCopyEnabled,
         onImageClick = stableImageClick,
         onShowMenu = onShowMemoMenu,
-        modifier = modifier.then(memoDeletingModifier(deleteAlpha)),
+        modifier = modifier.memoDeletingModifier(deleteAlpha),
     )
 }
 
-private fun memoDeletingModifier(deleteAlpha: Float): Modifier =
+private fun Modifier.memoDeletingModifier(deleteAlpha: Float): Modifier =
     if (deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD) {
-        Modifier.graphicsLayer {
-            alpha = deleteAlpha
-            compositingStrategy = CompositingStrategy.ModulateAlpha
-        }
+        then(
+            Modifier.graphicsLayer {
+                alpha = deleteAlpha
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
+        )
     } else {
-        Modifier
+        this
     }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)

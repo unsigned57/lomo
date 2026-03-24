@@ -2,6 +2,7 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -40,7 +41,7 @@ class FileWorkspaceConfigSourceDelegate
             getRootFlow(type).map { uriOrPath ->
                 when {
                     uriOrPath == null -> null
-                    isContentUri(uriOrPath) -> withContext(Dispatchers.IO) { displayNameForUri(Uri.parse(uriOrPath)) }
+                    isContentUri(uriOrPath) -> withContext(Dispatchers.IO) { displayNameForUri(uriOrPath.toUri()) }
                     else -> uriOrPath
                 }
             }

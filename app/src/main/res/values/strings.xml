@@ -40,7 +40,7 @@
     <string name="settings_lan_share_pairing_not_set">Not configured (required for LAN sharing)</string>
     <string name="settings_lan_share_pairing_dialog_title">Set Pairing Code</string>
     <string name="settings_lan_share_pairing_dialog_message">Use the same code on all devices you want to trust for LAN sharing.</string>
-    <string name="settings_lan_share_pairing_hint">6-64 characters</string>
+    <string name="settings_lan_share_pairing_hint">6–64 characters</string>
     
     <string name="input_hint_1">Long press + to scroll to top</string>
     <string name="input_hint_2">Triple enter to quick send</string>
@@ -55,16 +55,11 @@
     <string name="settings_select_time_format">Select Time Format</string>
     <string name="settings_select_filename_format">Select Filename Format</string>
     <string name="settings_select_timestamp_format">Select Timestamp Format</string>
-    <string name="settings_select_share_card_style">Select Share Card Style</string>
     <string name="settings_group_share_card">Share Card</string>
-    <string name="settings_share_card_style">Card Style</string>
     <string name="settings_share_card_show_time">Show timestamp</string>
     <string name="settings_share_card_show_time_subtitle">Display sharing time on the card image</string>
     <string name="settings_share_card_show_brand">Show app signature</string>
     <string name="settings_share_card_show_brand_subtitle">Display Lomo signature on the card image</string>
-    <string name="share_card_style_warm">Warm Note</string>
-    <string name="share_card_style_clean">Clean Card</string>
-    <string name="share_card_style_dark">Dark Slate</string>
     <plurals name="share_card_recorded_days">
         <item quantity="one">Recorded %1$d day</item>
         <item quantity="other">Recorded %1$d days</item>
@@ -78,20 +73,23 @@
     <!-- Widget -->
     <string name="widget_description">View recent memos and quickly create new ones</string>
     <string name="widget_no_memos">No memos yet. Tap + to create one!</string>
+    <string name="widget_preview_recent_time">2 minutes ago</string>
+    <string name="widget_preview_placeholder">Your recent memos will appear here…</string>
     
     <!-- Share -->
-    <string name="share">Share</string>
-    <string name="copy_to_clipboard">Copy to Clipboard</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="share_lan_title">Share via LAN</string>
     <string name="share_nearby_devices">Nearby Devices</string>
-    <string name="share_devices_count">%1$d devices</string>
+    <plurals name="share_devices_count">
+        <item quantity="one">%1$d device</item>
+        <item quantity="other">%1$d devices</item>
+    </plurals>
     <string name="share_memo_preview_title">Memo to share</string>
-    <string name="share_status_connecting">Connecting...</string>
-    <string name="share_status_waiting_approval">Waiting for %1$s to accept...</string>
-    <string name="share_status_transferring">Transferring...</string>
+    <string name="share_status_connecting">Connecting…</string>
+    <string name="share_status_waiting_approval">Waiting for %1$s to accept…</string>
+    <string name="share_status_transferring">Transferring…</string>
     <string name="share_status_sent">Sent to %1$s</string>
-    <string name="share_searching_devices">Searching for nearby devices...</string>
+    <string name="share_searching_devices">Searching for nearby devices…</string>
     <string name="share_searching_hint">Make sure both devices are on the same WiFi</string>
     <string name="share_e2e_enabled_title">End-to-end encryption</string>
     <string name="share_e2e_enabled_subtitle">Encrypt memo content and attachments during LAN transfer</string>
@@ -103,7 +101,7 @@
     <string name="share_e2e_password_not_set">Not configured (required when encryption is enabled)</string>
     <string name="share_e2e_password_dialog_title">Set end-to-end password</string>
     <string name="share_e2e_password_dialog_message">Use the same password on all devices you trust for LAN sharing.</string>
-    <string name="share_e2e_password_hint">6-64 characters</string>
+    <string name="share_e2e_password_hint">6–64 characters</string>
     <string name="share_password_show">Show</string>
     <string name="share_password_hide">Hide</string>
     <string name="share_device_name_label">Device name</string>
@@ -121,7 +119,7 @@
     <string name="share_error_attachment_resolve_failed">Cannot resolve attachment file path</string>
     <string name="share_error_unsupported_attachment_type">Unsupported attachment type</string>
     <string name="share_error_device_unreachable">Target device is unreachable</string>
-    <string name="share_error_invalid_pairing_code">Password must be 6-64 characters</string>
+    <string name="share_error_invalid_pairing_code">Password must be 6–64 characters</string>
     <string name="share_incoming_title">Incoming memo</string>
     <string name="share_incoming_from">From: %1$s</string>
     <plurals name="share_incoming_attachments_count">
@@ -141,35 +139,21 @@
     <string name="settings_simplified_chinese">Simplified Chinese</string>
 
     <!-- Sidebar and Navigation -->
-    <string name="sidebar_tags">Tags</string>
-    <string name="sidebar_trash">Trash</string>
     <string name="sidebar_daily_review">Daily Review</string>
-    <string name="sidebar_nav_memo">MEMO</string>
-    
-    <!-- Stats -->
-    <string name="stat_memo">MEMO</string>
-    <string name="stat_tag">TAG</string>
-    <string name="stat_day">DAY</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">Menu</string>
-    <string name="cd_settings">Settings</string>
     <string name="cd_close">Close</string>
     <string name="cd_image_viewer_fullscreen">Fullscreen image</string>
     <string name="cd_search">Search</string>
     <string name="cd_filter">Filter</string>
     <string name="cd_clear_filter">Clear Filter</string>
-    <string name="cd_expand">Expand</string>
-    <string name="cd_collapse">Collapse</string>
 
     <!-- Main Filter -->
     <string name="main_filter_title">Filter &amp; Sort</string>
     <string name="main_filter_sort_created_time">Creation time</string>
     <string name="main_filter_sort_updated_time">Update time</string>
-    <string name="main_filter_summary_none">No active filters</string>
-    <string name="main_filter_summary_active">%1$d active filters</string>
     <string name="main_filter_section_time_range">Date range</string>
-    <string name="main_filter_date_section_hint">Set start and end dates independently.</string>
     <string name="main_filter_start_date">Start date</string>
     <string name="main_filter_end_date">End date</string>
     <string name="main_filter_pick_start_date">Pick start date</string>
@@ -193,11 +177,10 @@
     <string name="review_no_memos_desc">Add some memos to start your review.</string>
 
     <!-- Search Screen -->
-    <string name="search_hint">Search memos...</string>
+    <string name="search_hint">Search memos…</string>
     <string name="cd_clear_search">Clear search</string>
     <string name="search_empty_initial_title">Type to search</string>
     <string name="search_empty_initial_desc">Search content or tags</string>
-    <string name="search_error_generic">Error</string>
     <string name="search_no_results_title">No results found</string>
     <string name="search_no_results_desc">Try adjusting your search terms</string>
 
@@ -213,9 +196,7 @@
     <string name="trash_clear_confirm_title">Clear trash?</string>
     <string name="trash_clear_confirm_message">This will permanently delete all memos in trash.</string>
     <string name="action_restore">Restore</string>
-    <string name="cd_restore_memo">Restore memo</string>
     <string name="action_delete_permanently">Delete Permanently</string>
-    <string name="cd_delete_permanently">Delete permanently</string>
     <string name="cd_clear_trash">Clear trash</string>
     <string name="error_unknown">Unknown error</string>
 
@@ -269,7 +250,7 @@
     <string name="settings_git_pat_not_set">Not configured</string>
     <string name="settings_git_pat_dialog_title">Set Personal Access Token</string>
     <string name="settings_git_pat_dialog_message">Create a token at GitHub Settings > Developer settings > Personal access tokens. Requires repo scope.</string>
-    <string name="settings_git_pat_hint">ghp_...</string>
+    <string name="settings_git_pat_hint">ghp_…</string>
     <string name="settings_git_author_name">Author Name</string>
     <string name="settings_git_author_name_hint">Name for git commits</string>
     <string name="settings_git_author_email">Author Email</string>
@@ -281,15 +262,12 @@
     <string name="settings_git_sync_now">Sync Now</string>
     <string name="settings_git_sync_now_subtitle">Last synced: %1$s</string>
     <string name="settings_git_sync_never">Never synced</string>
-    <string name="settings_git_sync_status_idle">Idle</string>
-    <string name="settings_git_sync_status_syncing">Syncing...</string>
-    <string name="settings_git_sync_status_pulling">Pulling...</string>
-    <string name="settings_git_sync_status_committing">Committing...</string>
-    <string name="settings_git_sync_status_pushing">Pushing...</string>
-    <string name="settings_git_sync_status_success">Synced</string>
+    <string name="settings_git_sync_status_pulling">Pulling…</string>
+    <string name="settings_git_sync_status_committing">Committing…</string>
+    <string name="settings_git_sync_status_pushing">Pushing…</string>
     <string name="settings_git_sync_status_error">Error: %1$s</string>
     <string name="settings_git_sync_status_not_configured">Not configured</string>
-    <string name="settings_git_sync_status_initializing">Initializing...</string>
+    <string name="settings_git_sync_status_initializing">Initializing…</string>
     <string name="settings_git_sync_direct_path_required">Git sync requires direct path mode. Please set memo directory using a file path instead of SAF.</string>
     <string name="settings_git_not_configured_message">Git sync is not configured.</string>
     <string name="settings_git_pat_required_message">Personal Access Token is not configured.</string>
@@ -302,7 +280,7 @@
     <string name="settings_git_sync_interval_12h">12 hours</string>
     <string name="settings_git_sync_interval_24h">24 hours</string>
     <string name="settings_git_test_connection">Test Connection</string>
-    <string name="settings_git_test_connection_testing">Testing...</string>
+    <string name="settings_git_test_connection_testing">Testing…</string>
     <string name="settings_git_test_connection_success">Connection successful</string>
     <string name="settings_git_test_connection_failed">Connection failed: %1$s</string>
     <string name="settings_git_reset_repo">Reset Git Repository</string>
@@ -350,17 +328,17 @@
     <string name="settings_webdav_sync_now">Sync Now</string>
     <string name="settings_webdav_sync_now_subtitle">Last synced: %1$s</string>
     <string name="settings_webdav_sync_never">Never synced</string>
-    <string name="settings_webdav_sync_status_initializing">Initializing...</string>
-    <string name="settings_webdav_sync_status_connecting">Connecting...</string>
-    <string name="settings_webdav_sync_status_listing">Scanning files...</string>
-    <string name="settings_webdav_sync_status_uploading">Uploading...</string>
-    <string name="settings_webdav_sync_status_downloading">Downloading...</string>
-    <string name="settings_webdav_sync_status_deleting">Deleting...</string>
+    <string name="settings_webdav_sync_status_initializing">Initializing…</string>
+    <string name="settings_webdav_sync_status_connecting">Connecting…</string>
+    <string name="settings_webdav_sync_status_listing">Scanning files…</string>
+    <string name="settings_webdav_sync_status_uploading">Uploading…</string>
+    <string name="settings_webdav_sync_status_downloading">Downloading…</string>
+    <string name="settings_webdav_sync_status_deleting">Deleting…</string>
     <string name="settings_webdav_sync_status_error">Error: %1$s</string>
     <string name="settings_webdav_sync_status_not_configured">Not configured</string>
     <string name="settings_webdav_not_configured_message">WebDAV sync is not configured.</string>
     <string name="settings_webdav_test_connection">Test Connection</string>
-    <string name="settings_webdav_test_connection_testing">Testing...</string>
+    <string name="settings_webdav_test_connection_testing">Testing…</string>
     <string name="settings_webdav_test_connection_success">Connection successful</string>
     <string name="settings_webdav_test_connection_failed">Connection failed: %1$s</string>
     <string name="settings_webdav_sync_on_refresh">Sync on Refresh</string>
@@ -370,17 +348,5 @@
     <string name="memo_version_restore">Restore</string>
     <string name="memo_version_current">Current</string>
     <string name="memo_version_loading">Loading version history…</string>
-
-    <!-- Sync Conflict Resolution -->
-    <string name="sync_conflict_dialog_title">Resolve Sync Conflicts</string>
-    <string name="sync_conflict_keep_all_local">Keep All Local</string>
-    <string name="sync_conflict_keep_all_remote">Keep All Remote</string>
-    <string name="sync_conflict_keep_local">Local</string>
-    <string name="sync_conflict_keep_remote">Remote</string>
-    <string name="sync_conflict_apply">Apply</string>
-    <string name="sync_conflict_file_binary">Binary file</string>
-    <string name="sync_conflict_file_count">%d file(s) in conflict</string>
-    <string name="sync_conflict_backup_notice">Files backed up before resolution</string>
-    <string name="sync_conflict_resolved">Conflicts resolved</string>
 
 </resources>

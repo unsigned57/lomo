@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
@@ -243,7 +244,7 @@ private fun DeviceDiscoveryHeader(devices: List<DiscoveredDevice>) {
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
-                text = stringResource(R.string.share_devices_count, devices.size),
+                text = pluralStringResource(R.plurals.share_devices_count, devices.size, devices.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

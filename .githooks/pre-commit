@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 gradlew="$repo_root/gradlew"
+meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
 
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
@@ -76,3 +77,11 @@ for file in "${staged_kotlin_files[@]}"; do
     git -C "$repo_root" add -- "$file"
   fi
 done
+
+if [ ! -x "$meaningful_test_script" ]; then
+  echo "pre-commit: meaningful test check script not found or not executable: $meaningful_test_script" >&2
+  exit 1
+fi
+
+echo "pre-commit: checking meaningful test contracts on staged tests..."
+MEANINGFUL_TEST_CHECK_MODE=staged "$meaningful_test_script"

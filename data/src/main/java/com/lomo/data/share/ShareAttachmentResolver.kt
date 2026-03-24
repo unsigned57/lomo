@@ -3,6 +3,7 @@ package com.lomo.data.share
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.ShareAttachmentInfo
@@ -17,7 +18,7 @@ internal class ShareAttachmentResolver(
     private val dataStore: LomoDataStore,
 ) {
     suspend fun prepareAttachments(rawAttachmentUris: Map<String, String>): AttachmentPreparationResult {
-        val parsedUris = rawAttachmentUris.mapValues { (_, value) -> Uri.parse(value) }
+        val parsedUris = rawAttachmentUris.mapValues { (_, value) -> value.toUri() }
         val resolvedAttachmentUris = resolveAttachmentUris(parsedUris)
         val missingCount = rawAttachmentUris.size - resolvedAttachmentUris.size
         val attachmentInfos = mutableListOf<ShareAttachmentInfo>()
@@ -147,7 +148,7 @@ internal class ShareAttachmentResolver(
 
     private fun findFileInTree(treeUriString: String): DocumentFile? =
         runCatching {
-            DocumentFile.fromTreeUri(context, Uri.parse(treeUriString))
+            DocumentFile.fromTreeUri(context, treeUriString.toUri())
         }.getOrNull()
 
     private fun resolveAttachmentSize(uri: Uri): Long {

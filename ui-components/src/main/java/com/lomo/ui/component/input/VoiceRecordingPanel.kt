@@ -22,10 +22,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
-import java.util.Locale
 
 private const val MILLIS_PER_SECOND = 1000
 private const val SECONDS_PER_MINUTE = 60
@@ -59,6 +59,7 @@ fun VoiceRecordingPanel(
     val minutes = totalSeconds / SECONDS_PER_MINUTE
     val seconds = totalSeconds % SECONDS_PER_MINUTE
     val waveformWidth = calculateWaveformWidth(state.recordingAmplitude)
+    val locale = LocalLocale.current.platformLocale
 
     Column(
         modifier =
@@ -79,7 +80,7 @@ fun VoiceRecordingPanel(
         Spacer(modifier = Modifier.height(AppSpacing.Medium))
 
         Text(
-            text = String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds),
+            text = String.format(locale, "%02d:%02d", minutes, seconds),
             style = MaterialTheme.typography.displayMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )

@@ -1,7 +1,7 @@
 package com.lomo.data.source
 
 import android.content.Context
-import android.net.Uri
+import androidx.core.net.toUri
 import com.lomo.data.local.datastore.LomoDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -67,7 +67,7 @@ class FileStorageBackendResolver
         ): Pair<MarkdownStorageBackend?, WorkspaceConfigBackend?> =
             when {
                 rootUri != null -> {
-                    val backend = SafStorageBackend(context, Uri.parse(rootUri))
+                    val backend = SafStorageBackend(context, rootUri.toUri())
                     backend to backend
                 }
 
@@ -90,7 +90,7 @@ class FileStorageBackendResolver
             configuredPath: String?,
         ): Pair<MediaStorageBackend?, String?> =
             when {
-                configuredUri != null -> SafStorageBackend(context, Uri.parse(configuredUri)) to configuredUri
+                configuredUri != null -> SafStorageBackend(context, configuredUri.toUri()) to configuredUri
                 configuredPath != null -> DirectStorageBackend(File(configuredPath)) to null
                 else -> null to null
             }

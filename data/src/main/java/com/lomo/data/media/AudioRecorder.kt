@@ -4,10 +4,11 @@ import android.content.Context
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.ParcelFileDescriptor
-import android.util.Log
+import androidx.core.net.toUri
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.VoiceRecordingRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import timber.log.Timber
 import javax.inject.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.log10
@@ -25,7 +26,7 @@ class AudioRecorder
             if (isRecording) {
                 stop()
             }
-            val targetUri = android.net.Uri.parse(outputLocation.raw)
+            val targetUri = outputLocation.raw.toUri()
 
             val mediaRecorder = createRecorder()
             runCatching {
@@ -46,7 +47,7 @@ class AudioRecorder
             }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
-                    Log.e(TAG, "Failed to start recording", error)
+                    Timber.tag(TAG).e(error, "Failed to start recording")
                     releaseRecorder(mediaRecorder, "Failed to release recorder after start failure")
                     closeOutputFileDescriptor()
                 }
@@ -59,7 +60,7 @@ class AudioRecorder
                 recorder?.stop()
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                Log.e(TAG, "Failed to stop recording", error)
+                Timber.tag(TAG).e(error, "Failed to stop recording")
             }.also {
                 release()
             }
@@ -70,7 +71,7 @@ class AudioRecorder
                 recorder?.maxAmplitude ?: 0
             }.getOrElse { error ->
                 if (error is CancellationException) throw error
-                Log.w(TAG, "Failed to read recording amplitude", error)
+                Timber.tag(TAG).w(error, "Failed to read recording amplitude")
                 0
             }
 
@@ -96,7 +97,7 @@ class AudioRecorder
                 recorder?.release()
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                Log.e(TAG, "Failed to release recorder", error)
+                Timber.tag(TAG).e(error, "Failed to release recorder")
             }
             recorder = null
             closeOutputFileDescriptor()
@@ -108,7 +109,7 @@ class AudioRecorder
                 outputFileDescriptor?.close()
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                Log.e(TAG, "Failed to close output file descriptor", error)
+                Timber.tag(TAG).e(error, "Failed to close output file descriptor")
             }
             outputFileDescriptor = null
         }
@@ -121,7 +122,7 @@ class AudioRecorder
                 mediaRecorder.release()
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                Log.e(TAG, message, error)
+                Timber.tag(TAG).e(error, message)
             }
         }
     }

@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -26,5 +28,7 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run architecture checks and unit tests
-        run: ./gradlew qualityCheck testDebugUnitTest
+      - name: Run repository quality gate
+        env:
+          COVERAGE_GATE_STAGE: m1
+        run: ./gradlew qualityCheck
