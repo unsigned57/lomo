@@ -50,6 +50,13 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
+/*
+ * Test Contract:
+ * - Unit under test: MainViewModel
+ * - Behavior focus: search and filter state, gallery selection, and user-visible coordinator outcomes.
+ * - Observable outcomes: exposed StateFlow values, derived memo lists, and delegated use-case interactions.
+ * - Excludes: Compose rendering, navigation wiring, and repository implementation internals.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
     private val testDispatcher = StandardTestDispatcher()

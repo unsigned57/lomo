@@ -18,6 +18,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoRepositoryImpl
+ * - Behavior focus: query-to-search-source routing, pinned memo mapping, and memo mutation delegation.
+ * - Observable outcomes: constructed FTS query text, fallback search path choice, mapped pin state, and synchronizer calls.
+ * - Excludes: Room SQL execution details, FTS engine internals, and UI rendering.
+ */
 class MemoRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var dao: TestMemoDaoSuite
@@ -147,6 +154,20 @@ class MemoRepositoryImplTest {
 
             assertEquals("苏*", captured.captured)
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
+        }
+
+    @Test
+    fun `searchMemosList two char CJK prefix keeps exact bigram query`() =
+        runTest {
+            val captured = slot<String>()
+            every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
+            every { dao.searchMemosFlow(any()) } returns flowOf(emptyList())
+
+            repository.searchMemosList("苏格").first()
+
+            assertEquals("苏格*", captured.captured)
+            verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
+            verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
     @Test

@@ -6,6 +6,13 @@ import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: ValidateMemoContentUseCase
+ * - Behavior focus: create vs update validation branches and exception compatibility.
+ * - Observable outcomes: validation result type, error message payloads, and thrown exception types.
+ * - Excludes: repository interaction, UI rendering, and unrelated memo mutation flows.
+ */
 class ValidateMemoContentUseCaseTest {
     private val validator = ValidateMemoContentUseCase()
 
@@ -39,8 +46,9 @@ class ValidateMemoContentUseCaseTest {
     }
 
     @Test
-    fun `validateUpdate allows blank content`() {
-        assertTrue(validator.validateUpdate("") is MemoValidationResult.Valid)
+    fun `validateUpdate returns empty-content invalid for blank input`() {
+        val result = validator.validateUpdate(" ")
+        assertTrue(result is MemoValidationResult.Invalid.EmptyContentForUpdate)
     }
 
     @Test

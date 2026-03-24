@@ -1,0 +1,153 @@
+package com.lomo.domain.usecase
+
+import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.GitSyncFailureException
+import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictResolution
+import com.lomo.domain.model.SyncConflictResolutionChoice
+import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.WebDavSyncErrorCode
+import com.lomo.domain.model.WebDavSyncFailureException
+import com.lomo.domain.model.WebDavSyncResult
+import com.lomo.domain.repository.GitSyncRepository
+import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.WebDavSyncRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/*
+ * Test Contract:
+ * - Unit under test: SyncConflictResolutionUseCase
+ * - Behavior focus: source-specific conflict resolution, mapped failure exceptions, and refresh side effects.
+ * - Observable outcomes: thrown domain exception type and payload, resolver invocation path, and refresh invocation count.
+ * - Excludes: repository implementation internals, network/filesystem behavior, and UI rendering.
+ */
+class SyncConflictResolutionUseCaseTest {
+    private val gitSyncRepository: GitSyncRepository = mockk()
+    private val webDavSyncRepository: WebDavSyncRepository = mockk()
+    private val memoRepository: MemoRepository = mockk()
+
+    private val useCase =
+        SyncConflictResolutionUseCase(
+            gitSyncRepository = gitSyncRepository,
+            webDavSyncRepository = webDavSyncRepository,
+            memoRepository = memoRepository,
+        )
+
+    @Test
+    fun `git source resolves conflicts and refreshes memos on success`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.GIT)
+            val resolution = sampleResolution()
+            coEvery { gitSyncRepository.resolveConflicts(resolution, conflictSet) } returns GitSyncResult.Success("resolved")
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase.resolve(conflictSet, resolution)
+
+            coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
+            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `git source maps git error to failure exception and skips refresh`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.GIT)
+            val resolution = sampleResolution()
+            val cause = IllegalStateException("git failed")
+            coEvery {
+                gitSyncRepository.resolveConflicts(resolution, conflictSet)
+            } returns GitSyncResult.Error(code = GitSyncErrorCode.CONFLICT, message = "conflict", exception = cause)
+
+            val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
+
+            assertTrue(thrown is GitSyncFailureException)
+            assertEquals(GitSyncErrorCode.CONFLICT, (thrown as GitSyncFailureException).code)
+            assertEquals("conflict", thrown.message)
+            assertSame(cause, thrown.cause)
+            coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
+            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `webdav source resolves conflicts and refreshes memos on success`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.WEBDAV)
+            val resolution = sampleResolution()
+            coEvery {
+                webDavSyncRepository.resolveConflicts(resolution, conflictSet)
+            } returns WebDavSyncResult.Success("resolved")
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase.resolve(conflictSet, resolution)
+
+            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `webdav source maps webdav error to failure exception and skips refresh`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.WEBDAV)
+            val resolution = sampleResolution()
+            val cause = IllegalArgumentException("webdav failed")
+            coEvery {
+                webDavSyncRepository.resolveConflicts(resolution, conflictSet)
+            } returns WebDavSyncResult.Error(code = WebDavSyncErrorCode.CONNECTION_FAILED, message = "connection failed", exception = cause)
+
+            val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
+
+            assertTrue(thrown is WebDavSyncFailureException)
+            assertEquals(WebDavSyncErrorCode.CONNECTION_FAILED, (thrown as WebDavSyncFailureException).code)
+            assertEquals("connection failed", thrown.message)
+            assertSame(cause, thrown.cause)
+            coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
+            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `none source skips resolver and still refreshes memos`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.NONE)
+            val resolution = sampleResolution()
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase.resolve(conflictSet, resolution)
+
+            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    private fun conflictSet(source: SyncBackendType): SyncConflictSet =
+        SyncConflictSet(
+            source = source,
+            files =
+                listOf(
+                    SyncConflictFile(
+                        relativePath = "memos/2026_03_24.md",
+                        localContent = "local",
+                        remoteContent = "remote",
+                        isBinary = false,
+                    ),
+                ),
+            timestamp = 123L,
+        )
+
+    private fun sampleResolution(): SyncConflictResolution =
+        SyncConflictResolution(
+            perFileChoices =
+                mapOf(
+                    "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
+                ),
+        )
+}

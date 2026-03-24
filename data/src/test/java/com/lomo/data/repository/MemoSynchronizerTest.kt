@@ -22,6 +22,13 @@ import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoSynchronizer
+ * - Behavior focus: file-to-db refresh, save path selection, and timestamp persistence rules.
+ * - Observable outcomes: DAO writes, file data source interactions, and canonicalized stored content.
+ * - Excludes: Room integration, filesystem implementation details, and UI-facing rendering.
+ */
 /**
  * Unit tests for MemoSynchronizer. These tests verify the synchronization logic between file system
  * and database.

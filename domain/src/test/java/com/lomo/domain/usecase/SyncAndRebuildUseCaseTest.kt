@@ -20,6 +20,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: SyncAndRebuildUseCase
+ * - Behavior focus: force vs best-effort sync, refresh ordering, and cancellation or error propagation.
+ * - Observable outcomes: thrown exception type, refresh execution, and collaborator call ordering.
+ * - Excludes: repository internals, transport implementation details, and UI rendering.
+ */
 class SyncAndRebuildUseCaseTest {
     private val memoRepository: MemoRepository = mockk()
     private val gitSyncRepository: GitSyncRepository = mockk()
