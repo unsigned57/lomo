@@ -9,28 +9,40 @@ Repository rules:
 - First read quality/testing/ai-meaningful-tests.md in full, then follow it.
 - Prefer behavior-bearing tests over line coverage.
 - Refuse to add tests if the target is render-only or wiring-only; recommend a logic extraction instead.
+- For new features, bug fixes, and contract changes, write or modify the test before any related production edit.
+- For new features, bug fixes, and contract changes, prove the new test is red before applying the fix.
 
 Target:
 - Layer owner: <app/domain/data/ui-components>
 - File: <path>
 - Collaborators: <list>
 - Why this target matters: <business/sync/state risk>
+- Production change expected: <yes/no/unknown>
 
 Required output order:
 1. Preflight summary proving you read quality/testing/ai-meaningful-tests.md:
    - target class and owning layer
    - why it is meaningful under P0/P1/P2
    - what you will not test
+   - whether this is test-only work or a production-changing task
 2. Scenario matrix:
    - Happy path
    - Boundary path
    - Failure/cancellation/conflict path
    - Must-not-happen path
 3. Short rationale for why each scenario is meaningful
-4. Test code
-5. File header comment in this format:
+4. Reproducer design:
+   - which scenario should fail before a production fix
+   - why that failure is observable
+5. Test code
+6. Red-phase proof:
+   - exact command to run first
+   - expected failing assertion, exception, or symptom
+   - or explicit statement that no production change is intended
+7. File header comment in this format:
    Test Contract:
    Observable outcomes:
+   Red phase:
    Excludes:
 
 Required assertions:
@@ -38,6 +50,7 @@ Required assertions:
 - at least one regression-prone branch
 - no private implementation assertions
 - no mock-only verification without an outcome assertion
+- if production code will change, explain why the test should fail pre-fix
 ```
 
 ## Good Targets

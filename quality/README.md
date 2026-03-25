@@ -16,9 +16,3 @@ This directory is the single entrypoint for repository quality tooling.
 - `./gradlew meaningfulTestCheck`
 - `./gradlew coverageGatePlan`
 - `./gradlew qualityCheck`
-
-## Notes
-
-- `:detekt-rules` keeps its Gradle module name for compatibility, but its sources now live under `quality/detekt-rules/`.
-- Architecture guardrails are enforced by `architectureCheck` and the custom Detekt rules collected here.
-- The repo-root `architecture-test/` directory is treated as a local scratch area, not as part of the checked-in quality toolchain.

@@ -10,9 +10,10 @@ has_contract_comment() {
   local file="$1"
   local snippet
 
-  snippet="$(sed -n '1,160p' "$file")"
+  snippet="$(sed -n '1,200p' "$file")"
   [[ "$snippet" == *"Test Contract:"* ]] &&
     [[ "$snippet" == *"Observable outcomes:"* ]] &&
+    [[ "$snippet" == *"Red phase:"* ]] &&
     [[ "$snippet" == *"Excludes:"* ]]
 }
 
@@ -43,9 +44,10 @@ markdown_has_contract() {
   local snippet
 
   [ -f "$file" ] || return 1
-  snippet="$(sed -n '1,200p' "$file")"
+  snippet="$(sed -n '1,220p' "$file")"
   [[ "$snippet" == *"Test Contract"* ]] &&
     [[ "$snippet" == *"Observable outcomes"* ]] &&
+    [[ "$snippet" == *"Red phase"* ]] &&
     [[ "$snippet" == *"Excludes"* ]]
 }
 
@@ -118,7 +120,7 @@ if [ "${#failures[@]}" -eq 0 ]; then
   exit 0
 fi
 
-echo "meaningful-test-check: missing test contract metadata in:" >&2
+echo "meaningful-test-check: missing test contract or TDD red-phase metadata in:" >&2
 for file in "${failures[@]}"; do
   echo "  - $file" >&2
 done
@@ -126,9 +128,10 @@ done
 cat >&2 <<'EOF'
 
 Add one of the following before merging:
-1. A comment within the first 160 lines containing:
+1. A comment within the first 200 lines containing:
    - Test Contract:
    - Observable outcomes:
+   - Red phase:
    - Excludes:
 2. Or an adjacent markdown file named <TestFile>.contract.md with the same sections.
 EOF

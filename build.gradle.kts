@@ -192,7 +192,7 @@ tasks.register("androidLintCheck") {
 
 tasks.register("meaningfulTestCheck", Exec::class.java) {
     group = "verification"
-    description = "Checks that changed test files document their tested contract and exclusions."
+    description = "Checks that changed test files document their tested contract, red phase, and exclusions."
     workingDir = rootProject.projectDir
     commandLine("bash", meaningfulTestCheckScript.absolutePath)
 }
