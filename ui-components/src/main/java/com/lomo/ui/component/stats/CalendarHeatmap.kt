@@ -54,6 +54,7 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlin.math.roundToInt
 
 private val HEATMAP_CELL_SIZE = 10.dp
 private val HEATMAP_CELL_SPACING = 3.dp
@@ -127,7 +128,12 @@ fun CalendarHeatmap(
                 selectedDate = null
             } else {
                 selectedDate = hit.date
-                popupOffset = heatmapPopupOffset(layout, hit)
+                popupOffset =
+                    heatmapPopupOffset(
+                        layout = layout,
+                        hit = hit,
+                        horizontalScrollOffsetPx = horizontalScrollState.value.toFloat(),
+                    )
             }
         },
         onClearSelection = { selectedDate = null },
@@ -257,9 +263,10 @@ private fun rememberHeatmapTextPaint(
 internal fun heatmapPopupOffset(
     layout: HeatmapLayout,
     hit: HeatmapCellHit,
+    horizontalScrollOffsetPx: Float = 0f,
 ): Offset =
     Offset(
-        hit.col * layout.weekWidth + layout.cellSizePx / 2,
+        hit.col * layout.weekWidth + layout.cellSizePx / 2 - horizontalScrollOffsetPx,
         layout.monthLabelHeightPx + hit.row * layout.weekWidth,
     )
 
@@ -377,7 +384,10 @@ internal class HeatmapPopupPositionProvider(
         val targetY = anchorBounds.top + contentOffset.y
 
         // Center the popup horizontally relative to the target point
-        val popupX = targetX.toInt() - (popupContentSize.width / 2)
+        val centeredPopupX = targetX.roundToInt() - (popupContentSize.width / 2)
+        val minPopupX = anchorBounds.left
+        val maxPopupX = (anchorBounds.right - popupContentSize.width).coerceAtLeast(minPopupX)
+        val popupX = centeredPopupX.coerceIn(minPopupX, maxPopupX)
 
         // Place popup above the target point
         val margin = with(density) { 8.dp.roundToPx() }
