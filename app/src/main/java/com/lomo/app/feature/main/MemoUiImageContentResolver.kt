@@ -53,7 +53,7 @@ internal class MemoUiImageContentResolver {
             val alt = match.groupValues[1]
             val path = match.groupValues[2]
 
-            if (AUDIO_EXTENSIONS.any { path.lowercase().endsWith(it) }) {
+            if (AUDIO_EXTENSIONS.any { path.lowercase(java.util.Locale.ROOT).endsWith(it) }) {
                 match.value
             } else {
                 val resolved =
@@ -270,7 +270,7 @@ private fun normalizeImageUrl(raw: String): String =
         .replace('\\', PATH_SEPARATOR)
 
 private fun isAbsoluteOrRemoteImageUrl(value: String): Boolean {
-    val lower = value.lowercase()
+    val lower = value.lowercase(java.util.Locale.ROOT)
     return lower.startsWith(PATH_ROOT_PREFIX) ||
         lower.startsWith(CONTENT_URI_PREFIX) ||
         lower.startsWith(FILE_URI_PREFIX) ||
@@ -324,6 +324,6 @@ private fun parseUriPath(value: String): String? =
     }.getOrNull()
 
 private fun looksLikeManagedImageFilename(path: String): Boolean {
-    val candidate = path.substringAfterLast(PATH_SEPARATOR).lowercase()
+    val candidate = path.substringAfterLast(PATH_SEPARATOR).lowercase(java.util.Locale.ROOT)
     return candidate.matches(MANAGED_IMAGE_FILENAME_REGEX)
 }

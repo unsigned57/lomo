@@ -13,6 +13,10 @@ const val SCHEMA_VERSION_24 = 24
 const val SCHEMA_VERSION_25 = 25
 const val SCHEMA_VERSION_26 = 26
 const val SCHEMA_VERSION_27 = 27
+const val SCHEMA_VERSION_28 = 28
+const val SCHEMA_VERSION_29 = 29
+const val SCHEMA_VERSION_30 = 30
+const val SCHEMA_VERSION_31 = 31
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -145,6 +149,28 @@ val MIGRATION_26_27: Migration =
         }
     }
 
+val MIGRATION_28_29: Migration =
+    object : Migration(SCHEMA_VERSION_28, SCHEMA_VERSION_29) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createMemoVersionTables(db)
+        }
+    }
+
+val MIGRATION_29_30: Migration =
+    object : Migration(SCHEMA_VERSION_29, SCHEMA_VERSION_30) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            dropRetiredWorkspaceHistoryTables(db)
+        }
+    }
+
+val MIGRATION_30_31: Migration =
+    object : Migration(SCHEMA_VERSION_30, SCHEMA_VERSION_31) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createMemoRevisionIndexes(db)
+            createMemoRevisionAssetIndexes(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -181,6 +207,9 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_24_25,
             MIGRATION_25_26,
             MIGRATION_26_27,
+            MIGRATION_28_29,
+            MIGRATION_29_30,
+            MIGRATION_30_31,
         )
 
 /**
@@ -195,6 +224,9 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase D: Apply v24→v25 changes (outbox claim columns).
  * Phase E: Apply v25→v26 changes (memo pin table).
  * Phase F: Apply v26→v27 changes (WebDAV sync metadata table).
+ * Phase G: Apply v28→v29 changes (memo revision history tables).
+ * Phase H: Apply v29→v30 changes (retire legacy workspace-history metadata tables).
+ * Phase I: Apply v30→v31 changes (tighten memo revision indexes).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -245,4 +277,29 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase F: v26 → v27 (WebDAV sync metadata) ────────────────────
     createWebDavSyncMetadataTable(db)
+
+    // ── Phase G: v28 → v29 (memo revision history) ──────────────────
+    createMemoVersionTables(db)
+
+    // ── Phase H: v29 → v30 (retire legacy workspace history) ───────
+    dropRetiredWorkspaceHistoryTables(db)
+
+    // ── Phase I: v30 → v31 (memo revision indexes) ─────────────────
+    createMemoRevisionIndexes(db)
+    createMemoRevisionAssetIndexes(db)
+}
+
+private fun createMemoVersionTables(db: SupportSQLiteDatabase) {
+    createMemoVersionCommitTable(db)
+    createMemoVersionBlobTable(db)
+    createMemoRevisionTable(db)
+    createMemoRevisionAssetTable(db)
+}
+
+private fun dropRetiredWorkspaceHistoryTables(db: SupportSQLiteDatabase) {
+    db.execSQL("DROP TABLE IF EXISTS `workspace_mutation`")
+    db.execSQL("DROP TABLE IF EXISTS `workspace_head`")
+    db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot_entry`")
+    db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot`")
+    db.execSQL("DROP TABLE IF EXISTS `snapshot_blob`")
 }

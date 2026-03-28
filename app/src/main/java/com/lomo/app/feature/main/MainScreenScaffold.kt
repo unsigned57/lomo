@@ -35,7 +35,6 @@ internal fun MainScreenScaffoldContent(
     actions: MainScreenActions,
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-    selectedTag: String?,
     searchQuery: String,
     uiState: MainViewModel.MainScreenState,
     hasItems: Boolean,
@@ -70,7 +69,6 @@ internal fun MainScreenScaffoldContent(
                 .only(WindowInsetsSides.Horizontal + WindowInsetsSides.Top),
         topBar = {
             MainScreenTopBarSlot(
-                selectedTag = selectedTag,
                 actions = actions,
                 scrollBehavior = scrollBehavior,
                 isFilterActive = isFilterActive,
@@ -90,7 +88,6 @@ internal fun MainScreenScaffoldContent(
             padding = padding,
             uiState = uiState,
             searchQuery = searchQuery,
-            selectedTag = selectedTag,
             hasItems = hasItems,
             uiMemos = uiMemos,
             deletingMemoIds = deletingMemoIds,
@@ -123,14 +120,13 @@ internal fun MainScreenScaffoldContent(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreenTopBarSlot(
-    selectedTag: String?,
     actions: MainScreenActions,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     isFilterActive: Boolean,
     showNavigationIcon: Boolean,
 ) {
     MainTopBar(
-        title = if (selectedTag != null) "#$selectedTag" else "Lomo",
+        title = "Lomo",
         scrollBehavior = scrollBehavior,
         onMenu = actions.onMenuOpen,
         onSearch = actions.onSearch,
@@ -173,7 +169,6 @@ private fun MainScreenScaffoldBody(
     padding: PaddingValues,
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
-    selectedTag: String?,
     hasItems: Boolean,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
@@ -195,7 +190,6 @@ private fun MainScreenScaffoldBody(
         MainScreenAnimatedBody(
             uiState = uiState,
             searchQuery = searchQuery,
-            selectedTag = selectedTag,
             hasItems = hasItems,
             uiMemos = uiMemos,
             deletingMemoIds = deletingMemoIds,

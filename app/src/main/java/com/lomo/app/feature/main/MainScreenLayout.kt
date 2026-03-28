@@ -50,10 +50,9 @@ internal fun MainScreenNavigationRender(
         actions = actions,
         snackbarHostState = hostState.snackbarHostState,
         scrollBehavior = hostState.scrollBehavior,
-        selectedTag = screenState.selectedTag,
         searchQuery = screenState.searchQuery,
         memoListFilter = screenState.memoListFilter,
-        isFilterActive = screenState.selectedTag != null || screenState.memoListFilter.hasDateRange,
+        isFilterActive = screenState.memoListFilter.hasDateRange,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
         hasItems = screenState.hasItems,
@@ -86,7 +85,6 @@ internal fun MainScreenRenderHost(
     actions: MainScreenActions,
     snackbarHostState: SnackbarHostState,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
-    selectedTag: String?,
     searchQuery: String,
     memoListFilter: MemoListFilter,
     isFilterActive: Boolean,
@@ -127,7 +125,6 @@ internal fun MainScreenRenderHost(
             actions = actions,
             snackbarHostState = snackbarHostState,
             scrollBehavior = scrollBehavior,
-            selectedTag = selectedTag,
             searchQuery = searchQuery,
             uiState = uiState,
             hasItems = hasItems,
@@ -209,7 +206,6 @@ private fun MainScreenSidebarContent(
 internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
-    selectedTag: String?,
     hasItems: Boolean,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
@@ -240,7 +236,6 @@ internal fun MainScreenAnimatedBody(
             is MainViewModel.MainScreenState.NoDirectory -> {
                 MainEmptyState(
                     searchQuery = searchQuery,
-                    selectedTag = selectedTag,
                     hasDirectory = false,
                     onSettings = onSettings,
                 )
@@ -250,7 +245,6 @@ internal fun MainScreenAnimatedBody(
                 MainReadyContent(
                     hasItems = hasItems,
                     searchQuery = searchQuery,
-                    selectedTag = selectedTag,
                     uiMemos = uiMemos,
                     deletingMemoIds = deletingMemoIds,
                     listState = listState,
@@ -276,7 +270,6 @@ internal fun MainScreenAnimatedBody(
 private fun MainReadyContent(
     hasItems: Boolean,
     searchQuery: String,
-    selectedTag: String?,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -306,7 +299,6 @@ private fun MainReadyContent(
             if (!showList) {
                 MainEmptyState(
                     searchQuery = searchQuery,
-                    selectedTag = selectedTag,
                     hasDirectory = true,
                     onSettings = onSettings,
                 )

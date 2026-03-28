@@ -37,9 +37,10 @@ class MainWorkspaceCoordinator
         suspend fun syncImageCacheBestEffort() {
             try {
                 mediaRepository.refreshImageLocations()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                if (error is CancellationException) {
+                    throw error
+                }
                 // Best-effort background sync.
             }
         }

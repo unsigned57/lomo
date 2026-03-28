@@ -81,6 +81,9 @@ fun GalleryScreen(
             }
         },
         showJump = true,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrder,
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
     ) { showMenu ->
         GalleryScreenScaffold(
             onBackClick = onBackClick,

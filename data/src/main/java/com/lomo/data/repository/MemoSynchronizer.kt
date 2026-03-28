@@ -22,11 +22,17 @@ import javax.inject.Singleton
 
 @Singleton
 class MemoSynchronizer
-    @Inject
-    constructor(
+    internal constructor(
         private val refreshEngine: MemoRefreshEngine,
         private val mutationHandler: MemoMutationHandler,
+        private val startOutboxCoordinator: Boolean,
     ) {
+        @Inject
+        constructor(
+            refreshEngine: MemoRefreshEngine,
+            mutationHandler: MemoMutationHandler,
+        ) : this(refreshEngine, mutationHandler, true)
+
         private val mutex = Mutex()
         private val outboxCoordinator = MemoOutboxDrainCoordinator(mutationHandler, mutex)
         val outboxDrainCompleted: SharedFlow<Unit> = outboxCoordinator.outboxDrainCompleted
@@ -36,7 +42,9 @@ class MemoSynchronizer
         val isSyncing: kotlinx.coroutines.flow.StateFlow<Boolean> = _isSyncing
 
         init {
-            outboxCoordinator.start()
+            if (startOutboxCoordinator) {
+                outboxCoordinator.start()
+            }
         }
 
         suspend fun refresh(targetFilename: String? = null) =
@@ -112,19 +120,11 @@ class MemoSynchronizer
                 }
             }
 
-        suspend fun restoreMemoAsync(memo: Memo) =
-            withContext(Dispatchers.IO) {
-                val outboxId =
-                    mutex.withLock {
-                        mutationHandler.restoreMemoInDb(memo)
-                    }
-                if (outboxId != null) {
-                    outboxCoordinator.requestOutboxDrain()
-                }
-            }
-
         suspend fun deletePermanently(memo: Memo) =
             mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.deletePermanently(memo) } }
+
+        suspend fun clearTrash() =
+            mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.clearTrash() } }
     }
 
 private class MemoOutboxDrainCoordinator(

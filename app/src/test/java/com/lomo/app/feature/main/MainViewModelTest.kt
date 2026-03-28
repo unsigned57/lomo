@@ -6,6 +6,8 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.media.AudioPlayerManager
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -13,12 +15,12 @@ import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
-import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
+import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
-import com.lomo.domain.usecase.RestoreMemoVersionUseCase
+import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
@@ -53,8 +55,9 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: MainViewModel
- * - Behavior focus: search and filter state, gallery selection, and user-visible coordinator outcomes.
+ * - Behavior focus: reachable main-screen search and date-filter state, gallery selection, and user-visible coordinator outcomes.
  * - Observable outcomes: exposed StateFlow values, derived memo lists, and delegated use-case interactions.
+ * - Red phase: Not applicable - unreachable selectedTag refactor; production change removes dead API without altering reachable behavior.
  * - Excludes: Compose rendering, navigation wiring, and repository implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -69,6 +72,7 @@ class MainViewModelTest {
     private lateinit var webDavSyncRepository: com.lomo.domain.repository.WebDavSyncRepository
     private lateinit var syncPolicyRepository: com.lomo.domain.repository.SyncPolicyRepository
     private lateinit var appVersionRepository: com.lomo.domain.repository.AppVersionRepository
+    private lateinit var memoVersionRepository: com.lomo.domain.repository.MemoVersionRepository
     private lateinit var appWidgetRepository: AppWidgetRepository
     private lateinit var memoUiMapper: MemoUiMapper
     private lateinit var imageMapProvider: ImageMapProvider
@@ -87,6 +91,7 @@ class MainViewModelTest {
         webDavSyncRepository = mockk(relaxed = true)
         syncPolicyRepository = mockk(relaxed = true)
         appVersionRepository = mockk(relaxed = true)
+        memoVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
         memoUiMapper = MemoUiMapper()
         imageMapProvider = mockk(relaxed = true)
@@ -119,6 +124,8 @@ class MainViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
         every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
@@ -127,6 +134,12 @@ class MainViewModelTest {
 
         coEvery { appVersionRepository.getLastAppVersionOnce() } returns ""
         coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
+        coEvery { memoVersionRepository.listMemoRevisions(any(), any(), any()) } returns
+            MemoRevisionPage(
+                items = emptyList<MemoRevision>(),
+                nextCursor = null,
+            )
+        coEvery { memoVersionRepository.restoreMemoRevision(any(), any()) } returns Unit
     }
 
     @After
@@ -153,51 +166,17 @@ class MainViewModelTest {
         }
 
     @Test
-    fun `initial selected tag is null`() =
-        runTest {
-            val viewModel = createViewModel()
-            assertNull(viewModel.selectedTag.value)
-        }
-
-    @Test
-    fun `onTagSelected sets tag`() =
-        runTest {
-            val viewModel = createViewModel()
-
-            viewModel.onTagSelected("work")
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertEquals("work", viewModel.selectedTag.value)
-        }
-
-    @Test
-    fun `onTagSelected toggles same tag to null`() =
-        runTest {
-            val viewModel = createViewModel()
-
-            viewModel.onTagSelected("work")
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            viewModel.onTagSelected("work")
-            testDispatcher.scheduler.advanceUntilIdle()
-
-            assertNull(viewModel.selectedTag.value)
-        }
-
-    @Test
-    fun `clearFilters resets search and tag`() =
+    fun `clearFilters resets search query`() =
         runTest {
             val viewModel = createViewModel()
 
             viewModel.onSearch("query")
-            viewModel.onTagSelected("tag")
             testDispatcher.scheduler.advanceUntilIdle()
 
             viewModel.clearFilters()
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("", viewModel.searchQuery.value)
-            assertNull(viewModel.selectedTag.value)
         }
 
     @Test
@@ -448,6 +427,114 @@ class MainViewModelTest {
             assertEquals(MainViewModel.MainScreenState.Ready, viewModel.uiState.value)
         }
 
+    @Test
+    fun `requestOpenMemo and requestFocusMemo ignore blank ids`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.requestOpenMemo(" ")
+            viewModel.requestFocusMemo("")
+
+            assertTrue(viewModel.appActionEvents.value.isEmpty())
+        }
+
+    @Test
+    fun `requestCreateMemo open and focus enqueue ordered app actions`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            viewModel.requestCreateMemo()
+            viewModel.requestOpenMemo("memo-open")
+            viewModel.requestFocusMemo("memo-focus")
+
+            val events = viewModel.appActionEvents.value
+            assertEquals(3, events.size)
+            assertEquals(MainViewModel.AppAction.CreateMemo, events[0].payload)
+            assertEquals(MainViewModel.AppAction.OpenMemo("memo-open"), events[1].payload)
+            assertEquals(MainViewModel.AppAction.FocusMemo("memo-focus"), events[2].payload)
+        }
+
+    @Test
+    fun `filterMemosByDate and clearMemoDateRange update date filter state`() =
+        runTest {
+            val viewModel = createViewModel()
+            val date = LocalDate.of(2026, 3, 9)
+
+            viewModel.filterMemosByDate(date)
+            assertEquals(date, viewModel.memoListFilter.value.startDate)
+            assertEquals(date, viewModel.memoListFilter.value.endDate)
+
+            viewModel.clearMemoDateRange()
+            assertNull(viewModel.memoListFilter.value.startDate)
+            assertNull(viewModel.memoListFilter.value.endDate)
+        }
+
+    @Test
+    fun `refresh keeps generic error clear when refresh reports sync conflict`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+            val conflict =
+                com.lomo.domain.model.SyncConflictSet(
+                    source = SyncBackendType.GIT,
+                    files =
+                        listOf(
+                            com.lomo.domain.model.SyncConflictFile(
+                                relativePath = "2026_03_26.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 123L,
+                )
+            coEvery { repository.refreshMemos() } throws com.lomo.domain.usecase.SyncConflictException(conflict)
+            val viewModel = createViewModel()
+
+            viewModel.refresh()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertNull(viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `refresh exposes generic error when refresh fails`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+            coEvery { repository.refreshMemos() } throws IllegalStateException("refresh failed")
+            val viewModel = createViewModel()
+
+            viewModel.refresh()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Failed to refresh memos: refresh failed", viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `setMemoPinned exposes mapped error when pin update fails`() =
+        runTest {
+            val memo = memo("memo-pin", LocalDate.of(2026, 3, 9), 8)
+            coEvery { repository.setMemoPinned(memo.id, true) } throws IllegalStateException("pin failed")
+            val viewModel = createViewModel()
+
+            viewModel.setMemoPinned(memo, true)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Failed to update pin status: pin failed", viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `createDefaultDirectories exposes mapped error when workspace init fails`() =
+        runTest {
+            coEvery { mediaRepository.ensureCategoryWorkspace(com.lomo.domain.model.MediaCategory.IMAGE) } throws
+                IllegalStateException("mkdir failed")
+            val viewModel = createViewModel()
+
+            viewModel.createDefaultDirectories(true, false)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Failed to create directories: mkdir failed", viewModel.errorMessage.value)
+        }
+
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             memoUiCoordinator = MemoUiCoordinator(repository),
@@ -455,16 +542,8 @@ class MainViewModelTest {
             sidebarStateHolder = sidebarStateHolder,
             versionHistoryCoordinator =
                 MainVersionHistoryCoordinator(
-                    loadMemoVersionHistoryUseCase = LoadMemoVersionHistoryUseCase(gitSyncRepo),
-                    restoreMemoVersionUseCase =
-                        RestoreMemoVersionUseCase(
-                            UpdateMemoContentUseCase(
-                                repository = repository,
-                                validator = ValidateMemoContentUseCase(),
-                                resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
-                                deleteMemoUseCase = DeleteMemoUseCase(repository),
-                            ),
-                        ),
+                    loadMemoRevisionHistoryUseCase = LoadMemoRevisionHistoryUseCase(memoVersionRepository),
+                    restoreMemoRevisionUseCase = RestoreMemoRevisionUseCase(memoVersionRepository),
                 ),
             memoUiMapper = memoUiMapper,
             imageMapProvider = imageMapProvider,

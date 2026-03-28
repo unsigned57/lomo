@@ -5,6 +5,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuHost
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.coroutines.launch
@@ -24,6 +25,9 @@ fun MemoMenuBinder(
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
     showJump: Boolean = false,
     showVersionHistory: Boolean = false,
+    memoActionAutoReorderEnabled: Boolean = true,
+    memoActionOrder: List<String> = emptyList(),
+    onMemoActionInvoked: (MemoActionId) -> Unit = {},
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
@@ -61,6 +65,9 @@ fun MemoMenuBinder(
         onHistory = onVersionHistory,
         showJump = showJump,
         showHistory = showVersionHistory,
+        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        memoActionOrder = memoActionOrder,
+        onMemoActionInvoked = onMemoActionInvoked,
     ) { showMenu ->
         content(showMenu)
     }

@@ -141,9 +141,7 @@ class TrashViewModel
                         itemIds = trashSnapshot.asSequence().map { it.id }.toSet(),
                         deletingIds = _deletingMemoIds,
                     ) {
-                        trashSnapshot.forEach { memo ->
-                            memoUiCoordinator.deletePermanently(memo)
-                        }
+                        memoUiCoordinator.clearTrash()
                     }
                 result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage("Failed to clear trash")

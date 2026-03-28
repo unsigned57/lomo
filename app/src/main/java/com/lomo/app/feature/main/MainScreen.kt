@@ -21,9 +21,10 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.MemoVersionHistoryUiMapper
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
-import com.lomo.domain.model.MemoVersion
+import com.lomo.domain.model.MemoRevision
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
@@ -109,7 +110,6 @@ internal data class DraftAutosaveState(
 internal data class MainScreenUiSnapshot(
     val uiMemos: List<MemoUiModel>,
     val searchQuery: String,
-    val selectedTag: String?,
     val memoListFilter: MemoListFilter,
     val sidebarUiState: SidebarViewModel.SidebarUiState,
     val dateFormat: String,
@@ -117,6 +117,8 @@ internal data class MainScreenUiSnapshot(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrder: List<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val uiState: MainViewModel.MainScreenState,
@@ -230,6 +232,8 @@ internal fun MainScreenInteractionBindings(
     unknownErrorMessage: String,
     shareCardShowTime: Boolean,
     quickSaveOnBackEnabled: Boolean,
+    memoActionAutoReorderEnabled: Boolean,
+    memoActionOrder: List<String>,
     availableTags: List<String>,
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
@@ -239,7 +243,9 @@ internal fun MainScreenInteractionBindings(
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
     val versionHistoryState by viewModel.versionHistoryState.collectAsStateWithLifecycle()
+    val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val voiceDirectory by viewModel.voiceDirectory.collectAsStateWithLifecycle()
     val inputHints = rememberInputHints(showInputHints = showInputHints)
     val interactionCallbacks =
@@ -262,6 +268,9 @@ internal fun MainScreenInteractionBindings(
         imageDirectory = imageDirectory,
         controller = editorController,
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        memoActionOrder = memoActionOrder,
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
         onDeleteMemo = viewModel.deleteMemo,
         onUpdateMemo = editorViewModel::updateMemo,
         onCreateMemo = interactionCallbacks.onCreateMemo,
@@ -280,14 +289,18 @@ internal fun MainScreenInteractionBindings(
         hints = inputHints,
         onVersionHistory = interactionCallbacks.onVersionHistory,
         onTogglePin = viewModel.setMemoPinned,
-        showVersionHistory = gitSyncEnabled,
+        showVersionHistory = true,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
     }
 
     VersionHistoryOverlay(
         state = versionHistoryState,
+        rootPath = rootDirectory,
+        imagePath = imageDirectory,
+        imageMap = imageMap,
         onDismiss = viewModel.dismissVersionHistory,
+        onLoadMore = viewModel.loadMoreVersionHistory,
         onRestore = { memo, version -> viewModel.restoreVersion(memo, version) },
     )
 }
@@ -371,23 +384,45 @@ internal fun MainReadyStateEnterContainer(content: @Composable () -> Unit) {
 @Composable
 private fun VersionHistoryOverlay(
     state: MainVersionHistoryState,
+    rootPath: String?,
+    imagePath: String?,
+    imageMap: Map<String, android.net.Uri>,
     onDismiss: () -> Unit,
-    onRestore: (Memo, MemoVersion) -> Unit,
+    onLoadMore: () -> Unit,
+    onRestore: (Memo, MemoRevision) -> Unit,
 ) {
+    val mapper = remember { MemoVersionHistoryUiMapper() }
     when (state) {
         is MainVersionHistoryState.Loading -> {
             com.lomo.app.feature.memo.MemoVersionHistorySheet(
                 versions = emptyList(),
                 isLoading = true,
+                canLoadMore = false,
+                isLoadingMore = false,
+                isRestoreInProgress = false,
+                onLoadMore = {},
                 onRestore = {},
                 onDismiss = onDismiss,
             )
         }
 
         is MainVersionHistoryState.Loaded -> {
+            val versionUiModels =
+                remember(state.versions, rootPath, imagePath, imageMap) {
+                    mapper.mapToUiModels(
+                        revisions = state.versions,
+                        rootPath = rootPath,
+                        imagePath = imagePath,
+                        imageMap = imageMap,
+                    )
+                }
             com.lomo.app.feature.memo.MemoVersionHistorySheet(
-                versions = state.versions,
+                versions = versionUiModels,
                 isLoading = false,
+                canLoadMore = state.hasMore,
+                isLoadingMore = state.isLoadingMore,
+                isRestoreInProgress = state.isRestoring,
+                onLoadMore = onLoadMore,
                 onRestore = { version -> onRestore(state.memo, version) },
                 onDismiss = onDismiss,
             )

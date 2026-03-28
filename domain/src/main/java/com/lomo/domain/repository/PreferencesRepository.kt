@@ -49,6 +49,16 @@ interface InteractionPreferencesRepository {
     suspend fun setQuickSaveOnBackEnabled(enabled: Boolean)
 }
 
+interface MemoActionPreferencesRepository {
+    fun isMemoActionAutoReorderEnabled(): Flow<Boolean>
+
+    suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean)
+
+    fun getMemoActionOrder(): Flow<List<String>>
+
+    suspend fun updateMemoActionOrder(actionOrder: List<String>)
+}
+
 interface SecurityPreferencesRepository {
     fun isAppLockEnabled(): Flow<Boolean>
 
@@ -79,6 +89,7 @@ interface PreferencesRepository :
     DateTimePreferencesRepository,
     StoragePreferencesRepository,
     InteractionPreferencesRepository,
+    MemoActionPreferencesRepository,
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,
     DraftPreferencesRepository

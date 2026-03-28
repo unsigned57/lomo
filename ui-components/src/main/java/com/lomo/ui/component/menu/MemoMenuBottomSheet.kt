@@ -33,6 +33,9 @@ fun MemoMenuBottomSheet(
     onHistory: (() -> Unit)? = null,
     showHistory: Boolean = false,
     showJump: Boolean = false,
+    memoActionAutoReorderEnabled: Boolean = true,
+    memoActionOrder: List<String> = emptyList(),
+    onMemoActionInvoked: (MemoActionId) -> Unit = {},
 ) {
     ProvideExpressiveMotion {
         ModalBottomSheet(
@@ -65,6 +68,9 @@ fun MemoMenuBottomSheet(
                 onHistory = onHistory,
                 showHistory = showHistory,
                 showJump = showJump,
+                memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                memoActionOrder = memoActionOrder,
+                onActionInvoked = onMemoActionInvoked,
             )
         }
     }

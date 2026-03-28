@@ -16,7 +16,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
@@ -24,8 +23,9 @@ import java.time.LocalDate
 /*
  * Test Contract:
  * - Unit under test: SidebarViewModel
- * - Behavior focus: sidebar aggregate projection and filter state delegation.
- * - Observable outcomes: stats counts, parsed date map, sorted tags, and propagated search/tag filter state.
+ * - Behavior focus: sidebar aggregate projection and reachable search-filter delegation.
+ * - Observable outcomes: stats counts, parsed date map, sorted tags, and propagated search filter state.
+ * - Red phase: Not applicable - unreachable selectedTag refactor; production change removes dead API without altering reachable behavior.
  * - Excludes: Compose sidebar rendering, calendar drawing behavior, and repository implementation details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -111,25 +111,7 @@ class SidebarViewModelTest {
         }
 
     @Test
-    fun `onTagSelected toggles same tag to null via state holder`() =
-        runTest {
-            val viewModel =
-                SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(repository),
-                    stateHolder = stateHolder,
-                )
-
-            viewModel.onTagSelected("work")
-            advanceUntilIdle()
-            assertEquals("work", viewModel.selectedTag.value)
-
-            viewModel.onTagSelected("work")
-            advanceUntilIdle()
-            assertNull(viewModel.selectedTag.value)
-        }
-
-    @Test
-    fun `clearFilters resets query and selectedTag`() =
+    fun `clearFilters resets query`() =
         runTest {
             val viewModel =
                 SidebarViewModel(
@@ -138,13 +120,11 @@ class SidebarViewModelTest {
                 )
 
             viewModel.onSearch("meeting")
-            viewModel.onTagSelected("work")
             advanceUntilIdle()
 
             viewModel.clearFilters()
             advanceUntilIdle()
 
             assertEquals("", viewModel.searchQuery.value)
-            assertNull(viewModel.selectedTag.value)
         }
 }

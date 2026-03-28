@@ -11,12 +11,23 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoRefreshDbApplier
+ * - Behavior focus: refresh replacement cleanup, deduplicated insertion, and transaction execution boundaries.
+ * - Observable outcomes: DAO calls, inserted memo content, and transaction invocation count.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Excludes: Room integration wiring and filesystem refresh parsing.
+ */
 class MemoRefreshDbApplierTest {
     @MockK(relaxed = true)
     private lateinit var dao: TestMemoDaoSuite
 
     @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
+
+    @MockK(relaxed = true)
+    private lateinit var memoVersionJournal: MemoVersionJournal
 
     private lateinit var applier: MemoRefreshDbApplier
 
@@ -31,6 +42,7 @@ class MemoRefreshDbApplierTest {
                 memoFtsDao = dao,
                 memoTrashDao = dao,
                 localFileStateDao = localFileStateDao,
+                memoVersionJournal = memoVersionJournal,
                 runInTransaction = { block -> block() },
             )
     }
@@ -125,6 +137,7 @@ class MemoRefreshDbApplierTest {
                     memoFtsDao = dao,
                     memoTrashDao = dao,
                     localFileStateDao = localFileStateDao,
+                    memoVersionJournal = memoVersionJournal,
                     runInTransaction = { block ->
                         transactionCalls += 1
                         block()

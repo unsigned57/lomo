@@ -9,7 +9,74 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: DatabaseMigrations
+ * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
+ *   revision dedupe and paging, and retires the removed legacy workspace-history schema.
+ * - Observable outcomes: emitted migration SQL for version-to-version and consolidation paths, plus
+ *   direct-migration coverage to the current target version.
+ * - Red phase: Fails before the fix because the schema target still sits at v30 and the memo revision
+ *   tables are missing the indexes needed for equivalent-state lookup and asset replay ordering.
+ * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
+ */
 class DatabaseMigrationsTest {
+    @Test
+    fun `database version advances to 31 for memo revision index tightening`() {
+        assertEquals(31, MEMO_DATABASE_VERSION)
+    }
+
+    @Test
+    fun `migration 29 to 30 drops retired workspace history tables`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        val migration =
+            ALL_DATABASE_MIGRATIONS.first {
+                it.startVersion == 29 && it.endVersion == MEMO_DATABASE_VERSION
+            }
+        migration.migrate(db)
+
+        verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_mutation`") }
+        verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_head`") }
+        verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot_entry`") }
+        verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot`") }
+        verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `snapshot_blob`") }
+        verify(exactly = 0) { db.execSQL(match { it.contains("DROP TABLE IF EXISTS `memo_revision`") }) }
+        verify(exactly = 0) { db.execSQL(match { it.contains("DROP TABLE IF EXISTS `memo_revision_asset`") }) }
+    }
+
+    @Test
+    fun `migration 30 to 31 adds memo revision dedupe indexes`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_30_31.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
+                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                },
+            )
+        }
+        verify(exactly = 1) {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_createdAt_revisionId`") &&
+                        it.contains("ON `memo_revision` (`memoId`, `createdAt`, `revisionId`)")
+                },
+            )
+        }
+        verify(exactly = 1) {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath`") &&
+                        it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
+                },
+            )
+        }
+    }
+
     @Test
     fun `migration 26 to 27 creates webdav metadata table`() {
         val db = mockk<SupportSQLiteDatabase>(relaxed = true)
@@ -212,6 +279,24 @@ class DatabaseMigrationsTest {
 
         // Phase E: memo pin table created
         verify { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") }) }
+
+        // Phase I: memo revision indexes tightened
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
+                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath`") &&
+                        it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
+                },
+            )
+        }
     }
 
     @Test
@@ -310,6 +395,49 @@ class DatabaseMigrationsTest {
 
         // Phase E: memo pin table created
         verify { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") }) }
+
+        // Phase I: memo revision indexes tightened
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
+                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath`") &&
+                        it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `consolidation to current schema does not recreate retired workspace history tables`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        every { db.query(any<String>()) } answers {
+            val sql = args[0] as String
+            when {
+                sql.contains("sqlite_master") -> mockCursor(false)
+                else -> mockCursor(false)
+            }
+        }
+
+        val migration =
+            ALL_DATABASE_MIGRATIONS.first {
+                it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
+            }
+        migration.migrate(db)
+
+        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot`") }) }
+        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot_entry`") }) }
+        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_head`") }) }
+        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_mutation`") }) }
+        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `snapshot_blob`") }) }
     }
 
     @Test

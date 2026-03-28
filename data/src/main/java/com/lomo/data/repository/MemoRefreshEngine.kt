@@ -60,10 +60,11 @@ class MemoRefreshEngine
                                 mainFilesToUpdate = plan.mainFilesToUpdate,
                                 trashFilesToUpdate = plan.trashFilesToUpdate,
                             )
+                        val confirmedFilesToDeleteInDb = confirmMissingFiles(plan.filesToDeleteInDb)
 
                         refreshDbApplier.apply(
                             parseResult = parseResult,
-                            filesToDeleteInDb = plan.filesToDeleteInDb,
+                            filesToDeleteInDb = confirmedFilesToDeleteInDb,
                         )
                     }
                 }.getOrElse { error ->
@@ -71,6 +72,29 @@ class MemoRefreshEngine
                     throw error
                 }
             }
+
+        private suspend fun confirmMissingFiles(
+            candidates: Set<Pair<String, Boolean>>,
+        ): Set<Pair<String, Boolean>> =
+            buildSet {
+                candidates.forEach { candidate ->
+                    if (isConfirmedMissing(candidate.first, candidate.second)) {
+                        add(candidate)
+                    }
+                }
+            }
+
+        private suspend fun isConfirmedMissing(
+            filename: String,
+            isTrash: Boolean,
+        ): Boolean {
+            val directory = if (isTrash) MemoDirectoryType.TRASH else MemoDirectoryType.MAIN
+            return runNonFatalCatching {
+                markdownStorageDataSource.getFileMetadataIn(directory, filename) == null
+            }.onFailure { error ->
+                Timber.w(error, "Skip deleting %s because existence check failed", filename)
+            }.getOrDefault(false)
+        }
 
         private suspend fun refreshTargetFile(targetFilename: String) {
             val files = markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)

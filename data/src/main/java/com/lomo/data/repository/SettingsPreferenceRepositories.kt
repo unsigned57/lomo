@@ -7,6 +7,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
+import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareCardPreferencesRepository
@@ -16,6 +17,23 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val MEMO_ACTION_ORDER_DELIMITER = "|"
+
+private fun decodeMemoActionOrder(serialized: String): List<String> =
+    serialized
+        .split(MEMO_ACTION_ORDER_DELIMITER)
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+
+private fun encodeMemoActionOrder(actionOrder: List<String>): String =
+    actionOrder
+        .asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .joinToString(MEMO_ACTION_ORDER_DELIMITER)
+
 @Singleton
 class PreferencesRepositoryImpl
     @Inject
@@ -23,6 +41,7 @@ class PreferencesRepositoryImpl
         dateTimePreferencesRepository: DateTimePreferencesRepositoryImpl,
         storagePreferencesRepository: StoragePreferencesRepositoryImpl,
         interactionPreferencesRepository: InteractionPreferencesRepositoryImpl,
+        memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
         securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
         shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
         draftPreferencesRepository: DraftPreferencesRepositoryImpl,
@@ -30,6 +49,7 @@ class PreferencesRepositoryImpl
         DateTimePreferencesRepository by dateTimePreferencesRepository,
         StoragePreferencesRepository by storagePreferencesRepository,
         InteractionPreferencesRepository by interactionPreferencesRepository,
+        MemoActionPreferencesRepository by memoActionPreferencesRepository,
         SecurityPreferencesRepository by securityPreferencesRepository,
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
         DraftPreferencesRepository by draftPreferencesRepository
@@ -112,6 +132,26 @@ class InteractionPreferencesRepositoryImpl
 
         override suspend fun setQuickSaveOnBackEnabled(enabled: Boolean) {
             dataStore.updateQuickSaveOnBackEnabled(enabled)
+        }
+    }
+
+@Singleton
+class MemoActionPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : MemoActionPreferencesRepository {
+        override fun isMemoActionAutoReorderEnabled(): Flow<Boolean> = dataStore.memoActionAutoReorderEnabled
+
+        override suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean) {
+            dataStore.updateMemoActionAutoReorderEnabled(enabled)
+        }
+
+        override fun getMemoActionOrder(): Flow<List<String>> =
+            dataStore.memoActionOrder.map(::decodeMemoActionOrder)
+
+        override suspend fun updateMemoActionOrder(actionOrder: List<String>) {
+            dataStore.updateMemoActionOrder(encodeMemoActionOrder(actionOrder))
         }
     }
 

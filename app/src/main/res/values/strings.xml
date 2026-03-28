@@ -31,6 +31,8 @@
     <string name="settings_double_tap_edit_subtitle">Double-tap memo cards to enter edit mode quickly</string>
     <string name="settings_free_text_copy">Free text copy</string>
     <string name="settings_free_text_copy_subtitle">Allow selecting and copying text directly from memo cards</string>
+    <string name="settings_menu_auto_reorder">Auto reorder menu tiles</string>
+    <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
     <string name="settings_check_updates">Check updates on startup</string>
@@ -345,8 +347,11 @@
     <string name="settings_webdav_sync_on_refresh_subtitle">Trigger WebDAV sync when pulling to refresh</string>
     <string name="memo_version_history">Version History</string>
     <string name="memo_version_history_empty">No version history available</string>
-    <string name="memo_version_restore">Restore</string>
-    <string name="memo_version_current">Current</string>
     <string name="memo_version_loading">Loading version history…</string>
+    <string name="memo_version_load_more">Load more</string>
+    <string name="memo_version_loading_more">Loading more…</string>
+    <string name="memo_version_state_active">Active</string>
+    <string name="memo_version_state_trashed">Trashed</string>
+    <string name="memo_version_state_deleted">Deleted</string>
 
 </resources>

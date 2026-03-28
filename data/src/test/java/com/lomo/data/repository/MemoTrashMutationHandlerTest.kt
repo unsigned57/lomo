@@ -20,8 +20,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: MemoTrashMutationHandler
- * - Behavior focus: file-only trash/restore branching, DB restore gating, and attachment cleanup routing.
- * - Observable outcomes: returned Boolean success/failure, file save/delete behavior, LocalFileState updates, and media delete branch selection.
+ * - Behavior focus: file-only trash/restore branching, DB restore gating, unsafe destructive rejection, and attachment cleanup routing.
+ * - Observable outcomes: returned Boolean success/failure, thrown unsafe mutation exceptions, file save/delete behavior, LocalFileState updates, and media delete branch selection.
+ * - Red phase: Fails before the fix because top-level trash restore and permanent delete paths only log missing blocks instead of rejecting the unsafe mutation.
  * - Excludes: MemoTextProcessor internals, storage backend implementation details, and UI rendering behavior.
  */
 class MemoTrashMutationHandlerTest {
@@ -33,6 +34,9 @@ class MemoTrashMutationHandlerTest {
 
     @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
+
+    @MockK(relaxed = true)
+    private lateinit var memoVersionJournal: MemoVersionJournal
 
     private lateinit var handler: MemoTrashMutationHandler
 
@@ -50,6 +54,7 @@ class MemoTrashMutationHandlerTest {
                 memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 textProcessor = MemoTextProcessor(),
+                memoVersionJournal = memoVersionJournal,
             )
     }
 
@@ -256,6 +261,16 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 0) { memoDao.deleteTrashMemoById(any()) }
         }
 
+    @Test(expected = UnsafeWorkspaceMutationException::class)
+    fun `restoreFromTrash throws when target block cannot be matched safely`() =
+        runTest {
+            val memo = buildMemo(rawContent = "- 10:00 restore me")
+            val filename = "${memo.dateKey}.md"
+            coEvery { fileDataSource.readFileIn(MemoDirectoryType.TRASH, filename) } returns "- 09:30 another memo"
+
+            handler.restoreFromTrash(memo)
+        }
+
     @Test
     fun `restoreFromTrashInDb persists main memo and removes trash row when source exists`() =
         runTest {
@@ -333,6 +348,17 @@ class MemoTrashMutationHandlerTest {
             }
             coVerify(exactly = 1) { fileDataSource.deleteImage("orphan.png") }
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
+        }
+
+    @Test(expected = UnsafeWorkspaceMutationException::class)
+    fun `deleteFromTrashPermanently throws when target block cannot be matched safely`() =
+        runTest {
+            val memo = buildMemo(attachments = listOf("orphan.png"), deleted = true)
+            coEvery {
+                fileDataSource.readFileIn(MemoDirectoryType.TRASH, "${memo.dateKey}.md")
+            } returns "- 09:30 another memo"
+
+            handler.deleteFromTrashPermanently(memo)
         }
 
     @Test

@@ -21,8 +21,13 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: MemoRepositoryImpl
- * - Behavior focus: query-to-search-source routing, pinned memo mapping, and memo mutation delegation.
- * - Observable outcomes: constructed FTS query text, fallback search path choice, mapped pin state, and synchronizer calls.
+ * - Behavior focus: query-to-search-source routing, pinned memo mapping, and mutation delegation onto the
+ *   synchronous safety-tracked synchronizer path.
+ * - Observable outcomes: constructed FTS query text, fallback search path choice, mapped pin state, and
+ *   synchronizer calls.
+ * - Red phase: qualityCheck failed before this test update because these assertions still expected
+ *   saveMemoAsync/updateMemoAsync/deleteMemoAsync after the repository switched to synchronous tracked
+ *   mutation APIs.
  * - Excludes: Room SQL execution details, FTS engine internals, and UI rendering.
  */
 class MemoRepositoryImplTest {
@@ -68,16 +73,16 @@ class MemoRepositoryImplTest {
     @Test
     fun `saveMemo delegates to synchronizer`() =
         runTest {
-            coEvery { synchronizer.saveMemoAsync(any(), any()) } just runs
+            coEvery { synchronizer.saveMemo(any(), any()) } just runs
             repository.saveMemo("content", timestamp = 123L)
-            coVerify(exactly = 1) { synchronizer.saveMemoAsync("content", 123L) }
+            coVerify(exactly = 1) { synchronizer.saveMemo("content", 123L) }
         }
 
     @Test
     fun `saveMemo propagates synchronizer exception`() =
         runTest {
             coEvery {
-                synchronizer.saveMemoAsync(any(), any())
+                synchronizer.saveMemo(any(), any())
             } throws IllegalStateException("sync failed")
 
             val thrown =
@@ -101,8 +106,8 @@ class MemoRepositoryImplTest {
 
             repository.updateMemo(memo, "   ")
 
-            coVerify(exactly = 1) { synchronizer.updateMemoAsync(memo, "   ") }
-            coVerify(exactly = 0) { synchronizer.deleteMemoAsync(any()) }
+            coVerify(exactly = 1) { synchronizer.updateMemo(memo, "   ") }
+            coVerify(exactly = 0) { synchronizer.deleteMemo(any()) }
         }
 
     @Test

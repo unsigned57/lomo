@@ -36,10 +36,18 @@ class MemoTrashMutationHandler
         private val memoSearchDao: MemoSearchDao,
         private val localFileStateDao: LocalFileStateDao,
         private val textProcessor: MemoTextProcessor,
+        private val memoVersionJournal: MemoVersionJournal,
     ) {
         suspend fun moveToTrash(memo: Memo) {
-            if (!moveToTrashFileOnly(memo)) return
+            if (!moveToTrashFileOnly(memo)) {
+                throw UnsafeWorkspaceMutationException("Unable to move memo to trash safely: ${memo.id}")
+            }
             moveToTrashInDb(memo)
+            memoVersionJournal.appendLocalRevision(
+                memo = memo.copy(isDeleted = true),
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.TRASHED,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
+            )
         }
 
         suspend fun moveToTrashInDb(memo: Memo) {
@@ -101,8 +109,15 @@ class MemoTrashMutationHandler
         }
 
         suspend fun restoreFromTrash(memo: Memo) {
-            if (!restoreFromTrashFileOnly(memo)) return
+            if (!restoreFromTrashFileOnly(memo)) {
+                throw UnsafeWorkspaceMutationException("Unable to restore trash memo safely: ${memo.id}")
+            }
             restoreFromTrashInDb(memo)
+            memoVersionJournal.appendLocalRevision(
+                memo = memo.copy(isDeleted = false),
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
+            )
         }
 
         suspend fun restoreFromTrashInDb(memo: Memo): Boolean {
@@ -169,6 +184,7 @@ class MemoTrashMutationHandler
 
             if (removedBlock == null) {
                 Timber.e("deletePermanently: Failed to find block for ${memo.id}")
+                throw UnsafeWorkspaceMutationException("Unable to delete trash memo safely: ${memo.id}")
             } else {
                 val remainingContent = removedBlock.remainingLines.joinToString("\n").trim()
                 if (remainingContent.isEmpty()) {
@@ -185,6 +201,11 @@ class MemoTrashMutationHandler
                 memoTrashDao.deleteTrashMemoById(memo.id)
             }
 
+            memoVersionJournal.appendLocalRevision(
+                memo = memo.copy(isDeleted = true),
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.DELETED,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_DELETE,
+            )
             deleteUnreferencedAttachments(
                 memo = memo,
                 memoSearchDao = memoSearchDao,
@@ -257,17 +278,10 @@ private fun removeMemoBlockFromContent(
     textProcessor: MemoTextProcessor,
 ): RemovedMemoBlock? {
     val lines = content.lines().toMutableList()
-    val (start, end) = textProcessor.findMemoBlock(lines, memo.rawContent, memo.timestamp, memo.id)
-    if (start == -1 || end < start) {
-        return null
-    }
-
-    val blockLines = lines.subList(start, end + 1).toList()
     val removed =
-        textProcessor.removeMemoBlock(
+        textProcessor.removeMemoBlockSafely(
             lines = lines,
             rawContent = memo.rawContent,
-            timestamp = memo.timestamp,
             memoId = memo.id,
         )
     return if (removed) {
@@ -276,7 +290,7 @@ private fun removeMemoBlockFromContent(
             blockContent =
                 buildString {
                     appendLine()
-                    append(blockLines.joinToString("\n"))
+                    append(memo.rawContent)
                     appendLine()
                 },
         )

@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
@@ -267,26 +268,36 @@ private fun TrashMemoList(
             key = { it.memo.id },
             contentType = { "memo" },
         ) { uiModel ->
+            val deleteAnimationPolicy =
+                resolveDeleteAnimationVisualPolicy(
+                    isDeleting = uiModel.memo.id in deletingMemoIds,
+                )
             TrashMemoCardItem(
                 uiModel = uiModel,
                 isDeleting = uiModel.memo.id in deletingMemoIds,
+                keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onMemoMenuClick = onMemoMenuClick,
                 modifier =
-                    Modifier.animateItem(
-                        fadeInSpec =
-                            keyframes {
-                                durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS
-                                TRASH_ITEM_HIDDEN_ALPHA at 0
-                                TRASH_ITEM_HIDDEN_ALPHA at TRASH_DELETE_FADE_DELAY_MILLIS
-                                TRASH_ITEM_VISIBLE_ALPHA at TRASH_DELETE_ANIMATION_DURATION_MILLIS using
-                                    com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                            },
-                        fadeOutSpec = null,
-                        placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                    ).fillMaxWidth(),
+                    if (deleteAnimationPolicy.animatePlacement) {
+                        Modifier
+                            .animateItem(
+                                fadeInSpec =
+                                    keyframes {
+                                        durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS
+                                        TRASH_ITEM_HIDDEN_ALPHA at 0
+                                        TRASH_ITEM_HIDDEN_ALPHA at TRASH_DELETE_FADE_DELAY_MILLIS
+                                        TRASH_ITEM_VISIBLE_ALPHA at TRASH_DELETE_ANIMATION_DURATION_MILLIS using
+                                            com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                                    },
+                                fadeOutSpec = null,
+                                placementSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                            ).fillMaxWidth()
+                    } else {
+                        Modifier.fillMaxWidth()
+                    },
             )
         }
     }
@@ -296,6 +307,7 @@ private fun TrashMemoList(
 private fun TrashMemoCardItem(
     uiModel: MemoUiModel,
     isDeleting: Boolean,
+    keepStableAlphaLayer: Boolean,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
@@ -319,7 +331,7 @@ private fun TrashMemoCardItem(
 
     Box(
         modifier =
-            modifier.trashItemDeleteModifier(deleteAlpha),
+            modifier.trashItemDeleteModifier(deleteAlpha, keepStableAlphaLayer),
     ) {
         MemoCard(
             content = uiModel.memo.content,
@@ -336,8 +348,11 @@ private fun TrashMemoCardItem(
     }
 }
 
-private fun Modifier.trashItemDeleteModifier(deleteAlpha: Float): Modifier =
-    if (deleteAlpha < TRASH_ITEM_ALPHA_THRESHOLD) {
+private fun Modifier.trashItemDeleteModifier(
+    deleteAlpha: Float,
+    keepStableAlphaLayer: Boolean,
+): Modifier =
+    if (keepStableAlphaLayer || deleteAlpha < TRASH_ITEM_ALPHA_THRESHOLD) {
         then(
             Modifier.graphicsLayer {
                 alpha = deleteAlpha

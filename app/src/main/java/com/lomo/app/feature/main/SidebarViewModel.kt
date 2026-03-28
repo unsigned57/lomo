@@ -31,7 +31,6 @@ class SidebarViewModel
         )
 
         val searchQuery: StateFlow<String> = stateHolder.searchQuery
-        val selectedTag: StateFlow<String?> = stateHolder.selectedTag
 
         val sidebarUiState: StateFlow<SidebarUiState> =
             combine(
@@ -64,10 +63,6 @@ class SidebarViewModel
 
         fun onSearch(query: String) {
             stateHolder.updateSearchQuery(query)
-        }
-
-        fun onTagSelected(tag: String?) {
-            stateHolder.updateSelectedTag(tag)
         }
 
         fun clearFilters() {

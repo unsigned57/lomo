@@ -30,6 +30,14 @@ import org.junit.Before
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoMutationHandler
+ * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, and unsafe rewrite rejection.
+ * - Observable outcomes: thrown unsafe mutation exception, LocalFileState writes, persisted updatedAt, and cached flow collection counts.
+ * - Red phase: Fails before the fix because updateMemo silently no-ops when a destructive-safe rewrite cannot locate the target memo block.
+ * - Excludes: Room transaction internals, UI rendering, and retired legacy-capture storage mechanics.
+ */
 class MemoMutationHandlerTest {
     @MockK(relaxed = true)
     private lateinit var fileDataSource: FileDataSource
@@ -49,6 +57,9 @@ class MemoMutationHandlerTest {
     @MockK(relaxed = true)
     private lateinit var trashMutationHandler: MemoTrashMutationHandler
 
+    @MockK(relaxed = true)
+    private lateinit var memoVersionJournal: MemoVersionJournal
+
     private lateinit var handler: MemoMutationHandler
 
     @Before
@@ -66,6 +77,7 @@ class MemoMutationHandlerTest {
                 dataStore = dataStore,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = MemoIdentityPolicy(),
+                memoVersionJournal = memoVersionJournal,
             )
     }
 
@@ -181,6 +193,25 @@ class MemoMutationHandlerTest {
             assertTrue(persistedMemo.captured.updatedAt > sourceMemo.updatedAt)
         }
 
+    @Test(expected = UnsafeWorkspaceMutationException::class)
+    fun `updateMemo throws when safe rewrite cannot locate target memo block`() =
+        runTest {
+            val sourceMemo =
+                Memo(
+                    id = "2026_03_26_10:00_deadbeef",
+                    timestamp = 1_711_418_400_000L,
+                    updatedAt = 1_711_418_400_000L,
+                    content = "before",
+                    rawContent = "- 10:00 before",
+                    dateKey = "2026_03_26",
+                )
+            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { localFileStateDao.getByFilename("${sourceMemo.dateKey}.md", false) } returns null
+            coEvery { fileDataSource.readFileIn(MemoDirectoryType.MAIN, "${sourceMemo.dateKey}.md") } returns "- 10:00 another memo"
+
+            handler.updateMemo(sourceMemo, "after")
+        }
+
     @Test
     fun `saveMemoInDb reuses cached storage formats across saves`() =
         runTest {
@@ -207,6 +238,7 @@ class MemoMutationHandlerTest {
                     dataStore = dataStore,
                     trashMutationHandler = trashMutationHandler,
                     memoIdentityPolicy = MemoIdentityPolicy(),
+                    memoVersionJournal = memoVersionJournal,
                 )
 
             withTimeout(2_000) {

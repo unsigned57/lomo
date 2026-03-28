@@ -21,6 +21,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: SettingsRepositoryImpl
+ * - Behavior focus: workspace-location writes, failure propagation, and datastore-backed preference delegation.
+ * - Observable outcomes: repository return values, thrown exceptions, and collaborator interactions.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Excludes: concrete datastore implementation details and Compose/UI rendering.
+ */
 class SettingsRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var dataSource: WorkspaceConfigSource
@@ -41,6 +49,7 @@ class SettingsRepositoryImplTest {
                         dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
                         storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
                         interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
+                        memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
                         securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
                         shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
                         draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),

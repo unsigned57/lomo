@@ -1,0 +1,92 @@
+package com.lomo.app.feature.main
+
+import com.lomo.domain.model.Memo
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+
+/*
+ * Test Contract:
+ * - Unit under test: MemoUiMapper
+ * - Behavior focus: display-safe recovery of memo content and timestamp when stale memo state still leaks a storage header into app-layer mapping.
+ * - Observable outcomes: mapped memo timestamp, processed content, collapsed summary, and markdown precompute choice for deferred rendering.
+ * - Red phase: Fails before the fix when a stale `- <zero-width>HH:mm:ss` storage header still surfaces as `00:00:00` plus leaked header text in collapsed/expanded memo rendering.
+ * - Excludes: Compose tree rendering, Room query wiring, and repository refresh orchestration.
+ */
+class MemoUiMapperStorageHeaderRecoveryTest {
+    private val mapper = MemoUiMapper()
+
+    @Test
+    fun `mapToUiModel recovers display content and timestamp from raw storage header when memo is stale`() {
+        val rawContent =
+            """
+            - ​21:00:33
+              #收藏/诗词
+              贫穷问答歌
+
+              山上忆良
+
+              风雨交加夜,冷雨夹雪天。
+
+              瑟瑟冬日晚,怎耐此夕寒。
+
+              粗盐权佐酒,糟醅聊取暖。
+
+              鼻塞频作响,俯首咳连连。
+
+              捻髭空自许,难御此夜寒。
+
+              盖我麻布衾,披我破衣衫。
+
+              虽尽我所有,难耐此夕寒。
+            """.trimIndent()
+        val staleMemo =
+            Memo(
+                id = "2022_08_18_00:00:00_bad",
+                timestamp = midnightTimestampOf(2022, 8, 18),
+                updatedAt = midnightTimestampOf(2022, 8, 18),
+                content = rawContent,
+                rawContent = rawContent,
+                dateKey = "2022_08_18",
+                tags = listOf("收藏/诗词"),
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = staleMemo,
+                rootPath = null,
+                imagePath = null,
+                imageMap = emptyMap(),
+                precomputeMarkdown = false,
+            )
+
+        assertNull(uiModel.markdownNode)
+        assertTrue(uiModel.shouldShowExpand)
+        assertEquals(LocalDate.of(2022, 8, 18), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalDate())
+        assertEquals(LocalTime.of(21, 0, 33), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
+        assertTrue(uiModel.memo.content.contains("贫穷问答歌"))
+        assertTrue(uiModel.memo.content.contains("山上忆良"))
+        assertFalse(uiModel.memo.content.contains("- ​21:00:33"))
+        assertFalse(uiModel.processedContent.contains("- ​21:00:33"))
+        assertFalse(uiModel.collapsedSummary.contains("21:00:33"))
+        assertTrue(uiModel.collapsedSummary.contains("贫穷问答歌"))
+        assertTrue(uiModel.collapsedSummary.contains("山上忆良"))
+    }
+
+    private fun midnightTimestampOf(
+        year: Int,
+        month: Int,
+        day: Int,
+    ): Long =
+        LocalDate
+            .of(year, month, day)
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+}

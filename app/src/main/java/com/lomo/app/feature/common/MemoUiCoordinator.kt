@@ -37,4 +37,6 @@ class MemoUiCoordinator
         val restoreMemo: suspend (Memo) -> Unit = { memo -> memoRepository.restoreMemo(memo) }
 
         val deletePermanently: suspend (Memo) -> Unit = { memo -> memoRepository.deletePermanently(memo) }
+
+        val clearTrash: suspend () -> Unit = { memoRepository.clearTrash() }
     }

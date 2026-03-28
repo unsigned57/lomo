@@ -23,6 +23,11 @@ internal object DatabaseTransitionStrategy {
             "memo_tag_cross_ref",
             "memos_fts",
             "file_sync_metadata",
+            "workspace_mutation",
+            "workspace_head",
+            "workspace_snapshot_entry",
+            "workspace_snapshot",
+            "snapshot_blob",
         )
 
     fun fallbackToDestructiveFromVersions(

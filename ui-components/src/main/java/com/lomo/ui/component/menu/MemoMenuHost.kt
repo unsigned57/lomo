@@ -37,6 +37,9 @@ fun MemoMenuHost(
     onHistory: ((MemoMenuState) -> Unit)? = null,
     showHistory: Boolean = false,
     showJump: Boolean = false,
+    memoActionAutoReorderEnabled: Boolean = true,
+    memoActionOrder: List<String> = emptyList(),
+    onMemoActionInvoked: (MemoActionId) -> Unit = {},
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
@@ -67,6 +70,9 @@ fun MemoMenuHost(
         onHistory = onHistory,
         showHistory = showHistory,
         showJump = showJump,
+        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        memoActionOrder = memoActionOrder,
+        onMemoActionInvoked = onMemoActionInvoked,
     )
 }
 
@@ -89,6 +95,9 @@ private fun MemoMenuBottomSheetHost(
     onHistory: ((MemoMenuState) -> Unit)?,
     showHistory: Boolean,
     showJump: Boolean,
+    memoActionAutoReorderEnabled: Boolean,
+    memoActionOrder: List<String>,
+    onMemoActionInvoked: (MemoActionId) -> Unit,
 ) {
     current?.let { state ->
         MemoMenuBottomSheet(
@@ -146,6 +155,9 @@ private fun MemoMenuBottomSheetHost(
                 ),
             showHistory = showHistory,
             showJump = showJump,
+            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+            memoActionOrder = memoActionOrder,
+            onMemoActionInvoked = onMemoActionInvoked,
         )
     }
 }

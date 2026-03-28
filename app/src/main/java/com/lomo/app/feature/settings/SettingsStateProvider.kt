@@ -343,6 +343,7 @@ class SettingsStateProvider(
             appConfigCoordinator.showInputHints,
             appConfigCoordinator.doubleTapEditEnabled,
             appConfigCoordinator.freeTextCopyEnabled,
+            appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
             appConfigCoordinator.quickSaveOnBackEnabled,
         ) { values ->
@@ -351,8 +352,9 @@ class SettingsStateProvider(
                 showInputHints = values[1],
                 doubleTapEditEnabled = values[2],
                 freeTextCopyEnabled = values[3],
-                appLockEnabled = values[4],
-                quickSaveOnBackEnabled = values[5],
+                memoActionAutoReorderEnabled = values[4],
+                appLockEnabled = values[5],
+                quickSaveOnBackEnabled = values[6],
             )
         }.stateIn(
             scope = scope,
@@ -363,6 +365,7 @@ class SettingsStateProvider(
                     showInputHints = appConfigCoordinator.showInputHints.value,
                     doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
                     freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
+                    memoActionAutoReorderEnabled = appConfigCoordinator.memoActionAutoReorderEnabled.value,
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
                 ),

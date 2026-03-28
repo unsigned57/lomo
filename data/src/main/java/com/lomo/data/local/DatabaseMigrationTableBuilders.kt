@@ -112,6 +112,77 @@ internal fun createWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
     )
 }
 
+internal fun createMemoVersionCommitTable(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `version_commit` (
+            `commitId` TEXT NOT NULL,
+            `createdAt` INTEGER NOT NULL,
+            `origin` TEXT NOT NULL,
+            `actor` TEXT NOT NULL,
+            `batchId` TEXT,
+            `summary` TEXT NOT NULL,
+            PRIMARY KEY(`commitId`)
+        )
+        """.trimIndent(),
+    )
+    db.execSQL("CREATE INDEX IF NOT EXISTS `index_version_commit_createdAt` ON `version_commit` (`createdAt`)")
+    db.execSQL("CREATE INDEX IF NOT EXISTS `index_version_commit_batchId` ON `version_commit` (`batchId`)")
+}
+
+internal fun createMemoVersionBlobTable(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `memo_version_blob` (
+            `blobHash` TEXT NOT NULL,
+            `storagePath` TEXT NOT NULL,
+            `byteSize` INTEGER NOT NULL,
+            `contentEncoding` TEXT NOT NULL,
+            `createdAt` INTEGER NOT NULL,
+            PRIMARY KEY(`blobHash`)
+        )
+        """.trimIndent(),
+    )
+}
+
+internal fun createMemoRevisionTable(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `memo_revision` (
+            `revisionId` TEXT NOT NULL,
+            `memoId` TEXT NOT NULL,
+            `parentRevisionId` TEXT,
+            `commitId` TEXT NOT NULL,
+            `dateKey` TEXT NOT NULL,
+            `lifecycleState` TEXT NOT NULL,
+            `rawMarkdownBlobHash` TEXT NOT NULL,
+            `contentHash` TEXT NOT NULL,
+            `memoTimestamp` INTEGER NOT NULL,
+            `memoUpdatedAt` INTEGER NOT NULL,
+            `memoContent` TEXT NOT NULL,
+            `createdAt` INTEGER NOT NULL,
+            PRIMARY KEY(`revisionId`)
+        )
+        """.trimIndent(),
+    )
+    createMemoRevisionIndexes(db)
+}
+
+internal fun createMemoRevisionAssetTable(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `memo_revision_asset` (
+            `revisionId` TEXT NOT NULL,
+            `logicalPath` TEXT NOT NULL,
+            `blobHash` TEXT NOT NULL,
+            `contentEncoding` TEXT NOT NULL,
+            PRIMARY KEY(`revisionId`, `logicalPath`)
+        )
+        """.trimIndent(),
+    )
+    createMemoRevisionAssetIndexes(db)
+}
+
 internal fun rebuildMemoFtsTable(db: SupportSQLiteDatabase) {
     db.execSQL("$DROP_TABLE_IF_EXISTS `$FTS_TABLE`")
     db.execSQL(

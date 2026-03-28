@@ -28,6 +28,14 @@ import org.junit.Test
 import java.time.LocalDate
 import java.time.ZoneId
 
+/*
+ * Test Contract:
+ * - Unit under test: TrashViewModel
+ * - Behavior focus: clear-trash command dispatch and delete animation state during batch trash cleanup.
+ * - Observable outcomes: deleting row ids before execution and one repository clearTrash command instead of per-row permanent deletes.
+ * - Red phase: Fails before the fix because clearTrash loops through deletePermanently per memo instead of issuing one batch clear-trash mutation.
+ * - Excludes: Compose rendering, animation visuals, and repository internals.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrashViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
@@ -57,6 +65,8 @@ class TrashViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
@@ -68,7 +78,7 @@ class TrashViewModelTest {
     }
 
     @Test
-    fun `clearTrash marks all memos deleting before permanent deletion`() =
+    fun `clearTrash marks all memos deleting before issuing one batch clear command`() =
         runTest {
             val firstMemo = memo("trash-1", LocalDate.of(2026, 3, 8), 9)
             val secondMemo = memo("trash-2", LocalDate.of(2026, 3, 8), 10)
@@ -81,13 +91,14 @@ class TrashViewModelTest {
             runCurrent()
 
             assertEquals(setOf(firstMemo.id, secondMemo.id), viewModel.deletingMemoIds.value)
-            coVerify(exactly = 0) { repository.deletePermanently(any()) }
+            coVerify(exactly = 0) { repository.clearTrash() }
 
             advanceTimeBy(300L)
             runCurrent()
 
-            coVerify(exactly = 1) { repository.deletePermanently(firstMemo) }
-            coVerify(exactly = 1) { repository.deletePermanently(secondMemo) }
+            coVerify(exactly = 1) { repository.clearTrash() }
+            coVerify(exactly = 0) { repository.deletePermanently(firstMemo) }
+            coVerify(exactly = 0) { repository.deletePermanently(secondMemo) }
         }
 
     private fun createViewModel(): TrashViewModel =

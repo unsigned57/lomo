@@ -22,6 +22,8 @@ data class AppPreferencesState(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrder: List<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
@@ -36,6 +38,8 @@ data class AppPreferencesState(
                 showInputHints = PreferenceDefaults.SHOW_INPUT_HINTS,
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
+                memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
+                memoActionOrder = emptyList(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
@@ -61,14 +65,32 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             )
         },
         combine(
-            isDoubleTapEditEnabled(),
-            isFreeTextCopyEnabled(),
+            combine(
+                isDoubleTapEditEnabled(),
+                isFreeTextCopyEnabled(),
+                isMemoActionAutoReorderEnabled(),
+                getMemoActionOrder(),
+            ) {
+                doubleTapEditEnabled,
+                freeTextCopyEnabled,
+                memoActionAutoReorderEnabled,
+                memoActionOrder,
+                ->
+                MemoActionPreferences(
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    freeTextCopyEnabled = freeTextCopyEnabled,
+                    memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                    memoActionOrder = memoActionOrder,
+                )
+            },
             isQuickSaveOnBackEnabled(),
             isShareCardShowTimeEnabled(),
-        ) { doubleTapEditEnabled, freeTextCopyEnabled, quickSaveOnBackEnabled, shareCardShowTime ->
+        ) { memoAction, quickSaveOnBackEnabled, shareCardShowTime ->
             SharePreferences(
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
+                doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
+                freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
+                memoActionAutoReorderEnabled = memoAction.memoActionAutoReorderEnabled,
+                memoActionOrder = memoAction.memoActionOrder,
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
                 shareCardShowTime = shareCardShowTime,
             )
@@ -83,6 +105,8 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             showInputHints = base.showInputHints,
             doubleTapEditEnabled = share.doubleTapEditEnabled,
             freeTextCopyEnabled = share.freeTextCopyEnabled,
+            memoActionAutoReorderEnabled = share.memoActionAutoReorderEnabled,
+            memoActionOrder = share.memoActionOrder,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
             shareCardShowTime = share.shareCardShowTime,
             shareCardShowBrand = shareCardShowBrand,
@@ -105,9 +129,18 @@ private data class BasePreferences(
     val showInputHints: Boolean,
 )
 
+private data class MemoActionPreferences(
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrder: List<String>,
+)
+
 private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrder: List<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
 )

@@ -12,6 +12,9 @@ interface MemoTrashDao {
     @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC")
     fun getDeletedMemosFlow(): Flow<List<TrashMemoEntity>>
 
+    @Query("SELECT * FROM LomoTrash ORDER BY timestamp DESC, id DESC")
+    suspend fun getDeletedMemos(): List<TrashMemoEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTrashMemos(memos: List<TrashMemoEntity>)
 

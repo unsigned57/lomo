@@ -10,6 +10,14 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: observeAppPreferences state aggregation.
+ * - Behavior focus: preference streams combine into a single app-preferences snapshot, including memo action ordering settings.
+ * - Observable outcomes: emitted AppPreferencesState value.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Excludes: Compose rendering and repository implementation details.
+ */
 class AppPreferencesStateTest {
     @Test
     fun `observeAppPreferences combines settings into single state`() =
@@ -25,6 +33,8 @@ class AppPreferencesStateTest {
             every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
+            every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+            every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
 
             val state = preferencesRepository.observeAppPreferences().first()
 
@@ -37,6 +47,8 @@ class AppPreferencesStateTest {
                     showInputHints = true,
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
+                    memoActionAutoReorderEnabled = true,
+                    memoActionOrder = listOf("history", "copy"),
                     quickSaveOnBackEnabled = false,
                     shareCardShowTime = true,
                     shareCardShowBrand = false,

@@ -92,6 +92,10 @@ class SettingsInteractionFeatureViewModel(
         scope.launch { appConfigCoordinator.updateFreeTextCopyEnabled(enabled) }
     }
 
+    fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateMemoActionAutoReorderEnabled(enabled) }
+    }
+
     fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateQuickSaveOnBackEnabled(enabled) }
     }

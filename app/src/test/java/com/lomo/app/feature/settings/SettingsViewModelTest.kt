@@ -31,6 +31,14 @@ import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: SettingsViewModel
+ * - Behavior focus: settings operation error mapping, connection test state handling, and delegated settings mutations.
+ * - Observable outcomes: operationError, connectionTestState, and collaborator invocations.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Excludes: Compose rendering, transport implementation details, and repository internals.
+ */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
@@ -61,6 +69,8 @@ class SettingsViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
         every { appConfigRepository.getStorageFilenameFormat() } returns flowOf("default")
         every { appConfigRepository.getStorageTimestampFormat() } returns flowOf("HHmm")

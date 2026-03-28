@@ -10,13 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -27,17 +30,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import com.lomo.domain.model.MemoRevision
+import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
-import com.lomo.domain.model.MemoVersion
+import com.lomo.ui.component.markdown.MarkdownRenderer
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val VERSION_COMMIT_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+private const val VERSION_PREVIEW_MAX_VISIBLE_BLOCKS = 3
 
 private fun formatCommitTime(commitTimeMillis: Long): String =
     Instant
@@ -47,10 +52,14 @@ private fun formatCommitTime(commitTimeMillis: Long): String =
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MemoVersionHistorySheet(
-    versions: List<MemoVersion>,
+internal fun MemoVersionHistorySheet(
+    versions: List<MemoVersionHistoryUiModel>,
     isLoading: Boolean,
-    onRestore: (MemoVersion) -> Unit,
+    canLoadMore: Boolean,
+    isLoadingMore: Boolean,
+    isRestoreInProgress: Boolean,
+    onLoadMore: () -> Unit,
+    onRestore: (MemoRevision) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -58,7 +67,7 @@ fun MemoVersionHistorySheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         tonalElevation = 0.dp,
     ) {
         Column(
@@ -69,13 +78,15 @@ fun MemoVersionHistorySheet(
                     .padding(bottom = 24.dp),
         ) {
             MemoVersionHistoryHeader(
-                isLoading = isLoading,
-                versionCount = versions.size,
             )
             Spacer(modifier = Modifier.height(12.dp))
             MemoVersionHistoryBody(
                 versions = versions,
                 isLoading = isLoading,
+                canLoadMore = canLoadMore,
+                isLoadingMore = isLoadingMore,
+                isRestoreInProgress = isRestoreInProgress,
+                onLoadMore = onLoadMore,
                 onRestore = onRestore,
             )
         }
@@ -83,40 +94,39 @@ fun MemoVersionHistorySheet(
 }
 
 @Composable
-private fun MemoVersionHistoryHeader(
-    isLoading: Boolean,
-    versionCount: Int,
-) {
+private fun MemoVersionHistoryHeader() {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Surface(
+            color = MaterialTheme.colorScheme.primaryContainer,
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.History,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(10.dp),
+            )
+        }
         Text(
             text = stringResource(R.string.memo_version_history),
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium,
         )
-        if (!isLoading && versionCount > 0) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-            ) {
-                Text(
-                    text = versionCount.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                )
-            }
-        }
     }
 }
 
 @Composable
 private fun MemoVersionHistoryBody(
-    versions: List<MemoVersion>,
+    versions: List<MemoVersionHistoryUiModel>,
     isLoading: Boolean,
-    onRestore: (MemoVersion) -> Unit,
+    canLoadMore: Boolean,
+    isLoadingMore: Boolean,
+    isRestoreInProgress: Boolean,
+    onLoadMore: () -> Unit,
+    onRestore: (MemoRevision) -> Unit,
 ) {
     when {
         isLoading -> {
@@ -136,14 +146,25 @@ private fun MemoVersionHistoryBody(
         else -> {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                itemsIndexed(versions, key = { _, version -> version.commitHash }) { _, version ->
-                    VersionItem(
-                        version = version,
-                        formattedTime = formatCommitTime(version.commitTime),
-                        onRestore = { onRestore(version) },
+                items(versions, key = { version -> version.revision.revisionId }) { version ->
+                    VersionTimelineItem(
+                        version = version.revision,
+                        processedContent = version.processedContent,
+                        formattedTime = formatCommitTime(version.revision.createdAt),
+                        isRestoreInProgress = isRestoreInProgress,
+                        onRestore = { onRestore(version.revision) },
                     )
+                }
+                if (canLoadMore || isLoadingMore) {
+                    item(key = "load-more") {
+                        LoadMoreHistoryItem(
+                            isLoadingMore = isLoadingMore,
+                            onLoadMore = onLoadMore,
+                        )
+                    }
                 }
             }
         }
@@ -183,91 +204,134 @@ private fun MemoVersionHistoryPlaceholder(
 }
 
 @Composable
-private fun VersionItem(
-    version: MemoVersion,
+private fun VersionTimelineItem(
+    version: MemoRevision,
+    processedContent: String,
     formattedTime: String,
+    isRestoreInProgress: Boolean,
     onRestore: () -> Unit,
 ) {
-    Surface(
+    val canRestore = !version.isCurrent && !isRestoreInProgress
+    val containerColor =
+        if (version.isCurrent) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+    Card(
+        onClick = onRestore,
+        enabled = canRestore,
         modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = MaterialTheme.shapes.medium,
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = containerColor),
     ) {
         Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Top,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = formattedTime,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = version.commitMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                VersionItemAction(
-                    isCurrent = version.isCurrent,
-                    onRestore = onRestore,
+                Text(
+                    text = formattedTime,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (version.lifecycleState != MemoRevisionLifecycleState.ACTIVE) {
+                        VersionLifecycleBadge(lifecycleState = version.lifecycleState)
+                    }
+                }
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = version.memoContent,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 4,
-                overflow = TextOverflow.Ellipsis,
+            VersionContentPreview(
+                content = processedContent,
             )
         }
     }
 }
 
 @Composable
-private fun VersionItemAction(
-    isCurrent: Boolean,
-    onRestore: () -> Unit,
-) {
-    if (isCurrent) {
-        AssistChip(
-            onClick = {},
-            enabled = false,
-            label = {
-                Text(
-                    text = stringResource(R.string.memo_version_current),
-                    style = MaterialTheme.typography.labelMedium,
-                )
-            },
-            colors =
-                AssistChipDefaults.assistChipColors(
-                    disabledContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    disabledLabelColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                ),
+private fun VersionContentPreview(content: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        MarkdownRenderer(
+            content = content,
+            modifier = Modifier.fillMaxWidth(),
+            maxVisibleBlocks = VERSION_PREVIEW_MAX_VISIBLE_BLOCKS,
         )
-    } else {
-        TextButton(
-            onClick = onRestore,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+    }
+}
+
+@Composable
+private fun VersionLifecycleBadge(lifecycleState: MemoRevisionLifecycleState) {
+    Surface(
+        shape = CircleShape,
+        color =
+            when (lifecycleState) {
+                MemoRevisionLifecycleState.ACTIVE -> MaterialTheme.colorScheme.surfaceContainerHighest
+                MemoRevisionLifecycleState.TRASHED -> MaterialTheme.colorScheme.tertiaryContainer
+                MemoRevisionLifecycleState.DELETED -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
+            },
+    ) {
+        Text(
+            text =
+                when (lifecycleState) {
+                    MemoRevisionLifecycleState.ACTIVE -> stringResource(R.string.memo_version_state_active)
+                    MemoRevisionLifecycleState.TRASHED -> stringResource(R.string.memo_version_state_trashed)
+                    MemoRevisionLifecycleState.DELETED -> stringResource(R.string.memo_version_state_deleted)
+                },
+            style = MaterialTheme.typography.labelSmall,
+            color =
+                when (lifecycleState) {
+                    MemoRevisionLifecycleState.ACTIVE -> MaterialTheme.colorScheme.onSurfaceVariant
+                    MemoRevisionLifecycleState.TRASHED -> MaterialTheme.colorScheme.onTertiaryContainer
+                    MemoRevisionLifecycleState.DELETED -> MaterialTheme.colorScheme.onErrorContainer
+                },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun LoadMoreHistoryItem(
+    isLoadingMore: Boolean,
+    onLoadMore: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shape = MaterialTheme.shapes.large,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = stringResource(R.string.memo_version_restore),
-                style = MaterialTheme.typography.labelMedium,
-            )
+            TextButton(
+                onClick = onLoadMore,
+                enabled = !isLoadingMore,
+            ) {
+                Text(
+                    text =
+                        if (isLoadingMore) {
+                            stringResource(R.string.memo_version_loading_more)
+                        } else {
+                            stringResource(R.string.memo_version_load_more)
+                        },
+                )
+            }
         }
     }
 }

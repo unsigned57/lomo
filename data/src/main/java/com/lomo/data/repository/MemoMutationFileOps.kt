@@ -43,10 +43,9 @@ internal suspend fun buildUpdatedFileContent(
 ): String? {
     val lines = currentFileContent.lines().toMutableList()
     val success =
-        runtime.textProcessor.replaceMemoBlock(
+        runtime.textProcessor.replaceMemoBlockSafely(
             lines = lines,
             rawContent = memo.rawContent,
-            timestamp = memo.timestamp,
             newRawContent = newContent,
             timestampStr = storageFormatProvider.formatTime(memo.timestamp),
             memoId = memo.id,

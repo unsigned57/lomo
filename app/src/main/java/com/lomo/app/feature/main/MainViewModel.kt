@@ -12,9 +12,10 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
-import com.lomo.domain.model.MemoVersion
+import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
+import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -75,7 +76,6 @@ class MainViewModel
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
-        val selectedTag: StateFlow<String?> = sidebarStateHolder.selectedTag
         private val _memoListFilter = MutableStateFlow(MemoListFilter())
         val memoListFilter: StateFlow<MemoListFilter> = _memoListFilter
 
@@ -143,10 +143,10 @@ class MainViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
-            combine(searchQuery, selectedTag, memoListFilter) { query: String, tag: String?, filter: MemoListFilter ->
-                MemoQueryInput(query = query, tag = tag, filter = filter.toEffectiveDateRangeFilter())
+            combine(searchQuery, memoListFilter) { query: String, filter: MemoListFilter ->
+                MemoQueryInput(query = query, filter = filter.toEffectiveDateRangeFilter())
             }.flatMapLatest { input ->
-                resolveMemoFlow(query = input.query, tag = input.tag)
+                resolveMemoFlow(query = input.query)
                     .map { sourceMemos ->
                         applyMainMemoFilterUseCase(memos = sourceMemos, filter = input.filter)
                     }
@@ -264,7 +264,7 @@ class MainViewModel
 
         val gitSyncEnabled: StateFlow<Boolean> =
             versionHistoryCoordinator
-                .syncEnabled()
+                .historyEnabled()
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         val versionHistoryState: StateFlow<MainVersionHistoryState> = versionHistoryCoordinator.state
@@ -326,10 +326,6 @@ class MainViewModel
 
         val onSearch: (String) -> Unit = { query ->
             sidebarStateHolder.updateSearchQuery(query)
-        }
-
-        val onTagSelected: (String?) -> Unit = { tag ->
-            sidebarStateHolder.updateSelectedTag(tag)
         }
 
         val updateMemoSortOption: (MemoSortOption) -> Unit = { sortOption ->
@@ -467,7 +463,20 @@ class MainViewModel
             }
         }
 
-        val restoreVersion: (Memo, MemoVersion) -> Unit = { memo, version ->
+        val loadMoreVersionHistory: () -> Unit = {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    versionHistoryCoordinator.loadMore()
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to load more version history")
+                }
+            }
+        }
+
+        val restoreVersion: (Memo, MemoRevision) -> Unit = { memo, version ->
             viewModelScope.launch(Dispatchers.IO) {
                 runCatching {
                     versionHistoryCoordinator.restore(memo, version)
@@ -482,6 +491,12 @@ class MainViewModel
 
         val dismissVersionHistory: () -> Unit = {
             versionHistoryCoordinator.hide()
+        }
+
+        fun recordMemoActionUsage(actionId: MemoActionId) {
+            viewModelScope.launch {
+                appConfigUiCoordinator.recordMemoActionUsage(actionId.storageKey)
+            }
         }
 
         val clearError: () -> Unit = {
@@ -524,11 +539,8 @@ class MainViewModel
 
         private fun resolveMemoFlow(
             query: String,
-            tag: String?,
         ): Flow<List<Memo>> =
-            when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query, selectedTag = tag)) {
-                is ResolveMainMemoQueryUseCase.ResolvedQuery.ByTag ->
-                    memoUiCoordinator.memosByTag(resolvedQuery.tag)
+            when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query)) {
                 is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText ->
                     memoUiCoordinator.searchMemos(resolvedQuery.query)
                 ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos -> allMemos
@@ -543,7 +555,6 @@ class MainViewModel
 
         private data class MemoQueryInput(
             val query: String,
-            val tag: String?,
             val filter: MemoListFilter,
         )
 

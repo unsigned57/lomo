@@ -86,6 +86,8 @@ interface MemoTrashRepository {
     suspend fun restoreMemo(memo: Memo)
 
     suspend fun deletePermanently(memo: Memo)
+
+    suspend fun clearTrash()
 }
 
 interface MemoRepository :

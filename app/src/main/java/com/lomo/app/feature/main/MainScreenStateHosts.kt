@@ -39,7 +39,6 @@ internal fun collectMainScreenUiSnapshot(
 ): MainScreenUiSnapshot {
     val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
-    val selectedTag by sidebarViewModel.selectedTag.collectAsStateWithLifecycle()
     val memoListFilter by viewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
@@ -48,7 +47,6 @@ internal fun collectMainScreenUiSnapshot(
     return MainScreenUiSnapshot(
         uiMemos = uiMemos,
         searchQuery = searchQuery,
-        selectedTag = selectedTag,
         memoListFilter = memoListFilter,
         sidebarUiState = sidebarUiState,
         dateFormat = appPreferences.dateFormat,
@@ -56,6 +54,8 @@ internal fun collectMainScreenUiSnapshot(
         showInputHints = appPreferences.showInputHints,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
         shareCardShowTime = appPreferences.shareCardShowTime,
         uiState = uiState,
@@ -176,6 +176,8 @@ internal fun MainScreenContentHost(
         unknownErrorMessage = unknownErrorMessage,
         shareCardShowTime = screenState.shareCardShowTime,
         quickSaveOnBackEnabled = screenState.quickSaveOnBackEnabled,
+        memoActionAutoReorderEnabled = screenState.memoActionAutoReorderEnabled,
+        memoActionOrder = screenState.memoActionOrder,
         availableTags = allTags,
         showInputHints = screenState.showInputHints,
         onNavigateToShare = onNavigateToShare,
@@ -238,12 +240,11 @@ private fun MainScreenNavigationContent(
     onOpenEditor: (Memo) -> Unit,
 ) {
     var isMemoFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
-    val clearMainFilters = rememberClearMainFiltersAction(sidebarViewModel, viewModel)
+    val clearMainFilters = rememberClearMainFiltersAction(viewModel)
     val onHeatmapDateLongPress = rememberMainScreenHeatmapLongPressAction(viewModel, hostState)
     val onScrollToTop = rememberMainScreenScrollToTopAction(hostState)
 
     MainScreenFilterScrollEffect(
-        selectedTag = screenState.selectedTag,
         searchQuery = screenState.searchQuery,
         memoListFilter = screenState.memoListFilter,
         listState = hostState.listState,
@@ -286,28 +287,20 @@ private fun MainScreenNavigationContent(
 
 @Composable
 private fun MainScreenFilterScrollEffect(
-    selectedTag: String?,
     searchQuery: String,
     memoListFilter: MemoListFilter,
     listState: androidx.compose.foundation.lazy.LazyListState,
 ) {
-    var previousTag by rememberSaveable { mutableStateOf<String?>(null) }
     var previousQuery by rememberSaveable { mutableStateOf("") }
     var previousMemoFilter by remember { mutableStateOf(MemoListFilter()) }
 
-    LaunchedEffect(selectedTag, searchQuery, memoListFilter) {
+    LaunchedEffect(searchQuery, memoListFilter) {
         val filterChanged =
-            previousTag != selectedTag ||
-                previousQuery != searchQuery ||
-                previousMemoFilter != memoListFilter
-        val hasPreviousUserFilters =
-            previousTag != null ||
-                previousQuery.isNotEmpty() ||
-                previousMemoFilter.isActive
+            previousQuery != searchQuery || previousMemoFilter != memoListFilter
+        val hasPreviousUserFilters = previousQuery.isNotEmpty() || previousMemoFilter.isActive
         if (filterChanged && hasPreviousUserFilters) {
             listState.scrollToItem(0)
         }
-        previousTag = selectedTag
         previousQuery = searchQuery
         previousMemoFilter = memoListFilter
     }
@@ -315,12 +308,10 @@ private fun MainScreenFilterScrollEffect(
 
 @Composable
 private fun rememberClearMainFiltersAction(
-    sidebarViewModel: SidebarViewModel,
     viewModel: MainViewModel,
 ): () -> Unit =
-    remember(sidebarViewModel, viewModel) {
+    remember(viewModel) {
         {
-            sidebarViewModel.onTagSelected(null)
             viewModel.clearMemoDateRange()
         }
     }

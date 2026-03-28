@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
@@ -40,6 +41,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import com.lomo.app.R
+import com.lomo.app.feature.common.DeleteAnimationVisualPolicy
+import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
@@ -249,9 +252,14 @@ private fun MemoListColumn(
             key = { it.memo.id },
             contentType = { "memo" },
         ) { uiModel ->
+            val deleteAnimationPolicy =
+                resolveDeleteAnimationVisualPolicy(
+                    isDeleting = uiModel.memo.id in deletingIds,
+                )
             MemoListItem(
                 uiModel = uiModel,
                 isDeleting = uiModel.memo.id in deletingIds,
+                deleteAnimationPolicy = deleteAnimationPolicy,
                 onTodoClick = onTodoClick,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
@@ -263,18 +271,11 @@ private fun MemoListColumn(
                 onShowMemoMenu = onShowMemoMenu,
                 modifier =
                     Modifier
-                        .animateItem(
-                            fadeInSpec =
-                                keyframes {
-                                    durationMillis = MEMO_INSERT_ANIMATION_DURATION_MILLIS
-                                    MEMO_ITEM_HIDDEN_ALPHA at 0
-                                    MEMO_ITEM_HIDDEN_ALPHA at MEMO_INSERT_FADE_DELAY_MILLIS
-                                    MEMO_ITEM_VISIBLE_ALPHA at MEMO_INSERT_ANIMATION_DURATION_MILLIS using
-                                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                },
-                            fadeOutSpec = null,
-                            placementSpec = spring(stiffness = Spring.StiffnessLow),
-                        ).fillMaxWidth(),
+                        .memoListPlacementAnimation(
+                            lazyItemScope = this,
+                            deleteAnimationPolicy = deleteAnimationPolicy,
+                        )
+                        .fillMaxWidth(),
             )
         }
     }
@@ -284,6 +285,7 @@ private fun MemoListColumn(
 private fun MemoListItem(
     uiModel: MemoUiModel,
     isDeleting: Boolean,
+    deleteAnimationPolicy: DeleteAnimationVisualPolicy,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -336,12 +338,44 @@ private fun MemoListItem(
         freeTextCopyEnabled = freeTextCopyEnabled,
         onImageClick = stableImageClick,
         onShowMenu = onShowMemoMenu,
-        modifier = modifier.memoDeletingModifier(deleteAlpha),
+        modifier =
+            modifier.memoDeletingModifier(
+                deleteAlpha = deleteAlpha,
+                keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
+            ),
     )
 }
 
-private fun Modifier.memoDeletingModifier(deleteAlpha: Float): Modifier =
-    if (deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun Modifier.memoListPlacementAnimation(
+    lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
+    deleteAnimationPolicy: DeleteAnimationVisualPolicy,
+): Modifier =
+    with(lazyItemScope) {
+        this@memoListPlacementAnimation.animateItem(
+            fadeInSpec =
+                keyframes {
+                    durationMillis = MEMO_INSERT_ANIMATION_DURATION_MILLIS
+                    MEMO_ITEM_HIDDEN_ALPHA at 0
+                    MEMO_ITEM_HIDDEN_ALPHA at MEMO_INSERT_FADE_DELAY_MILLIS
+                    MEMO_ITEM_VISIBLE_ALPHA at MEMO_INSERT_ANIMATION_DURATION_MILLIS using
+                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                },
+            fadeOutSpec = null,
+            placementSpec =
+                if (deleteAnimationPolicy.animatePlacement) {
+                    spring(stiffness = Spring.StiffnessLow)
+                } else {
+                    snap()
+                },
+        )
+    }
+
+private fun Modifier.memoDeletingModifier(
+    deleteAlpha: Float,
+    keepStableAlphaLayer: Boolean,
+): Modifier =
+    if (keepStableAlphaLayer || deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD) {
         then(
             Modifier.graphicsLayer {
                 alpha = deleteAlpha

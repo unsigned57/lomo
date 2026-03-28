@@ -9,6 +9,7 @@ import java.io.File
  * - Unit under test: MemoListContent animation contract
  * - Behavior focus: keep source-level animation constants and snippets that define insert and delete motion.
  * - Observable outcomes: required animation declarations remain present in MemoListContent.kt.
+ * - Red phase: Fails before the fix because the delete path removes animateItem entirely when a row enters deleting state, instead of keeping a stable animateItem modifier and downgrading placement motion to snap().
  * - Excludes: runtime Compose rendering, timing interpolation internals, and unrelated list behavior.
  */
 class MemoListAnimationContractTest {
@@ -37,8 +38,8 @@ class MemoListAnimationContractTest {
         assertTrue(
             """
             Deleting memos must keep the fade-out animation in MemoListContent.
-            Expected animateFloatAsState(targetValue = if (isDeleting) 0f else 1f)
-            followed by graphicsLayer alpha application in:
+            Expected delete visual policy resolution, a stable animateItem modifier whose placementSpec
+            downgrades to snap() while deleting, and stable graphicsLayer alpha application in:
             ${sourceFile.path}
             """.trimIndent(),
             DELETE_FADE_ANIMATION_CONSTANTS.all(content::contains) &&
@@ -82,7 +83,7 @@ class MemoListAnimationContractTest {
                 "MEMO_ITEM_HIDDEN_ALPHA at MEMO_INSERT_FADE_DELAY_MILLIS",
                 "MEMO_ITEM_VISIBLE_ALPHA at MEMO_INSERT_ANIMATION_DURATION_MILLIS using com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate",
                 "fadeOutSpec = null",
-                "placementSpec = spring(stiffness = Spring.StiffnessLow)",
+                "if (deleteAnimationPolicy.animatePlacement) { spring(stiffness = Spring.StiffnessLow) }",
             )
 
         val DELETE_FADE_ANIMATION_CONSTANTS =
@@ -93,11 +94,15 @@ class MemoListAnimationContractTest {
 
         val DELETE_FADE_ANIMATION_SNIPPETS =
             listOf(
+                "resolveDeleteAnimationVisualPolicy(",
+                ".memoListPlacementAnimation( lazyItemScope = this, deleteAnimationPolicy = deleteAnimationPolicy, )",
+                "this@memoListPlacementAnimation.animateItem(",
+                "placementSpec = if (deleteAnimationPolicy.animatePlacement) { spring(stiffness = Spring.StiffnessLow) } else { snap() }",
                 "animateFloatAsState(",
                 "targetValue = if (isDeleting) { MEMO_ITEM_HIDDEN_ALPHA } else { MEMO_ITEM_VISIBLE_ALPHA }",
                 "durationMillis = MEMO_DELETE_ANIMATION_DURATION_MILLIS",
                 "label = \"DeleteAlpha\"",
-                "if (deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD)",
+                "keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer",
                 "Modifier.graphicsLayer { alpha = deleteAlpha compositingStrategy = CompositingStrategy.ModulateAlpha }",
             )
     }

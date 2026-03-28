@@ -15,11 +15,10 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 @Composable
 internal fun MainEmptyState(
     searchQuery: String,
-    selectedTag: String?,
     hasDirectory: Boolean,
     onSettings: () -> Unit,
 ) {
-    val content = resolveMainEmptyStateContent(searchQuery, selectedTag, hasDirectory)
+    val content = resolveMainEmptyStateContent(searchQuery, hasDirectory)
 
     com.lomo.ui.component.common.EmptyState(
         icon = content.icon,
@@ -53,7 +52,6 @@ private fun MainEmptyStateSettingsAction(onSettings: () -> Unit) {
 @Composable
 private fun resolveMainEmptyStateContent(
     searchQuery: String,
-    selectedTag: String?,
     hasDirectory: Boolean,
 ): MainEmptyStateContent =
     when {
@@ -78,18 +76,6 @@ private fun resolveMainEmptyStateContent(
                 subtitle =
                     androidx.compose.ui.res
                         .stringResource(com.lomo.app.R.string.empty_no_matches_subtitle),
-            )
-        }
-
-        selectedTag != null -> {
-            MainEmptyStateContent(
-                icon = Icons.Rounded.Search,
-                title =
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.app.R.string.empty_no_tag_matches_title, selectedTag),
-                subtitle =
-                    androidx.compose.ui.res
-                        .stringResource(com.lomo.app.R.string.empty_no_tag_matches_subtitle),
             )
         }
 

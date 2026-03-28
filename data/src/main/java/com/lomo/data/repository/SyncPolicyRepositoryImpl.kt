@@ -92,7 +92,8 @@ class SyncPolicyRepositoryImpl
     }
 
 private val SyncBackendType.preferenceValue: String
-    get() = name.lowercase()
+    get() = name.lowercase(java.util.Locale.ROOT)
 
 private fun syncBackendFromPreference(value: String): SyncBackendType =
-    SyncBackendType.entries.firstOrNull { it.preferenceValue == value.lowercase() } ?: SyncBackendType.NONE
+    SyncBackendType.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
+        ?: SyncBackendType.NONE

@@ -30,6 +30,8 @@ object PreferenceKeys {
     const val SHOW_INPUT_HINTS = "show_input_hints"
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
+    const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
+    const val MEMO_ACTION_ORDER = "memo_action_order"
     const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
@@ -71,6 +73,8 @@ object PreferenceKeys {
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
+        const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
+        const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
         const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED

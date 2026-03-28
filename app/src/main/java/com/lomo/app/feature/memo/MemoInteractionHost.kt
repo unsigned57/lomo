@@ -3,6 +3,7 @@ package com.lomo.app.feature.memo
 import android.net.Uri
 import androidx.compose.runtime.Composable
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -47,6 +48,9 @@ fun MemoInteractionHost(
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
     showJump: Boolean = false,
     showVersionHistory: Boolean = false,
+    memoActionAutoReorderEnabled: Boolean = true,
+    memoActionOrder: List<String> = emptyList(),
+    onMemoActionInvoked: (MemoActionId) -> Unit = {},
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,
         openEditor: (Memo) -> Unit,
@@ -63,6 +67,9 @@ fun MemoInteractionHost(
         onVersionHistory = onVersionHistory,
         showJump = showJump,
         showVersionHistory = showVersionHistory,
+        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        memoActionOrder = memoActionOrder,
+        onMemoActionInvoked = onMemoActionInvoked,
     ) { showMenu ->
         content(showMenu, controller::openForEdit)
 

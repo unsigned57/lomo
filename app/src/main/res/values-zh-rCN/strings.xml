@@ -32,6 +32,8 @@
     <string name="settings_double_tap_edit_subtitle">双击备忘录卡片可快速进入编辑模式</string>
     <string name="settings_free_text_copy">自由复制文本</string>
     <string name="settings_free_text_copy_subtitle">允许在备忘录卡片中直接选择并复制文本</string>
+    <string name="settings_menu_auto_reorder">菜单磁贴自动排序</string>
+    <string name="settings_menu_auto_reorder_subtitle">根据长期使用热度逐步把常用备忘录菜单磁贴移动到前面</string>
     <string name="settings_quick_save_on_back">返回快速保存</string>
     <string name="settings_quick_save_on_back_subtitle">新建备忘录时按返回键自动保存，而非显示丢弃确认对话框</string>
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
@@ -343,8 +345,11 @@
     <string name="settings_webdav_sync_on_refresh_subtitle">下拉刷新时触发 WebDAV 同步</string>
     <string name="memo_version_history">版本历史</string>
     <string name="memo_version_history_empty">暂无版本历史</string>
-    <string name="memo_version_restore">恢复</string>
-    <string name="memo_version_current">当前版本</string>
     <string name="memo_version_loading">加载版本历史…</string>
+    <string name="memo_version_load_more">加载更多</string>
+    <string name="memo_version_loading_more">继续加载中…</string>
+    <string name="memo_version_state_active">正常</string>
+    <string name="memo_version_state_trashed">已移入回收站</string>
+    <string name="memo_version_state_deleted">已删除</string>
 
 </resources>

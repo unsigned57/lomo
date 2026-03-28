@@ -27,6 +27,7 @@ import java.time.ZoneId
  * - Unit under test: MemoSynchronizer
  * - Behavior focus: file-to-db refresh, save path selection, and timestamp persistence rules.
  * - Observable outcomes: DAO writes, file data source interactions, and canonicalized stored content.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: Room integration, filesystem implementation details, and UI-facing rendering.
  */
 /**
@@ -41,6 +42,8 @@ class MemoSynchronizerTest {
     @MockK private lateinit var localFileStateDao: LocalFileStateDao
 
     @MockK private lateinit var dataStore: com.lomo.data.local.datastore.LomoDataStore
+
+    @MockK private lateinit var memoVersionJournal: MemoVersionJournal
 
     private lateinit var processor: MemoTextProcessor
     private lateinit var parser: MarkdownParser
@@ -67,8 +70,10 @@ class MemoSynchronizerTest {
                         memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
                         textProcessor = processor,
+                        memoVersionJournal = memoVersionJournal,
                     ),
                 memoIdentityPolicy = memoIdentityPolicy,
+                memoVersionJournal = memoVersionJournal,
             )
         val refreshEngine =
             MemoRefreshEngine(
@@ -89,6 +94,7 @@ class MemoSynchronizerTest {
                         memoFtsDao = memoDao,
                         memoTrashDao = memoDao,
                         localFileStateDao = localFileStateDao,
+                        memoVersionJournal = memoVersionJournal,
                     ) { block -> block() },
             )
 

@@ -88,6 +88,8 @@ interface MemoTrashMutationOperations {
     suspend fun flushRestoreMemoToFile(memo: Memo): Boolean
 
     suspend fun deletePermanently(memo: Memo)
+
+    suspend fun clearTrash()
 }
 
 interface MemoOutboxMutationOperations {
@@ -115,7 +117,7 @@ class MemoMutationHandler private constructor(
     MemoUpdateMutationOperations by UpdateMemoMutationDelegate(runtime, storageFormatProvider),
     MemoTrashMutationOperations by TrashMemoMutationDelegate(runtime),
     MemoOutboxMutationOperations by MemoOutboxMutationDelegate(runtime, storageFormatProvider) {
-    internal constructor(
+    constructor(
         markdownStorageDataSource: MarkdownStorageDataSource,
         daoBundle: MemoMutationDaoBundle,
         localFileStateDao: LocalFileStateDao,
@@ -124,6 +126,7 @@ class MemoMutationHandler private constructor(
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
+        memoVersionJournal: MemoVersionJournal,
     ) : this(
         runtime =
             MemoMutationRuntime(
@@ -134,6 +137,7 @@ class MemoMutationHandler private constructor(
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
+                memoVersionJournal = memoVersionJournal,
             ),
         storageFormatProvider = MemoStorageFormatProvider(dataStore),
     )
@@ -155,6 +159,7 @@ class MemoMutationHandler private constructor(
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
+        memoVersionJournal: MemoVersionJournal,
     ) : this(
         runtime =
             MemoMutationRuntime(
@@ -179,6 +184,7 @@ class MemoMutationHandler private constructor(
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
+                memoVersionJournal = memoVersionJournal,
             ),
         storageFormatProvider = MemoStorageFormatProvider(dataStore),
     )
@@ -192,9 +198,10 @@ internal class MemoMutationRuntime(
     val textProcessor: MemoTextProcessor,
     val trashMutationHandler: MemoTrashMutationHandler,
     val memoIdentityPolicy: MemoIdentityPolicy,
+    val memoVersionJournal: MemoVersionJournal,
 )
 
-internal class MemoMutationDaoBundle(
+class MemoMutationDaoBundle(
     val memoDao: MemoDao,
     val memoWriteDao: MemoWriteDao,
     val memoTagDao: MemoTagDao,

@@ -17,6 +17,8 @@
     <string name="cd_more_options">更多选项</string>
     <string name="cd_play_audio">播放音频</string>
     <string name="cd_pause_audio">暂停音频</string>
+    <string name="cd_action_sheet_scroll_backward">向前滚动备忘录操作</string>
+    <string name="cd_action_sheet_scroll_forward">向后滚动备忘录操作</string>
     <string name="markdown_image_content_description">图片</string>
     <string name="markdown_image_load_failed">图片加载失败</string>
     <string name="calendar_heatmap_date_format">M月d日</string>

@@ -241,6 +241,7 @@ private fun FooterSettingsSections(
         onToggleInputHints = interactionFeature::updateShowInputHints,
         onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
         onToggleFreeTextCopy = interactionFeature::updateFreeTextCopyEnabled,
+        onToggleMemoActionAutoReorder = interactionFeature::updateMemoActionAutoReorderEnabled,
         onToggleAppLock = interactionFeature::updateAppLockEnabled,
         onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
     )

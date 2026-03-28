@@ -147,6 +147,7 @@ fun InteractionSettingsSection(
     onToggleInputHints: (Boolean) -> Unit,
     onToggleDoubleTapEdit: (Boolean) -> Unit,
     onToggleFreeTextCopy: (Boolean) -> Unit,
+    onToggleMemoActionAutoReorder: (Boolean) -> Unit,
     onToggleAppLock: (Boolean) -> Unit,
     onToggleQuickSaveOnBack: (Boolean) -> Unit,
 ) {
@@ -189,6 +190,14 @@ fun InteractionSettingsSection(
             icon = Icons.Outlined.ContentCopy,
             checked = state.freeTextCopyEnabled,
             onCheckedChange = onToggleFreeTextCopy,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_menu_auto_reorder),
+            subtitle = stringResource(R.string.settings_menu_auto_reorder_subtitle),
+            icon = Icons.Outlined.Schedule,
+            checked = state.memoActionAutoReorderEnabled,
+            onCheckedChange = onToggleMemoActionAutoReorder,
         )
         SettingsDivider()
         SwitchPreferenceItem(

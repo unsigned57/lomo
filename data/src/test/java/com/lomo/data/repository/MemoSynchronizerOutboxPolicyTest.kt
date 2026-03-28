@@ -10,6 +10,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoSynchronizer
+ * - Behavior focus: outbox drain policy during explicit refresh, including poisoned-item dropping,
+ *   failure marking, and skipping refresh while outbox work remains pending.
+ * - Observable outcomes: outbox ack/failure calls and whether refresh is invoked after drain attempts.
+ * - Red phase: Fails in the full suite before the fix because these policy tests start the background
+ *   outbox coordinator, which races with the synchronous refresh path and makes the assertions flaky.
+ * - Excludes: background drain scheduling, Room DAO behavior, and retired legacy capture coordination.
+ */
 class MemoSynchronizerOutboxPolicyTest {
     @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
@@ -27,13 +37,18 @@ class MemoSynchronizerOutboxPolicyTest {
         runTest {
             val poisonedItem = outboxItem(id = 1L, retryCount = 5, operation = MemoFileOutboxOp.UPDATE)
             val healthyItem = outboxItem(id = 2L, retryCount = 0, operation = MemoFileOutboxOp.DELETE)
-            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(null, poisonedItem, healthyItem, null))
+            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(poisonedItem, healthyItem, null))
 
             coEvery { mutationHandler.nextMemoFileOutbox() } coAnswers { queue.removeFirstOrNull() }
             coEvery { mutationHandler.flushMemoFileOutbox(healthyItem) } returns true
             coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
 
-            val synchronizer = MemoSynchronizer(refreshEngine, mutationHandler)
+            val synchronizer =
+                MemoSynchronizer(
+                    refreshEngine = refreshEngine,
+                    mutationHandler = mutationHandler,
+                    startOutboxCoordinator = false,
+                )
             synchronizer.refresh()
 
             coVerify(exactly = 1) { mutationHandler.acknowledgeMemoFileOutbox(poisonedItem.id) }
@@ -47,13 +62,18 @@ class MemoSynchronizerOutboxPolicyTest {
     fun `refresh marks failed outbox item and skips refresh while pending`() =
         runTest {
             val failingItem = outboxItem(id = 11L, retryCount = 0, operation = MemoFileOutboxOp.UPDATE)
-            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(null, failingItem, null))
+            val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(failingItem, null))
 
             coEvery { mutationHandler.nextMemoFileOutbox() } coAnswers { queue.removeFirstOrNull() }
             coEvery { mutationHandler.flushMemoFileOutbox(failingItem) } returns false
             coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns true
 
-            val synchronizer = MemoSynchronizer(refreshEngine, mutationHandler)
+            val synchronizer =
+                MemoSynchronizer(
+                    refreshEngine = refreshEngine,
+                    mutationHandler = mutationHandler,
+                    startOutboxCoordinator = false,
+                )
             synchronizer.refresh()
 
             coVerify(exactly = 1) { mutationHandler.markMemoFileOutboxFailed(eq(failingItem.id), match { it is IllegalStateException }) }

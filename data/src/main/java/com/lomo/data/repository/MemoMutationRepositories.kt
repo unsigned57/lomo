@@ -25,18 +25,18 @@ class MemoMutationRepositoryImpl
             content: String,
             timestamp: Long,
         ) {
-            synchronizer.saveMemoAsync(content, timestamp)
+            synchronizer.saveMemo(content, timestamp)
         }
 
         override suspend fun updateMemo(
             memo: Memo,
             newContent: String,
         ) {
-            synchronizer.updateMemoAsync(memo, newContent)
+            synchronizer.updateMemo(memo, newContent)
         }
 
         override suspend fun deleteMemo(memo: Memo) {
-            synchronizer.deleteMemoAsync(memo)
+            synchronizer.deleteMemo(memo)
         }
 
         override suspend fun setMemoPinned(
@@ -67,10 +67,14 @@ class MemoTrashRepositoryImpl
             memoTrashDao.getDeletedMemosFlow().map { entities -> entities.map { it.toDomain() } }
 
         override suspend fun restoreMemo(memo: Memo) {
-            synchronizer.restoreMemoAsync(memo)
+            synchronizer.restoreMemo(memo)
         }
 
         override suspend fun deletePermanently(memo: Memo) {
             synchronizer.deletePermanently(memo)
+        }
+
+        override suspend fun clearTrash() {
+            synchronizer.clearTrash()
         }
     }

@@ -70,6 +70,15 @@ class SettingsAppConfigCoordinator(
             .isFreeTextCopyEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
 
+    val memoActionAutoReorderEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isMemoActionAutoReorderEnabled()
+            .stateIn(
+                scope,
+                settingsWhileSubscribed(),
+                PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
+            )
+
     val quickSaveOnBackEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isQuickSaveOnBackEnabled()
@@ -191,6 +200,9 @@ class SettingsAppConfigCoordinator(
                 appConfigRepository.setDoubleTapEditEnabled(false)
             }
         }
+
+    val updateMemoActionAutoReorderEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setMemoActionAutoReorderEnabled(enabled) }
 
     val updateQuickSaveOnBackEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setQuickSaveOnBackEnabled(enabled) }

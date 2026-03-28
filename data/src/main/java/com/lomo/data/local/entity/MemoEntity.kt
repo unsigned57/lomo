@@ -26,11 +26,17 @@ data class MemoEntity(
     val imageUrls: String, // Comma separated
 ) {
     fun toDomain(isPinned: Boolean = false): Memo =
-        Memo(
+        StoredMemoRecovery.recoverOrNull(
+            rawContent = rawContent,
+            storedContent = content,
+            storedTimestamp = timestamp,
+            dateKey = date,
+        ).let { recovered ->
+            Memo(
             id = id,
-            timestamp = timestamp,
-            updatedAt = updatedAt,
-            content = content,
+            timestamp = recovered?.timestamp ?: timestamp,
+            updatedAt = if (recovered != null && updatedAt == timestamp) recovered.timestamp else updatedAt,
+            content = recovered?.content ?: content,
             rawContent = rawContent,
             dateKey = date,
             localDate = MemoLocalDateResolver.resolve(date),
@@ -39,6 +45,7 @@ data class MemoEntity(
             isPinned = isPinned,
             isDeleted = false,
         )
+        }
 
     companion object {
         fun fromDomain(memo: Memo): MemoEntity =

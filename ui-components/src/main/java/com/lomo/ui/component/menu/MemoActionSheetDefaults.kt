@@ -20,6 +20,27 @@ import androidx.compose.ui.res.stringResource
 import com.lomo.ui.R
 import com.lomo.ui.util.AppHapticFeedback
 
+internal fun sortDefaultMemoActionSheetActions(
+    actions: List<MemoActionSheetAction>,
+    rankedActionOrder: List<MemoActionId>,
+    autoReorderEnabled: Boolean,
+): List<MemoActionSheetAction> {
+    if (!autoReorderEnabled) {
+        return actions
+    }
+    val rankedIds = rankedActionOrder.distinct()
+    if (rankedIds.isEmpty()) {
+        return actions
+    }
+    val actionById = actions.associateBy(MemoActionSheetAction::id)
+    return buildList {
+        rankedIds.forEach { actionId ->
+            actionById[actionId]?.let(::add)
+        }
+        addAll(actions.filterNot { action -> action.id != null && action.id in rankedIds })
+    }
+}
+
 @Composable
 internal fun rememberDefaultMemoActionSheetActions(
     onCopy: () -> Unit,
@@ -157,21 +178,25 @@ private fun primaryMemoActions(
 ): List<MemoActionSheetAction> =
     listOf(
         MemoActionSheetAction(
+            id = MemoActionId.COPY,
             icon = Icons.Outlined.ContentCopy,
             label = labels.copy,
             onClick = { handlers.onCopy.value() },
         ),
         MemoActionSheetAction(
+            id = MemoActionId.SHARE_IMAGE,
             icon = Icons.Outlined.Share,
             label = labels.shareImage,
             onClick = { handlers.onShareImage.value() },
         ),
         MemoActionSheetAction(
+            id = MemoActionId.SHARE_TEXT,
             icon = Icons.AutoMirrored.Outlined.TextSnippet,
             label = labels.shareText,
             onClick = { handlers.onShareText.value() },
         ),
         MemoActionSheetAction(
+            id = MemoActionId.LAN_SHARE,
             icon = Icons.Outlined.Wifi,
             label = labels.lanShare,
             onClick = { handlers.onLanShare.value() },
@@ -189,6 +214,7 @@ private fun optionalMemoActions(
     listOfNotNull(
         if (hasPinAction) {
             MemoActionSheetAction(
+                id = MemoActionId.PIN,
                 icon = Icons.Outlined.PushPin,
                 label = labels.pin,
                 onClick = { handlers.onTogglePin.value?.invoke() },
@@ -199,6 +225,7 @@ private fun optionalMemoActions(
         },
         if (hasJumpAction) {
             MemoActionSheetAction(
+                id = MemoActionId.JUMP,
                 icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 label = labels.jump,
                 onClick = { handlers.onJump.value?.invoke() },
@@ -208,6 +235,7 @@ private fun optionalMemoActions(
         },
         if (hasHistoryAction) {
             MemoActionSheetAction(
+                id = MemoActionId.HISTORY,
                 icon = Icons.Outlined.History,
                 label = labels.history,
                 onClick = { handlers.onHistory.value?.invoke() },
@@ -223,12 +251,14 @@ private fun editingMemoActions(
 ): List<MemoActionSheetAction> =
     listOf(
         MemoActionSheetAction(
+            id = MemoActionId.EDIT,
             icon = Icons.Outlined.Edit,
             label = labels.edit,
             onClick = { handlers.onEdit.value() },
             dismissAfterClick = false,
         ),
         MemoActionSheetAction(
+            id = MemoActionId.DELETE,
             icon = Icons.Outlined.Delete,
             label = labels.delete,
             onClick = { handlers.onDelete.value() },

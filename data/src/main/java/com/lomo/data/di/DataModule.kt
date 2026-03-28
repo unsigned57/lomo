@@ -17,22 +17,30 @@ import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoSearchDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
+import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
+import com.lomo.data.repository.DefaultWorkspaceMediaAccess
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
 import com.lomo.data.repository.MemoRefreshDbApplier
 import com.lomo.data.repository.MemoRefreshEngine
 import com.lomo.data.repository.MemoRefreshParserWorker
 import com.lomo.data.repository.MemoRefreshPlanner
+import com.lomo.data.repository.MemoVersionBlobRoot
+import com.lomo.data.repository.MemoVersionJournal
 import com.lomo.data.repository.MemoRepositoryImpl
+import com.lomo.data.repository.RoomMemoVersionStore
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
 import com.lomo.data.repository.WebDavSyncRepositoryImpl
+import com.lomo.data.repository.RefreshingWorkspaceStateResolver
+import com.lomo.data.repository.WorkspaceMediaAccess
+import com.lomo.data.repository.WorkspaceStateResolver
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
@@ -45,6 +53,7 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
@@ -58,6 +67,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import timber.log.Timber
+import java.io.File
 import javax.inject.Singleton
 
 @Module
@@ -144,11 +154,22 @@ object DatabaseSupportModule {
     @Provides
     @Singleton
     fun provideWebDavSyncMetadataDao(database: MemoDatabase): WebDavSyncMetadataDao = database.webDavSyncMetadataDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoVersionDao(database: MemoDatabase): MemoVersionDao = database.memoVersionDao()
 }
 
 @Module
 @InstallIn(SingletonComponent::class)
 object StorageDataSourceModule {
+    @Provides
+    @Singleton
+    @MemoVersionBlobRoot
+    fun provideMemoVersionBlobRoot(
+        @ApplicationContext context: Context,
+    ): File = File(context.filesDir, "memo-versions/blobs")
+
     @Provides
     @Singleton
     fun provideWorkspaceConfigSource(
@@ -166,6 +187,32 @@ object StorageDataSourceModule {
     fun provideMediaStorageDataSource(
         dataSource: FileDataSourceImpl,
     ): com.lomo.data.source.MediaStorageDataSource = dataSource
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object WorkspaceMediaAccessModule {
+    @Provides
+    @Singleton
+    fun provideWorkspaceMediaAccess(
+        access: DefaultWorkspaceMediaAccess,
+    ): WorkspaceMediaAccess = access
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object MemoVersionModule {
+    @Provides
+    @Singleton
+    fun provideMemoVersionStore(
+        store: RoomMemoVersionStore,
+    ): com.lomo.data.repository.MemoVersionStore = store
+
+    @Provides
+    @Singleton
+    fun provideMemoVersionRepository(
+        journal: MemoVersionJournal,
+    ): MemoVersionRepository = journal
 }
 
 @Module
@@ -220,6 +267,7 @@ object MemoRefreshModule {
         memoFtsDao: MemoFtsDao,
         memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
+        memoVersionJournal: MemoVersionJournal,
         database: MemoDatabase,
     ): MemoRefreshDbApplier =
         MemoRefreshDbApplier(
@@ -229,6 +277,7 @@ object MemoRefreshModule {
             memoFtsDao = memoFtsDao,
             memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
+            memoVersionJournal = memoVersionJournal,
             runInTransaction = { block ->
                 database.withTransaction {
                     block()
@@ -261,6 +310,19 @@ object MemoRefreshModule {
             refreshPlanner = planner,
             refreshParserWorker = parserWorker,
             refreshDbApplier = dbApplier,
+        )
+
+    @Provides
+    @Singleton
+    fun provideWorkspaceStateResolver(
+        cleanupRepository: WorkspaceTransitionRepository,
+        mediaRepository: MediaRepository,
+        refreshEngine: MemoRefreshEngine,
+    ): WorkspaceStateResolver =
+        RefreshingWorkspaceStateResolver(
+            cleanupRepository = cleanupRepository,
+            mediaRepository = mediaRepository,
+            refreshEngine = refreshEngine,
         )
 }
 

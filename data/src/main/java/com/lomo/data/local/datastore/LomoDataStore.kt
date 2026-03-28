@@ -83,6 +83,8 @@ interface LomoInteractionPreferencesStore {
     val showInputHints: Flow<Boolean>
     val doubleTapEditEnabled: Flow<Boolean>
     val freeTextCopyEnabled: Flow<Boolean>
+    val memoActionAutoReorderEnabled: Flow<Boolean>
+    val memoActionOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
 
     suspend fun updateHapticFeedbackEnabled(enabled: Boolean)
@@ -92,6 +94,10 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateDoubleTapEditEnabled(enabled: Boolean)
 
     suspend fun updateFreeTextCopyEnabled(enabled: Boolean)
+
+    suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
+
+    suspend fun updateMemoActionOrder(order: String)
 
     suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean)
 }
@@ -247,6 +253,9 @@ internal object LomoDataStoreKeys {
     val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
     val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
     val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
+    val MEMO_ACTION_AUTO_REORDER_ENABLED =
+        booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
+    val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
     val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)

@@ -12,9 +12,10 @@ class DiscardMemoDraftAttachmentsUseCase
             filenames.forEach { filename ->
                 try {
                     mediaRepository.removeImage(MediaEntryId(filename))
-                } catch (cancellation: CancellationException) {
-                    throw cancellation
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    if (error is CancellationException) {
+                        throw error
+                    }
                     // Best-effort cleanup.
                 }
             }

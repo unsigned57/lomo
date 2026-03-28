@@ -7,6 +7,7 @@ import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
@@ -25,14 +26,14 @@ import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
-import com.lomo.domain.usecase.LoadMemoVersionHistoryUseCase
+import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
-import com.lomo.domain.usecase.RestoreMemoVersionUseCase
+import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
@@ -288,17 +289,17 @@ object DomainSyncBindingsModule {
 
     @Provides
     @Singleton
-    fun provideLoadMemoVersionHistoryUseCase(
-        gitSyncRepository: GitSyncRepository,
-    ): LoadMemoVersionHistoryUseCase =
-        LoadMemoVersionHistoryUseCase(gitSyncRepository)
+    fun provideLoadMemoRevisionHistoryUseCase(
+        memoVersionRepository: MemoVersionRepository,
+    ): LoadMemoRevisionHistoryUseCase =
+        LoadMemoRevisionHistoryUseCase(memoVersionRepository)
 
     @Provides
     @Singleton
-    fun provideRestoreMemoVersionUseCase(
-        updateMemoContentUseCase: UpdateMemoContentUseCase,
-    ): RestoreMemoVersionUseCase =
-        RestoreMemoVersionUseCase(updateMemoContentUseCase)
+    fun provideRestoreMemoRevisionUseCase(
+        memoVersionRepository: MemoVersionRepository,
+    ): RestoreMemoRevisionUseCase =
+        RestoreMemoRevisionUseCase(memoVersionRepository)
 
     @Provides
     @Singleton

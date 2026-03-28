@@ -18,6 +18,15 @@ internal class UpdateMemoMutationDelegate(
             flushMemoUpdateToFile(memo, newContent) -> {
                 val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, memo, newContent)
                 persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(finalUpdatedMemo))
+                runtime.memoVersionJournal.appendLocalRevision(
+                    memo = finalUpdatedMemo,
+                    lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
+                    origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,
+                )
+            }
+
+            else -> {
+                throw UnsafeWorkspaceMutationException("Unable to update memo safely: ${memo.id}")
             }
         }
     }
@@ -32,11 +41,18 @@ internal class UpdateMemoMutationDelegate(
             sourceMemo == null -> null
             else -> {
                 val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, sourceMemo, newContent)
-                persistMemoWithOutbox(
+                val outboxId =
+                    persistMemoWithOutbox(
                     daoBundle = runtime.daoBundle,
                     memo = MemoEntity.fromDomain(finalUpdatedMemo),
                     outbox = buildUpdateOutbox(sourceMemo, newContent),
                 )
+                runtime.memoVersionJournal.appendLocalRevision(
+                    memo = finalUpdatedMemo,
+                    lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
+                    origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,
+                )
+                outboxId
             }
         }
     }

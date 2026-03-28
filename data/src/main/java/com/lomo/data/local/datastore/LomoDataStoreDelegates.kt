@@ -183,6 +183,20 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED,
         )
 
+    override val memoActionAutoReorderEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED,
+            flowName = "memoActionAutoReorderEnabled",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
+        )
+
+    override val memoActionOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_ORDER,
+            flowName = "memoActionOrder",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_ORDER,
+        )
+
     override val quickSaveOnBackEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.QUICK_SAVE_ON_BACK_ENABLED,
@@ -204,6 +218,14 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateFreeTextCopyEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.FREE_TEXT_COPY_ENABLED] = enabled }
+    }
+
+    override suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED] = enabled }
+    }
+
+    override suspend fun updateMemoActionOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_ORDER] = order }
     }
 
     override suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
