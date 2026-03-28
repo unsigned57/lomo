@@ -147,64 +147,35 @@ private fun createRenderLine(
     shouldUseCenteredBody: Boolean,
 ): ShareCardRenderLine =
     when (bodyLine.type) {
-        ShareBodyLineType.Blank ->
-            ShareCardRenderLine(
-                type = bodyLine.type,
-                layout = buildStaticLayout(BLANK_LAYOUT_TEXT, paintSet.paragraphPaint, spec.contentWidth),
-                height = spec.lineSpacing,
+        ShareBodyLineType.Blank -> createBlankRenderLine(bodyLine, spec, paintSet)
+        ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
+        ShareBodyLineType.Quote ->
+            createTextRenderLine(
+                bodyLine = bodyLine,
+                paint = paintSet.quotePaint,
+                spec = spec,
             )
-        ShareBodyLineType.Code -> {
-            val codeWidth =
-                max(MIN_RENDER_DIMENSION_PX, spec.contentWidth - (spec.codeHorizontalPadding * 2).roundToInt())
-            val layout = buildStaticLayout(bodyLine.text, paintSet.codePaint, codeWidth)
-            ShareCardRenderLine(
-                type = bodyLine.type,
-                layout = layout,
-                height = layout.height + spec.codeVerticalPadding * 2,
+        ShareBodyLineType.Bullet ->
+            createTextRenderLine(
+                bodyLine = bodyLine,
+                paint = paintSet.bulletPaint,
+                spec = spec,
             )
-        }
-        ShareBodyLineType.Quote -> {
-            val layout = buildStaticLayout(bodyLine.text, paintSet.quotePaint, spec.contentWidth)
-            ShareCardRenderLine(bodyLine.type, layout, layout.height.toFloat())
-        }
-        ShareBodyLineType.Bullet -> {
-            val layout = buildStaticLayout(bodyLine.text, paintSet.bulletPaint, spec.contentWidth)
-            ShareCardRenderLine(bodyLine.type, layout, layout.height.toFloat())
-        }
-        ShareBodyLineType.Image -> {
-            val bitmap = loadedImages[bodyLine.imageIndex]
-            if (bitmap == null) {
-                val layout = buildStaticLayout(imagePlaceholder, paintSet.paragraphPaint, spec.contentWidth)
-                ShareCardRenderLine(ShareBodyLineType.Paragraph, layout, layout.height.toFloat())
-            } else {
-                val scale = spec.contentWidth.toFloat() / bitmap.width
-                val drawHeight = (bitmap.height * scale).coerceAtMost(spec.maxImageHeightPx)
-                ShareCardRenderLine(
-                    type = ShareBodyLineType.Image,
-                    layout = buildStaticLayout(BLANK_LAYOUT_TEXT, paintSet.paragraphPaint, spec.contentWidth),
-                    height = drawHeight + spec.imageVerticalPadding * 2,
-                    imageBitmap = bitmap,
-                    imageDrawWidth = spec.contentWidth.toFloat(),
-                    imageDrawHeight = drawHeight,
-                )
-            }
-        }
-        ShareBodyLineType.Paragraph -> {
-            val alignment =
-                if (shouldUseCenteredBody) {
-                    Layout.Alignment.ALIGN_CENTER
-                } else {
-                    Layout.Alignment.ALIGN_NORMAL
-                }
-            val layout =
-                buildStaticLayout(
-                    text = bodyLine.text,
-                    paint = paintSet.paragraphPaint,
-                    width = spec.contentWidth,
-                    alignment = alignment,
-                )
-            ShareCardRenderLine(bodyLine.type, layout, layout.height.toFloat())
-        }
+        ShareBodyLineType.Image ->
+            createImageRenderLine(
+                bodyLine = bodyLine,
+                imagePlaceholder = imagePlaceholder,
+                spec = spec,
+                paintSet = paintSet,
+                loadedImages = loadedImages,
+            )
+        ShareBodyLineType.Paragraph ->
+            createTextRenderLine(
+                bodyLine = bodyLine,
+                paint = paintSet.paragraphPaint,
+                spec = spec,
+                shouldUseCenteredBody = shouldUseCenteredBody,
+            )
     }
 
 private fun measureFooterBlockHeight(

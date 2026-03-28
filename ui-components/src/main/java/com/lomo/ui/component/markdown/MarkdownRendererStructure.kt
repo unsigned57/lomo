@@ -1,6 +1,7 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
@@ -21,6 +22,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.text.MemoDisplayTextState
+import com.lomo.ui.text.appendBoundarySpaceIfNeeded
+import com.lomo.ui.theme.memoListTextStyle
+import com.lomo.ui.theme.memoParagraphBlockSpacing
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.HardLineBreak
 import org.commonmark.node.Image
@@ -136,6 +141,7 @@ private class ParagraphAccumulator(
     private val items = mutableListOf<ParagraphItem>()
     private val galleryImages = mutableListOf<Image>()
     private var currentTextBuilder = AnnotatedString.Builder()
+    private var currentTextState = MemoDisplayTextState()
 
     fun process(node: Node) {
         when {
@@ -166,19 +172,24 @@ private class ParagraphAccumulator(
 
     private fun appendLineBreak(node: Node) {
         if (galleryImages.isEmpty()) {
-            currentTextBuilder.appendNode(node, colorScheme)
+            currentTextBuilder.appendNode(node, colorScheme, currentTextState)
         }
     }
 
     private fun appendInlineNode(node: Node) {
         flushGallery()
-        currentTextBuilder.appendNode(node, colorScheme)
+        currentTextBuilder.appendBoundarySpaceIfNeeded(
+            nextVisibleChar = node.firstMixedScriptCharOrNull(),
+            state = currentTextState,
+        )
+        currentTextBuilder.appendNode(node, colorScheme, currentTextState)
     }
 
     private fun flushText() {
         if (currentTextBuilder.length > 0) {
             items += ParagraphText(currentTextBuilder.toAnnotatedString())
             currentTextBuilder = AnnotatedString.Builder()
+            currentTextState = MemoDisplayTextState()
         }
     }
 
@@ -205,9 +216,10 @@ internal fun ParagraphItemContent(
     item: ParagraphItem,
     baseStyle: TextStyle?,
     onImageClick: ((String) -> Unit)?,
+    enableTextSelection: Boolean,
 ) {
     when (item) {
-        is ParagraphText -> MDText(item.text, baseStyle)
+        is ParagraphText -> MDText(item.text, baseStyle, enableTextSelection)
         is ParagraphImage -> MDImage(item.image, onImageClick)
         is ParagraphGallery -> MDImageGallery(item.images, onImageClick)
         is ParagraphVoiceMemo -> com.lomo.ui.component.media.AudioPlayerCard(relativeFilePath = item.url)
@@ -227,11 +239,11 @@ internal fun rememberListItemPresentation(
     todoOverrides: Map<Int, Boolean>,
 ): ListItemPresentation {
     val checkedItemStyle =
-        MaterialTheme.typography.bodyMedium.copy(
+        MaterialTheme.typography.memoListTextStyle().copy(
             textDecoration = TextDecoration.LineThrough,
             color = MaterialTheme.colorScheme.outline,
         )
-    val normalItemStyle = MaterialTheme.typography.bodyMedium
+    val normalItemStyle = MaterialTheme.typography.memoListTextStyle()
     return remember(listItem, todoOverrides, checkedItemStyle, normalItemStyle) {
         val taskMarker = listItem.firstChild as? TaskListItemMarker
         val sourceLine = listItem.sourceSpans.firstOrNull()?.lineIndex
@@ -305,7 +317,7 @@ private fun MDBulletLeading(bullet: String) {
     } else {
         Text(
             text = bullet,
-            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.memoListTextStyle().copy(fontWeight = FontWeight.Bold),
             modifier = Modifier.width(20.dp).padding(end = 4.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -321,7 +333,10 @@ internal fun MDListItemContent(
     todoOverrides: Map<Int, Boolean>,
     enableTextSelection: Boolean,
 ) {
-    Column(modifier = modifier) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
+    ) {
         var node = listItem.firstChild
         while (node != null) {
             if (node !is TaskListItemMarker) {

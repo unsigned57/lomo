@@ -1,14 +1,13 @@
 package com.lomo.ui.text
 
+import android.text.Layout
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.intl.Locale
-import androidx.compose.ui.text.intl.LocaleList
 import androidx.compose.ui.text.style.Hyphens
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
-
-private const val NORMALIZED_TEXT_BUFFER_PADDING = 8
 
 fun CharSequence.isCjkDominant(): Boolean {
     var cjkCount = 0
@@ -28,23 +27,32 @@ fun CharSequence.isCjkDominant(): Boolean {
     return hasCjk && (cjkOnly || cjkCount >= alphaNumericCount)
 }
 
-fun CharSequence.scriptAwareTextAlign(): TextAlign = if (containsCjkScript()) TextAlign.Justify else TextAlign.Start
+fun CharSequence.scriptAwareTextAlign(): TextAlign =
+    if (shouldUseCjkJustify()) TextAlign.Justify else TextAlign.Start
+
+fun CharSequence.shouldUsePlatformCjkJustification(): Boolean = shouldUseCjkJustify()
+
+fun CharSequence.platformJustificationMode(): Int = resolveMemoParagraphLayoutPolicy(this).justificationMode
 
 fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
     val cjkAware = text.containsCjkScript()
     return copy(
         // M3 default letter spacing is tuned for latin scripts and looks loose in CJK paragraphs.
         letterSpacing = if (cjkAware) 0.sp else letterSpacing,
-        lineBreak =
+        // Keep Compose text metrics closer to the platform CJK TextView path used by pure-Chinese paragraphs.
+        platformStyle = if (cjkAware) PlatformTextStyle(includeFontPadding = false) else platformStyle,
+        lineHeightStyle =
             if (cjkAware) {
-                LineBreak(
-                    strategy = LineBreak.Strategy.HighQuality,
-                    strictness = LineBreak.Strictness.Loose,
-                    wordBreak = LineBreak.WordBreak.Phrase,
+                LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.None,
                 )
             } else {
-                LineBreak.Paragraph
+                lineHeightStyle
             },
+        // Compose's custom CJK line-break presets interact poorly with punctuation such as quotes and colons.
+        // Keep justification eligibility separate from line-break tuning and stay on the default paragraph path.
+        lineBreak = LineBreak.Paragraph,
         hyphens = if (cjkAware) Hyphens.None else Hyphens.Auto,
         localeList = if (cjkAware) text.preferredCjkLocaleList() else localeList,
     )
@@ -58,67 +66,12 @@ fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
 fun CharSequence.normalizeCjkMixedSpacingForDisplay(): String {
     if (isEmpty() || !containsCjkScript()) return toString()
 
-    val source = toString()
-    val out = StringBuilder(source.length + NORMALIZED_TEXT_BUFFER_PADDING)
-    var previousOut: Char? = null
-
-    source.forEachIndexed { index, rawChar ->
-        val current = normalizeHalfWidthPunctuation(rawChar)
-
-        val left = previousOut
-        val canInsertBoundarySpace =
-            left != null && shouldInsertCjkLatinBoundarySpace(left, current)
-        val hasBoundaryWhitespace =
-            left == ' ' || left == '\n' || left == '\t' || current == ' '
-        if (
-            canInsertBoundarySpace &&
-            !hasBoundaryWhitespace
-        ) {
-            out.append(' ')
-        }
-
-        out.append(current)
-        previousOut = current
-    }
-
+    val out = StringBuilder(length + NORMALIZED_TEXT_BUFFER_PADDING)
+    appendNormalizedDisplayLiteral(
+        builder = out,
+        source = this,
+        state = MemoDisplayTextState(),
+        allowLeadingBoundaryFromState = true,
+    )
     return out.toString()
 }
-
-private fun CharSequence.containsCjkScript(): Boolean = any { it.isCjkScript() }
-
-private fun CharSequence.preferredCjkLocaleList(): LocaleList =
-    when {
-        any { it.isJapaneseScript() } -> JA_LOCALE_LIST
-        any { it.isKoreanScript() } -> KO_LOCALE_LIST
-        else -> ZH_LOCALE_LIST
-    }
-
-private fun Char.isCjkScript(): Boolean {
-    val block = Character.UnicodeBlock.of(this)
-    return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A ||
-        block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS_EXTENSION_B ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||
-        block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS_SUPPLEMENT ||
-        block == Character.UnicodeBlock.HIRAGANA ||
-        block == Character.UnicodeBlock.KATAKANA ||
-        block == Character.UnicodeBlock.HANGUL_SYLLABLES
-}
-
-private fun normalizeHalfWidthPunctuation(char: Char): Char {
-    val mapped = char.toFullWidthPunctuationOrNull() ?: return char
-    return mapped
-}
-
-private fun shouldInsertCjkLatinBoundarySpace(
-    left: Char,
-    right: Char,
-): Boolean =
-    (left.isCjkScript() && right.isLatinAlphaNumeric()) ||
-        (left.isLatinAlphaNumeric() && right.isCjkScript())
-
-private fun Char.isLatinAlphaNumeric(): Boolean = isLetterOrDigit() && !isCjkScript()
-
-private val ZH_LOCALE_LIST = LocaleList(Locale("zh-CN"))
-private val JA_LOCALE_LIST = LocaleList(Locale("ja-JP"))
-private val KO_LOCALE_LIST = LocaleList(Locale("ko-KR"))

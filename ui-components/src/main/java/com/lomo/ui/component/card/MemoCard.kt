@@ -45,11 +45,12 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
 import com.lomo.ui.component.markdown.MarkdownRenderer
+import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
-import com.lomo.ui.text.scriptAwareTextAlign
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.memoSummaryTextStyle
 import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
@@ -167,8 +168,8 @@ private fun MemoCardHeader(
     dateTimeFormatter: DateTimeFormatter,
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
-    menuContent: (@Composable () -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
+    menuContent: (@Composable () -> Unit)?,
 ) {
     val timeStr =
         remember(timestamp, dateTimeFormatter) {
@@ -198,8 +199,8 @@ private fun MemoCardHeader(
 private fun MemoCardHeaderActions(
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
-    menuContent: (@Composable () -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
+    menuContent: (@Composable () -> Unit)?,
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -306,17 +307,17 @@ private fun MemoCardCollapsedSummary(
 ) {
     val displaySummary = collapsedSummary.normalizeCjkMixedSpacingForDisplay()
     val summaryStyle =
-        MaterialTheme.typography.bodyMedium
+        MaterialTheme.typography.memoSummaryTextStyle()
             .copy(color = MaterialTheme.colorScheme.onSurface)
             .scriptAwareFor(displaySummary)
     val content: @Composable () -> Unit = {
-        Text(
+        MemoParagraphText(
             text = displaySummary,
             style = summaryStyle,
-            textAlign = displaySummary.scriptAwareTextAlign(),
             maxLines = COLLAPSED_SUMMARY_MAX_LINES,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            selectable = allowFreeTextCopy,
         )
     }
 

@@ -41,8 +41,11 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
+import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
+import com.lomo.ui.theme.memoBodyTextStyle
+import com.lomo.ui.theme.memoParagraphBlockSpacing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
@@ -79,6 +82,30 @@ fun MarkdownRenderer(
     knownTagsToStrip: List<String> = emptyList(),
     enableTextSelection: Boolean = false,
 ) {
+    if (
+        shouldUseModernMarkdownBackend(
+            maxVisibleBlocks = maxVisibleBlocks,
+            hasTodoToggleHandler = onTodoClick != null,
+            hasTodoOverrides = todoOverrides.isNotEmpty(),
+            hasKnownTagsToStrip = knownTagsToStrip.isNotEmpty(),
+            hasImageClickHandler = onImageClick != null,
+            hasPrecomputedNode = precomputedNode != null,
+        )
+    ) {
+        ModernMarkdownRenderer(
+            content = content,
+            modifier = modifier,
+            maxVisibleBlocks = maxVisibleBlocks,
+            onTodoClick = onTodoClick,
+            todoOverrides = todoOverrides,
+            onImageClick = onImageClick,
+            onTotalBlocks = onTotalBlocks,
+            knownTagsToStrip = knownTagsToStrip,
+            enableTextSelection = enableTextSelection,
+        )
+        return
+    }
+
     val root by
         produceState<ImmutableNode?>(
             initialValue = precomputedNode,
@@ -111,7 +138,10 @@ fun MarkdownRenderer(
     }
 
     val renderedContent: @Composable () -> Unit = {
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
+        ) {
             renderedItems.forEach { item ->
                 when (item) {
                     is MarkdownRenderItem.Block -> {
@@ -147,16 +177,16 @@ private fun MarkdownRendererFallback(
 ) {
     val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
     val textStyle =
-        MaterialTheme.typography.bodyMedium
+        MaterialTheme.typography.memoBodyTextStyle()
             .copy(color = MaterialTheme.colorScheme.onSurface)
             .scriptAwareFor(normalizedContent)
 
     val fallbackContent: @Composable () -> Unit = {
-        Text(
+        MemoParagraphText(
             text = normalizedContent,
             style = textStyle,
-            textAlign = normalizedContent.scriptAwareTextAlign(),
             modifier = modifier,
+            selectable = enableTextSelection,
         )
     }
 
@@ -181,7 +211,7 @@ internal fun MDBlock(
 ) {
     when (val n = node.node) {
         is Heading -> MDHeading(ImmutableNode(n), modifier)
-        is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick)
+        is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick, enableTextSelection)
         is FencedCodeBlock -> MDCodeBlock(ImmutableNode(n), modifier)
         is IndentedCodeBlock -> MDIndentedCodeBlock(ImmutableNode(n), modifier)
         is BlockQuote -> MDBlockQuote(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
@@ -232,9 +262,15 @@ private fun MDHeading(
         }
 
     val colorScheme = MaterialTheme.colorScheme
-    val text = remember(heading) { buildAnnotatedString { appendNode(node, colorScheme) } }
+    val text = remember(heading, colorScheme) { buildAnnotatedString { appendNode(node, colorScheme) } }
+    val finalStyle = remember(style, text) { style.scriptAwareFor(text) }
 
-    Text(text = text, style = style, modifier = modifier.padding(top = 12.dp, bottom = 4.dp))
+    Text(
+        text = text,
+        style = finalStyle,
+        textAlign = text.scriptAwareTextAlign(),
+        modifier = modifier.padding(top = 12.dp, bottom = 4.dp),
+    )
 }
 
 private const val HEADING_LEVEL_1 = 1
@@ -250,6 +286,7 @@ private fun MDParagraph(
     modifier: Modifier = Modifier,
     baseStyle: TextStyle? = null,
     onImageClick: ((String) -> Unit)? = null,
+    enableTextSelection: Boolean = false,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val items = remember(paragraph, colorScheme) { buildParagraphItems(paragraph, colorScheme) }
@@ -258,7 +295,12 @@ private fun MDParagraph(
 
     Column(modifier = modifier.fillMaxWidth()) {
         items.forEach { item ->
-            ParagraphItemContent(item = item, baseStyle = baseStyle, onImageClick = onImageClick)
+            ParagraphItemContent(
+                item = item,
+                baseStyle = baseStyle,
+                onImageClick = onImageClick,
+                enableTextSelection = enableTextSelection,
+            )
         }
     }
 }
@@ -320,7 +362,10 @@ private fun MDBlockQuote(
                     ).height(IntrinsicSize.Min),
         )
 
-        Column(modifier = Modifier.padding(start = 8.dp).fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(start = 8.dp).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
+        ) {
             var child = quote.firstChild
             while (child != null) {
                 MDBlock(
@@ -344,7 +389,10 @@ private fun MDBulletList(
     enableTextSelection: Boolean = false,
 ) {
     val list = bulletListNode.node as BulletList
-    Column(modifier = modifier.fillMaxWidth().padding(start = 8.dp)) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(start = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
+    ) {
         var node = list.firstChild
         while (node != null) {
             if (node is ListItem) {
@@ -370,7 +418,10 @@ private fun MDOrderedList(
     enableTextSelection: Boolean = false,
 ) {
     val list = orderedListNode.node as OrderedList
-    Column(modifier = modifier.fillMaxWidth().padding(start = 8.dp)) {
+    Column(
+        modifier = modifier.fillMaxWidth().padding(start = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
+    ) {
         var node = list.firstChild
 
         var index = list.markerStartNumber ?: 0

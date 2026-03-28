@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -54,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -65,7 +67,12 @@ import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
+import com.lomo.ui.theme.memoBodyTextStyle
+import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
+
+private val InputEditorContainerPaddingHorizontal = 16.dp
+private val InputEditorContainerPaddingVertical = 12.dp
 
 @Composable
 internal fun InputSheetScaffold(
@@ -173,34 +180,17 @@ internal fun InputEditorPanel(
                 .fillMaxWidth()
                 .padding(AppSpacing.Medium),
     ) {
-        val bodyLargeStyle = MaterialTheme.typography.bodyLarge
+        val bodyLargeStyle = MaterialTheme.typography.memoBodyTextStyle()
         val inputTextStyle =
             remember(inputValue.text, bodyLargeStyle) {
                 bodyLargeStyle.scriptAwareFor(inputValue.text)
             }
-
-        TextField(
-            value = inputValue,
-            onValueChange = onTextChange,
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-            minLines = 3,
-            maxLines = 10,
-            colors =
-                TextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                ),
-            shape = AppShapes.Large,
+        InputEditorTextField(
+            inputValue = inputValue,
+            hintText = hintText,
+            focusRequester = focusRequester,
             textStyle = inputTextStyle,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-            keyboardActions = KeyboardActions(),
-            placeholder = { InputHintPlaceholder(hintText = hintText) },
+            onTextChange = onTextChange,
         )
         Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
         InputEditorTagSelector(
@@ -221,6 +211,48 @@ internal fun InputEditorPanel(
             haptic = haptic,
         )
     }
+}
+
+@Composable
+private fun InputEditorTextField(
+    inputValue: TextFieldValue,
+    hintText: String,
+    focusRequester: FocusRequester,
+    textStyle: androidx.compose.ui.text.TextStyle,
+    onTextChange: (TextFieldValue) -> Unit,
+) {
+    BasicTextField(
+        value = inputValue,
+        onValueChange = onTextChange,
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+        textStyle = textStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+        keyboardActions = KeyboardActions(),
+        minLines = 3,
+        maxLines = 10,
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(AppShapes.Large)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(
+                            horizontal = InputEditorContainerPaddingHorizontal,
+                            vertical = InputEditorContainerPaddingVertical,
+                        ),
+            ) {
+                if (inputValue.text.isEmpty()) {
+                    InputHintPlaceholder(hintText = hintText)
+                }
+                innerTextField()
+            }
+        },
+    )
 }
 
 @Composable
@@ -391,7 +423,7 @@ private fun InputHintPlaceholder(hintText: String) {
     ) { targetHint ->
         Text(
             text = targetHint,
-            style = MaterialTheme.typography.bodyLarge.scriptAwareFor(targetHint),
+            style = MaterialTheme.typography.memoHintTextStyle().scriptAwareFor(targetHint),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
         )
     }

@@ -13,6 +13,14 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
 
+/*
+ * Test Contract:
+ * - Unit under test: MarkdownParser
+ * - Behavior focus: timestamped memo parsing, fallback timestamp/date resolution, and plain-Markdown file compatibility.
+ * - Observable outcomes: parsed memo count, memo content, memo date/timestamp, and stable id shape.
+ * - Red phase: Fails before the fix when a non-empty plain Markdown daily note parses as zero memos and disappears after sync refresh.
+ * - Excludes: filesystem backend behavior, Room/index persistence, and sync transport orchestration.
+ */
 class MarkdownParserTest {
     @get:Rule val tempFolder = TemporaryFolder()
 
@@ -253,5 +261,44 @@ class MarkdownParserTest {
         val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
         assertEquals(LocalDate.of(2020, 2, 3), dateTime.toLocalDate())
         assertEquals(LocalTime.of(8, 15), dateTime.toLocalTime().withSecond(0).withNano(0))
+    }
+
+    @Test
+    fun `test parse plain markdown file without timestamp headers as single memo`() {
+        val fallbackTime =
+            LocalDateTime
+                .of(2026, 3, 25, 22, 48, 0)
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+
+        val memos =
+            parser.parseContent(
+                content =
+                    """
+                    # March 25
+
+                    Wrote this on my computer.
+                    It should still show up in Lomo after sync.
+                    """.trimIndent(),
+                filename = "2026_03_25",
+                fallbackTimestampMillis = fallbackTime,
+            )
+
+        assertEquals(1, memos.size)
+        assertEquals(
+            """
+            # March 25
+
+            Wrote this on my computer.
+            It should still show up in Lomo after sync.
+            """.trimIndent(),
+            memos.single().content,
+        )
+        assertEquals("2026_03_25", memos.single().dateKey)
+        val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos.single().timestamp), ZoneId.systemDefault())
+        assertEquals(LocalDate.of(2026, 3, 25), dateTime.toLocalDate())
+        assertEquals(LocalTime.MIDNIGHT, dateTime.toLocalTime().withNano(0))
+        assertTrue(memos.single().id.startsWith("2026_03_25_00:00:00_"))
     }
 }

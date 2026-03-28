@@ -2,10 +2,19 @@ package com.lomo.data.util
 
 import com.lomo.data.memo.MemoContentHashPolicy
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoTextProcessor
+ * - Behavior focus: memo block replacement and lookup, checkbox toggling, and attachment or tag extraction.
+ * - Observable outcomes: returned block coordinates, rewritten text content, boolean success flags, and extracted lists.
+ * - Red phase: Fails before the fix when replacing a memo with empty content leaves a trailing space after the timestamp header.
+ * - Excludes: markdown parser internals, file-system behavior, and UI rendering.
+ */
 class MemoTextProcessorTest {
     private lateinit var processor: MemoTextProcessor
     private val timestamp = 1705234800000L // Example timestamp
@@ -71,6 +80,44 @@ class MemoTextProcessorTest {
     }
 
     @Test
+    fun `replaceMemoBlock should keep timestamp only when new content is empty`() {
+        val lines =
+            mutableListOf(
+                "- 09:00:00 Old",
+                "details",
+            )
+
+        val replaced =
+            processor.replaceMemoBlock(
+                lines = lines,
+                rawContent = "- 09:00:00 Old\ndetails",
+                timestamp = timestamp,
+                newRawContent = "",
+                timestampStr = "10:00",
+            )
+
+        assertTrue(replaced)
+        assertEquals(listOf("- 10:00"), lines)
+    }
+
+    @Test
+    fun `replaceMemoBlock should return false when target block is missing`() {
+        val lines = mutableListOf("- 09:00 Existing")
+
+        val replaced =
+            processor.replaceMemoBlock(
+                lines = lines,
+                rawContent = "- 10:00 Missing",
+                timestamp = timestamp,
+                newRawContent = "New",
+                timestampStr = "10:30",
+            )
+
+        assertFalse(replaced)
+        assertEquals(listOf("- 09:00 Existing"), lines)
+    }
+
+    @Test
     fun `findMemoBlock should locate collision entry by memoId`() {
         val lines =
             listOf(
@@ -114,6 +161,77 @@ class MemoTextProcessorTest {
 
         assertTrue(removed)
         assertEquals(1, lines.size)
+    }
+
+    @Test
+    fun `findMemoBlock should fall back to raw content when memoId is invalid`() {
+        val lines =
+            listOf(
+                "- 09:40 First line",
+                "Second line",
+                "- 12:00 Another block",
+            )
+
+        val (start, end) =
+            processor.findMemoBlock(
+                lines = lines,
+                rawContent = "- 09:40 First line\nSecond line",
+                timestamp = timestamp,
+                memoId = "not_a_valid_id",
+            )
+
+        assertEquals(0, start)
+        assertEquals(1, end)
+    }
+
+    @Test
+    fun `toggleCheckbox should replace unchecked item when marking complete`() {
+        val content =
+            """
+            title
+            - [ ] buy milk
+            """.trimIndent()
+
+        val toggled = processor.toggleCheckbox(content = content, lineIndex = 1, checked = true)
+
+        assertEquals(
+            """
+            title
+            - [x] buy milk
+            """.trimIndent(),
+            toggled,
+        )
+    }
+
+    @Test
+    fun `toggleCheckbox should return original content when line index is out of bounds`() {
+        val content = "- [ ] buy milk"
+
+        val toggled = processor.toggleCheckbox(content = content, lineIndex = 3, checked = true)
+
+        assertEquals(content, toggled)
+    }
+
+    @Test
+    fun `toggleCheckbox should return original content when expected pattern is missing`() {
+        val content =
+            """
+            title
+            - note only
+            """.trimIndent()
+
+        val toggled = processor.toggleCheckbox(content = content, lineIndex = 1, checked = true)
+
+        assertEquals(content, toggled)
+    }
+
+    @Test
+    fun `extractTags should trim trailing slash and deduplicate tags`() {
+        val content = "#travel/ revisit #travel #苏格拉底/ #苏格拉底"
+
+        val tags = processor.extractTags(content)
+
+        assertEquals(listOf("travel", "苏格拉底"), tags)
     }
 
     @Test

@@ -105,6 +105,14 @@ class MarkdownParser
             }
             addMemo()
 
+            if (result.isEmpty()) {
+                buildPlainMarkdownFallbackMemo(
+                    content = content,
+                    filename = filename,
+                    fallbackTimestampMillis = fallbackTimestampMillis,
+                )?.let(result::add)
+            }
+
             return result
         }
 
@@ -151,4 +159,29 @@ class MarkdownParser
             // Delegate to shared utility class to avoid duplication
             return textProcessor.extractImages(content)
         }
+
+        private fun buildPlainMarkdownFallbackMemo(
+            content: String,
+            filename: String,
+            fallbackTimestampMillis: Long?,
+        ): Memo? {
+            val normalizedContent = content.trim()
+            if (normalizedContent.isEmpty()) {
+                return null
+            }
+
+            val baseId = memoIdentityPolicy.buildBaseId(filename, PLAIN_MARKDOWN_FALLBACK_TIME, normalizedContent)
+            return Memo(
+                id = baseId,
+                timestamp = resolveTimestamp(filename, PLAIN_MARKDOWN_FALLBACK_TIME, fallbackTimestampMillis),
+                content = normalizedContent,
+                rawContent = normalizedContent,
+                dateKey = filename,
+                localDate = MemoLocalDateResolver.resolve(filename),
+                tags = extractTags(normalizedContent),
+                imageUrls = extractImages(normalizedContent),
+            )
+        }
     }
+
+private const val PLAIN_MARKDOWN_FALLBACK_TIME = "00:00:00"

@@ -4,6 +4,7 @@ import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.text.LineBreaker
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -115,8 +116,10 @@ internal fun buildStaticLayout(
     width: Int,
     maxLines: Int = Int.MAX_VALUE,
     alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
+    paragraphLayoutPolicy: ShareCardParagraphLayoutPolicy? = null,
 ): StaticLayout {
     val layoutText = text.ifEmpty { BLANK_LAYOUT_TEXT }
+    val resolvedAlignment = paragraphLayoutPolicy?.alignment ?: alignment
 
     return StaticLayout
         .Builder
@@ -126,8 +129,14 @@ internal fun buildStaticLayout(
             layoutText.length,
             paint,
             width.coerceAtLeast(MIN_RENDER_DIMENSION_PX),
-        ).setAlignment(alignment)
+        ).setAlignment(resolvedAlignment)
         .setIncludePad(false)
+        .setBreakStrategy(paragraphLayoutPolicy?.breakStrategy ?: LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
+        .setHyphenationFrequency(
+            paragraphLayoutPolicy?.hyphenationFrequency ?: Layout.HYPHENATION_FREQUENCY_NORMAL,
+        ).setJustificationMode(
+            paragraphLayoutPolicy?.justificationMode ?: LineBreaker.JUSTIFICATION_MODE_NONE,
+        )
         .setLineSpacing(0f, LAYOUT_LINE_SPACING_MULTIPLIER)
         .setMaxLines(maxLines)
         .setEllipsize(TextUtils.TruncateAt.END)

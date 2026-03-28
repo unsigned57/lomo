@@ -2,7 +2,6 @@ package com.lomo.ui.component.markdown
 
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.Modifier
@@ -15,9 +14,11 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
-import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
-import com.lomo.ui.text.scriptAwareFor
-import com.lomo.ui.text.scriptAwareTextAlign
+import com.lomo.ui.text.MemoDisplayTextState
+import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.appendBoundarySpaceIfNeeded
+import com.lomo.ui.text.appendNormalizedDisplayLiteral
+import com.lomo.ui.theme.memoBodyTextStyle
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.node.Code
 import org.commonmark.node.Emphasis
@@ -34,34 +35,25 @@ import org.commonmark.node.Text
 internal fun MDText(
     text: AnnotatedString,
     style: TextStyle?,
+    enableTextSelection: Boolean = false,
 ) {
     if (text.isEmpty()) return
 
-    val plainText = text.isPlainTextContent()
-    val displayText = if (plainText) text.text.normalizeCjkMixedSpacingForDisplay() else null
-    val layoutSample: CharSequence = displayText ?: text
-    val baseStyle = style ?: MaterialTheme.typography.bodyMedium
+    val layoutSample: CharSequence = text
+    val baseStyle = style ?: MaterialTheme.typography.memoBodyTextStyle()
     val finalStyle =
-        baseStyle
-            .copy(color = style?.color ?: MaterialTheme.colorScheme.onSurface)
-            .scriptAwareFor(layoutSample)
-    val textAlign = layoutSample.scriptAwareTextAlign()
+        resolveMarkdownParagraphTextStyle(
+            baseStyle = baseStyle,
+            fallbackColor = MaterialTheme.colorScheme.onSurface,
+            text = layoutSample,
+        )
 
-    if (displayText != null) {
-        Text(
-            text = displayText,
-            style = finalStyle,
-            textAlign = textAlign,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    } else {
-        Text(
-            text = text,
-            style = finalStyle,
-            textAlign = textAlign,
-            modifier = Modifier.fillMaxWidth(),
-        )
-    }
+    MemoParagraphText(
+        text = text,
+        style = finalStyle,
+        modifier = Modifier.fillMaxWidth(),
+        selectable = enableTextSelection,
+    )
 }
 
 @Composable
@@ -89,9 +81,10 @@ internal fun MDImageGallery(
 internal fun AnnotatedString.Builder.appendNode(
     node: Node,
     colorScheme: ColorScheme,
+    displayState: MemoDisplayTextState = MemoDisplayTextState(),
 ) {
     when (node) {
-        is Text -> append(node.literal)
+        is Text -> appendNormalizedDisplayLiteral(node.literal.orEmpty(), displayState)
 
         is Code -> {
             withStyle(
@@ -100,17 +93,24 @@ internal fun AnnotatedString.Builder.appendNode(
                     background = colorScheme.surfaceVariant,
                 ),
             ) { append(node.literal) }
+            displayState.previousVisibleChar = null
         }
 
-        is Emphasis -> withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { visitChildren(node, colorScheme) }
+        is Emphasis -> {
+            withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                visitChildren(node, colorScheme, displayState)
+            }
+        }
 
         is StrongEmphasis -> {
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { visitChildren(node, colorScheme) }
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                visitChildren(node, colorScheme, displayState)
+            }
         }
 
         is Strikethrough -> {
             withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                visitChildren(node, colorScheme)
+                visitChildren(node, colorScheme, displayState)
             }
         }
 
@@ -121,27 +121,38 @@ internal fun AnnotatedString.Builder.appendNode(
                     color = colorScheme.primary,
                     textDecoration = TextDecoration.Underline,
                 ),
-            ) { visitChildren(node, colorScheme) }
+            ) { visitChildren(node, colorScheme, displayState) }
             pop()
         }
 
-        is Image -> append("[Image: ${node.title ?: "View"}]")
+        is Image -> {
+            append("[Image: ${node.title ?: "View"}]")
+            displayState.previousVisibleChar = null
+        }
 
         is SoftLineBreak,
         is HardLineBreak,
-        -> append("\n")
+        -> {
+            append("\n")
+            displayState.previousVisibleChar = '\n'
+        }
 
-        else -> visitChildren(node, colorScheme)
+        else -> visitChildren(node, colorScheme, displayState)
     }
 }
 
 internal fun AnnotatedString.Builder.visitChildren(
     parent: Node,
     colorScheme: ColorScheme,
+    displayState: MemoDisplayTextState = MemoDisplayTextState(),
 ) {
     var child = parent.firstChild
     while (child != null) {
-        appendNode(child, colorScheme)
+        appendBoundarySpaceIfNeeded(
+            nextVisibleChar = child.firstMixedScriptCharOrNull(),
+            state = displayState,
+        )
+        appendNode(child, colorScheme, displayState)
         child = child.next
     }
 }
@@ -189,4 +200,23 @@ internal fun Node.toImageOnlyParagraphOrNull(): Image? {
     return if (isImageOnlyParagraph) imageNode else null
 }
 
-private fun AnnotatedString.isPlainTextContent(): Boolean = spanStyles.isEmpty() && paragraphStyles.isEmpty()
+internal fun Node.firstMixedScriptCharOrNull(): Char? =
+    when (this) {
+        is Text -> literal?.firstOrNull { !it.isWhitespace() }
+        is Emphasis,
+        is StrongEmphasis,
+        is Strikethrough,
+        is Link,
+        is Paragraph,
+        -> {
+            var child = firstChild
+            while (child != null) {
+                val nested = child.firstMixedScriptCharOrNull()
+                if (nested != null) return nested
+                child = child.next
+            }
+            null
+        }
+
+        else -> null
+    }

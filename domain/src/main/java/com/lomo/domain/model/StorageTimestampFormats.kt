@@ -48,10 +48,10 @@ object StorageTimestampFormats {
     fun parseMemoHeaderLine(line: String): ParsedMemoHeader? {
         val afterDash =
             line
-                .trimStart()
+                .trimStart(::isIgnorableHeaderSeparator)
                 .takeIf { trimmed -> trimmed.startsWith("-") }
                 ?.drop(1)
-                ?.trimStart()
+                ?.trimStart(::isIgnorableHeaderSeparator)
                 ?.takeIf(String::isNotEmpty)
                 ?: return null
 
@@ -77,11 +77,11 @@ object StorageTimestampFormats {
             return null
         }
 
-        val hasExactBoundary = end >= afterDash.length || afterDash[end].isWhitespace()
+        val hasExactBoundary = end >= afterDash.length || isIgnorableHeaderSeparator(afterDash[end])
         return if (hasExactBoundary) {
             ParsedMemoHeader(
                 timePart = afterDash.substring(0, end),
-                contentPart = afterDash.substring(end).trimStart(),
+                contentPart = afterDash.substring(end).trimStart(::isIgnorableHeaderSeparator),
             )
         } else {
             null
@@ -89,4 +89,12 @@ object StorageTimestampFormats {
     }
 
     private fun buildFormatter(pattern: String): DateTimeFormatter = DateTimeFormatter.ofPattern(pattern, Locale.US)
+
+    private fun isIgnorableHeaderSeparator(char: Char): Boolean =
+        char.isWhitespace() ||
+            char == UTF8_BOM ||
+            char == ZERO_WIDTH_SPACE
 }
+
+private const val UTF8_BOM = '\uFEFF'
+private const val ZERO_WIDTH_SPACE = '\u200B'
