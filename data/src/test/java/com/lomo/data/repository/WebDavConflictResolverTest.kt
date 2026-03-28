@@ -34,8 +34,9 @@ import java.nio.charset.StandardCharsets
 /*
  * Test Contract:
  * - Unit under test: WebDavConflictResolver
- * - Behavior focus: per-file conflict choice routing, not-configured short-circuiting, and error/result mapping.
+ * - Behavior focus: per-file conflict choice routing, not-configured short-circuiting, and error/result mapping after legacy capture cleanup.
  * - Observable outcomes: WebDavSyncResult type, state transitions, and local/remote side-effect targets.
+ * - Red phase: Fails before the fix because conflict resolution still depends on retired pre-sync capture work for KEEP_REMOTE memo writes.
  * - Excludes: WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
  */
 class WebDavConflictResolverTest {
@@ -150,6 +151,15 @@ class WebDavConflictResolverTest {
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
             every { fileBridge.isMemoPath(path, any()) } returns true
             every { fileBridge.extractMemoFilename(path, any()) } returns "2026_03_24.md"
+            coEvery {
+                markdownStorageDataSource.saveFileIn(
+                    directory = com.lomo.data.source.MemoDirectoryType.MAIN,
+                    filename = "2026_03_24.md",
+                    content = "REMOTE",
+                    append = false,
+                    uri = null,
+                )
+            } returns null
             val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_REMOTE))
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))

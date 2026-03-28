@@ -76,7 +76,7 @@ class WebDavSyncPlanner(
         metadata: WebDavSyncMetadataEntity?,
     ): WebDavSyncAction? {
         if (metadata == null) {
-            return newerWins(path, local.lastModified, remote.lastModified ?: 0L)
+            return WebDavSyncAction(path, WebDavSyncDirection.CONFLICT, WebDavSyncReason.CONFLICT)
         }
 
         val localChanged = changed(local.lastModified, metadata.localLastModified)

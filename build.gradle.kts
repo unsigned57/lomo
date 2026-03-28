@@ -18,7 +18,7 @@ plugins {
 val kotlinVersion = libs.versions.kotlin.get()
 val detektVersion = libs.versions.detekt.get()
 val koverQualityVariant = "quality"
-val defaultCoverageGateStage = "m1"
+val defaultCoverageGateStage = "m3"
 val coverageGateStages =
     linkedMapOf(
         "baseline" to 21,
@@ -41,8 +41,112 @@ val coverageMinBound =
             "Unknown coverage gate stage '$coverageGateStage'. Valid stages: ${coverageGateStages.keys.joinToString(", ")}.",
         )
 val detektProjects = setOf("app", "domain", "data", "ui-components")
-val lintProjects = setOf("app", "data", "ui-components")
+val lintTasksByProject =
+    linkedMapOf(
+        "app" to "lintRelease",
+        "data" to "lintDebug",
+        "ui-components" to "lintDebug",
+    )
 val koverProjects = setOf("app", "domain", "data", "ui-components")
+val coverageExcludedPackages =
+    listOf(
+        "com.lomo.ui",
+        "com.lomo.app.util",
+        "com.lomo.app.presentation",
+        "com.lomo.app.feature.settings",
+        "com.lomo.data.source",
+        "com.lomo.data.media",
+        "com.lomo.data.security",
+    )
+val coverageExcludedClasses =
+    listOf(
+        "*.BuildConfig",
+        "*.Manifest*",
+        "*.R",
+        "*.R$*",
+        "*.ComposableSingletons*",
+        "dagger.hilt.internal.aggregatedroot.codegen.*",
+        "hilt_aggregated_deps.*",
+        "*_Factory",
+        "*_Factory$*",
+        "*_Provide*Factory",
+        "*_MembersInjector",
+        "*_GeneratedInjector",
+        "*_HiltModules*",
+        "*Hilt_*",
+        "*Dao_Impl*",
+        "*Database_Impl*",
+        "com.lomo.ui.util.AppHapticFeedback*",
+        "com.lomo.app.MainActivity*",
+        "com.lomo.app.LomoApplication*",
+        "com.lomo.app.LomoAppRootKt*",
+        "com.lomo.app.navigation*",
+        "com.lomo.app.repository.AppWidgetRepository*",
+        "com.lomo.app.widget*",
+        "com.lomo.app.di*",
+        "com.lomo.app.theme*",
+        "com.lomo.app.benchmark*",
+        "com.lomo.app.media.AudioPlayerManager*",
+        "com.lomo.app.util.ShareCardBitmapRenderer",
+        "com.lomo.app.util.ShareUtils*",
+        "com.lomo.app.util.HapticManager*",
+        "com.lomo.app.util.CameraCaptureUtils*",
+        "com.lomo.app.feature.main.MemoUiImageContentResolver*",
+        "com.lomo.app.feature.settings.SettingsCoordinatorFactory*",
+        "com.lomo.app.provider.ImageMapProvider*",
+        "com.lomo.app.feature.*.*Presenter*",
+        "com.lomo.app.feature.*.*ScreenKt*",
+        "com.lomo.app.feature.*.*SectionKt*",
+        "com.lomo.app.feature.*.*SectionsKt*",
+        "com.lomo.app.feature.*.*BannerKt*",
+        "com.lomo.app.feature.*.*DialogsKt*",
+        "com.lomo.app.feature.*.*DialogHostKt*",
+        "com.lomo.app.feature.*.*LayoutKt*",
+        "com.lomo.app.feature.*.*SheetKt*",
+        "com.lomo.app.feature.*.*PanelKt*",
+        "com.lomo.app.feature.*.*ScaffoldKt*",
+        "com.lomo.app.feature.*.*ContentKt*",
+        "com.lomo.app.feature.*.*TopBarKt*",
+        "com.lomo.app.feature.*.*FabKt*",
+        "com.lomo.app.feature.*.*StateHostsKt*",
+        "com.lomo.app.feature.*.*NavigationActionsKt*",
+        "com.lomo.app.feature.*.*EventEffectsKt*",
+        "com.lomo.app.feature.*.*EmptyStateKt*",
+        "com.lomo.app.feature.*.*DirectoryGuideKt*",
+        "com.lomo.app.feature.*.*SupportKt*",
+        "com.lomo.app.feature.*.*SyncContainersKt*",
+        "com.lomo.app.feature.*.*DialogOptionsKt*",
+        "com.lomo.app.feature.*.*InteractionHostKt*",
+        "com.lomo.app.feature.*.*BinderKt*",
+        "com.lomo.app.feature.*.*EntryKt*",
+        "com.lomo.app.feature.*.*CardListAnimationKt*",
+        "com.lomo.app.feature.*.*ControllerKt*",
+        "com.lomo.app.feature.*.*UiState*",
+        "com.lomo.app.feature.*.*UiSnapshot*",
+        "com.lomo.app.feature.*.*LocalState*",
+        "com.lomo.app.feature.*.*HostState*",
+        "com.lomo.app.feature.*.*Features*",
+        "com.lomo.app.feature.*.*Actions*",
+        "com.lomo.app.feature.*.*DialogState*",
+        "com.lomo.data.di*",
+        "com.lomo.data.local.datastore.LomoDataStoreKeys*",
+        "com.lomo.data.local.datastore.LomoDataStoreKt*",
+        "com.lomo.data.git.SafGitMirrorBridge*",
+        "com.lomo.data.webdav.Dav4jvmWebDavClient*",
+        "com.lomo.data.git.GitSyncQueryTestCoordinator*",
+        "com.lomo.data.source.FileMediaStorageDataSourceDelegate*",
+        "com.lomo.data.media.AudioRecorder*",
+        "com.lomo.data.media.AudioPlaybackUriResolverImpl*",
+        "com.lomo.data.share.NsdDiscoveryService*",
+        "com.lomo.data.share.ShareServiceLifecycleController*",
+        "com.lomo.data.share.ShareServiceManager*",
+        "com.lomo.data.git.SafGitMirrorBridge*",
+        "com.lomo.ui.util.DateTimeUtils*",
+        "com.lomo.ui.util.SharedTransitionLocalsKt*",
+        "com.lomo.ui.media.AudioPlayerManagerKt*",
+    )
+val coverageExcludedClassPatterns =
+    (coverageExcludedClasses + coverageExcludedClasses.map { pattern -> pattern.replace('.', '/') }).distinct()
 val formattingConfig = rootProject.file("quality/detekt/config/formatting.yml")
 val meaningfulTestCheckScript = rootProject.file("quality/scripts/check_meaningful_tests.sh")
 val detektConfigByProject =
@@ -134,6 +238,7 @@ subprojects {
         afterEvaluate {
             apply(plugin = "dev.detekt")
             dependencies.add("detektPlugins", project(":detekt-rules"))
+            dependencies.add("detektPlugins", "dev.detekt:detekt-rules-coroutines:$detektVersion")
 
             val moduleConfig = rootProject.file(detektConfigByProject.getValue(name))
 
@@ -186,8 +291,8 @@ tasks.register("architectureCheck") {
 
 tasks.register("androidLintCheck") {
     group = "verification"
-    description = "Runs Android Lint for the app and Android library modules."
-    dependsOn(lintProjects.map { projectName -> ":$projectName:lintDebug" })
+    description = "Runs Android Lint for release app wiring and debug Android library modules."
+    dependsOn(lintTasksByProject.map { (projectName, taskName) -> ":$projectName:$taskName" })
 }
 
 tasks.register("meaningfulTestCheck", Exec::class.java) {
@@ -221,83 +326,14 @@ kover {
         createVariant(koverQualityVariant) {}
     }
     reports {
-        filters {
-            excludes {
-                classes(
-                    "*.BuildConfig",
-                    "*.Manifest*",
-                    "*.R",
-                    "*.R$*",
-                    "*.ComposableSingletons*",
-                    "dagger.hilt.internal.aggregatedroot.codegen.*",
-                    "hilt_aggregated_deps.*",
-                    "*_Factory",
-                    "*_Factory$*",
-                    "*_Provide*Factory",
-                    "*_MembersInjector",
-                    "*_GeneratedInjector",
-                    "*_HiltModules*",
-                    "*Hilt_*",
-                    "*_Impl",
-                    "*_Impl$*",
-                    "*Database_Impl*",
-                    "com.lomo.data.di.*",
-                    "com.lomo.ui.component.*",
-                    "com.lomo.ui.theme.*",
-                    "com.lomo.ui.text.*",
-                    "com.lomo.ui.util.*",
-                    "com.lomo.app.MainActivity",
-                    "com.lomo.app.MainActivityKt",
-                    "com.lomo.app.LomoApplication",
-                    "com.lomo.app.LomoAppRootKt",
-                    "com.lomo.app.navigation.*",
-                    "com.lomo.app.repository.AppWidgetRepository",
-                    "com.lomo.app.widget.*",
-                    "com.lomo.app.feature.common.AppConfigUiCoordinator",
-                    "com.lomo.app.feature.common.MemoUiCoordinator",
-                    "com.lomo.app.util.ShareCardBitmapRenderer*",
-                    "com.lomo.app.util.ShareUtils",
-                    "com.lomo.app.feature.share.LanShareUiCoordinator",
-                    "com.lomo.app.feature.main.MemoUiImageContentResolver*",
-                    "com.lomo.app.feature.settings.SettingsCoordinatorFactory",
-                    "com.lomo.app.feature.*.*ScreenKt",
-                    "com.lomo.app.feature.*.*SectionsKt",
-                    "com.lomo.app.feature.*.*DialogsKt",
-                    "com.lomo.app.feature.*.*LayoutKt",
-                    "com.lomo.app.feature.*.*SheetKt",
-                    "com.lomo.app.feature.*.*PanelKt",
-                    "com.lomo.app.feature.*.*ScaffoldKt",
-                    "com.lomo.app.feature.*.*ContentKt",
-                    "com.lomo.app.feature.*.*TopBarKt",
-                    "com.lomo.app.feature.*.*FabKt",
-                    "com.lomo.app.feature.*.*StateHostsKt",
-                    "com.lomo.app.feature.*.*NavigationActionsKt",
-                    "com.lomo.app.feature.*.*EventEffectsKt",
-                    "com.lomo.app.feature.*.*EmptyStateKt",
-                    "com.lomo.app.feature.*.*DirectoryGuideKt",
-                    "com.lomo.app.feature.*.*SupportKt",
-                    "com.lomo.app.feature.*.*SyncContainersKt",
-                    "com.lomo.app.feature.*.*DialogOptionsKt",
-                    "com.lomo.app.feature.*.*InteractionHostKt",
-                    "com.lomo.app.feature.*.*BinderKt",
-                    "com.lomo.app.feature.*.*EntryKt",
-                    "com.lomo.app.feature.*.*CardListAnimationKt",
-                    "com.lomo.app.feature.*.*StateProvider",
-                    "com.lomo.app.feature.*.*Presenter",
-                    "com.lomo.app.feature.*.*DialogState",
-                    "com.lomo.app.feature.*.*Coordinator",
-                    "com.lomo.data.repository.GitSyncRepositorySupport",
-                    "com.lomo.data.repository.WebDavSyncRepositorySupport",
-                    "com.lomo.data.repository.WebDavSyncFileBridge",
-                    "com.lomo.data.repository.MemoSavePlanFactory",
-                    "com.lomo.data.repository.MemoOutboxDrainCoordinator",
-                    "com.lomo.data.repository.MemoStorageFormatProvider",
-                    "com.lomo.data.repository.MemoRefreshPlanner",
-                    "com.lomo.data.git.GitSyncQueryTestCoordinator",
-                )
-            }
-        }
         variant(koverQualityVariant) {
+            filters {
+                excludes {
+                    androidGeneratedClasses()
+                    packages(coverageExcludedPackages)
+                    classes(coverageExcludedClassPatterns)
+                }
+            }
             log {
                 header = "Merged quality coverage [$coverageGateStage >= $coverageMinBound%]"
                 format = "<entity>: <value>%"

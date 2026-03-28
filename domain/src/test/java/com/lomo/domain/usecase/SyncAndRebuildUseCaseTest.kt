@@ -1,7 +1,13 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.GitSyncFailureException
+import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.WebDavSyncResult
+import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -25,6 +31,7 @@ import org.junit.Test
  * - Unit under test: SyncAndRebuildUseCase
  * - Behavior focus: force vs best-effort sync, refresh ordering, and cancellation or error propagation.
  * - Observable outcomes: thrown exception type, refresh execution, and collaborator call ordering.
+ * - Red phase: Not applicable - test-only coverage addition; no production change.
  * - Excludes: repository internals, transport implementation details, and UI rendering.
  */
 class SyncAndRebuildUseCaseTest {
@@ -147,6 +154,101 @@ class SyncAndRebuildUseCaseTest {
             useCase(forceSync = false)
 
             coVerify(exactly = 0) { webDavSyncRepository.sync() }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `force sync with no backend refreshes without remote sync`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase(forceSync = true)
+
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+            coVerify(exactly = 0) { gitSyncRepository.sync() }
+            coVerify(exactly = 0) { webDavSyncRepository.sync() }
+        }
+
+    @Test
+    fun `force sync git direct path required refreshes then throws mapped failure`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.GIT)
+            coEvery { gitSyncRepository.sync() } returns GitSyncResult.DirectPathRequired
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
+
+            assertTrue(thrown is GitSyncFailureException)
+            assertEquals(GitSyncErrorCode.DIRECT_PATH_REQUIRED, (thrown as GitSyncFailureException).code)
+            assertEquals("Git sync requires a direct local directory path", thrown.message)
+            coVerifyOrder {
+                gitSyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
+
+    @Test
+    fun `force sync git conflict refreshes then throws sync conflict exception`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.GIT)
+            val conflicts =
+                SyncConflictSet(
+                    source = SyncBackendType.GIT,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "2026_03_26.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 123L,
+                )
+            coEvery {
+                gitSyncRepository.sync()
+            } returns GitSyncResult.Conflict(message = "conflict", conflicts = conflicts)
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
+
+            assertTrue(thrown is SyncConflictException)
+            assertEquals(conflicts, (thrown as SyncConflictException).conflicts)
+            coVerifyOrder {
+                gitSyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
+
+    @Test
+    fun `force sync webdav not configured refreshes then throws mapped failure`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.WEBDAV)
+            coEvery { webDavSyncRepository.sync() } returns WebDavSyncResult.NotConfigured
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
+
+            assertTrue(thrown is WebDavSyncFailureException)
+            assertEquals("WebDAV sync is not configured", thrown?.message)
+            coVerifyOrder {
+                webDavSyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
+
+    @Test
+    fun `non-force git refresh skips remote sync when git sync is disabled`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.GIT)
+            every { gitSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
+            every { gitSyncRepository.isGitSyncEnabled() } returns flowOf(false)
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase(forceSync = false)
+
+            coVerify(exactly = 0) { gitSyncRepository.sync() }
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
         }
 }

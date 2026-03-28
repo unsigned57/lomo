@@ -46,6 +46,8 @@ dependencies {
     // DocumentFile for SAF
     implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.collections.immutable)
+    implementation(libs.markdown.renderer.android)
+    implementation(libs.markdown.renderer.m3.android)
 
     // CommonMark
     api(libs.commonmark)
@@ -66,7 +68,6 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(25)
     compilerOptions {
         jvmTarget.set(
             org.jetbrains.kotlin.gradle.dsl.JvmTarget

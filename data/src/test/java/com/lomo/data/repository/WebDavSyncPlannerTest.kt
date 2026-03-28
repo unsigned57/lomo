@@ -6,6 +6,14 @@ import com.lomo.domain.model.WebDavSyncReason
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: WebDavSyncPlanner
+ * - Behavior focus: first-sync direction selection, conflict detection with and without metadata, and delete propagation.
+ * - Observable outcomes: planned WebDavSyncDirection/WebDavSyncReason for each path.
+ * - Red phase: Fails before the fix because first-sync overlapping local/remote files are resolved by timestamp instead of surfacing a conflict.
+ * - Excludes: WebDAV transport, file I/O, metadata persistence, and UI rendering.
+ */
 class WebDavSyncPlannerTest {
     private val planner = WebDavSyncPlanner(timestampToleranceMs = 0L)
 
@@ -33,6 +41,19 @@ class WebDavSyncPlannerTest {
 
         assertEquals(listOf(WebDavSyncDirection.DOWNLOAD), plan.actions.map { it.direction })
         assertEquals(listOf(WebDavSyncReason.REMOTE_ONLY), plan.actions.map { it.reason })
+    }
+
+    @Test
+    fun `first sync overlapping file reports conflict instead of timestamp winner`() {
+        val plan =
+            planner.plan(
+                localFiles = mapOf("memo.md" to LocalWebDavFile("memo.md", 30L)),
+                remoteFiles = mapOf("memo.md" to RemoteWebDavFile("memo.md", etag = "1", lastModified = 20L)),
+                metadata = emptyMap(),
+            )
+
+        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
+        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
     }
 
     @Test

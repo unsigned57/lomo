@@ -5,6 +5,11 @@ plugins {
 
 val jvmVersion = 25
 
+java {
+    sourceCompatibility = JavaVersion.toVersion(jvmVersion)
+    targetCompatibility = JavaVersion.toVersion(jvmVersion)
+}
+
 dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${libs.versions.coroutines.get()}")
 
@@ -14,7 +19,6 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(jvmVersion)
     compilerOptions {
         jvmTarget.set(
             org.jetbrains.kotlin.gradle.dsl.JvmTarget

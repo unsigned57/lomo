@@ -11,6 +11,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -23,6 +25,7 @@ import org.junit.Test
  * - Unit under test: GitSyncSettingsUseCase
  * - Behavior focus: remote backend policy updates, conflict-resolution actions, and exception mapping semantics.
  * - Observable outcomes: backend policy writes, delegated repository calls, sync follow-up invocation ordering, and returned result mapping.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: repository implementation details, network behavior, and UI rendering.
  */
 class GitSyncSettingsUseCaseTest {
@@ -208,5 +211,32 @@ class GitSyncSettingsUseCaseTest {
 
             coVerify(exactly = 1) { gitSyncRepository.testConnection() }
             coVerify(exactly = 1) { gitSyncRepository.resetRepository() }
+        }
+
+    @Test
+    fun `state observation delegates expose repository flows`() =
+        runTest {
+            every { gitSyncRepository.isGitSyncEnabled() } returns flowOf(true)
+            every { gitSyncRepository.getRemoteUrl() } returns flowOf("https://example.com/repo.git")
+            every { gitSyncRepository.getAuthorName() } returns flowOf("Lomo")
+            every { gitSyncRepository.getAuthorEmail() } returns flowOf("lomo@example.com")
+            every { gitSyncRepository.getAutoSyncEnabled() } returns flowOf(true)
+            every { gitSyncRepository.getAutoSyncInterval() } returns flowOf("30m")
+            every { gitSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
+            every { gitSyncRepository.observeLastSyncTimeMillis() } returns flowOf(1234L)
+            every { gitSyncRepository.syncState() } returns flowOf(com.lomo.domain.model.SyncEngineState.Syncing.Pulling)
+
+            assertEquals(true, useCase.observeGitSyncEnabled().first())
+            assertEquals("https://example.com/repo.git", useCase.observeRemoteUrl().first())
+            assertEquals("Lomo", useCase.observeAuthorName().first())
+            assertEquals("lomo@example.com", useCase.observeAuthorEmail().first())
+            assertEquals(true, useCase.observeAutoSyncEnabled().first())
+            assertEquals("30m", useCase.observeAutoSyncInterval().first())
+            assertEquals(true, useCase.observeSyncOnRefreshEnabled().first())
+            assertEquals(1234L, useCase.observeLastSyncTimeMillis().first())
+            assertEquals(
+                com.lomo.domain.model.SyncEngineState.Syncing.Pulling,
+                useCase.observeSyncState().first(),
+            )
         }
 }

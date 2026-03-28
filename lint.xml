@@ -1,5 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <lint>
     <issue id="AndroidGradlePluginVersion" severity="ignore" />
-    <issue id="TrustAllX509TrustManager" severity="ignore" />
+    <issue id="DefaultLocale" severity="error" />
+    <issue id="NewApi" severity="error" />
+    <issue id="ObsoleteSdkInt" severity="error" />
+    <issue id="WrongThread" severity="error" />
+    <issue id="StaticFieldLeak" severity="error" />
+    <issue id="ModifierParameter" severity="error" />
+    <issue id="ComposableLambdaParameterPosition" severity="error" />
+    <issue id="RememberReturnType" severity="error" />
+    <issue id="FrequentlyChangedStateReadInComposition" severity="error" />
+    <issue id="MutableCollectionMutableState" severity="error" />
+    <issue id="OpaqueUnitKey" severity="error" />
+    <issue id="AutoboxingStateCreation" severity="error" />
+    <issue id="AutoboxingStateValueProperty" severity="error" />
+    <issue id="ComposableNaming" severity="error" />
+    <issue id="CompositionLocalNaming" severity="error" />
+    <issue id="UnusedResources" severity="warning" />
 </lint>

@@ -31,6 +31,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: WebDavSyncExecutor via WebDavSyncRepositoryImpl
+ * - Behavior focus: external-to-local WebDAV sync ordering and metadata/refresh follow-up after legacy capture cleanup.
+ * - Observable outcomes: returned WebDavSyncResult, local writes, metadata persistence, and sync side effects.
+ * - Red phase: Fails before the fix because WebDAV sync still depends on retired pre-sync capture work in the download path.
+ * - Excludes: WebDAV transport internals, remote listing algorithms, and UI state presentation.
+ */
 class WebDavSyncRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
@@ -231,11 +239,23 @@ class WebDavSyncRepositoryImplTest {
         }
 
     @Test
-    fun `sync with no changes reuses initial listings`() =
+    fun `sync with no changes and existing metadata reuses initial listings`() =
         runTest {
             coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
             coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
-            coEvery { metadataDao.getAll() } returns emptyList()
+            coEvery { metadataDao.getAll() } returns
+                listOf(
+                    WebDavSyncMetadataEntity(
+                        relativePath = "lomo/memos/note.md",
+                        remotePath = "lomo/memos/note.md",
+                        etag = "etag-1",
+                        remoteLastModified = 100L,
+                        localLastModified = 100L,
+                        lastSyncedAt = 100L,
+                        lastResolvedDirection = WebDavSyncMetadataEntity.NONE,
+                        lastResolvedReason = WebDavSyncMetadataEntity.UNCHANGED,
+                    ),
+                )
             every { client.list("lomo/memos") } returns listOf(remoteMemo("lomo/memos/note.md", "etag-1", 100L))
             every { client.list("lomo/images") } returns emptyList()
             every { client.list("lomo/voice") } returns emptyList()

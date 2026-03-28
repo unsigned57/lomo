@@ -71,14 +71,14 @@ internal object ShareAuthUtils {
         val directKey =
             normalized
                 .takeIf { it.isNotEmpty() && KEY_HEX_REGEX.matches(it) }
-                ?.lowercase()
+                ?.lowercase(java.util.Locale.ROOT)
         return when {
             directKey != null -> ResolvedKeySet(primaryKeyHex = directKey, candidateKeyHexes = listOf(directKey))
             normalized.isEmpty() -> null
             else ->
                 KEY_MATERIAL_V2_REGEX.matchEntire(normalized)?.let { match ->
-                    val primary = match.groupValues[1].lowercase()
-                    val legacy = match.groupValues[2].lowercase()
+                    val primary = match.groupValues[1].lowercase(java.util.Locale.ROOT)
+                    val legacy = match.groupValues[2].lowercase(java.util.Locale.ROOT)
                     ResolvedKeySet(
                         primaryKeyHex = primary,
                         candidateKeyHexes = linkedSetOf(primary, legacy).toList(),
@@ -161,8 +161,8 @@ internal object ShareAuthUtils {
         if (!KEY_HEX_REGEX.matches(providedSignatureHex)) return false
         val expected = signPayloadHex(keyHex, payload)
         return MessageDigest.isEqual(
-            expected.lowercase().toByteArray(Charsets.UTF_8),
-            providedSignatureHex.lowercase().toByteArray(Charsets.UTF_8),
+            expected.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8),
+            providedSignatureHex.lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8),
         )
     }
 }

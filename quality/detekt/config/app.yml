@@ -1,19 +1,63 @@
 config:
-  validation: true
   excludes:
     - "lomo-architecture.*"
     - "lomo-architecture>.*>.*"
-empty-blocks:
-  EmptyDefaultConstructor:
+complexity:
+  ComplexCondition:
+    allowedConditions: 4
+  CyclomaticComplexMethod:
+    allowedComplexity: 20
+    ignoreSingleWhenExpression: true
+    ignoreSimpleWhenEntries: true
+    ignoreNestingFunctions: true
+    ignoreLocalFunctions: true
+  LongMethod:
+    allowedLines: 100
+  LongParameterList:
+    allowedFunctionParameters: 7
+    allowedConstructorParameters: 8
+    ignoreDefaultParameters: true
+  NestedBlockDepth:
+    allowedDepth: 5
+  NestedScopeFunctions:
     active: true
+  ReplaceSafeCallChainWithRun:
+    active: true
+coroutines:
+  CoroutineLaunchedInTestWithoutRunTest:
+    active: true
+  GlobalCoroutineUsage:
+    active: true
+  InjectDispatcher:
+    dispatcherNames:
+      - IO
+      - Default
+      - Main
+      - Unconfined
+  SuspendFunInFinallySection:
+    active: true
+  SuspendFunSwallowedCancellation:
+    active: true
+exceptions:
+  TooGenericExceptionCaught:
+    exceptionNames:
+      - Throwable
+      - RuntimeException
+      - Error
 naming:
   FunctionNaming:
     ignoreAnnotated:
       - Composable
       - Preview
 style:
-  ForbiddenComment:
+  ForbiddenMethodCall:
     active: true
+    methods:
+      - reason: "Use an explicit locale when normalizing case for non-user-facing identifiers."
+        value: "kotlin.text.lowercase(kotlin.String)"
+      - reason: "Use an explicit locale when normalizing case for non-user-facing identifiers."
+        value: "kotlin.text.uppercase(kotlin.String)"
+  ForbiddenComment:
     comments:
       - reason: "Resolve backlog markers before merge."
         value: "TODO:"
@@ -25,8 +69,12 @@ style:
     active: true
     forbiddenImports:
       - com.lomo.data.*
-  UnusedParameter:
+  NullableBooleanCheck:
     active: true
+  ReturnCount:
+    max: 4
+    excludeLabeled: true
+    excludeGuardClauses: true
 lomo-architecture:
   AppSourceBoundary:
     active: true

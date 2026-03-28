@@ -22,6 +22,7 @@ internal class LomoShareTransferHandler(
         e2eEnabled: Boolean,
     ) -> String,
     onSaveAttachment: () -> (suspend (name: String, type: String, payloadFile: File) -> String?)?,
+    onDeleteAttachment: () -> (suspend (savedPath: String, type: String) -> Unit)?,
     onSaveMemo: () -> (suspend (content: String, timestamp: Long, attachmentMappings: Map<String, String>) -> Unit)?,
 ) {
     private val processor =
@@ -33,6 +34,7 @@ internal class LomoShareTransferHandler(
             consumeApprovedSession = consumeApprovedSession,
             buildRequestHash = buildRequestHash,
             onSaveAttachment = onSaveAttachment,
+            onDeleteAttachment = onDeleteAttachment,
             onSaveMemo = onSaveMemo,
         )
 

@@ -84,7 +84,6 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(25)
     compilerOptions {
         jvmTarget.set(
             org.jetbrains.kotlin.gradle.dsl.JvmTarget

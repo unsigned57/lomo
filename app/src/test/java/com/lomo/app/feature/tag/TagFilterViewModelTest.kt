@@ -44,6 +44,7 @@ import org.junit.Test
  * - Unit under test: TagFilterViewModel
  * - Behavior focus: tag-scoped memo propagation and mutation/save error handling.
  * - Observable outcomes: tagName usage, memos state values, error message state, and callback side effects.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: Compose rendering, mapper internals, and repository implementation details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -80,6 +81,8 @@ class TagFilterViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)

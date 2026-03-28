@@ -19,7 +19,7 @@ internal fun directEnsureTrashExists(rootDir: File) {
 
 internal fun directIsImageFilename(name: String): Boolean {
     val extension = name.substringAfterLast('.', "")
-    return extension.isNotBlank() && extension.lowercase() in DIRECT_IMAGE_EXTENSIONS
+    return extension.isNotBlank() && extension.lowercase(java.util.Locale.ROOT) in DIRECT_IMAGE_EXTENSIONS
 }
 
 internal const val DIRECT_MARKDOWN_SUFFIX = ".md"

@@ -51,8 +51,17 @@ This file gives AI agents the minimum project context needed to work effectively
   - `./gradlew architectureCheck`
   - `./gradlew meaningfulTestCheck`
   - `./gradlew qualityCheck`
+  - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck`
   - `./gradlew :app:assembleRelease`
 - Pre-commit formats staged Kotlin and runs meaningful-test metadata checks.
+
+## 4.1 Verification Discipline
+
+- For any code, build-script, or test change, AI must immediately run `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck` after each coherent edit batch.
+- Do not wait for the user to remind you to verify changes.
+- Docs-only changes may skip this script, but the AI must say that it intentionally skipped verification.
+- If the tree is intentionally left broken mid-refactor, the AI must say so explicitly and run the quality command as soon as the code returns to a coherent state, before continuing with more substantial edits and before the final handoff.
+- Targeted tests are still encouraged while iterating, but they do not replace the mandatory quality command run after code-edit batches.
 
 ## 5. Mandatory Architecture Rules
 
@@ -80,6 +89,24 @@ This file gives AI agents the minimum project context needed to work effectively
 - For new features, bug fixes, and contract changes, establish red proof before touching production code.
 - If the task is truly test-only, state that explicitly and keep production files unchanged.
 - Changed test files must include the required contract metadata, including `Red phase`.
+- Existing tests are locked behavior contracts by default. Do not delete, weaken, or rewrite them just to match a new implementation.
+- When an existing test fails during behavior-changing work, treat that failure as evidence the production code may be wrong first. Do not assume the test should change.
+- AI must not:
+  - delete an existing failing test to unblock a change
+  - weaken assertions, remove edge or failure-path coverage, or replace observable outcome assertions with mock-call-only checks
+  - change test inputs purely to sidestep the original scenario under test
+  - rewrite `Red phase` to `Not applicable` when production behavior changed
+- AI may modify an existing test only when at least one of these is true:
+  - the product or domain contract explicitly changed
+  - the old assertion is factually wrong
+  - the old test is nondeterministic or environment-coupled
+  - a pure refactor preserved behavior but requires mechanical test reshaping
+- Before modifying an existing test, AI must provide a `Test Change Justification` that states:
+  - reason category
+  - exact behavior or assertion being replaced
+  - why the previous assertion is no longer correct
+  - what retained or new test preserves the original risk coverage
+  - why this is not “changing the test to fit the implementation”
 
 ## 7. Hotspots To Inspect First
 

@@ -16,3 +16,10 @@ This directory is the single entrypoint for repository quality tooling.
 - `./gradlew meaningfulTestCheck`
 - `./gradlew coverageGatePlan`
 - `./gradlew qualityCheck`
+
+## AI Verification
+
+- `quality/scripts/ai_quality_check.sh`
+  - Canonical AI post-edit verifier.
+  - Runs `./gradlew qualityCheck` with a repo-local `GRADLE_USER_HOME` that is writable inside the agent sandbox.
+  - Intended to be invoked by agents after each coherent code-edit batch, not only at the end of the task.

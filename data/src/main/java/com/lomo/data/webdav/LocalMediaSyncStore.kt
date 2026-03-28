@@ -335,7 +335,7 @@ private fun folderPrefix(folder: String): String = "$folder/"
 private fun String.hasExtension(extensions: Set<String>): Boolean =
     extensionOrEmpty().let { it.isNotBlank() && it in extensions }
 
-private fun String.extensionOrEmpty(): String = substringAfterLast('.', "").lowercase()
+private fun String.extensionOrEmpty(): String = substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
 
 enum class MediaSyncCategory {
     IMAGE,

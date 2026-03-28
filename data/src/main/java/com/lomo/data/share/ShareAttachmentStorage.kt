@@ -62,6 +62,23 @@ class ShareAttachmentStorage
             }
         }
 
+        suspend fun deleteSavedAttachment(
+            savedPath: String,
+            type: String,
+        ) {
+            val filename =
+                savedPath
+                    .substringAfterLast('/')
+                    .substringAfterLast('\\')
+                    .trim()
+            if (filename.isBlank()) return
+            when (type) {
+                "image" -> dataSource.deleteImage(filename)
+                "audio" -> dataSource.deleteVoiceFile(filename)
+                else -> Unit
+            }
+        }
+
         internal suspend fun resolveAvailableAttachmentFilename(
             type: String,
             preferredName: String,

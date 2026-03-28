@@ -15,6 +15,7 @@ import timber.log.Timber
 import java.io.File
 
 internal typealias ShareAttachmentSaver = suspend (name: String, type: String, payloadFile: File) -> String?
+internal typealias ShareAttachmentRollback = suspend (savedPath: String, type: String) -> Unit
 internal typealias ShareMemoSaver =
     suspend (content: String, timestamp: Long, attachmentMappings: Map<String, String>) -> Unit
 
@@ -36,10 +37,12 @@ internal class ShareTransferRequestProcessor(
         e2eEnabled: Boolean,
     ) -> String,
     private val onSaveAttachment: () -> ShareAttachmentSaver?,
+    private val onDeleteAttachment: () -> ShareAttachmentRollback?,
     private val onSaveMemo: () -> ShareMemoSaver?,
 ) {
     suspend fun handle(call: ApplicationCall) {
         val tempAttachmentFiles = mutableListOf<File>()
+        val persistedAttachments = mutableListOf<PersistedAttachment>()
         try {
             val error =
                 runNonFatalCatching {
@@ -52,7 +55,7 @@ internal class ShareTransferRequestProcessor(
                             when (part) {
                                 is io.ktor.http.content.PartData.FormItem -> processFormItem(part, state)
                                 is io.ktor.http.content.PartData.FileItem ->
-                                    processFileItem(part, state, tempAttachmentFiles)
+                                    processFileItem(part, state, tempAttachmentFiles, persistedAttachments)
                                 else -> Unit
                             }
                         } finally {
@@ -69,6 +72,12 @@ internal class ShareTransferRequestProcessor(
                         ContentType.Application.Json,
                     )
                 }.exceptionOrNull()
+            if (error != null) {
+                rollbackPersistedAttachments(
+                    persistedAttachments = persistedAttachments,
+                    rollbackProvider = onDeleteAttachment,
+                )
+            }
             when (error) {
                 null -> Unit
                 is TransferRejectedException -> call.respond(error.status, error.message)
@@ -102,7 +111,7 @@ internal class ShareTransferRequestProcessor(
         val metadata = json.decodeFromString<LomoShareServer.TransferMetadata>(part.value)
         val authValidation = validateMetadataState(metadata)
         val decryptedContent = decryptContent(metadata, authValidation.keyHex)
-        validateDecryptedContent(decryptedContent)
+        validateTransferContentSize(decryptedContent)
         val normalizedNames = metadata.attachmentNames.map(String::trim)
         val requestHash =
             buildRequestHash(
@@ -164,16 +173,11 @@ internal class ShareTransferRequestProcessor(
             metadata.encryptedContent
         }
 
-    private fun validateDecryptedContent(content: String) {
-        if (content.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
-            rejectTransfer(HttpStatusCode.PayloadTooLarge, "Memo content too large")
-        }
-    }
-
     private suspend fun processFileItem(
         part: io.ktor.http.content.PartData.FileItem,
         state: TransferProcessingState,
         tempAttachmentFiles: MutableList<File>,
+        persistedAttachments: MutableList<PersistedAttachment>,
     ) {
         val metadata =
             state.metadata ?: rejectTransfer(HttpStatusCode.BadRequest, "Metadata must be sent before attachments")
@@ -232,6 +236,7 @@ internal class ShareTransferRequestProcessor(
                 ?.takeIf(String::isNotBlank)
                 ?: throw IllegalStateException("Failed to save attachment: $expectedReferenceName")
         state.attachmentMappings[expectedReferenceName] = savedPath
+        persistedAttachments += PersistedAttachment(savedPath = savedPath, type = type)
     }
 
     private fun resolveExpectedAttachmentName(
@@ -306,9 +311,10 @@ internal class ShareTransferRequestProcessor(
                     maxPlainBytes = maxPlainBytes,
                 )
             }
-        } catch (error: IllegalArgumentException) {
-            throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            if (error is IllegalArgumentException) {
+                throw error
+            }
             null
         }
     }
@@ -355,18 +361,6 @@ internal class ShareTransferRequestProcessor(
         }
     }
 
-    private class TransferProcessingState(
-        var metadata: LomoShareServer.TransferMetadata? = null,
-        var transferKeyHex: String? = null,
-        var decryptedContent: String? = null,
-        var expectedAttachmentNames: Set<String> = emptySet(),
-        var expectedAttachmentNonces: Map<String, String> = emptyMap(),
-        var expectedByUploadName: Map<String, String> = emptyMap(),
-        val attachmentMappings: MutableMap<String, String> = mutableMapOf(),
-        val receivedAttachmentNames: MutableSet<String> = mutableSetOf(),
-        var totalAttachmentBytes: Long = 0L,
-    )
-
     private data class StreamedAttachment(
         val totalInputBytes: Long,
         val plaintextBytes: Long,
@@ -389,6 +383,12 @@ private fun ensureTransferContentLength(call: ApplicationCall) {
     val contentLength = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
     if (contentLength != null && contentLength > ShareTransferLimits.MAX_TRANSFER_BODY_BYTES) {
         rejectTransfer(HttpStatusCode.PayloadTooLarge, "Transfer payload too large")
+    }
+}
+
+private fun validateTransferContentSize(content: String) {
+    if (content.length > ShareTransferLimits.maxMemoChars(e2eEnabled = false)) {
+        rejectTransfer(HttpStatusCode.PayloadTooLarge, "Memo content too large")
     }
 }
 
@@ -436,3 +436,44 @@ private fun buildUploadNameLookup(expectedAttachmentNames: Set<String>): Map<Str
 }
 
 private const val MAX_STORAGE_FILENAME_CHARS = 96
+
+private class TransferProcessingState(
+    var metadata: LomoShareServer.TransferMetadata? = null,
+    var transferKeyHex: String? = null,
+    var decryptedContent: String? = null,
+    var expectedAttachmentNames: Set<String> = emptySet(),
+    var expectedAttachmentNonces: Map<String, String> = emptyMap(),
+    var expectedByUploadName: Map<String, String> = emptyMap(),
+    val attachmentMappings: MutableMap<String, String> = mutableMapOf(),
+    val receivedAttachmentNames: MutableSet<String> = mutableSetOf(),
+    var totalAttachmentBytes: Long = 0L,
+)
+
+private data class PersistedAttachment(
+    val savedPath: String,
+    val type: String,
+)
+
+private suspend fun rollbackPersistedAttachments(
+    persistedAttachments: List<PersistedAttachment>,
+    rollbackProvider: () -> ShareAttachmentRollback?,
+) {
+    if (persistedAttachments.isEmpty()) return
+    val rollback = rollbackProvider() ?: return
+    persistedAttachments
+        .asReversed()
+        .forEach { attachment ->
+            runNonFatalCatching {
+                rollback.invoke(attachment.savedPath, attachment.type)
+            }.onFailure { error ->
+                Timber
+                    .tag("LomoShareServer")
+                    .w(
+                        error,
+                        "Failed to roll back persisted attachment: %s (%s)",
+                        attachment.savedPath,
+                        attachment.type,
+                    )
+            }
+        }
+}

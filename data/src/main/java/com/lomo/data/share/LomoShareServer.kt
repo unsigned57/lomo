@@ -53,6 +53,9 @@ class LomoShareServer {
     // Callback to save attachments; returns the saved file path
     var onSaveAttachment: ShareAttachmentSaver? = null
 
+    // Callback to delete a previously saved attachment after a failed transfer commit
+    var onDeleteAttachment: ShareAttachmentRollback? = null
+
     // Callback to save the received memo
     var onSaveMemo: ShareMemoSaver? = null
 
@@ -115,6 +118,7 @@ class LomoShareServer {
             consumeApprovedSession = ::consumeApprovedSession,
             buildRequestHash = ::buildRequestHash,
             onSaveAttachment = { onSaveAttachment },
+            onDeleteAttachment = { onDeleteAttachment },
             onSaveMemo = { onSaveMemo },
         )
 

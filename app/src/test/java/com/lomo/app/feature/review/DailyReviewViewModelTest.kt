@@ -40,6 +40,7 @@ import org.junit.Test
  * - Unit under test: DailyReviewViewModel
  * - Behavior focus: initial load state transitions, mutation failure error mapping, and save-image result handling.
  * - Observable outcomes: uiState values, surfaced errorMessage text, and success/error callback invocation.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: Compose rendering details, MemoUiMapper internals, and repository/use-case implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -77,6 +78,8 @@ class DailyReviewViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)

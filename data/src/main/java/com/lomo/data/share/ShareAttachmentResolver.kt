@@ -194,7 +194,7 @@ internal class ShareAttachmentResolver(
 
         val mime =
             runCatching {
-                context.contentResolver.getType(uri)?.lowercase()
+                context.contentResolver.getType(uri)?.lowercase(java.util.Locale.ROOT)
             }.getOrNull()
         return when {
             mime?.startsWith(IMAGE_MIME_PREFIX) == true -> IMAGE_TYPE

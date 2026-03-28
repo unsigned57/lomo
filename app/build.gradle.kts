@@ -316,7 +316,9 @@ dependencies {
     // Glance (App Widget)
     implementation(libs.androidx.glance)
     implementation(libs.androidx.glance.appwidget)
-    implementation(libs.androidx.glance.material3)
+    implementation(libs.androidx.glance.material3) {
+        exclude(group = "androidx.compose.material3", module = "material3")
+    }
 
     // Media3 (Voice Memo)
     implementation(libs.androidx.media3.exoplayer)
@@ -328,7 +330,6 @@ dependencies {
 }
 
 kotlin {
-    jvmToolchain(25)
     compilerOptions {
         jvmTarget.set(
             org.jetbrains.kotlin.gradle.dsl.JvmTarget

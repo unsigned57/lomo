@@ -13,8 +13,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: StartupMaintenanceUseCase
- * - Behavior focus: startup warm-up, version-change resync gating, and best-effort failure handling.
- * - Observable outcomes: sync trigger conditions, version persistence, refresh invocation counts, root path mapping.
+ * - Behavior focus: startup warm-up ordering, version-change resync gating, and best-effort failure handling after legacy recovery removal.
+ * - Observable outcomes: sync trigger conditions, version persistence, refresh invocation counts, and root path mapping.
+ * - Red phase: Fails before the fix because startup maintenance still depends on retired workspace recovery flows and invokes queries/restores that no longer exist.
  * - Excludes: repository implementation internals, filesystem or network integration, and UI rendering.
  */
 class StartupMaintenanceUseCaseTest {

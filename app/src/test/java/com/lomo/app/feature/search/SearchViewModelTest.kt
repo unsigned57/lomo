@@ -43,6 +43,7 @@ import org.junit.Test
  * - Unit under test: SearchViewModel
  * - Behavior focus: debounced search behavior, error mapping for memo mutation actions, and image save outcomes.
  * - Observable outcomes: search result state flow values, surfaced error messages, callback invocation, and collaborator calls.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: Compose rendering details, MemoUiMapper internals, and repository implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -79,6 +80,8 @@ class SearchViewModelTest {
         every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
         every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)

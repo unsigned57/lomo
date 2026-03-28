@@ -88,3 +88,6 @@ replay_pid*
 # OS
 .DS_Store
 Thumbs.db
+
+# Local AI tooling artifacts
+.codex-skill-build/

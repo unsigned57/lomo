@@ -75,6 +75,9 @@ class LanShareStateDelegate
                 onSaveAttachment = { name, type, payloadFile ->
                     attachmentStorage.saveAttachmentFile(name, type, payloadFile)
                 },
+                onDeleteAttachment = { savedPath, type ->
+                    attachmentStorage.deleteSavedAttachment(savedPath, type)
+                },
                 onSaveMemo = { content, timestamp, attachmentMappings ->
                     incomingMemoSaver.saveReceivedMemo(content, timestamp, attachmentMappings)
                 },

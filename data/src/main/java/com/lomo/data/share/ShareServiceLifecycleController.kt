@@ -45,10 +45,12 @@ class ShareServiceLifecycleController
         fun bindServerCallbacks(
             onIncomingPrepare: (SharePayload) -> Unit,
             onSaveAttachment: suspend (name: String, type: String, payloadFile: File) -> String?,
+            onDeleteAttachment: suspend (savedPath: String, type: String) -> Unit,
             onSaveMemo: suspend (content: String, timestamp: Long, attachmentMappings: Map<String, String>) -> Unit,
         ) {
             server.onIncomingPrepare = onIncomingPrepare
             server.onSaveAttachment = onSaveAttachment
+            server.onDeleteAttachment = onDeleteAttachment
             server.onSaveMemo = onSaveMemo
             server.getPairingKeyHex = { pairingConfig.getEffectivePairingKeyHex() }
             server.isE2eEnabled = { pairingConfig.isE2eEnabled() }

@@ -31,5 +31,5 @@ internal fun safMatchesMarkdownTarget(
 
 internal fun safIsImageFilename(name: String): Boolean {
     val extension = name.substringAfterLast('.', "")
-    return extension.isNotBlank() && extension.lowercase() in SAF_IMAGE_EXTENSIONS
+    return extension.isNotBlank() && extension.lowercase(java.util.Locale.ROOT) in SAF_IMAGE_EXTENSIONS
 }

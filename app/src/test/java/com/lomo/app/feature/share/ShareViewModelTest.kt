@@ -24,7 +24,9 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -33,6 +35,7 @@ import org.junit.Test
  * - Unit under test: ShareViewModel
  * - Behavior focus: send preconditions, attachment extraction wiring, and user-visible error mapping for LAN share flows.
  * - Observable outcomes: operationError and pairingRequiredEvent state, plus send payload forwarding to LanShareService.
+ * - Red phase: Not applicable - test-only coverage addition; no production change.
  * - Excludes: NSD discovery internals, transport implementation, and Compose rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -236,6 +239,80 @@ class ShareViewModelTest {
         }
 
     @Test
+    fun `legacy memo content is used when payload store misses key`() =
+        runTest {
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to "missing-key",
+                                "memoContent" to "legacy-content",
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            assertEquals("legacy-content", viewModel.memoContent)
+            assertNull(viewModel.operationError.value)
+        }
+
+    @Test
+    fun `init reports operation error when discovery start fails`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            every { shareService.startDiscovery() } throws IllegalStateException("discovery failed")
+
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            assertEquals("discovery failed", viewModel.operationError.value)
+        }
+
+    @Test
+    fun `sendMemo with blank content keeps unavailable error and skips send pipeline`() =
+        runTest {
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle = SavedStateHandle(),
+                )
+
+            viewModel.sendMemo(
+                DiscoveredDevice(
+                    name = "Peer",
+                    host = "192.168.1.2",
+                    port = 1080,
+                ),
+            )
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(
+                "Share content is unavailable. Please reopen the share page.",
+                viewModel.operationError.value,
+            )
+            coVerify(exactly = 0) { shareService.requiresPairingBeforeSend() }
+            verify(exactly = 0) { extractShareAttachmentsUseCase.invoke(any()) }
+            coVerify(exactly = 0) { shareService.sendMemo(any(), any(), any(), any()) }
+        }
+
+    @Test
     fun `updateLanSharePairingCode surfaces validation errors`() =
         runTest {
             val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
@@ -282,6 +359,35 @@ class ShareViewModelTest {
             viewModel.updateLanSharePairingCode("123456")
             testDispatcher.scheduler.advanceUntilIdle()
 
+            assertNull(viewModel.pairingCodeError.value)
+        }
+
+    @Test
+    fun `updateLanSharePairingCode success clears prior pairingCodeError`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.setLanSharePairingCode("bad") } throws IllegalArgumentException("invalid code")
+            coEvery { shareService.setLanSharePairingCode("123456") } returns Unit
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.updateLanSharePairingCode("bad")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
+
+            viewModel.updateLanSharePairingCode("123456")
+            testDispatcher.scheduler.advanceUntilIdle()
             assertNull(viewModel.pairingCodeError.value)
         }
 
@@ -333,6 +439,87 @@ class ShareViewModelTest {
             testDispatcher.scheduler.advanceUntilIdle()
 
             assertEquals("clear failed", viewModel.operationError.value)
+        }
+
+    @Test
+    fun `updateLanShareDeviceName surfaces operation error on failure`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.setLanShareDeviceName("bad") } throws IllegalArgumentException("name invalid")
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.updateLanShareDeviceName("bad")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("name invalid", viewModel.operationError.value)
+        }
+
+    @Test
+    fun `clear error actions reset operation and pairing error state`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            coEvery { shareService.setLanShareE2eEnabled(false) } throws IllegalStateException("toggle failed")
+            coEvery { shareService.setLanSharePairingCode("bad") } throws IllegalArgumentException("invalid code")
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.updateLanShareE2eEnabled(false)
+            testDispatcher.scheduler.advanceUntilIdle()
+            viewModel.updateLanSharePairingCode("bad")
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals("toggle failed", viewModel.operationError.value)
+            assertEquals("Pairing code must be 6-64 characters", viewModel.pairingCodeError.value)
+
+            viewModel.clearOperationError()
+            viewModel.clearPairingCodeError()
+
+            assertNull(viewModel.operationError.value)
+            assertNull(viewModel.pairingCodeError.value)
+        }
+
+    @Test
+    fun `isTechnicalShareError returns policy result for user and technical messages`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            assertFalse(viewModel.isTechnicalShareError("Network unavailable"))
+            assertTrue(viewModel.isTechnicalShareError("java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall"))
         }
 
     @Test

@@ -11,6 +11,7 @@ import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.source.MarkdownStorageDataSource
+import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
@@ -36,8 +37,9 @@ import java.nio.file.Files
 /*
  * Test Contract:
  * - Unit under test: GitSyncInitAndSyncExecutor, GitSyncMaintenanceExecutor
- * - Behavior focus: precondition gating, direct-vs-SAF path branching, mirror/push side effects, and exception mapping.
+ * - Behavior focus: precondition gating, direct-vs-SAF path branching, split-layout memo mirroring, and exception mapping after legacy pre-sync capture cleanup.
  * - Observable outcomes: GitSyncResult values, error messages, and side-effect invocation ordering across collaborators.
+ * - Red phase: Fails before the fix because Git sync still depends on retired pre-sync capture work in the sync path.
  * - Excludes: git engine internal algorithms, transport/JGit behavior, and UI or DI wiring.
  */
 class GitSyncExecutorsTest {
@@ -255,9 +257,12 @@ class GitSyncExecutorsTest {
             val result = initExecutor.sync()
 
             assertEquals(GitSyncResult.Success("sync ok"), result)
-            coVerify { memoMirror.mirrorMemoFromRepo(mirrorDir, any()) }
-            coVerify(exactly = 1) { memoSynchronizer.refresh() }
-            coVerify(exactly = 1) { safGitMirrorBridge.pushToSaf(SAF_ROOT_URI, mirrorDir) }
+            coVerifyOrder {
+                gitSyncEngine.sync(mirrorDir, REMOTE_URL)
+                memoMirror.mirrorMemoFromRepo(mirrorDir, any())
+                safGitMirrorBridge.pushToSaf(SAF_ROOT_URI, mirrorDir)
+                memoSynchronizer.refresh()
+            }
         }
 
     @Test
@@ -282,6 +287,31 @@ class GitSyncExecutorsTest {
             coVerify(exactly = 2) { gitMediaSyncBridge.reconcile(mirrorDir, any()) }
             coVerify(exactly = 1) { memoMirror.mirrorMemoFromRepo(mirrorDir, any()) }
             coVerify(exactly = 1) { memoSynchronizer.refresh() }
+        }
+
+    @Test
+    fun `sync in direct split layout mirrors local memos into repo before git sync`() =
+        runTest {
+            val rootDir = createExistingDirectory("sync-direct-split-root")
+            val imageDir = createExistingDirectory("sync-direct-split-images")
+            val voiceDir = createExistingDirectory("sync-direct-split-voice")
+            configureDirectSplitLayout(
+                rootDir = rootDir,
+                imageDir = imageDir,
+                voiceDir = voiceDir,
+            )
+            val repoDir = support.resolveGitRepoDir(rootDir, SyncDirectoryLayout.resolve(dataStore))
+            File(repoDir, ".git").mkdirs()
+
+            val result = initExecutor.sync()
+
+            assertEquals(GitSyncResult.Success("sync ok"), result)
+            coVerifyOrder {
+                memoMirror.mirrorMemoToRepo(repoDir, any())
+                gitSyncEngine.sync(repoDir, REMOTE_URL)
+                memoMirror.mirrorMemoFromRepo(repoDir, any())
+                memoSynchronizer.refresh()
+            }
         }
 
     @Test
@@ -425,6 +455,19 @@ class GitSyncExecutorsTest {
         every { dataStore.imageDirectory } returns flowOf(rootDir.absolutePath)
         every { dataStore.imageUri } returns flowOf(null)
         every { dataStore.voiceDirectory } returns flowOf(rootDir.absolutePath)
+        every { dataStore.voiceUri } returns flowOf(null)
+    }
+
+    private fun configureDirectSplitLayout(
+        rootDir: File,
+        imageDir: File,
+        voiceDir: File,
+    ) {
+        every { dataStore.rootDirectory } returns flowOf(rootDir.absolutePath)
+        every { dataStore.rootUri } returns flowOf(null)
+        every { dataStore.imageDirectory } returns flowOf(imageDir.absolutePath)
+        every { dataStore.imageUri } returns flowOf(null)
+        every { dataStore.voiceDirectory } returns flowOf(voiceDir.absolutePath)
         every { dataStore.voiceUri } returns flowOf(null)
     }
 

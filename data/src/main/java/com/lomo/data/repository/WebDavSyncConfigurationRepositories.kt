@@ -96,7 +96,8 @@ class WebDavSyncStateRepositoryImpl
     }
 
 internal val WebDavProvider.preferenceValue: String
-    get() = name.lowercase()
+    get() = name.lowercase(java.util.Locale.ROOT)
 
 internal fun webDavProviderFromPreference(value: String): WebDavProvider =
-    WebDavProvider.entries.firstOrNull { it.preferenceValue == value.lowercase() } ?: WebDavProvider.NUTSTORE
+    WebDavProvider.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
+        ?: WebDavProvider.NUTSTORE

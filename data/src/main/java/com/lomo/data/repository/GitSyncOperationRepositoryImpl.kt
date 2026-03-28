@@ -159,7 +159,11 @@ class GitSyncInitAndSyncExecutor
                         is GitSyncTargetState.Failure -> targetState.result
                         is GitSyncTargetState.Ready -> {
                             val target = targetState.target
-                            val initResult = ensureInitializedRepo(target, readyState.context.remoteUrl)
+                            val initResult =
+                                ensureInitializedRepo(
+                                    target = target,
+                                    remoteUrl = readyState.context.remoteUrl,
+                                )
                             initResult ?: finalizeSyncResult(runPrimarySync(target, readyState.context), target)
                         }
                     }
@@ -278,6 +282,7 @@ class GitSyncInitAndSyncExecutor
             if (SyncLayoutMigration.migrateGitRepo(target.repoDir, context.layout)) {
                 support.runGitIo { runtime.gitSyncEngine.commitLocal(target.repoDir) }
             }
+            mirrorRepoTargetBeforeGit(target, context.layout)
 
             var result =
                 support.runGitIo {

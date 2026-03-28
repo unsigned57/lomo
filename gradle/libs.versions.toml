@@ -1,7 +1,7 @@
 [versions]
 activityCompose = "1.13.0"
 adaptive = "1.2.0"
-agp = "9.1.0"
+agp = "9.2.0-alpha05"
 appcompat = "1.7.1"
 androidNdk = "29.0.14206865"
 benchmarkMacro = "1.5.0-alpha04"
@@ -31,6 +31,7 @@ kover = "0.9.7"
 lifecycleRuntimeCompose = "2.10.0"
 lifecycleRuntimeKtx = "2.10.0"
 material3 = "1.5.0-alpha15"
+markdownRenderer = "0.39.2"
 media3 = "1.9.3"
 navigationCompose = "2.9.7"
 profileinstaller = "1.4.1"
@@ -101,6 +102,8 @@ kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collec
 kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+markdown-renderer-android = { module = "com.mikepenz:multiplatform-markdown-renderer-android", version.ref = "markdownRenderer" }
+markdown-renderer-m3-android = { module = "com.mikepenz:multiplatform-markdown-renderer-m3-android", version.ref = "markdownRenderer" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }

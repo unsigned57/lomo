@@ -331,7 +331,7 @@ private fun accepts(
     }
 
 private fun String.hasExtension(extensions: Set<String>): Boolean =
-    substringAfterLast('.', "").lowercase().let { extension ->
+    substringAfterLast('.', "").lowercase(java.util.Locale.ROOT).let { extension ->
         extension.isNotBlank() && extension in extensions
     }
 

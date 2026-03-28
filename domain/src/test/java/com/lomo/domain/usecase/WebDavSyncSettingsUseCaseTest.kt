@@ -9,6 +9,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.mockk
+import io.mockk.every
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -19,6 +22,7 @@ import org.junit.Test
  * - Unit under test: WebDavSyncSettingsUseCase
  * - Behavior focus: remote backend policy updates, auto-sync policy application, and action delegation behavior.
  * - Observable outcomes: backend policy writes, repository mutation invocations, and sync action delegation parameters.
+ * - Red phase: Not applicable - test-only metadata alignment; no production change.
  * - Excludes: WebDAV transport behavior, repository implementation internals, and UI rendering.
  */
 class WebDavSyncSettingsUseCaseTest {
@@ -153,5 +157,34 @@ class WebDavSyncSettingsUseCaseTest {
 
             assertEquals(expected, result)
             coVerify(exactly = 1) { webDavSyncRepository.testConnection() }
+        }
+
+    @Test
+    fun `state observation delegates expose repository flows`() =
+        runTest {
+            every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(true)
+            every { webDavSyncRepository.getProvider() } returns flowOf(WebDavProvider.NEXTCLOUD)
+            every { webDavSyncRepository.getBaseUrl() } returns flowOf("https://dav.example.com")
+            every { webDavSyncRepository.getEndpointUrl() } returns flowOf("https://dav.example.com/files")
+            every { webDavSyncRepository.getUsername() } returns flowOf("alice")
+            every { webDavSyncRepository.getAutoSyncEnabled() } returns flowOf(true)
+            every { webDavSyncRepository.getAutoSyncInterval() } returns flowOf("2h")
+            every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
+            every { webDavSyncRepository.observeLastSyncTimeMillis() } returns flowOf(5678L)
+            every { webDavSyncRepository.syncState() } returns flowOf(com.lomo.domain.model.WebDavSyncState.Downloading)
+
+            assertEquals(true, useCase.observeWebDavSyncEnabled().first())
+            assertEquals(WebDavProvider.NEXTCLOUD, useCase.observeProvider().first())
+            assertEquals("https://dav.example.com", useCase.observeBaseUrl().first())
+            assertEquals("https://dav.example.com/files", useCase.observeEndpointUrl().first())
+            assertEquals("alice", useCase.observeUsername().first())
+            assertEquals(true, useCase.observeAutoSyncEnabled().first())
+            assertEquals("2h", useCase.observeAutoSyncInterval().first())
+            assertEquals(true, useCase.observeSyncOnRefreshEnabled().first())
+            assertEquals(5678L, useCase.observeLastSyncTimeMillis().first())
+            assertEquals(
+                com.lomo.domain.model.WebDavSyncState.Downloading,
+                useCase.observeSyncState().first(),
+            )
         }
 }
