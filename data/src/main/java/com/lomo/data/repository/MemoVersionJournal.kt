@@ -20,7 +20,9 @@ import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import kotlinx.coroutines.flow.first
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -81,6 +83,12 @@ data class MemoVersionAssetRecord(
     val contentEncoding: String,
 )
 
+data class MemoSnapshotRetentionSettings(
+    val enabled: Boolean,
+    val maxCount: Int,
+    val maxAgeDays: Int,
+)
+
 sealed interface ImportedMemoRevisionChange {
     data class Upsert(
         val memo: Memo,
@@ -114,6 +122,8 @@ interface MemoVersionStoreWriter {
     suspend fun deleteRevisionsByIds(revisionIds: List<String>)
 
     suspend fun deleteBlob(blobHash: String)
+
+    suspend fun clearAll()
 }
 
 interface MemoVersionStoreReader {
@@ -148,6 +158,8 @@ interface MemoVersionStoreReader {
     suspend fun listAssetsForRevisionIds(revisionIds: List<String>): List<MemoVersionAssetRecord>
 
     suspend fun isBlobReferenced(blobHash: String): Boolean
+
+    suspend fun listAllRevisionsForMemo(memoId: String): List<MemoVersionRevisionRecord>
 }
 
 interface MemoVersionStore : MemoVersionStoreWriter, MemoVersionStoreReader
@@ -175,6 +187,13 @@ class MemoVersionJournal
         private val nextRevisionId: () -> String = { UUID.randomUUID().toString() },
         private val nextBatchId: () -> String = { UUID.randomUUID().toString() },
         private val maxRevisionsPerMemo: Int = DEFAULT_MAX_REVISIONS_PER_MEMO,
+        private val loadSnapshotSettings: suspend () -> MemoSnapshotRetentionSettings = {
+            MemoSnapshotRetentionSettings(
+                enabled = true,
+                maxCount = maxRevisionsPerMemo,
+                maxAgeDays = Int.MAX_VALUE,
+            )
+        },
     ) : MemoVersionRepository {
         @Inject
         constructor(
@@ -189,6 +208,7 @@ class MemoVersionJournal
             memoTrashDao: MemoTrashDao,
             mediaRepository: MediaRepository,
             database: MemoDatabase,
+            memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
         ) : this(
             store = store,
             blobRoot = blobRoot,
@@ -204,6 +224,13 @@ class MemoVersionJournal
                 database.withTransaction {
                     block()
                 }
+            },
+            loadSnapshotSettings = {
+                MemoSnapshotRetentionSettings(
+                    enabled = memoSnapshotPreferencesRepository.isMemoSnapshotsEnabled().first(),
+                    maxCount = memoSnapshotPreferencesRepository.getMemoSnapshotMaxCount().first(),
+                    maxAgeDays = memoSnapshotPreferencesRepository.getMemoSnapshotMaxAgeDays().first(),
+                )
             },
         )
 
@@ -325,29 +352,62 @@ class MemoVersionJournal
             revisionId: String,
         ) {
             val revision = requireNotNull(store.getRevision(revisionId)) { "Revision not found: $revisionId" }
+            val filename = "${revision.dateKey}.md"
             val rawContent =
                 readMemoVersionBlobContent(
                     store = store,
                     blobRoot = blobRoot,
                     blobHash = revision.rawMarkdownBlobHash,
                 )
-            restoreRevisionAssets(
-                revisionId = revisionId,
-                store = store,
-                blobRoot = blobRoot,
-                workspaceMediaAccess = workspaceMediaAccess,
-            )
-            when (revision.lifecycleState) {
-                MemoRevisionLifecycleState.ACTIVE -> restoreActiveRevision(currentMemo, revision, rawContent)
-                MemoRevisionLifecycleState.TRASHED -> restoreTrashedRevision(currentMemo, revision, rawContent)
-                MemoRevisionLifecycleState.DELETED -> restoreDeletedRevision(currentMemo, revision)
+            val snapshot =
+                captureRestoreSnapshot(
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    store = store,
+                    revisionId = revisionId,
+                    filename = filename,
+                )
+            val restoreFailure =
+                runCatching {
+                    restoreRevisionAssets(
+                        revisionId = revisionId,
+                        store = store,
+                        blobRoot = blobRoot,
+                        workspaceMediaAccess = workspaceMediaAccess,
+                    )
+                    when (revision.lifecycleState) {
+                        MemoRevisionLifecycleState.ACTIVE -> restoreActiveRevision(currentMemo, revision, rawContent)
+                        MemoRevisionLifecycleState.TRASHED -> restoreTrashedRevision(currentMemo, revision, rawContent)
+                        MemoRevisionLifecycleState.DELETED -> restoreDeletedRevision(currentMemo, revision)
+                    }
+                    mediaRepository?.refreshImageLocations()
+                    appendLocalRevision(
+                        memo = revision.toMemo(rawContent, memoTextProcessor),
+                        lifecycleState = revision.lifecycleState,
+                        origin = MemoRevisionOrigin.LOCAL_RESTORE,
+                    )
+                }.exceptionOrNull()
+            if (restoreFailure != null) {
+                rollbackRestoreSnapshot(
+                    snapshot = snapshot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                )
+                rollbackCurrentMemoState(
+                    currentMemo = currentMemo,
+                    persistActiveMemo = { memo -> persistActiveMemo(memo) },
+                    persistTrashedMemo = { memo -> persistTrashedMemo(memo) },
+                )
+                mediaRepository?.refreshImageLocations()
+                throw restoreFailure
             }
-            mediaRepository?.refreshImageLocations()
-            appendLocalRevision(
-                memo = revision.toMemo(rawContent, memoTextProcessor),
-                lifecycleState = revision.lifecycleState,
-                origin = MemoRevisionOrigin.LOCAL_RESTORE,
-            )
+        }
+
+        override suspend fun clearAllMemoSnapshots() {
+            runInTransaction {
+                store.clearAll()
+            }
+            clearBlobRootDirectory()
         }
 
         private suspend fun appendRevision(
@@ -356,13 +416,10 @@ class MemoVersionJournal
             origin: MemoRevisionOrigin,
             sharedCommit: MemoVersionCommitRecord?,
         ) {
-            val latestRevision = store.getLatestRevisionForMemo(memoState.memoId)
-            val createdAt =
-                latestRevision
-                    ?.createdAt
-                    ?.let { latestCreatedAt ->
-                        maxOf(now(), latestCreatedAt + 1)
-                    } ?: now()
+            val snapshotSettings = loadSnapshotSettings()
+            if (!snapshotSettings.enabled) {
+                return
+            }
             val rawBytes = memoState.rawContent.toByteArray(StandardCharsets.UTF_8)
             val rawContentHash = rawBytes.toVersionHash()
             val rawMarkdownBlobHash = rawContentHash
@@ -373,105 +430,80 @@ class MemoVersionJournal
                     workspaceMediaAccess = workspaceMediaAccess,
                 )
             val assetPairs = assets.map(ResolvedMemoRevisionAsset::pair)
-            val latestAssetPairs =
-                latestRevision
-                    ?.let { revision ->
-                        store
-                            .listAssetsForRevision(revision.revisionId)
-                            .map(MemoVersionAssetRecord::pair)
+            val newlyPersistedBlobHashes = linkedSetOf<String>()
+            val appendFailure =
+                runCatching {
+                    runInTransaction {
+                        val latestRevision = store.getLatestRevisionForMemo(memoState.memoId)
+                        val createdAt = nextMemoVersionCreatedAt(latestRevision = latestRevision, now = now)
+                        val latestAssetPairs = listRevisionAssetPairs(store = store, revision = latestRevision)
+                        if (
+                            latestRevision.matchesCurrentState(
+                                rawContentHash = rawContentHash,
+                                lifecycleState = lifecycleState,
+                                assetPairs = assetPairs,
+                                latestAssetPairs = latestAssetPairs,
+                            )
+                        ) {
+                            return@runInTransaction
+                        }
+                        if (
+                            store.hasEquivalentHistoricalRevision(
+                                memoId = memoState.memoId,
+                                lifecycleState = lifecycleState,
+                                rawMarkdownBlobHash = rawMarkdownBlobHash,
+                                contentHash = rawContentHash,
+                                assetPairs = assetPairs,
+                            )
+                        ) {
+                            return@runInTransaction
+                        }
+                        trackAndPersistMemoVersionBlobIfNeeded(
+                            store = store,
+                            blobRoot = blobRoot,
+                            bytes = rawBytes,
+                            contentEncoding = VERSION_MARKDOWN_CONTENT_ENCODING,
+                            createdAt = createdAt,
+                            newlyPersistedBlobHashes = newlyPersistedBlobHashes,
+                        )
+                        val persistedAssets =
+                            persistResolvedRevisionAssets(
+                                store = store,
+                                blobRoot = blobRoot,
+                                createdAt = createdAt,
+                                assets = assets,
+                                newlyPersistedBlobHashes = newlyPersistedBlobHashes,
+                            )
+                        insertMemoVersionRevision(
+                            store = store,
+                            memoState = memoState,
+                            lifecycleState = lifecycleState,
+                            origin = origin,
+                            sharedCommit = sharedCommit,
+                            latestRevisionId = latestRevision?.revisionId,
+                            rawMarkdownBlobHash = rawMarkdownBlobHash,
+                            rawContentHash = rawContentHash,
+                            createdAt = createdAt,
+                            nextCommitId = nextCommitId,
+                            nextRevisionId = nextRevisionId,
+                            persistedAssets = persistedAssets,
+                        )
+                        pruneRevisionsForMemo(
+                            memoId = memoState.memoId,
+                            snapshotSettings = snapshotSettings,
+                            referenceTimeMillis = createdAt,
+                        )
                     }
-                    .orEmpty()
-            if (latestRevision.matchesCurrentState(rawContentHash, lifecycleState, assetPairs, latestAssetPairs)) {
-                return
-            }
-            if (
-                hasEquivalentHistoricalRevision(
-                    memoId = memoState.memoId,
-                    lifecycleState = lifecycleState,
-                    rawMarkdownBlobHash = rawMarkdownBlobHash,
-                    contentHash = rawContentHash,
-                    assetPairs = assetPairs,
-                )
-            ) {
-                return
-            }
-            persistMemoVersionBlobIfNeeded(
-                store = store,
-                blobRoot = blobRoot,
-                bytes = rawBytes,
-                contentEncoding = VERSION_MARKDOWN_CONTENT_ENCODING,
-                createdAt = createdAt,
-            )
-            val persistedAssets =
-                persistResolvedRevisionAssets(
+                }.exceptionOrNull()
+            if (appendFailure != null) {
+                cleanupMemoVersionBlobWriteFailures(
                     store = store,
                     blobRoot = blobRoot,
-                    createdAt = createdAt,
-                    assets = assets,
+                    blobHashes = newlyPersistedBlobHashes,
                 )
-
-            val commit =
-                sharedCommit
-                    ?: MemoVersionCommitRecord(
-                        commitId = nextCommitId(),
-                        createdAt = createdAt,
-                        origin = origin,
-                        actor = ACTOR_LOCAL,
-                        batchId = null,
-                        summary = summaryFor(origin = origin, lifecycleState = lifecycleState),
-                    )
-            store.insertCommit(commit)
-            val revisionId = nextRevisionId()
-            store.insertRevision(
-                MemoVersionRevisionRecord(
-                    revisionId = revisionId,
-                    memoId = memoState.memoId,
-                    parentRevisionId = latestRevision?.revisionId,
-                    commitId = commit.commitId,
-                    dateKey = memoState.dateKey,
-                    lifecycleState = lifecycleState,
-                    rawMarkdownBlobHash = rawMarkdownBlobHash,
-                    contentHash = rawContentHash,
-                    memoTimestamp = memoState.timestamp,
-                    memoUpdatedAt = memoState.updatedAt,
-                    memoContent = memoState.content,
-                    createdAt = createdAt,
-                ),
-            )
-            store.replaceAssets(
-                revisionId = revisionId,
-                records = persistedAssets.map { asset -> asset.copy(revisionId = revisionId) },
-            )
-            pruneRevisionsForMemo(memoState.memoId)
+                throw appendFailure
+            }
         }
-
-        private fun MemoVersionRevisionRecord?.matchesCurrentState(
-            rawContentHash: String,
-            lifecycleState: MemoRevisionLifecycleState,
-            assetPairs: List<Pair<String, String>>,
-            latestAssetPairs: List<Pair<String, String>>,
-        ): Boolean =
-            this != null &&
-                contentHash == rawContentHash &&
-                this.lifecycleState == lifecycleState &&
-                latestAssetPairs == assetPairs
-
-        private suspend fun hasEquivalentHistoricalRevision(
-            memoId: String,
-            lifecycleState: MemoRevisionLifecycleState,
-            rawMarkdownBlobHash: String,
-            contentHash: String,
-            assetPairs: List<Pair<String, String>>,
-        ): Boolean =
-            store
-                .findEquivalentRevisionsForMemo(
-                    memoId = memoId,
-                    lifecycleState = lifecycleState,
-                    rawMarkdownBlobHash = rawMarkdownBlobHash,
-                    contentHash = contentHash,
-                ).any { revision ->
-                    store.listAssetsForRevision(revision.revisionId).map(MemoVersionAssetRecord::pair) == assetPairs
-                }
 
         private suspend fun restoreActiveRevision(
             currentMemo: Memo,
@@ -583,34 +615,56 @@ class MemoVersionJournal
             }
         }
 
-        private suspend fun pruneRevisionsForMemo(memoId: String) {
-            if (maxRevisionsPerMemo <= 0) {
+        private suspend fun pruneRevisionsForMemo(
+            memoId: String,
+            snapshotSettings: MemoSnapshotRetentionSettings,
+            referenceTimeMillis: Long,
+        ) {
+            if (snapshotSettings.maxCount <= 0 && snapshotSettings.maxAgeDays <= 0) {
                 return
             }
-            runInTransaction {
-                val staleRevisions =
-                    store.listStaleRevisionsForMemo(
-                        memoId = memoId,
-                        retainCount = maxRevisionsPerMemo,
-                    )
-                if (staleRevisions.isEmpty()) {
-                    return@runInTransaction
+            val ageCutoff =
+                if (snapshotSettings.maxAgeDays in 1 until Int.MAX_VALUE) {
+                    referenceTimeMillis - snapshotSettings.maxAgeDays.toLong() * MILLIS_PER_DAY
+                } else {
+                    Long.MIN_VALUE
                 }
-                val staleRevisionIds = staleRevisions.map(MemoVersionRevisionRecord::revisionId)
-                val staleAssets = store.listAssetsForRevisionIds(staleRevisionIds)
-                val candidateBlobHashes =
-                    buildSet {
-                        addAll(staleRevisions.map(MemoVersionRevisionRecord::rawMarkdownBlobHash))
-                        addAll(staleAssets.map(MemoVersionAssetRecord::blobHash))
-                    }
-                store.deleteAssetsByRevisionIds(staleRevisionIds)
-                store.deleteRevisionsByIds(staleRevisionIds)
-                candidateBlobHashes.forEach { blobHash ->
-                    deleteMemoVersionBlobIfUnreferenced(
-                        store = store,
-                        blobRoot = blobRoot,
-                        blobHash = blobHash,
-                    )
+            val staleRevisions =
+                store
+                    .listAllRevisionsForMemo(memoId)
+                    .filterIndexed { index, revision ->
+                        val exceedsCount = snapshotSettings.maxCount > 0 && index >= snapshotSettings.maxCount
+                        val exceedsAge =
+                            snapshotSettings.maxAgeDays in 1 until Int.MAX_VALUE &&
+                                revision.createdAt < ageCutoff
+                        exceedsCount || exceedsAge
+                    }.distinctBy(MemoVersionRevisionRecord::revisionId)
+            if (staleRevisions.isEmpty()) {
+                return
+            }
+            val staleRevisionIds = staleRevisions.map(MemoVersionRevisionRecord::revisionId)
+            val staleAssets = store.listAssetsForRevisionIds(staleRevisionIds)
+            val candidateBlobHashes =
+                buildSet {
+                    addAll(staleRevisions.map(MemoVersionRevisionRecord::rawMarkdownBlobHash))
+                    addAll(staleAssets.map(MemoVersionAssetRecord::blobHash))
+                }
+            store.deleteAssetsByRevisionIds(staleRevisionIds)
+            store.deleteRevisionsByIds(staleRevisionIds)
+            candidateBlobHashes.forEach { blobHash ->
+                deleteMemoVersionBlobIfUnreferenced(
+                    store = store,
+                    blobRoot = blobRoot,
+                    blobHash = blobHash,
+                )
+            }
+        }
+
+        private fun clearBlobRootDirectory() {
+            blobRoot.mkdirs()
+            blobRoot.listFiles()?.forEach { child ->
+                if (!child.deleteRecursively()) {
+                    throw java.io.IOException("Failed to clear memo snapshot blob: ${child.absolutePath}")
                 }
             }
         }
@@ -651,5 +705,6 @@ internal const val LOGICAL_VOICE_PREFIX = "voice/"
 internal const val UNASSIGNED_REVISION_ID = "__pending__"
 internal const val VERSION_MARKDOWN_CONTENT_ENCODING = "text/markdown;charset=utf-8"
 internal const val DEFAULT_MAX_REVISIONS_PER_MEMO = 100
+internal const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
 internal val AUDIO_EXTENSIONS = setOf("m4a", "mp3", "aac", "ogg", "wav")
 internal val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif")

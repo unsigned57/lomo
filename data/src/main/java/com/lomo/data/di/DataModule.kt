@@ -19,7 +19,10 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
+import com.lomo.data.s3.AwsSdkS3ClientFactory
+import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
@@ -36,6 +39,7 @@ import com.lomo.data.repository.MemoRepositoryImpl
 import com.lomo.data.repository.RoomMemoVersionStore
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
+import com.lomo.data.repository.S3SyncRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
 import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.RefreshingWorkspaceStateResolver
@@ -52,9 +56,11 @@ import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -154,6 +160,10 @@ object DatabaseSupportModule {
     @Provides
     @Singleton
     fun provideWebDavSyncMetadataDao(database: MemoDatabase): WebDavSyncMetadataDao = database.webDavSyncMetadataDao()
+
+    @Provides
+    @Singleton
+    fun provideS3SyncMetadataDao(database: MemoDatabase): S3SyncMetadataDao = database.s3SyncMetadataDao()
 
     @Provides
     @Singleton
@@ -374,6 +384,16 @@ object CoreRepositoryModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
+object SnapshotPreferencesRepositoryModule {
+    @Provides
+    @Singleton
+    fun provideMemoSnapshotPreferencesRepository(
+        impl: com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl,
+    ): MemoSnapshotPreferencesRepository = impl
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
 object SyncRepositoryModule {
     @Provides
     @Singleton
@@ -418,6 +438,31 @@ object SyncRepositoryModule {
     @Provides
     @Singleton
     fun provideSyncConflictBackupRepository(impl: SyncConflictBackupManager): SyncConflictBackupRepository = impl
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object S3SyncModule {
+    @Provides
+    @Singleton
+    fun provideS3SyncPlanner(): com.lomo.data.repository.S3SyncPlanner =
+        com.lomo.data.repository.S3SyncPlanner()
+
+    @Provides
+    @Singleton
+    fun provideS3SafTreeAccess(
+        impl: com.lomo.data.repository.AndroidS3SafTreeAccess,
+    ): com.lomo.data.repository.S3SafTreeAccess = impl
+
+    @Provides
+    @Singleton
+    fun provideLomoS3ClientFactory(
+        factory: AwsSdkS3ClientFactory,
+    ): LomoS3ClientFactory = factory
+
+    @Provides
+    @Singleton
+    fun provideS3SyncRepository(impl: S3SyncRepositoryImpl): S3SyncRepository = impl
 }
 
 @Module

@@ -159,6 +159,8 @@ private class FakeMemoVersionRepository(
         restoreCalls += 1
         restoreGate?.await()
     }
+
+    override suspend fun clearAllMemoSnapshots() = Unit
 }
 
 private fun testMemo(id: String): Memo =

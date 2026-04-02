@@ -6,9 +6,13 @@ import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
+import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
+import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -16,24 +20,24 @@ class SettingsAppConfigCoordinator(
     private val appConfigRepository: AppConfigRepository,
     private val switchRootStorageUseCase: SwitchRootStorageUseCase,
     scope: CoroutineScope,
+    private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
+        NoOpMemoSnapshotPreferencesRepository,
+    private val memoVersionRepository: MemoVersionRepository? = null,
 ) {
-    val rootDirectory: StateFlow<String> =
+    val rootDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository
             .observeRootDisplayName()
-            .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .asDirectoryDisplayState(scope)
 
-    val imageDirectory: StateFlow<String> =
+    val imageDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository
             .observeImageDisplayName()
-            .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .asDirectoryDisplayState(scope)
 
-    val voiceDirectory: StateFlow<String> =
+    val voiceDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository
             .observeVoiceDisplayName()
-            .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .asDirectoryDisplayState(scope)
 
     val dateFormat: StateFlow<String> =
         appConfigRepository
@@ -113,6 +117,21 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .isShareCardShowBrandEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
+
+    val memoSnapshotsEnabled: StateFlow<Boolean> =
+        memoSnapshotPreferencesRepository
+            .isMemoSnapshotsEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
+
+    val memoSnapshotMaxCount: StateFlow<Int> =
+        memoSnapshotPreferencesRepository
+            .getMemoSnapshotMaxCount()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
+
+    val memoSnapshotMaxAgeDays: StateFlow<Int> =
+        memoSnapshotPreferencesRepository
+            .getMemoSnapshotMaxAgeDays()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
 
     val updateRootDirectory: suspend (String) -> Unit =
         { path ->
@@ -218,4 +237,36 @@ class SettingsAppConfigCoordinator(
 
     val updateShareCardShowBrand: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setShareCardShowBrand(enabled) }
+
+    val updateMemoSnapshotsEnabled: suspend (Boolean) -> Unit =
+        { enabled ->
+            memoSnapshotPreferencesRepository.setMemoSnapshotsEnabled(enabled)
+            if (!enabled) {
+                memoVersionRepository?.clearAllMemoSnapshots()
+            }
+        }
+
+    val updateMemoSnapshotMaxCount: suspend (Int) -> Unit =
+        { count -> memoSnapshotPreferencesRepository.setMemoSnapshotMaxCount(count) }
+
+    val updateMemoSnapshotMaxAgeDays: suspend (Int) -> Unit =
+        { days -> memoSnapshotPreferencesRepository.setMemoSnapshotMaxAgeDays(days) }
 }
+
+private object NoOpMemoSnapshotPreferencesRepository : MemoSnapshotPreferencesRepository {
+    override fun isMemoSnapshotsEnabled() = flowOf(PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
+
+    override suspend fun setMemoSnapshotsEnabled(enabled: Boolean) = Unit
+
+    override fun getMemoSnapshotMaxCount() = flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
+
+    override suspend fun setMemoSnapshotMaxCount(count: Int) = Unit
+
+    override fun getMemoSnapshotMaxAgeDays() = flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
+
+    override suspend fun setMemoSnapshotMaxAgeDays(days: Int) = Unit
+}
+
+private fun Flow<String?>.asDirectoryDisplayState(scope: CoroutineScope): StateFlow<DirectoryDisplayState> =
+    map(DirectoryDisplayState::Resolved)
+        .stateIn(scope, settingsWhileSubscribed(), DirectoryDisplayState.Loading)

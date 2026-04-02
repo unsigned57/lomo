@@ -9,6 +9,7 @@ import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.PreferencesRepository
+import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -17,6 +18,7 @@ import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
+import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
@@ -25,6 +27,7 @@ import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
+import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
@@ -35,6 +38,7 @@ import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -76,6 +80,12 @@ object DomainCoreBindingsModule {
     @Provides
     @Singleton
     fun provideResolveMainMemoQueryUseCase(): ResolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase()
+
+    @Provides
+    @Singleton
+    fun provideGetCurrentAppVersionUseCase(
+        appRuntimeInfoRepository: AppRuntimeInfoRepository,
+    ): GetCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(appRuntimeInfoRepository)
 }
 
 @Module
@@ -93,12 +103,14 @@ object DomainMemoBindingsModule {
         memoRepository: MemoRepository,
         gitSyncRepository: GitSyncRepository,
         webDavSyncRepository: WebDavSyncRepository,
+        s3SyncRepository: S3SyncRepository,
         syncPolicyRepository: SyncPolicyRepository,
     ): SyncAndRebuildUseCase =
         SyncAndRebuildUseCase(
             memoRepository = memoRepository,
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
+            s3SyncRepository = s3SyncRepository,
             syncPolicyRepository = syncPolicyRepository,
         )
 
@@ -254,6 +266,17 @@ object DomainShareBindingsModule {
             appUpdateRepository = appUpdateRepository,
             appRuntimeInfoRepository = appRuntimeInfoRepository,
         )
+
+    @Provides
+    @Singleton
+    fun provideCheckAppUpdateUseCase(
+        appUpdateRepository: AppUpdateRepository,
+        appRuntimeInfoRepository: AppRuntimeInfoRepository,
+    ): CheckAppUpdateUseCase =
+        CheckAppUpdateUseCase(
+            appUpdateRepository = appUpdateRepository,
+            appRuntimeInfoRepository = appRuntimeInfoRepository,
+        )
 }
 
 @Module
@@ -289,6 +312,19 @@ object DomainSyncBindingsModule {
 
     @Provides
     @Singleton
+    fun provideS3SyncSettingsUseCase(
+        s3SyncRepository: S3SyncRepository,
+        syncPolicyRepository: SyncPolicyRepository,
+        syncAndRebuildUseCase: SyncAndRebuildUseCase,
+    ): S3SyncSettingsUseCase =
+        S3SyncSettingsUseCase(
+            s3SyncRepository = s3SyncRepository,
+            syncPolicyRepository = syncPolicyRepository,
+            syncAndRebuildUseCase = syncAndRebuildUseCase,
+        )
+
+    @Provides
+    @Singleton
     fun provideLoadMemoRevisionHistoryUseCase(
         memoVersionRepository: MemoVersionRepository,
     ): LoadMemoRevisionHistoryUseCase =
@@ -306,11 +342,13 @@ object DomainSyncBindingsModule {
     fun provideSyncConflictResolutionUseCase(
         gitSyncRepository: GitSyncRepository,
         webDavSyncRepository: WebDavSyncRepository,
+        s3SyncRepository: S3SyncRepository,
         memoRepository: MemoRepository,
     ): SyncConflictResolutionUseCase =
         SyncConflictResolutionUseCase(
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
+            s3SyncRepository = s3SyncRepository,
             memoRepository = memoRepository,
         )
 }

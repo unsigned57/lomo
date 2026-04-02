@@ -16,6 +16,7 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -27,12 +28,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /*
  * Test Contract:
  * - Unit under test: MemoEditorViewModel
  * - Behavior focus: draft persistence state machine, success-path cleanup side effects, and failure message mapping.
  * - Observable outcomes: draftText/errorMessage state, callback invocation, and use-case invocation payloads.
+ * - Red phase: Fails before the fix because ViewModel construction blocks until the first draft-text emission arrives.
  * - Excludes: widget update internals, media repository implementation details, and Compose rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -96,6 +100,31 @@ class MemoEditorViewModelTest {
 
             assertEquals("", viewModel.draftText.value)
             coVerify(exactly = 1) { setDraftTextUseCase(null) }
+        }
+
+    @Test
+    fun `constructor does not wait for first persisted draft emission`() =
+        runTest {
+            val firstDraftGate = CompletableDeferred<Unit>()
+            every { observeDraftTextUseCase() } returns kotlinx.coroutines.flow.flow {
+                firstDraftGate.await()
+                emit("loaded draft")
+            }
+            val executor = Executors.newSingleThreadExecutor()
+
+            try {
+                val future = executor.submit<MemoEditorViewModel> { createViewModel() }
+                val viewModel = future.get(200, TimeUnit.MILLISECONDS)
+
+                assertEquals("", viewModel.draftText.value)
+
+                firstDraftGate.complete(Unit)
+                advanceUntilIdle()
+
+                assertEquals("loaded draft", viewModel.draftText.value)
+            } finally {
+                executor.shutdownNow()
+            }
         }
 
     @Test

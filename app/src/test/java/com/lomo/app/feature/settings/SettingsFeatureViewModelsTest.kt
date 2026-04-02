@@ -1,6 +1,8 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.GitSyncErrorCode
+import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.WebDavProvider
 import io.mockk.every
 import io.mockk.mockk
@@ -13,9 +15,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: non-app-config Settings*FeatureViewModel wrapper classes in SettingsFeatureViewModels.kt
- * - Behavior focus: direct delegate wiring for LAN/Git/WebDAV feature wrappers.
+ * - Behavior focus: direct delegate wiring for LAN/Git/WebDAV/S3 feature wrappers.
  * - Observable outcomes: forwarded lambda invocations and coordinator helper exposure.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because the settings feature wrappers do not expose any S3 sync delegates.
  * - Excludes: SettingsAppConfigCoordinator coroutine dispatch, coordinator internal error mapping, DataStore internals, and UI rendering.
  */
 class SettingsFeatureViewModelsTest {
@@ -125,5 +127,62 @@ class SettingsFeatureViewModelsTest {
         assertTrue(resetStateInvoked)
         assertTrue(viewModel.isValidUrl("https://dav.example.com"))
         assertTrue(viewModel.isValidWebDavUrl("https://dav.example.com"))
+    }
+
+    @Test
+    fun `s3 feature viewmodel exposes wired coordinator delegates`() {
+        val actionCoordinator = mockk<SettingsActionCoordinator>()
+        val s3Coordinator = mockk<SettingsS3Coordinator>()
+        var syncEnabledArg: Boolean? = null
+        var bucketArg: String? = null
+        var localSyncDirectoryArg: String? = null
+        var pathStyleArg: S3PathStyle? = null
+        var encryptionModeArg: S3EncryptionMode? = null
+        var clearLocalSyncDirectoryInvoked = false
+        var syncNowInvoked = false
+        var testConnectionInvoked = false
+        var resetStateInvoked = false
+        every { actionCoordinator.updateS3SyncEnabled } returns { enabled -> syncEnabledArg = enabled }
+        every { actionCoordinator.updateS3EndpointUrl } returns {}
+        every { actionCoordinator.updateS3Region } returns {}
+        every { actionCoordinator.updateS3Bucket } returns { bucket -> bucketArg = bucket }
+        every { actionCoordinator.updateS3Prefix } returns {}
+        every { actionCoordinator.updateS3LocalSyncDirectory } returns { directory -> localSyncDirectoryArg = directory }
+        every { actionCoordinator.clearS3LocalSyncDirectory } returns { clearLocalSyncDirectoryInvoked = true }
+        every { actionCoordinator.updateS3AccessKeyId } returns {}
+        every { actionCoordinator.updateS3SecretAccessKey } returns {}
+        every { actionCoordinator.updateS3SessionToken } returns {}
+        every { actionCoordinator.updateS3PathStyle } returns { style -> pathStyleArg = style }
+        every { actionCoordinator.updateS3EncryptionMode } returns { mode -> encryptionModeArg = mode }
+        every { actionCoordinator.updateS3EncryptionPassword } returns {}
+        every { actionCoordinator.updateS3AutoSyncEnabled } returns {}
+        every { actionCoordinator.updateS3AutoSyncInterval } returns {}
+        every { actionCoordinator.updateS3SyncOnRefresh } returns {}
+        every { actionCoordinator.triggerS3SyncNow } returns { syncNowInvoked = true }
+        every { actionCoordinator.testS3Connection } returns { testConnectionInvoked = true }
+        every { s3Coordinator.resetConnectionTestState() } answers { resetStateInvoked = true }
+        every { s3Coordinator.isValidEndpointUrl(any()) } returns true
+
+        val viewModel = SettingsS3FeatureViewModel(actionCoordinator, s3Coordinator)
+        viewModel.updateS3SyncEnabled(true)
+        viewModel.updateBucket("vault")
+        viewModel.updateLocalSyncDirectory("content://tree/primary%3AObsidian")
+        viewModel.clearLocalSyncDirectory()
+        viewModel.updatePathStyle(S3PathStyle.PATH_STYLE)
+        viewModel.updateEncryptionMode(S3EncryptionMode.RCLONE_CRYPT)
+        viewModel.triggerSyncNow()
+        viewModel.testConnection()
+        viewModel.resetConnectionTestState()
+
+        assertEquals(true, syncEnabledArg)
+        assertEquals("vault", bucketArg)
+        assertEquals("content://tree/primary%3AObsidian", localSyncDirectoryArg)
+        assertEquals(S3PathStyle.PATH_STYLE, pathStyleArg)
+        assertEquals(S3EncryptionMode.RCLONE_CRYPT, encryptionModeArg)
+        assertTrue(clearLocalSyncDirectoryInvoked)
+        assertTrue(syncNowInvoked)
+        assertTrue(testConnectionInvoked)
+        assertTrue(resetStateInvoked)
+        assertTrue(viewModel.isValidEndpointUrl("https://s3.example.com"))
     }
 }

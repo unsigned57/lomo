@@ -4,4 +4,5 @@ enum class SyncBackendType {
     NONE,
     GIT,
     WEBDAV,
+    S3,
 }

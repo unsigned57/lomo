@@ -2,12 +2,15 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncFailureException
+import com.lomo.domain.model.S3SyncFailureException
+import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import kotlinx.coroutines.CancellationException
@@ -18,6 +21,7 @@ class SyncAndRebuildUseCase
         private val memoRepository: MemoRepository,
         private val gitSyncRepository: GitSyncRepository,
         private val webDavSyncRepository: WebDavSyncRepository,
+        private val s3SyncRepository: S3SyncRepository,
         private val syncPolicyRepository: SyncPolicyRepository,
     ) {
         suspend operator fun invoke(forceSync: Boolean = false) {
@@ -46,6 +50,14 @@ class SyncAndRebuildUseCase
                     }
                 }
 
+                SyncBackendType.S3 -> {
+                    val syncOnRefresh = s3SyncRepository.getSyncOnRefreshEnabled().first()
+                    val enabled = s3SyncRepository.isS3SyncEnabled().first()
+                    if (syncOnRefresh && enabled) {
+                        syncFailureOrNull(SyncBackendType.S3)
+                    }
+                }
+
                 SyncBackendType.NONE -> {
                     Unit
                 }
@@ -61,6 +73,7 @@ class SyncAndRebuildUseCase
                 when (backendType) {
                     SyncBackendType.GIT -> gitResultToException(gitSyncRepository.sync())
                     SyncBackendType.WEBDAV -> webDavResultToException(webDavSyncRepository.sync())
+                    SyncBackendType.S3 -> s3ResultToException(s3SyncRepository.sync())
                     SyncBackendType.NONE -> null
                 }
             }
@@ -100,6 +113,18 @@ class SyncAndRebuildUseCase
                     is WebDavSyncResult.Conflict -> SyncConflictException(result.conflicts)
                 }
 
+        private fun s3ResultToException(result: S3SyncResult): Exception? =
+                when (result) {
+                    is S3SyncResult.Success -> null
+                    is S3SyncResult.Error -> result.toException(defaultMessage = "S3 sync failed")
+                    S3SyncResult.NotConfigured ->
+                        S3SyncFailureException(
+                            code = com.lomo.domain.model.S3SyncErrorCode.NOT_CONFIGURED,
+                            message = "S3 sync is not configured",
+                        )
+                    is S3SyncResult.Conflict -> SyncConflictException(result.conflicts)
+                }
+
         private fun GitSyncResult.Error.toException(defaultMessage: String): Exception {
             val cause = exception
             val normalizedMessage = message.ifBlank { defaultMessage }
@@ -116,6 +141,15 @@ class SyncAndRebuildUseCase
                 throw cause
             }
             return WebDavSyncFailureException(code = code, message = normalizedMessage, cause = cause)
+        }
+
+        private fun S3SyncResult.Error.toException(defaultMessage: String): Exception {
+            val cause = exception
+            val normalizedMessage = message.ifBlank { defaultMessage }
+            if (cause is CancellationException) {
+                throw cause
+            }
+            return S3SyncFailureException(code = code, message = normalizedMessage, cause = cause)
         }
 
     }

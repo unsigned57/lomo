@@ -4,7 +4,10 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.core.os.LocaleListCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -12,6 +15,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.conflict.SyncConflictDialogHost
 import com.lomo.app.feature.conflict.SyncConflictViewModel
+import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.app.feature.update.LomoAppUpdateDialog
+import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
@@ -43,17 +51,20 @@ data class SettingsFeatures(
     val storage: SettingsStorageFeatureViewModel,
     val display: SettingsDisplayFeatureViewModel,
     val shareCard: SettingsShareCardFeatureViewModel,
+    val snapshot: SettingsSnapshotFeatureViewModel,
     val interaction: SettingsInteractionFeatureViewModel,
     val system: SettingsSystemFeatureViewModel,
     val lanShare: SettingsLanShareFeatureViewModel,
     val git: SettingsGitFeatureViewModel,
     val webDav: SettingsWebDavFeatureViewModel,
+    val s3: SettingsS3FeatureViewModel,
 )
 
 data class StoragePickerActions(
     val openRoot: () -> Unit,
     val openImage: () -> Unit,
     val openVoice: () -> Unit,
+    val openS3LocalSyncDirectory: () -> Unit,
 )
 
 @Composable
@@ -65,11 +76,16 @@ fun SettingsScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val dialogState = rememberSettingsDialogState()
+    var activeUpdateDialogState by remember { mutableStateOf<AppUpdateDialogState?>(null) }
+    var lastShownUpdateDialogKey by remember { mutableStateOf<String?>(null) }
     val resources = settingsResources()
     val features = settingsFeatures(viewModel)
+    val currentVersion by features.system.currentVersion.collectAsStateWithLifecycle()
+    val manualUpdateState by features.system.manualUpdateState.collectAsStateWithLifecycle()
     val storagePickers =
         rememberStoragePickerActions(
             storageFeature = features.storage,
+            s3Feature = features.s3,
             snackbarHostState = snackbarHostState,
             unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
@@ -88,23 +104,43 @@ fun SettingsScreen(
         dialogState = dialogState,
         conflictViewModel = conflictViewModel,
     )
+    LaunchedEffect(manualUpdateState) {
+        val updateState = manualUpdateState as? SettingsManualUpdateState.UpdateAvailable ?: return@LaunchedEffect
+        val dialogKey = "${updateState.dialogState.url}#${updateState.dialogState.version}"
+        if (dialogKey != lastShownUpdateDialogKey) {
+            lastShownUpdateDialogKey = dialogKey
+            activeUpdateDialogState = updateState.dialogState
+        }
+    }
     SettingsScreenScaffold(
         uiState = uiState,
+        aboutState =
+            AboutSectionState(
+                currentVersion = currentVersion,
+                manualUpdateState = manualUpdateState,
+            ),
         onBackClick = onBackClick,
         snackbarHostState = snackbarHostState,
         dialogState = dialogState,
         features = features,
         resources = resources,
         storagePickers = storagePickers,
+        onOpenAvailableUpdateDialog = { activeUpdateDialogState = it },
+    )
+    LomoAppUpdateDialog(
+        dialogState = activeUpdateDialogState,
+        onDismiss = { activeUpdateDialogState = null },
     )
     SyncConflictDialogHost(conflictViewModel = conflictViewModel)
     SettingsDialogHost(
         uiState = uiState,
         storageFeature = features.storage,
         displayFeature = features.display,
+        snapshotFeature = features.snapshot,
         lanShareFeature = features.lanShare,
         gitFeature = features.git,
         webDavFeature = features.webDav,
+        s3Feature = features.s3,
         dialogState = dialogState,
         options = resources.dialogOptions,
         onApplyLanguageTag = ::applyLanguageTag,
@@ -134,11 +170,13 @@ private fun settingsFeatures(viewModel: SettingsViewModel): SettingsFeatures =
         storage = viewModel.storageFeature,
         display = viewModel.displayFeature,
         shareCard = viewModel.shareCardFeature,
+        snapshot = viewModel.snapshotFeature,
         interaction = viewModel.interactionFeature,
         system = viewModel.systemFeature,
         lanShare = viewModel.lanShareFeature,
         git = viewModel.gitFeature,
         webDav = viewModel.webDavFeature,
+        s3 = viewModel.s3Feature,
     )
 
 private fun currentLanguageTag(): String {
@@ -178,6 +216,18 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
             WebDavProvider.NEXTCLOUD to stringResource(R.string.settings_webdav_provider_nextcloud),
             WebDavProvider.CUSTOM to stringResource(R.string.settings_webdav_provider_custom),
         )
+    val s3PathStyleLabels =
+        mapOf(
+            S3PathStyle.AUTO to stringResource(R.string.settings_s3_path_style_auto),
+            S3PathStyle.PATH_STYLE to stringResource(R.string.settings_s3_path_style_path_style),
+            S3PathStyle.VIRTUAL_HOSTED to stringResource(R.string.settings_s3_path_style_virtual_hosted),
+        )
+    val s3EncryptionModeLabels =
+        mapOf(
+            S3EncryptionMode.NONE to stringResource(R.string.settings_s3_encryption_mode_none),
+            S3EncryptionMode.RCLONE_CRYPT to stringResource(R.string.settings_s3_encryption_mode_rclone_crypt),
+            S3EncryptionMode.OPENSSL to stringResource(R.string.settings_s3_encryption_mode_openssl),
+        )
     return SettingsDialogOptions(
         dateFormats = DateFormatOptions,
         timeFormats = TimeFormatOptions,
@@ -185,12 +235,18 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
         filenameFormats = StorageFilenameFormats.supportedPatterns,
         timestampFormats = StorageTimestampFormats.supportedPatterns,
         gitSyncIntervals = GitSyncIntervalOptions,
+        snapshotRetentionCounts = SnapshotPreferenceOptions.RETENTION_COUNT_OPTIONS,
+        snapshotRetentionDays = SnapshotPreferenceOptions.RETENTION_DAY_OPTIONS,
         webDavProviders = WebDavProvider.entries,
+        s3PathStyles = S3PathStyle.entries,
+        s3EncryptionModes = S3EncryptionMode.entries,
         languageTag = currentLanguageTag,
         languageLabels = languageLabels,
         themeModeLabels = themeModeLabels,
         gitSyncIntervalLabels = gitSyncIntervalLabels,
         webDavProviderLabels = webDavProviderLabels,
+        s3PathStyleLabels = s3PathStyleLabels,
+        s3EncryptionModeLabels = s3EncryptionModeLabels,
     )
 }
 

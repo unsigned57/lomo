@@ -15,6 +15,9 @@ class SettingsDialogState {
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)
     var showLanguageDialog by mutableStateOf(false)
+    var showMemoSnapshotCountDialog by mutableStateOf(false)
+    var showMemoSnapshotAgeDialog by mutableStateOf(false)
+    var pendingSnapshotDisableTarget by mutableStateOf<SettingsSnapshotDisableTarget?>(null)
 
     var showLanPairingDialog by mutableStateOf(false)
     var lanPairingCodeInput by mutableStateOf("")
@@ -47,7 +50,34 @@ class SettingsDialogState {
     var webDavPasswordInput by mutableStateOf("")
     var webDavPasswordVisible by mutableStateOf(false)
     var showWebDavSyncIntervalDialog by mutableStateOf(false)
+
+    var showS3EndpointUrlDialog by mutableStateOf(false)
+    var s3EndpointUrlInput by mutableStateOf("")
+    var showS3RegionDialog by mutableStateOf(false)
+    var s3RegionInput by mutableStateOf("")
+    var showS3BucketDialog by mutableStateOf(false)
+    var s3BucketInput by mutableStateOf("")
+    var showS3PrefixDialog by mutableStateOf(false)
+    var s3PrefixInput by mutableStateOf("")
+    var showS3AccessKeyIdDialog by mutableStateOf(false)
+    var s3AccessKeyIdInput by mutableStateOf("")
+    var showS3SecretAccessKeyDialog by mutableStateOf(false)
+    var s3SecretAccessKeyInput by mutableStateOf("")
+    var s3SecretAccessKeyVisible by mutableStateOf(false)
+    var showS3SessionTokenDialog by mutableStateOf(false)
+    var s3SessionTokenInput by mutableStateOf("")
+    var s3SessionTokenVisible by mutableStateOf(false)
+    var showS3PathStyleDialog by mutableStateOf(false)
+    var showS3EncryptionModeDialog by mutableStateOf(false)
+    var showS3EncryptionPasswordDialog by mutableStateOf(false)
+    var s3EncryptionPasswordInput by mutableStateOf("")
+    var s3EncryptionPasswordVisible by mutableStateOf(false)
+    var showS3SyncIntervalDialog by mutableStateOf(false)
 }
 
 @Composable
 fun rememberSettingsDialogState(): SettingsDialogState = remember { SettingsDialogState() }
+
+enum class SettingsSnapshotDisableTarget {
+    MEMO,
+}

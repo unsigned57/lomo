@@ -16,4 +16,6 @@ interface MemoVersionRepository {
         currentMemo: Memo,
         revisionId: String,
     )
+
+    suspend fun clearAllMemoSnapshots()
 }

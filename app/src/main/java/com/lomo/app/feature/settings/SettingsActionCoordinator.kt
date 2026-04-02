@@ -9,6 +9,7 @@ class SettingsActionCoordinator(
     private val lanShareCoordinator: SettingsLanShareCoordinator,
     private val gitCoordinator: SettingsGitCoordinator,
     private val webDavCoordinator: SettingsWebDavCoordinator,
+    private val s3Coordinator: SettingsS3Coordinator,
     private val errorMapper: SettingsOperationErrorMapper,
     private val onOperationError: (SettingsOperationError) -> Unit,
 ) {
@@ -17,6 +18,9 @@ class SettingsActionCoordinator(
 
     val refreshWebDavPasswordConfigured: () -> Unit =
         { launchWithOperationResult { webDavCoordinator.refreshPasswordConfigured() } }
+
+    val refreshS3CredentialConfigured: () -> Unit =
+        { launchWithOperationResult { s3Coordinator.refreshCredentialConfigured() } }
 
     val updateLanShareE2eEnabled: (Boolean) -> Unit =
         { enabled ->
@@ -117,6 +121,60 @@ class SettingsActionCoordinator(
 
     val testWebDavConnection: () -> Unit =
         { launchWithOperationResult { webDavCoordinator.testWebDavConnection() } }
+
+    val updateS3SyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { s3Coordinator.updateS3SyncEnabled(enabled) } }
+
+    val updateS3EndpointUrl: (String) -> Unit =
+        { url -> launchWithOperationResult { s3Coordinator.updateS3EndpointUrl(url) } }
+
+    val updateS3Region: (String) -> Unit =
+        { region -> launchWithOperationResult { s3Coordinator.updateS3Region(region) } }
+
+    val updateS3Bucket: (String) -> Unit =
+        { bucket -> launchWithOperationResult { s3Coordinator.updateS3Bucket(bucket) } }
+
+    val updateS3Prefix: (String) -> Unit =
+        { prefix -> launchWithOperationResult { s3Coordinator.updateS3Prefix(prefix) } }
+
+    val updateS3LocalSyncDirectory: (String) -> Unit =
+        { directory -> launchWithOperationResult { s3Coordinator.updateS3LocalSyncDirectory(directory) } }
+
+    val clearS3LocalSyncDirectory: () -> Unit =
+        { launchWithOperationResult { s3Coordinator.clearS3LocalSyncDirectory() } }
+
+    val updateS3AccessKeyId: (String) -> Unit =
+        { accessKeyId -> launchWithOperationResult { s3Coordinator.updateS3AccessKeyId(accessKeyId) } }
+
+    val updateS3SecretAccessKey: (String) -> Unit =
+        { secret -> launchWithOperationResult { s3Coordinator.updateS3SecretAccessKey(secret) } }
+
+    val updateS3SessionToken: (String) -> Unit =
+        { token -> launchWithOperationResult { s3Coordinator.updateS3SessionToken(token) } }
+
+    val updateS3PathStyle: (com.lomo.domain.model.S3PathStyle) -> Unit =
+        { style -> launchWithOperationResult { s3Coordinator.updateS3PathStyle(style) } }
+
+    val updateS3EncryptionMode: (com.lomo.domain.model.S3EncryptionMode) -> Unit =
+        { mode -> launchWithOperationResult { s3Coordinator.updateS3EncryptionMode(mode) } }
+
+    val updateS3EncryptionPassword: (String) -> Unit =
+        { password -> launchWithOperationResult { s3Coordinator.updateS3EncryptionPassword(password) } }
+
+    val updateS3AutoSyncEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { s3Coordinator.updateS3AutoSyncEnabled(enabled) } }
+
+    val updateS3AutoSyncInterval: (String) -> Unit =
+        { interval -> launchWithOperationResult { s3Coordinator.updateS3AutoSyncInterval(interval) } }
+
+    val updateS3SyncOnRefresh: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { s3Coordinator.updateS3SyncOnRefresh(enabled) } }
+
+    val triggerS3SyncNow: () -> Unit =
+        { launchWithOperationResult { s3Coordinator.triggerS3SyncNow() } }
+
+    val testS3Connection: () -> Unit =
+        { launchWithOperationResult { s3Coordinator.testS3Connection() } }
 
     private fun launchWithOperationResult(action: suspend () -> SettingsOperationError?) {
         scope.launch {

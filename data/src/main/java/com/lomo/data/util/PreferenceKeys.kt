@@ -39,6 +39,9 @@ object PreferenceKeys {
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
     const val SHARE_CARD_SHOW_TIME = "share_card_show_time"
     const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
+    const val MEMO_SNAPSHOTS_ENABLED = "memo_snapshots_enabled"
+    const val MEMO_SNAPSHOT_MAX_COUNT = "memo_snapshot_max_count"
+    const val MEMO_SNAPSHOT_MAX_AGE_DAYS = "memo_snapshot_max_age_days"
     const val LAST_APP_VERSION = "last_app_version"
 
     // Git Sync
@@ -60,6 +63,18 @@ object PreferenceKeys {
     const val WEBDAV_AUTO_SYNC_INTERVAL = "webdav_auto_sync_interval"
     const val WEBDAV_LAST_SYNC_TIME = "webdav_last_sync_time"
     const val WEBDAV_SYNC_ON_REFRESH = "webdav_sync_on_refresh"
+    const val S3_SYNC_ENABLED = "s3_sync_enabled"
+    const val S3_ENDPOINT_URL = "s3_endpoint_url"
+    const val S3_REGION = "s3_region"
+    const val S3_BUCKET = "s3_bucket"
+    const val S3_PREFIX = "s3_prefix"
+    const val S3_LOCAL_SYNC_DIRECTORY = "s3_local_sync_directory"
+    const val S3_PATH_STYLE = "s3_path_style"
+    const val S3_ENCRYPTION_MODE = "s3_encryption_mode"
+    const val S3_AUTO_SYNC_ENABLED = "s3_auto_sync_enabled"
+    const val S3_AUTO_SYNC_INTERVAL = "s3_auto_sync_interval"
+    const val S3_LAST_SYNC_TIME = "s3_last_sync_time"
+    const val S3_SYNC_ON_REFRESH = "s3_sync_on_refresh"
 
     // Draft
     const val DRAFT_TEXT = "draft_text"
@@ -81,6 +96,9 @@ object PreferenceKeys {
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
         const val SHARE_CARD_SHOW_BRAND = PreferenceDefaults.SHARE_CARD_SHOW_BRAND
+        const val MEMO_SNAPSHOTS_ENABLED = PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED
+        const val MEMO_SNAPSHOT_MAX_COUNT = PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT
+        const val MEMO_SNAPSHOT_MAX_AGE_DAYS = PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS
 
         // Storage Defaults
         const val STORAGE_FILENAME_FORMAT = PreferenceDefaults.STORAGE_FILENAME_FORMAT
@@ -99,5 +117,11 @@ object PreferenceKeys {
         const val WEBDAV_AUTO_SYNC_ENABLED = PreferenceDefaults.WEBDAV_AUTO_SYNC_ENABLED
         const val WEBDAV_AUTO_SYNC_INTERVAL = PreferenceDefaults.WEBDAV_AUTO_SYNC_INTERVAL
         const val WEBDAV_SYNC_ON_REFRESH = PreferenceDefaults.WEBDAV_SYNC_ON_REFRESH
+        const val S3_SYNC_ENABLED = PreferenceDefaults.S3_SYNC_ENABLED
+        const val S3_PATH_STYLE = PreferenceDefaults.S3_PATH_STYLE
+        const val S3_ENCRYPTION_MODE = PreferenceDefaults.S3_ENCRYPTION_MODE
+        const val S3_AUTO_SYNC_ENABLED = PreferenceDefaults.S3_AUTO_SYNC_ENABLED
+        const val S3_AUTO_SYNC_INTERVAL = PreferenceDefaults.S3_AUTO_SYNC_INTERVAL
+        const val S3_SYNC_ON_REFRESH = PreferenceDefaults.S3_SYNC_ON_REFRESH
     }
 }

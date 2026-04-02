@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.worker.GitSyncScheduler
+import com.lomo.data.worker.S3SyncScheduler
 import com.lomo.data.worker.WebDavSyncScheduler
 import com.lomo.domain.model.SyncBackendType
 import io.mockk.coEvery
@@ -21,6 +22,7 @@ import org.junit.Test
  * - Unit under test: SyncPolicyRepositoryImpl
  * - Behavior focus: backend preference mapping and scheduler enable/cancel policy.
  * - Observable outcomes: observed SyncBackendType values, datastore flag mutations, and scheduler calls.
+ * - Red phase: Fails before the fix because the S3 backend cannot be persisted or rescheduled, so remote sync policy never activates the S3 scheduler.
  * - Excludes: WorkManager request construction and Android context-driven worker registration.
  */
 class SyncPolicyRepositoryImplTest {
@@ -28,6 +30,7 @@ class SyncPolicyRepositoryImplTest {
     private val dataStore: LomoDataStore = mockk(relaxed = true)
     private val gitSyncScheduler: GitSyncScheduler = mockk(relaxed = true)
     private val webDavSyncScheduler: WebDavSyncScheduler = mockk(relaxed = true)
+    private val s3SyncScheduler: S3SyncScheduler = mockk(relaxed = true)
 
     private val repository =
         SyncPolicyRepositoryImpl(
@@ -35,6 +38,7 @@ class SyncPolicyRepositoryImplTest {
             dataStore = dataStore,
             gitSyncScheduler = gitSyncScheduler,
             webDavSyncScheduler = webDavSyncScheduler,
+            s3SyncScheduler = s3SyncScheduler,
         )
 
     @Test
@@ -53,6 +57,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 1) { dataStore.updateSyncBackendType("git") }
             coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(true) }
             coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(false) }
         }
 
     @Test
@@ -63,6 +68,18 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 1) { dataStore.updateSyncBackendType("none") }
             coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(false) }
             coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(false) }
+        }
+
+    @Test
+    fun `setRemoteSyncBackend enables s3 and disables git webdav for s3 backend`() =
+        runTest {
+            repository.setRemoteSyncBackend(SyncBackendType.S3)
+
+            coVerify(exactly = 1) { dataStore.updateSyncBackendType("s3") }
+            coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(true) }
         }
 
     @Test
@@ -74,8 +91,10 @@ class SyncPolicyRepositoryImplTest {
 
             verify(exactly = 1) { gitSyncScheduler.cancel() }
             verify(exactly = 1) { webDavSyncScheduler.cancel() }
+            verify(exactly = 1) { s3SyncScheduler.cancel() }
             coVerify(exactly = 0) { gitSyncScheduler.reschedule() }
             coVerify(exactly = 0) { webDavSyncScheduler.reschedule() }
+            coVerify(exactly = 0) { s3SyncScheduler.reschedule() }
         }
 
     @Test
@@ -87,8 +106,10 @@ class SyncPolicyRepositoryImplTest {
             repository.applyRemoteSyncPolicy()
 
             verify(exactly = 1) { webDavSyncScheduler.cancel() }
+            verify(exactly = 1) { s3SyncScheduler.cancel() }
             coVerify(exactly = 1) { gitSyncScheduler.reschedule() }
             coVerify(exactly = 0) { webDavSyncScheduler.reschedule() }
+            coVerify(exactly = 0) { s3SyncScheduler.reschedule() }
         }
 
     @Test
@@ -100,7 +121,23 @@ class SyncPolicyRepositoryImplTest {
             repository.applyRemoteSyncPolicy()
 
             verify(exactly = 1) { gitSyncScheduler.cancel() }
+            verify(exactly = 1) { s3SyncScheduler.cancel() }
             coVerify(exactly = 1) { webDavSyncScheduler.reschedule() }
             coVerify(exactly = 0) { gitSyncScheduler.reschedule() }
+        }
+
+    @Test
+    fun `applyRemoteSyncPolicy reschedules s3 and cancels git webdav when backend is S3`() =
+        runTest {
+            every { dataStore.syncBackendType } returns flowOf("s3")
+            coEvery { s3SyncScheduler.reschedule() } returns Unit
+
+            repository.applyRemoteSyncPolicy()
+
+            verify(exactly = 1) { gitSyncScheduler.cancel() }
+            verify(exactly = 1) { webDavSyncScheduler.cancel() }
+            coVerify(exactly = 1) { s3SyncScheduler.reschedule() }
+            coVerify(exactly = 0) { gitSyncScheduler.reschedule() }
+            coVerify(exactly = 0) { webDavSyncScheduler.reschedule() }
         }
 }

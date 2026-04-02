@@ -1,8 +1,17 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
+import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class SettingsStorageFeatureViewModel(
@@ -72,6 +81,23 @@ class SettingsShareCardFeatureViewModel(
     }
 }
 
+class SettingsSnapshotFeatureViewModel(
+    private val scope: CoroutineScope,
+    private val appConfigCoordinator: SettingsAppConfigCoordinator,
+) {
+    fun updateMemoSnapshotsEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateMemoSnapshotsEnabled(enabled) }
+    }
+
+    fun updateMemoSnapshotMaxCount(count: Int) {
+        scope.launch { appConfigCoordinator.updateMemoSnapshotMaxCount(count) }
+    }
+
+    fun updateMemoSnapshotMaxAgeDays(days: Int) {
+        scope.launch { appConfigCoordinator.updateMemoSnapshotMaxAgeDays(days) }
+    }
+}
+
 class SettingsInteractionFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
@@ -108,10 +134,70 @@ class SettingsInteractionFeatureViewModel(
 class SettingsSystemFeatureViewModel(
     private val scope: CoroutineScope,
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
+    private val appUpdateChecker: AppUpdateChecker? = null,
+    private val getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
 ) {
+    private val _currentVersion = MutableStateFlow("")
+    val currentVersion: StateFlow<String> = _currentVersion.asStateFlow()
+
+    private val _manualUpdateState = MutableStateFlow<SettingsManualUpdateState>(SettingsManualUpdateState.Idle)
+    val manualUpdateState: StateFlow<SettingsManualUpdateState> = _manualUpdateState.asStateFlow()
+
+    init {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            _currentVersion.value = getCurrentAppVersionUseCase?.invoke().orEmpty()
+        }
+    }
+
     fun updateCheckUpdatesOnStartup(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateCheckUpdatesOnStartup(enabled) }
     }
+
+    fun checkForUpdatesManually() {
+        if (_manualUpdateState.value is SettingsManualUpdateState.Checking) {
+            return
+        }
+        _manualUpdateState.value = SettingsManualUpdateState.Checking
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            _manualUpdateState.value =
+                runCatching { appUpdateChecker?.checkForManualUpdate() }
+                    .fold(
+                        onSuccess = { info ->
+                            when {
+                                info == null -> SettingsManualUpdateState.UpToDate
+                                else ->
+                                    SettingsManualUpdateState.UpdateAvailable(
+                                        dialogState =
+                                            AppUpdateDialogState(
+                                                url = info.url,
+                                                version = info.version,
+                                                releaseNotes = info.releaseNotes,
+                                            ),
+                                    )
+                            }
+                        },
+                        onFailure = { throwable ->
+                            SettingsManualUpdateState.Error(throwable.message)
+                        },
+                    )
+        }
+    }
+}
+
+sealed interface SettingsManualUpdateState {
+    data object Idle : SettingsManualUpdateState
+
+    data object Checking : SettingsManualUpdateState
+
+    data class UpdateAvailable(
+        val dialogState: AppUpdateDialogState,
+    ) : SettingsManualUpdateState
+
+    data object UpToDate : SettingsManualUpdateState
+
+    data class Error(
+        val message: String?,
+    ) : SettingsManualUpdateState
 }
 
 class SettingsLanShareFeatureViewModel(
@@ -179,4 +265,30 @@ class SettingsWebDavFeatureViewModel(
     val resetConnectionTestState = webDavCoordinator::resetConnectionTestState
     val isValidUrl = webDavCoordinator::isValidWebDavUrl
     val isValidWebDavUrl = webDavCoordinator::isValidWebDavUrl
+}
+
+class SettingsS3FeatureViewModel(
+    actionCoordinator: SettingsActionCoordinator,
+    s3Coordinator: SettingsS3Coordinator,
+) {
+    val updateS3SyncEnabled = actionCoordinator.updateS3SyncEnabled
+    val updateEndpointUrl = actionCoordinator.updateS3EndpointUrl
+    val updateRegion = actionCoordinator.updateS3Region
+    val updateBucket = actionCoordinator.updateS3Bucket
+    val updatePrefix = actionCoordinator.updateS3Prefix
+    val updateLocalSyncDirectory = actionCoordinator.updateS3LocalSyncDirectory
+    val clearLocalSyncDirectory = actionCoordinator.clearS3LocalSyncDirectory
+    val updateAccessKeyId = actionCoordinator.updateS3AccessKeyId
+    val updateSecretAccessKey = actionCoordinator.updateS3SecretAccessKey
+    val updateSessionToken = actionCoordinator.updateS3SessionToken
+    val updatePathStyle: (S3PathStyle) -> Unit = actionCoordinator.updateS3PathStyle
+    val updateEncryptionMode: (S3EncryptionMode) -> Unit = actionCoordinator.updateS3EncryptionMode
+    val updateEncryptionPassword = actionCoordinator.updateS3EncryptionPassword
+    val updateAutoSyncEnabled = actionCoordinator.updateS3AutoSyncEnabled
+    val updateAutoSyncInterval = actionCoordinator.updateS3AutoSyncInterval
+    val updateSyncOnRefresh = actionCoordinator.updateS3SyncOnRefresh
+    val triggerSyncNow = actionCoordinator.triggerS3SyncNow
+    val testConnection = actionCoordinator.testS3Connection
+    val resetConnectionTestState = s3Coordinator::resetConnectionTestState
+    val isValidEndpointUrl = s3Coordinator::isValidEndpointUrl
 }

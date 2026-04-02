@@ -8,6 +8,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.worker.GitSyncScheduler
+import com.lomo.data.worker.S3SyncScheduler
 import com.lomo.data.worker.SyncWorker
 import com.lomo.data.worker.WebDavSyncScheduler
 import com.lomo.domain.model.SyncBackendType
@@ -28,6 +29,7 @@ class SyncPolicyRepositoryImpl
         private val dataStore: LomoDataStore,
         private val gitSyncScheduler: GitSyncScheduler,
         private val webDavSyncScheduler: WebDavSyncScheduler,
+        private val s3SyncScheduler: S3SyncScheduler,
     ) : SyncPolicyRepository {
         override fun ensureCoreSyncActive() {
             val syncRequest =
@@ -57,16 +59,25 @@ class SyncPolicyRepositoryImpl
                 SyncBackendType.NONE -> {
                     dataStore.updateGitSyncEnabled(false)
                     dataStore.updateWebDavSyncEnabled(false)
+                    dataStore.updateS3SyncEnabled(false)
                 }
 
                 SyncBackendType.GIT -> {
                     dataStore.updateGitSyncEnabled(true)
                     dataStore.updateWebDavSyncEnabled(false)
+                    dataStore.updateS3SyncEnabled(false)
                 }
 
                 SyncBackendType.WEBDAV -> {
                     dataStore.updateGitSyncEnabled(false)
                     dataStore.updateWebDavSyncEnabled(true)
+                    dataStore.updateS3SyncEnabled(false)
+                }
+
+                SyncBackendType.S3 -> {
+                    dataStore.updateGitSyncEnabled(false)
+                    dataStore.updateWebDavSyncEnabled(false)
+                    dataStore.updateS3SyncEnabled(true)
                 }
             }
         }
@@ -76,16 +87,25 @@ class SyncPolicyRepositoryImpl
                 SyncBackendType.NONE -> {
                     gitSyncScheduler.cancel()
                     webDavSyncScheduler.cancel()
+                    s3SyncScheduler.cancel()
                 }
 
                 SyncBackendType.GIT -> {
                     webDavSyncScheduler.cancel()
+                    s3SyncScheduler.cancel()
                     gitSyncScheduler.reschedule()
                 }
 
                 SyncBackendType.WEBDAV -> {
                     gitSyncScheduler.cancel()
+                    s3SyncScheduler.cancel()
                     webDavSyncScheduler.reschedule()
+                }
+
+                SyncBackendType.S3 -> {
+                    gitSyncScheduler.cancel()
+                    webDavSyncScheduler.cancel()
+                    s3SyncScheduler.reschedule()
                 }
             }
         }

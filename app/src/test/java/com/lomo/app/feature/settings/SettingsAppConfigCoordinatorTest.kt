@@ -10,7 +10,8 @@ import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -21,18 +22,18 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: SettingsAppConfigCoordinator
- * - Behavior focus: state-flow defaults and null-to-empty display mapping, root or media location updates, preference setter forwarding, and doubleTap/freeTextCopy mutual exclusion.
+ * - Behavior focus: directory display loading and resolution state, preference state defaults, root or media location updates, preference setter forwarding, and doubleTap/freeTextCopy mutual exclusion.
  * - Observable outcomes: exposed StateFlow values and repository or use-case calls with expected arguments.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because directory display state is flattened to an empty string, so the settings screen cannot distinguish first-frame loading from an actual unset directory.
  * - Excludes: DataStore persistence internals, Compose rendering, and unrelated settings coordinators.
  */
 class SettingsAppConfigCoordinatorTest {
     private val appConfigRepository: AppConfigRepository = mockk(relaxed = true)
     private val switchRootStorageUseCase: SwitchRootStorageUseCase = mockk(relaxed = true)
 
-    private val rootDisplayFlow = MutableStateFlow<String?>(null)
-    private val imageDisplayFlow = MutableStateFlow<String?>(null)
-    private val voiceDisplayFlow = MutableStateFlow<String?>(null)
+    private val rootDisplayFlow = MutableSharedFlow<String?>(replay = 1)
+    private val imageDisplayFlow = MutableSharedFlow<String?>(replay = 1)
+    private val voiceDisplayFlow = MutableSharedFlow<String?>(replay = 1)
 
     @Before
     fun setUp() {
@@ -83,30 +84,42 @@ class SettingsAppConfigCoordinatorTest {
     }
 
     @Test
-    fun `display state flows start from defaults and map null to empty`() =
+    fun `directory display states stay loading until repository emits a value`() =
         runTest {
             val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
 
-            assertEquals("", coordinator.rootDirectory.value)
-            assertEquals("", coordinator.imageDirectory.value)
-            assertEquals("", coordinator.voiceDirectory.value)
+            assertEquals(DirectoryDisplayState.Loading, coordinator.rootDirectory.value)
+            assertEquals(DirectoryDisplayState.Loading, coordinator.imageDirectory.value)
+            assertEquals(DirectoryDisplayState.Loading, coordinator.voiceDirectory.value)
             assertEquals(PreferenceDefaults.DATE_FORMAT, coordinator.dateFormat.value)
             assertEquals(PreferenceDefaults.TIME_FORMAT, coordinator.timeFormat.value)
             assertEquals(ThemeMode.SYSTEM, coordinator.themeMode.value)
         }
 
     @Test
-    fun `display state flows reflect non-null values from repository`() =
+    fun `directory display states resolve emitted values including unset`() =
         runTest {
             val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
+            backgroundScope.launch { coordinator.rootDirectory.collect {} }
+            backgroundScope.launch { coordinator.imageDirectory.collect {} }
+            backgroundScope.launch { coordinator.voiceDirectory.collect {} }
 
-            rootDisplayFlow.value = "/workspace/root"
-            imageDisplayFlow.value = "/workspace/images"
-            voiceDisplayFlow.value = "/workspace/voice"
+            rootDisplayFlow.emit("/workspace/root")
+            imageDisplayFlow.emit(null)
+            voiceDisplayFlow.emit("/workspace/voice")
 
-            assertEquals("/workspace/root", coordinator.rootDirectory.first { it.isNotEmpty() })
-            assertEquals("/workspace/images", coordinator.imageDirectory.first { it.isNotEmpty() })
-            assertEquals("/workspace/voice", coordinator.voiceDirectory.first { it.isNotEmpty() })
+            assertEquals(
+                DirectoryDisplayState.Resolved("/workspace/root"),
+                coordinator.rootDirectory.first { it !is DirectoryDisplayState.Loading },
+            )
+            assertEquals(
+                DirectoryDisplayState.Resolved(null),
+                coordinator.imageDirectory.first { it !is DirectoryDisplayState.Loading },
+            )
+            assertEquals(
+                DirectoryDisplayState.Resolved("/workspace/voice"),
+                coordinator.voiceDirectory.first { it !is DirectoryDisplayState.Loading },
+            )
         }
 
     @Test

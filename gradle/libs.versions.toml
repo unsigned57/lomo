@@ -3,9 +3,11 @@ activityCompose = "1.13.0"
 adaptive = "1.2.0"
 agp = "9.2.0-alpha05"
 appcompat = "1.7.1"
+awsSdkKotlin = "1.6.35"
 androidNdk = "29.0.14206865"
 benchmarkMacro = "1.5.0-alpha04"
 biometric = "1.4.0-alpha05"
+bouncycastle = "1.83"
 coil = "3.4.0"
 commonmark = "0.27.1"
 composeBom = "2026.03.00"
@@ -45,6 +47,8 @@ work = "2.11.1"
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+aws-sdk-kotlin-bom = { module = "aws.sdk.kotlin:bom", version.ref = "awsSdkKotlin" }
+aws-sdk-kotlin-s3 = { module = "aws.sdk.kotlin:s3" }
 androidx-benchmark-macro-junit4 = { module = "androidx.benchmark:benchmark-macro-junit4", version.ref = "benchmarkMacro" }
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
@@ -85,6 +89,7 @@ androidx-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 bitfire-dav4jvm = { module = "com.github.bitfireAT:dav4jvm", version.ref = "dav4jvm" }
+bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
 commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }

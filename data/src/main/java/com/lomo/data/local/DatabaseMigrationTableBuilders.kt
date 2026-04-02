@@ -42,6 +42,9 @@ internal fun createLocalFileStateTable(db: SupportSQLiteDatabase) {
             `isTrash` INTEGER NOT NULL,
             `saf_uri` TEXT,
             `last_known_modified_time` INTEGER NOT NULL,
+            `missing_since` INTEGER,
+            `missing_count` INTEGER NOT NULL,
+            `last_seen_at` INTEGER NOT NULL,
             PRIMARY KEY(`filename`, `isTrash`)
         )
         """.trimIndent(),

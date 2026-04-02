@@ -87,6 +87,9 @@ class RoomMemoVersionStore
                 MemoRevisionEntity::toRecord,
             )
 
+        override suspend fun listAllRevisionsForMemo(memoId: String): List<MemoVersionRevisionRecord> =
+            memoVersionDao.listAllRevisionsForMemo(memoId).map(MemoRevisionEntity::toRecord)
+
         override suspend fun listAssetsForRevisionIds(revisionIds: List<String>): List<MemoVersionAssetRecord> =
             if (revisionIds.isEmpty()) {
                 emptyList()
@@ -110,6 +113,10 @@ class RoomMemoVersionStore
 
         override suspend fun deleteBlob(blobHash: String) {
             memoVersionDao.deleteBlob(blobHash)
+        }
+
+        override suspend fun clearAll() {
+            memoVersionDao.clearAllVersionHistory()
         }
     }
 

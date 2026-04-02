@@ -27,21 +27,9 @@ class MemoRefreshDbApplier(
         parseResult: MemoRefreshParseResult,
         filesToDeleteInDb: Set<Pair<String, Boolean>>,
     ) {
-        val hasDateReplacements =
-            parseResult.mainDatesToReplace.isNotEmpty() || parseResult.trashDatesToReplace.isNotEmpty()
-        if (!hasDateReplacements && filesToDeleteInDb.isEmpty()) {
+        if (affectedDateKeys(parseResult, filesToDeleteInDb).isEmpty()) {
             return
         }
-
-        runInTransaction {
-            applyInternal(parseResult, filesToDeleteInDb)
-        }
-    }
-
-    private suspend fun applyInternal(
-        parseResult: MemoRefreshParseResult,
-        filesToDeleteInDb: Set<Pair<String, Boolean>>,
-    ) {
         val previousStates =
             loadAffectedStates(
                 parseResult = parseResult,
@@ -49,6 +37,21 @@ class MemoRefreshDbApplier(
                 memoDao = memoDao,
                 memoTrashDao = memoTrashDao,
             )
+
+        runInTransaction {
+            applyInternal(
+                parseResult = parseResult,
+                filesToDeleteInDb = filesToDeleteInDb,
+                previousStates = previousStates,
+            )
+        }
+    }
+
+    private suspend fun applyInternal(
+        parseResult: MemoRefreshParseResult,
+        filesToDeleteInDb: Set<Pair<String, Boolean>>,
+        previousStates: Map<String, RefreshMemoState>,
+    ) {
         replaceDates(parseResult)
 
         val deduplicatedMainMemos = deduplicateMemos(parseResult.mainMemos)
@@ -153,6 +156,18 @@ class MemoRefreshDbApplier(
         }
     }
 }
+
+private fun affectedDateKeys(
+    parseResult: MemoRefreshParseResult,
+    filesToDeleteInDb: Set<Pair<String, Boolean>>,
+): Set<String> =
+    buildSet {
+        addAll(parseResult.mainDatesToReplace)
+        addAll(parseResult.trashDatesToReplace)
+        filesToDeleteInDb.forEach { (filename, _) ->
+            add(filename.removeSuffix(".md"))
+        }
+    }
 
 private fun deduplicateMemos(memos: List<MemoEntity>): List<MemoEntity> =
     memos.associateBy { it.id }.values.toList()

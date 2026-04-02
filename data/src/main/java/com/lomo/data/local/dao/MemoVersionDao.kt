@@ -112,8 +112,20 @@ interface MemoVersionRevisionDao {
         retainCount: Int,
     ): List<MemoRevisionEntity>
 
+    @Query(
+        """
+        SELECT * FROM memo_revision
+        WHERE memoId = :memoId
+        ORDER BY createdAt DESC, revisionId DESC
+        """,
+    )
+    suspend fun listAllRevisionsForMemo(memoId: String): List<MemoRevisionEntity>
+
     @Query("DELETE FROM memo_revision WHERE revisionId IN (:revisionIds)")
     suspend fun deleteRevisionsByIds(revisionIds: List<String>)
+
+    @Query("DELETE FROM memo_revision")
+    suspend fun deleteAllRevisions()
 }
 
 interface MemoVersionAssetDao {
@@ -148,6 +160,9 @@ interface MemoVersionAssetDao {
 
     @Query("DELETE FROM memo_revision_asset WHERE revisionId IN (:revisionIds)")
     suspend fun deleteAssetsByRevisionIds(revisionIds: List<String>)
+
+    @Query("DELETE FROM memo_revision_asset")
+    suspend fun deleteAllAssets()
 }
 
 interface MemoVersionBlobDao {
@@ -169,6 +184,9 @@ interface MemoVersionBlobDao {
 
     @Query("DELETE FROM memo_version_blob WHERE blobHash = :blobHash")
     suspend fun deleteBlob(blobHash: String)
+
+    @Query("DELETE FROM memo_version_blob")
+    suspend fun deleteAllBlobs()
 }
 
 @Dao
@@ -176,4 +194,15 @@ interface MemoVersionDao :
     MemoVersionCommitDao,
     MemoVersionRevisionDao,
     MemoVersionAssetDao,
-    MemoVersionBlobDao
+    MemoVersionBlobDao {
+    @Query("DELETE FROM version_commit")
+    suspend fun deleteAllCommits()
+
+    @Transaction
+    suspend fun clearAllVersionHistory() {
+        deleteAllAssets()
+        deleteAllRevisions()
+        deleteAllBlobs()
+        deleteAllCommits()
+    }
+}

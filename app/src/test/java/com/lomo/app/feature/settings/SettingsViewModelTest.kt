@@ -2,6 +2,10 @@ package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
@@ -9,8 +13,11 @@ import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.LanShareService
+import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
+import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
+import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
 import io.mockk.coEvery
@@ -21,6 +28,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -34,9 +42,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: SettingsViewModel
- * - Behavior focus: settings operation error mapping, connection test state handling, and delegated settings mutations.
- * - Observable outcomes: operationError, connectionTestState, and collaborator invocations.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Behavior focus: settings operation error mapping, memo-only snapshot state exposure, and delegated settings mutations.
+ * - Observable outcomes: operationError, connectionTestState, uiState.snapshot shape, and collaborator invocations.
+ * - Red phase: Fails before the fix because SettingsViewModel still depends on and exposes md-level snapshot collaborators/state.
  * - Excludes: Compose rendering, transport implementation details, and repository internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -47,7 +55,10 @@ class SettingsViewModelTest {
     private lateinit var shareServiceManager: LanShareService
     private lateinit var gitSyncSettingsUseCase: GitSyncSettingsUseCase
     private lateinit var webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase
+    private lateinit var s3SyncSettingsUseCase: S3SyncSettingsUseCase
     private lateinit var switchRootStorageUseCase: SwitchRootStorageUseCase
+    private lateinit var memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository
+    private lateinit var memoVersionRepository: MemoVersionRepository
 
     @Before
     fun setUp() {
@@ -57,7 +68,10 @@ class SettingsViewModelTest {
         shareServiceManager = mockk(relaxed = true)
         gitSyncSettingsUseCase = mockk(relaxed = true)
         webDavSyncSettingsUseCase = mockk(relaxed = true)
+        s3SyncSettingsUseCase = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
+        memoSnapshotPreferencesRepository = mockk(relaxed = true)
+        memoVersionRepository = mockk(relaxed = true)
 
         every { appConfigRepository.observeRootDisplayName() } returns flowOf("")
         every { appConfigRepository.observeImageDisplayName() } returns flowOf("")
@@ -77,6 +91,12 @@ class SettingsViewModelTest {
         every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
+        every { memoSnapshotPreferencesRepository.isMemoSnapshotsEnabled() } returns
+            flowOf(PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED)
+        every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxCount() } returns
+            flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT)
+        every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxAgeDays() } returns
+            flowOf(PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS)
 
         every { shareServiceManager.lanShareE2eEnabled } returns flowOf(true)
         every { shareServiceManager.lanSharePairingConfigured } returns flowOf(false)
@@ -103,6 +123,24 @@ class SettingsViewModelTest {
         every { webDavSyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
         every { webDavSyncSettingsUseCase.observeLastSyncTimeMillis() } returns flowOf(null)
         every { webDavSyncSettingsUseCase.observeSyncState() } returns flowOf(WebDavSyncState.Idle)
+
+        every { s3SyncSettingsUseCase.observeS3SyncEnabled() } returns flowOf(false)
+        every { s3SyncSettingsUseCase.observeEndpointUrl() } returns flowOf("")
+        every { s3SyncSettingsUseCase.observeRegion() } returns flowOf("")
+        every { s3SyncSettingsUseCase.observeBucket() } returns flowOf("")
+        every { s3SyncSettingsUseCase.observePrefix() } returns flowOf("")
+        every { s3SyncSettingsUseCase.observeLocalSyncDirectory() } returns flowOf("")
+        every { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.AUTO)
+        every { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.NONE)
+        every { s3SyncSettingsUseCase.observeAutoSyncEnabled() } returns flowOf(false)
+        every { s3SyncSettingsUseCase.observeAutoSyncInterval() } returns flowOf("1h")
+        every { s3SyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
+        every { s3SyncSettingsUseCase.observeLastSyncTimeMillis() } returns flowOf(null)
+        every { s3SyncSettingsUseCase.observeSyncState() } returns flowOf(S3SyncState.Idle)
+        coEvery { s3SyncSettingsUseCase.isAccessKeyConfigured() } returns false
+        coEvery { s3SyncSettingsUseCase.isSecretAccessKeyConfigured() } returns false
+        coEvery { s3SyncSettingsUseCase.isSessionTokenConfigured() } returns false
+        coEvery { s3SyncSettingsUseCase.isEncryptionPasswordConfigured() } returns false
 
         coEvery { webDavSyncSettingsUseCase.isPasswordConfigured() } returns false
         coEvery { webDavSyncSettingsUseCase.testConnection() } returns WebDavSyncResult.Success("ok")
@@ -205,6 +243,21 @@ class SettingsViewModelTest {
         }
 
     @Test
+    fun `snapshot section exposes memo-only controls`() =
+        runTest {
+            val viewModel = createViewModel()
+
+            assertEquals(
+                SnapshotSectionState(
+                    memoSnapshotsEnabled = PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED,
+                    memoSnapshotMaxCount = PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT,
+                    memoSnapshotMaxAgeDays = PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS,
+                ),
+                viewModel.uiState.value.snapshot,
+            )
+        }
+
+    @Test
     fun `updateAppLockEnabled delegates to repository`() =
         runTest {
             coEvery { appConfigRepository.setAppLockEnabled(true) } returns Unit
@@ -216,6 +269,27 @@ class SettingsViewModelTest {
             coVerify(exactly = 1) { appConfigRepository.setAppLockEnabled(true) }
         }
 
+    @Test
+    fun `ui state exposes s3 defaults from settings use case`() =
+        runTest {
+            every { s3SyncSettingsUseCase.observeS3SyncEnabled() } returns flowOf(true)
+            every { s3SyncSettingsUseCase.observeBucket() } returns flowOf("vault")
+            every { s3SyncSettingsUseCase.observeLocalSyncDirectory() } returns
+                flowOf("content://tree/primary%3AObsidian")
+            every { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.PATH_STYLE)
+            every { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.RCLONE_CRYPT)
+
+            val viewModel = createViewModel()
+            backgroundScope.launch { viewModel.uiState.collect {} }
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(true, viewModel.uiState.value.s3.enabled)
+            assertEquals("vault", viewModel.uiState.value.s3.bucket)
+            assertEquals("content://tree/primary%3AObsidian", viewModel.uiState.value.s3.localSyncDirectory)
+            assertEquals(S3PathStyle.PATH_STYLE, viewModel.uiState.value.s3.pathStyle)
+            assertEquals(S3EncryptionMode.RCLONE_CRYPT, viewModel.uiState.value.s3.encryptionMode)
+        }
+
     private fun createViewModel(): SettingsViewModel =
         SettingsViewModel(
             coordinatorFactory =
@@ -224,7 +298,10 @@ class SettingsViewModelTest {
                     lanShareService = shareServiceManager,
                     gitSyncSettingsUseCase = gitSyncSettingsUseCase,
                     webDavSyncSettingsUseCase = webDavSyncSettingsUseCase,
+                    s3SyncSettingsUseCase = s3SyncSettingsUseCase,
                     switchRootStorageUseCase = switchRootStorageUseCase,
+                    memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                    memoVersionRepository = memoVersionRepository,
                 ),
         )
 }

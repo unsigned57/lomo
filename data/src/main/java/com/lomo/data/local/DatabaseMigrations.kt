@@ -17,6 +17,10 @@ const val SCHEMA_VERSION_28 = 28
 const val SCHEMA_VERSION_29 = 29
 const val SCHEMA_VERSION_30 = 30
 const val SCHEMA_VERSION_31 = 31
+const val SCHEMA_VERSION_34 = 34
+const val SCHEMA_VERSION_35 = 35
+const val SCHEMA_VERSION_36 = 36
+const val SCHEMA_VERSION_37 = 37
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -171,6 +175,27 @@ val MIGRATION_30_31: Migration =
         }
     }
 
+val MIGRATION_34_35: Migration =
+    object : Migration(SCHEMA_VERSION_34, SCHEMA_VERSION_35) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            compactMemoRevisionContentPreviews(db)
+        }
+    }
+
+val MIGRATION_35_36: Migration =
+    object : Migration(SCHEMA_VERSION_35, SCHEMA_VERSION_36) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createS3SyncMetadataTable(db)
+        }
+    }
+
+val MIGRATION_36_37: Migration =
+    object : Migration(SCHEMA_VERSION_36, SCHEMA_VERSION_37) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            normalizeLocalFileStateTable(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -210,6 +235,9 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_28_29,
             MIGRATION_29_30,
             MIGRATION_30_31,
+            MIGRATION_34_35,
+            MIGRATION_35_36,
+            MIGRATION_36_37,
         )
 
 /**
@@ -227,6 +255,9 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase G: Apply v28→v29 changes (memo revision history tables).
  * Phase H: Apply v29→v30 changes (retire legacy workspace-history metadata tables).
  * Phase I: Apply v30→v31 changes (tighten memo revision indexes).
+ * Phase J: Apply v34→v35 changes (compact memo-revision previews).
+ * Phase K: Apply v35→v36 changes (S3 sync metadata table).
+ * Phase L: Apply v36→v37 changes (external refresh protection state).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -287,6 +318,15 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
     // ── Phase I: v30 → v31 (memo revision indexes) ─────────────────
     createMemoRevisionIndexes(db)
     createMemoRevisionAssetIndexes(db)
+
+    // ── Phase J: v34 → v35 (compact memo-revision previews) ────────
+    compactMemoRevisionContentPreviews(db)
+
+    // ── Phase K: v35 → v36 (S3 sync metadata table) ────────────────
+    createS3SyncMetadataTable(db)
+
+    // ── Phase L: v36 → v37 (external refresh protection state) ────
+    normalizeLocalFileStateTable(db)
 }
 
 private fun createMemoVersionTables(db: SupportSQLiteDatabase) {

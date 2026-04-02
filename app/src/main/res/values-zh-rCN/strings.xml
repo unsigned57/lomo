@@ -52,6 +52,13 @@
     <string name="input_hint_7">在画廊和每日回顾中，菜单里点“跳转”可定位到对应笔记</string>
     <string name="settings_check_updates">启动时检测更新</string>
     <string name="settings_check_updates_subtitle">启动应用时自动检测新版本</string>
+    <string name="settings_check_updates_now">检查更新</string>
+    <string name="settings_check_updates_now_subtitle">手动检查 GitHub 上的最新版本</string>
+    <string name="settings_checking_updates">正在检查更新…</string>
+    <string name="settings_app_up_to_date">当前已是最新版本。</string>
+    <string name="settings_check_updates_failed">检查更新失败。</string>
+    <string name="settings_check_updates_failed_with_reason">检查更新失败：%1$s</string>
+    <string name="settings_update_available_subtitle">发现新版本 %1$s，点击可打开下载页面。</string>
     
     <!-- Dialog Titles -->
     <string name="settings_select_date_format">选择日期格式</string>
@@ -63,6 +70,27 @@
     <string name="settings_share_card_show_time_subtitle">在分享图片上显示分享时间</string>
     <string name="settings_share_card_show_brand">显示应用署名</string>
     <string name="settings_share_card_show_brand_subtitle">在分享图片上显示 Lomo 署名</string>
+    <string name="settings_group_snapshots">快照</string>
+    <string name="settings_memo_snapshots">Memo 回滚快照</string>
+    <string name="settings_memo_snapshots_subtitle">为单条 memo 保留回滚历史。只要内容发生编辑，就会新增一个可恢复版本。</string>
+    <string name="settings_memo_snapshot_keep_count">回滚保留份数</string>
+    <plurals name="settings_memo_snapshot_keep_count_summary">
+        <item quantity="other">每条 memo 最多保留最新 %1$d 个回滚版本</item>
+    </plurals>
+    <string name="settings_memo_snapshot_keep_age">回滚保留时长</string>
+    <plurals name="settings_memo_snapshot_keep_age_summary">
+        <item quantity="other">清理超过 %1$d 天的 memo 回滚版本</item>
+    </plurals>
+    <string name="settings_memo_snapshot_count_dialog_title">选择 memo 回滚保留份数</string>
+    <string name="settings_memo_snapshot_age_dialog_title">选择 memo 回滚保留时长</string>
+    <plurals name="settings_memo_snapshot_count_option">
+        <item quantity="other">保留 %1$d 份版本</item>
+    </plurals>
+    <plurals name="settings_snapshot_age_option">
+        <item quantity="other">%1$d 天后清理</item>
+    </plurals>
+    <string name="settings_memo_snapshot_disable_title">关闭 memo 回滚快照？</string>
+    <string name="settings_memo_snapshot_disable_message">关闭后会停止记录新的 memo 回滚快照，并永久清空现有 memo 快照历史。</string>
     <plurals name="share_card_recorded_days">
         <item quantity="other">累计记录 %1$d 天</item>
     </plurals>
@@ -197,6 +225,7 @@
     <string name="trash_clear_confirm_message">此操作会永久删除回收站中的所有备忘录。</string>
     <string name="action_restore">恢复</string>
     <string name="action_delete_permanently">永久删除</string>
+    <string name="action_retry">重试</string>
     <string name="cd_clear_trash">清空回收站</string>
     <string name="error_unknown">未知错误</string>
 
@@ -231,10 +260,13 @@
     <string name="action_reject">拒绝</string>
     <string name="action_save">保存</string>
     <string name="action_clear">清除</string>
+    <string name="action_turn_off_and_clear">关闭并清空</string>
     <string name="action_clear_pairing_code">清除配对密码</string>
 
     <!-- About Group -->
     <string name="settings_group_about">关于</string>
+    <string name="settings_current_version">当前版本</string>
+    <string name="settings_current_version_unknown">版本未知</string>
     <string name="settings_github">项目主页</string>
     <string name="settings_github_subtitle">去 GitHub 查看源代码</string>
 
@@ -343,6 +375,74 @@
     <string name="settings_webdav_test_connection_failed">连接失败：%1$s</string>
     <string name="settings_webdav_sync_on_refresh">刷新同步</string>
     <string name="settings_webdav_sync_on_refresh_subtitle">下拉刷新时触发 WebDAV 同步</string>
+    <string name="settings_group_s3_sync">S3 同步</string>
+    <string name="settings_s3_sync_enable">启用 S3 同步</string>
+    <string name="settings_s3_sync_enable_subtitle">将 Markdown 与受支持的附件同步到兼容 S3 的存储桶</string>
+    <string name="settings_s3_endpoint_url">Endpoint 地址</string>
+    <string name="settings_s3_endpoint_url_hint">https://s3.example.com</string>
+    <string name="settings_s3_region">区域</string>
+    <string name="settings_s3_region_hint">us-east-1</string>
+    <string name="settings_s3_bucket">存储桶</string>
+    <string name="settings_s3_bucket_hint">my-sync-bucket</string>
+    <string name="settings_s3_prefix">远端同步根目录</string>
+    <string name="settings_s3_prefix_hint">vault/subdir</string>
+    <string name="settings_s3_prefix_root">存储桶根目录</string>
+    <string name="settings_s3_local_sync_directory">本地同步目录</string>
+    <string name="settings_s3_local_sync_directory_default">使用默认工作区目录</string>
+    <string name="settings_s3_local_sync_directory_default_subtitle">将 S3 同步恢复为当前 Lomo 的 memo、images 和 voice 目录</string>
+    <string name="settings_s3_access_key_id">Access Key ID</string>
+    <string name="settings_s3_access_key_id_hint">AKIA…</string>
+    <string name="settings_s3_access_key_configured">已配置（点击更新）</string>
+    <string name="settings_s3_access_key_not_set">未配置</string>
+    <string name="settings_s3_secret_access_key">Secret Access Key</string>
+    <string name="settings_s3_secret_access_key_hint">Secret Access Key</string>
+    <string name="settings_s3_secret_access_key_configured">已配置（点击更新）</string>
+    <string name="settings_s3_secret_access_key_not_set">未配置</string>
+    <string name="settings_s3_session_token">Session Token</string>
+    <string name="settings_s3_session_token_hint">临时会话令牌</string>
+    <string name="settings_s3_session_token_configured">已配置（点击更新）</string>
+    <string name="settings_s3_session_token_not_set">未配置</string>
+    <string name="settings_s3_path_style">寻址方式</string>
+    <string name="settings_s3_select_path_style">选择寻址方式</string>
+    <string name="settings_s3_path_style_auto">自动</string>
+    <string name="settings_s3_path_style_path_style">Path-style</string>
+    <string name="settings_s3_path_style_virtual_hosted">Virtual-hosted</string>
+    <string name="settings_s3_encryption_mode">加密模式</string>
+    <string name="settings_s3_select_encryption_mode">选择加密模式</string>
+    <string name="settings_s3_encryption_mode_none">不加密</string>
+    <string name="settings_s3_encryption_mode_rclone_crypt">Rclone Crypt</string>
+    <string name="settings_s3_encryption_mode_openssl">OpenSSL</string>
+    <string name="settings_s3_encryption_password">加密密码</string>
+    <string name="settings_s3_encryption_password_hint">加密密码</string>
+    <string name="settings_s3_encryption_password_message">要读写与 Remotely Save 兼容的加密对象，请使用相同的加密模式和密码。</string>
+    <string name="settings_s3_encryption_password_configured">已配置（点击更新）</string>
+    <string name="settings_s3_encryption_password_not_set">未配置</string>
+    <string name="settings_s3_auto_sync">自动同步</string>
+    <string name="settings_s3_auto_sync_subtitle">在后台自动执行 S3 同步</string>
+    <string name="settings_s3_sync_interval">同步间隔</string>
+    <string name="settings_s3_select_sync_interval">选择同步间隔</string>
+    <string name="settings_s3_sync_now">立即同步</string>
+    <string name="settings_s3_sync_now_subtitle">上次同步：%1$s</string>
+    <string name="settings_s3_sync_never">从未同步</string>
+    <string name="settings_s3_sync_status_initializing">初始化中…</string>
+    <string name="settings_s3_sync_status_connecting">连接中…</string>
+    <string name="settings_s3_sync_status_listing">扫描文件中…</string>
+    <string name="settings_s3_sync_status_uploading">上传中…</string>
+    <string name="settings_s3_sync_status_downloading">下载中…</string>
+    <string name="settings_s3_sync_status_deleting">删除中…</string>
+    <string name="settings_s3_sync_status_error">错误：%1$s</string>
+    <string name="settings_s3_sync_status_not_configured">未配置</string>
+    <string name="settings_s3_sync_status_conflict">检测到冲突</string>
+    <string name="settings_s3_not_configured_message">S3 同步尚未配置。</string>
+    <string name="settings_s3_auth_failed_message">S3 凭证无效或缺失。</string>
+    <string name="settings_s3_bucket_access_failed_message">无法访问配置的 S3 存储桶。</string>
+    <string name="settings_s3_encryption_failed_message">当前加密配置无效。</string>
+    <string name="settings_s3_test_connection">测试连接</string>
+    <string name="settings_s3_test_connection_testing">测试中…</string>
+    <string name="settings_s3_test_connection_success">连接成功</string>
+    <string name="settings_s3_test_connection_failed">连接失败：%1$s</string>
+    <string name="settings_s3_sync_on_refresh">刷新同步</string>
+    <string name="settings_s3_sync_on_refresh_subtitle">下拉刷新时触发 S3 同步</string>
     <string name="memo_version_history">版本历史</string>
     <string name="memo_version_history_empty">暂无版本历史</string>
     <string name="memo_version_loading">加载版本历史…</string>

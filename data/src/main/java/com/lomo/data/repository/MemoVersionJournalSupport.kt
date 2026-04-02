@@ -27,28 +27,6 @@ internal suspend fun captureRevisionAssets(
             )
         }.sortedBy(ResolvedMemoRevisionAsset::logicalPath)
 
-internal suspend fun persistResolvedRevisionAssets(
-    store: MemoVersionStore,
-    blobRoot: File,
-    createdAt: Long,
-    assets: List<ResolvedMemoRevisionAsset>,
-): List<MemoVersionAssetRecord> =
-    assets.map { asset ->
-        persistMemoVersionBlobIfNeeded(
-            store = store,
-            blobRoot = blobRoot,
-            bytes = asset.bytes,
-            contentEncoding = asset.contentEncoding,
-            createdAt = createdAt,
-        )
-        MemoVersionAssetRecord(
-            revisionId = UNASSIGNED_REVISION_ID,
-            logicalPath = asset.logicalPath,
-            blobHash = asset.blobHash,
-            contentEncoding = asset.contentEncoding,
-        )
-    }
-
 internal suspend fun restoreRevisionAssets(
     revisionId: String,
     store: MemoVersionStore,
@@ -75,18 +53,20 @@ internal suspend fun restoreRevisionAssets(
 internal fun MemoVersionRevisionRecord.toMemo(
     rawContent: String,
     memoTextProcessor: MemoTextProcessor,
-): Memo =
-    Memo(
+): Memo {
+    val resolvedBody = resolveMemoRevisionBody(rawContent, memoContent, memoTimestamp, dateKey)
+    return Memo(
         id = memoId,
-        timestamp = memoTimestamp,
+        timestamp = resolvedBody.timestamp,
         updatedAt = memoUpdatedAt,
-        content = memoContent,
+        content = resolvedBody.content,
         rawContent = rawContent,
         dateKey = dateKey,
-        tags = memoTextProcessor.extractTags(memoContent),
-        imageUrls = memoTextProcessor.extractImages(memoContent),
+        tags = memoTextProcessor.extractTags(resolvedBody.content),
+        imageUrls = memoTextProcessor.extractImages(resolvedBody.content),
         isDeleted = lifecycleState != MemoRevisionLifecycleState.ACTIVE,
     )
+}
 
 internal fun Memo.currentLifecycleState(): MemoRevisionLifecycleState =
     if (isDeleted) MemoRevisionLifecycleState.TRASHED else MemoRevisionLifecycleState.ACTIVE
@@ -94,6 +74,45 @@ internal fun Memo.currentLifecycleState(): MemoRevisionLifecycleState =
 internal fun MemoVersionAssetRecord.pair(): Pair<String, String> = logicalPath to blobHash
 
 internal fun ResolvedMemoRevisionAsset.pair(): Pair<String, String> = logicalPath to blobHash
+
+internal fun MemoVersionRevisionRecord?.matchesCurrentState(
+    rawContentHash: String,
+    lifecycleState: MemoRevisionLifecycleState,
+    assetPairs: List<Pair<String, String>>,
+    latestAssetPairs: List<Pair<String, String>>,
+): Boolean =
+    this != null &&
+        contentHash == rawContentHash &&
+        this.lifecycleState == lifecycleState &&
+        latestAssetPairs == assetPairs
+
+internal suspend fun MemoVersionStore.hasEquivalentHistoricalRevision(
+    memoId: String,
+    lifecycleState: MemoRevisionLifecycleState,
+    rawMarkdownBlobHash: String,
+    contentHash: String,
+    assetPairs: List<Pair<String, String>>,
+): Boolean =
+    findEquivalentRevisionsForMemo(
+        memoId = memoId,
+        lifecycleState = lifecycleState,
+        rawMarkdownBlobHash = rawMarkdownBlobHash,
+        contentHash = contentHash,
+    ).any { revision ->
+        listAssetsForRevision(revision.revisionId).map(MemoVersionAssetRecord::pair) == assetPairs
+    }
+
+internal suspend fun rollbackCurrentMemoState(
+    currentMemo: Memo,
+    persistActiveMemo: suspend (Memo) -> Unit,
+    persistTrashedMemo: suspend (Memo) -> Unit,
+) {
+    when (currentMemo.currentLifecycleState()) {
+        MemoRevisionLifecycleState.ACTIVE -> persistActiveMemo(currentMemo.copy(isDeleted = false))
+        MemoRevisionLifecycleState.TRASHED,
+        MemoRevisionLifecycleState.DELETED -> persistTrashedMemo(currentMemo.copy(isDeleted = true))
+    }
+}
 
 internal fun summaryFor(
     origin: MemoRevisionOrigin,

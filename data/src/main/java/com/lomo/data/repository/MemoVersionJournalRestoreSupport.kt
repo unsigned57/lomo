@@ -5,6 +5,108 @@ import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.Memo
 
+internal data class MarkdownFileSnapshot(
+    val directory: MemoDirectoryType,
+    val filename: String,
+    val content: String?,
+)
+
+internal data class WorkspaceMediaFileSnapshot(
+    val category: WorkspaceMediaCategory,
+    val filename: String,
+    val bytes: ByteArray?,
+)
+
+internal data class MemoVersionRestoreSnapshot(
+    val markdownFiles: List<MarkdownFileSnapshot>,
+    val mediaFiles: List<WorkspaceMediaFileSnapshot>,
+)
+
+internal suspend fun captureRestoreSnapshot(
+    markdownStorageDataSource: MarkdownStorageDataSource,
+    workspaceMediaAccess: WorkspaceMediaAccess,
+    store: MemoVersionStore,
+    revisionId: String,
+    filename: String,
+): MemoVersionRestoreSnapshot =
+    MemoVersionRestoreSnapshot(
+        markdownFiles =
+            listOf(
+                MarkdownFileSnapshot(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, filename),
+                ),
+                MarkdownFileSnapshot(
+                    directory = MemoDirectoryType.TRASH,
+                    filename = filename,
+                    content = markdownStorageDataSource.readFileIn(MemoDirectoryType.TRASH, filename),
+                ),
+            ),
+        mediaFiles =
+            store
+                .listAssetsForRevision(revisionId)
+                .mapNotNull { asset ->
+                    val category = asset.logicalPath.toAttachmentCategory() ?: return@mapNotNull null
+                    val attachmentFilename = asset.logicalPath.substringAfterLast('/')
+                    WorkspaceMediaFileSnapshot(
+                        category = category,
+                        filename = attachmentFilename,
+                        bytes = workspaceMediaAccess.readFileBytes(category, attachmentFilename),
+                    )
+                }.distinctBy { snapshot -> snapshot.category to snapshot.filename },
+    )
+
+internal suspend fun rollbackRestoreSnapshot(
+    snapshot: MemoVersionRestoreSnapshot,
+    markdownStorageDataSource: MarkdownStorageDataSource,
+    workspaceMediaAccess: WorkspaceMediaAccess,
+) {
+    snapshot.markdownFiles.forEach { fileSnapshot ->
+        runCatching {
+            restoreMarkdownFileSnapshot(markdownStorageDataSource, fileSnapshot)
+        }
+    }
+    snapshot.mediaFiles.forEach { fileSnapshot ->
+        runCatching {
+            restoreWorkspaceMediaFileSnapshot(workspaceMediaAccess, fileSnapshot)
+        }
+    }
+}
+
+private suspend fun restoreMarkdownFileSnapshot(
+    markdownStorageDataSource: MarkdownStorageDataSource,
+    snapshot: MarkdownFileSnapshot,
+) {
+    val content = snapshot.content
+    if (content == null) {
+        markdownStorageDataSource.deleteFileIn(snapshot.directory, snapshot.filename)
+        return
+    }
+    markdownStorageDataSource.saveFileIn(
+        directory = snapshot.directory,
+        filename = snapshot.filename,
+        content = content,
+        append = false,
+    )
+}
+
+private suspend fun restoreWorkspaceMediaFileSnapshot(
+    workspaceMediaAccess: WorkspaceMediaAccess,
+    snapshot: WorkspaceMediaFileSnapshot,
+) {
+    val bytes = snapshot.bytes
+    if (bytes == null) {
+        workspaceMediaAccess.deleteFile(snapshot.category, snapshot.filename)
+        return
+    }
+    workspaceMediaAccess.writeFile(
+        category = snapshot.category,
+        filename = snapshot.filename,
+        bytes = bytes,
+    )
+}
+
 internal suspend fun rewriteMemoIntoDirectory(
     markdownStorageDataSource: MarkdownStorageDataSource,
     directory: MemoDirectoryType,

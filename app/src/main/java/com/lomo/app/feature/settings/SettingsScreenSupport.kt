@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun rememberStoragePickerActions(
     storageFeature: SettingsStorageFeatureViewModel,
+    s3Feature: SettingsS3FeatureViewModel,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
 ): StoragePickerActions =
@@ -36,6 +37,12 @@ internal fun rememberStoragePickerActions(
         openVoice =
             rememberTreePickerAction(
                 onUriSelected = storageFeature::updateVoiceUri,
+                snackbarHostState = snackbarHostState,
+                unknownErrorMessage = unknownErrorMessage,
+            ),
+        openS3LocalSyncDirectory =
+            rememberTreePickerAction(
+                onUriSelected = s3Feature.updateLocalSyncDirectory,
                 snackbarHostState = snackbarHostState,
                 unknownErrorMessage = unknownErrorMessage,
             ),

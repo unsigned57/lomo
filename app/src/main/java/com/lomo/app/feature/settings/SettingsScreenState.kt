@@ -1,14 +1,31 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncState
 
+sealed interface DirectoryDisplayState {
+    data object Loading : DirectoryDisplayState
+
+    data class Resolved(
+        val value: String?,
+    ) : DirectoryDisplayState
+}
+
+internal fun DirectoryDisplayState.subtitle(notSetLabel: String): String =
+    when (this) {
+        DirectoryDisplayState.Loading -> ""
+        is DirectoryDisplayState.Resolved -> value?.takeIf(String::isNotBlank) ?: notSetLabel
+    }
+
 data class StorageSectionState(
-    val rootDirectory: String,
-    val imageDirectory: String,
-    val voiceDirectory: String,
+    val rootDirectory: DirectoryDisplayState,
+    val imageDirectory: DirectoryDisplayState,
+    val voiceDirectory: DirectoryDisplayState,
     val filenameFormat: String,
     val timestampFormat: String,
 )
@@ -29,6 +46,12 @@ data class LanShareSectionState(
 data class ShareCardSectionState(
     val showTime: Boolean,
     val showBrand: Boolean,
+)
+
+data class SnapshotSectionState(
+    val memoSnapshotsEnabled: Boolean,
+    val memoSnapshotMaxCount: Int,
+    val memoSnapshotMaxAgeDays: Int,
 )
 
 data class GitSectionState(
@@ -61,6 +84,27 @@ data class WebDavSectionState(
     val connectionTestState: SettingsWebDavConnectionTestState,
 )
 
+data class S3SectionState(
+    val enabled: Boolean,
+    val endpointUrl: String,
+    val region: String,
+    val bucket: String,
+    val prefix: String,
+    val localSyncDirectory: String,
+    val accessKeyConfigured: Boolean,
+    val secretAccessKeyConfigured: Boolean,
+    val sessionTokenConfigured: Boolean,
+    val pathStyle: S3PathStyle,
+    val encryptionMode: S3EncryptionMode,
+    val encryptionPasswordConfigured: Boolean,
+    val autoSyncEnabled: Boolean,
+    val autoSyncInterval: String,
+    val syncOnRefreshEnabled: Boolean,
+    val lastSyncTime: Long,
+    val syncState: S3SyncState,
+    val connectionTestState: SettingsS3ConnectionTestState,
+)
+
 data class InteractionSectionState(
     val hapticEnabled: Boolean,
     val showInputHints: Boolean,
@@ -75,13 +119,20 @@ data class SystemSectionState(
     val checkUpdatesOnStartup: Boolean,
 )
 
+data class AboutSectionState(
+    val currentVersion: String,
+    val manualUpdateState: SettingsManualUpdateState,
+)
+
 data class SettingsScreenUiState(
     val storage: StorageSectionState,
     val display: DisplaySectionState,
     val lanShare: LanShareSectionState,
     val shareCard: ShareCardSectionState,
+    val snapshot: SnapshotSectionState,
     val git: GitSectionState,
     val webDav: WebDavSectionState,
+    val s3: S3SectionState,
     val interaction: InteractionSectionState,
     val system: SystemSectionState,
     val operationError: SettingsOperationError?,

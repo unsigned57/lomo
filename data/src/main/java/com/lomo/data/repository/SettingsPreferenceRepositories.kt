@@ -7,6 +7,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
+import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
@@ -203,5 +204,30 @@ class DraftPreferencesRepositoryImpl
 
         override suspend fun setDraftText(text: String?) {
             dataStore.updateDraftText(text)
+        }
+    }
+
+@Singleton
+class MemoSnapshotPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : MemoSnapshotPreferencesRepository {
+        override fun isMemoSnapshotsEnabled(): Flow<Boolean> = dataStore.memoSnapshotsEnabled
+
+        override suspend fun setMemoSnapshotsEnabled(enabled: Boolean) {
+            dataStore.updateMemoSnapshotsEnabled(enabled)
+        }
+
+        override fun getMemoSnapshotMaxCount(): Flow<Int> = dataStore.memoSnapshotMaxCount
+
+        override suspend fun setMemoSnapshotMaxCount(count: Int) {
+            dataStore.updateMemoSnapshotMaxCount(count)
+        }
+
+        override fun getMemoSnapshotMaxAgeDays(): Flow<Int> = dataStore.memoSnapshotMaxAgeDays
+
+        override suspend fun setMemoSnapshotMaxAgeDays(days: Int) {
+            dataStore.updateMemoSnapshotMaxAgeDays(days)
         }
     }

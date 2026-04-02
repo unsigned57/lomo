@@ -6,10 +6,14 @@ import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
+import com.lomo.domain.model.S3SyncErrorCode
+import com.lomo.domain.model.S3SyncFailureException
+import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import io.mockk.coEvery
@@ -38,12 +42,14 @@ class SyncAndRebuildUseCaseTest {
     private val memoRepository: MemoRepository = mockk()
     private val gitSyncRepository: GitSyncRepository = mockk()
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
+    private val s3SyncRepository: S3SyncRepository = mockk()
     private val syncPolicyRepository: SyncPolicyRepository = mockk()
     private val useCase =
         SyncAndRebuildUseCase(
             memoRepository = memoRepository,
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
+            s3SyncRepository = s3SyncRepository,
             syncPolicyRepository = syncPolicyRepository,
         )
 
@@ -168,6 +174,7 @@ class SyncAndRebuildUseCaseTest {
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
             coVerify(exactly = 0) { gitSyncRepository.sync() }
             coVerify(exactly = 0) { webDavSyncRepository.sync() }
+            coVerify(exactly = 0) { s3SyncRepository.sync() }
         }
 
     @Test
@@ -249,6 +256,38 @@ class SyncAndRebuildUseCaseTest {
             useCase(forceSync = false)
 
             coVerify(exactly = 0) { gitSyncRepository.sync() }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `force sync s3 not configured refreshes then throws mapped failure`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
+            coEvery { s3SyncRepository.sync() } returns S3SyncResult.NotConfigured
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
+
+            assertTrue(thrown is S3SyncFailureException)
+            assertEquals(S3SyncErrorCode.NOT_CONFIGURED, (thrown as S3SyncFailureException).code)
+            assertEquals("S3 sync is not configured", thrown.message)
+            coVerifyOrder {
+                s3SyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
+
+    @Test
+    fun `non-force s3 refresh skips remote sync when s3 sync is disabled`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
+            every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
+            every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase(forceSync = false)
+
+            coVerify(exactly = 0) { s3SyncRepository.sync() }
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
         }
 }

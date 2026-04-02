@@ -16,8 +16,9 @@ import org.junit.Test
  * - Unit under test: MemoRefreshDbApplier
  * - Behavior focus: refresh replacement cleanup, deduplicated insertion, and transaction execution boundaries.
  * - Observable outcomes: DAO calls, inserted memo content, and transaction invocation count.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
- * - Excludes: Room integration wiring and filesystem refresh parsing.
+ * - Red phase: Fails if refresh replacement stops cleaning stale rows, inserts duplicate memo revisions, or bypasses
+ *   the configured transaction runner.
+ * - Excludes: Room integration wiring, filesystem refresh parsing, and removed day-file snapshot side effects.
  */
 class MemoRefreshDbApplierTest {
     @MockK(relaxed = true)
@@ -34,17 +35,10 @@ class MemoRefreshDbApplierTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        applier =
-            MemoRefreshDbApplier(
-                memoDao = dao,
-                memoWriteDao = dao,
-                memoTagDao = dao,
-                memoFtsDao = dao,
-                memoTrashDao = dao,
-                localFileStateDao = localFileStateDao,
-                memoVersionJournal = memoVersionJournal,
-                runInTransaction = { block -> block() },
-            )
+        coEvery { dao.getMemosByDate(any()) } returns emptyList()
+        coEvery { dao.getTrashMemosByDate(any()) } returns emptyList()
+        coEvery { localFileStateDao.getByFilename(any(), any()) } returns null
+        applier = createApplier()
     }
 
     @Test
@@ -130,14 +124,7 @@ class MemoRefreshDbApplierTest {
         runTest {
             var transactionCalls = 0
             val transactionApplier =
-                MemoRefreshDbApplier(
-                    memoDao = dao,
-                    memoWriteDao = dao,
-                    memoTagDao = dao,
-                    memoFtsDao = dao,
-                    memoTrashDao = dao,
-                    localFileStateDao = localFileStateDao,
-                    memoVersionJournal = memoVersionJournal,
+                createApplier(
                     runInTransaction = { block ->
                         transactionCalls += 1
                         block()
@@ -159,6 +146,20 @@ class MemoRefreshDbApplierTest {
 
             assertEquals(1, transactionCalls)
         }
+
+    private fun createApplier(
+        runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
+    ): MemoRefreshDbApplier =
+        MemoRefreshDbApplier(
+            memoDao = dao,
+            memoWriteDao = dao,
+            memoTagDao = dao,
+            memoFtsDao = dao,
+            memoTrashDao = dao,
+            localFileStateDao = localFileStateDao,
+            memoVersionJournal = memoVersionJournal,
+            runInTransaction = runInTransaction,
+        )
 
     private fun memoEntity(
         id: String,

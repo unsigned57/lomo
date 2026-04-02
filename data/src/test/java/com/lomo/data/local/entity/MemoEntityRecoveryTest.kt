@@ -76,6 +76,25 @@ class MemoEntityRecoveryTest {
         assertEquals(midnightTimestampOf(2026, 3, 25), domain.timestamp)
     }
 
+    @Test
+    fun `toDomain keeps stored content when raw storage header has no recovered body`() {
+        val storedContent = "still visible body"
+
+        val domain =
+            MemoEntity(
+                id = "2026_03_25_21:00:00_header_only",
+                timestamp = midnightTimestampOf(2026, 3, 25),
+                content = storedContent,
+                rawContent = "- 21:00",
+                date = "2026_03_25",
+                tags = "",
+                imageUrls = "",
+            ).toDomain()
+
+        assertEquals(storedContent, domain.content)
+        assertEquals(LocalTime.of(21, 0), Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
+    }
+
     private fun midnightTimestampOf(
         year: Int,
         month: Int,

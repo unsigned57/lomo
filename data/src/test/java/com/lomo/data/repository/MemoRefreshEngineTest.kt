@@ -17,6 +17,7 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.slot
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 
@@ -24,8 +25,10 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: MemoRefreshEngine
  * - Behavior focus: refresh deletion planning when file listings temporarily miss previously known memo files.
- * - Observable outcomes: filesToDeleteInDb forwarded to MemoRefreshDbApplier and metadata confirmation lookups.
- * - Red phase: Fails before the fix when a file missing from one metadata listing is still resolvable by filename lookup but is deleted from the DB refresh set anyway.
+ * - Observable outcomes: filesToDeleteInDb forwarded to MemoRefreshDbApplier, pending-missing metadata updates,
+ *   and missing-state reset when files reappear.
+ * - Red phase: Fails before the fix when a file is deleted from the DB on the first confirmed-missing refresh
+ *   instead of entering a pending-deletion confirmation state.
  * - Excludes: Room transaction behavior, parser internals, and storage backend implementation details.
  */
 class MemoRefreshEngineTest {
@@ -44,7 +47,7 @@ class MemoRefreshEngineTest {
     @MockK(relaxed = true)
     private lateinit var memoTrashDao: MemoTrashDao
 
-    @MockK
+    @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
 
     @MockK(relaxed = true)
@@ -107,7 +110,7 @@ class MemoRefreshEngineTest {
         }
 
     @Test
-    fun `refresh keeps confirmed missing main file in delete set`() =
+    fun `refresh keeps first confirmed missing main file pending instead of deleting immediately`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -115,6 +118,40 @@ class MemoRefreshEngineTest {
                     isTrash = false,
                     safUri = null,
                     lastKnownModifiedTime = 1_000L,
+                )
+            val parseResult = emptyParseResult()
+            val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
+            val capturedStateUpdates = slot<List<LocalFileStateEntity>>()
+
+            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
+            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_03_25.md")
+            } returns null
+            coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
+
+            engine.refresh()
+
+            coVerify(exactly = 1) { localFileStateDao.upsertAll(capture(capturedStateUpdates)) }
+            coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
+            assertEquals(emptySet<Pair<String, Boolean>>(), capturedDeleteSet.captured)
+            assertEquals(1, capturedStateUpdates.captured.size)
+            assertEquals(1, capturedStateUpdates.captured.single().missingCount)
+            assertNotNull(capturedStateUpdates.captured.single().missingSince)
+        }
+
+    @Test
+    fun `refresh keeps confirmed missing main file in delete set after second confirmation`() =
+        runTest {
+            val knownState =
+                LocalFileStateEntity(
+                    filename = "2026_03_25.md",
+                    isTrash = false,
+                    safUri = null,
+                    lastKnownModifiedTime = 1_000L,
+                    missingSince = 500L,
+                    missingCount = 1,
                 )
             val parseResult = emptyParseResult()
             val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
@@ -131,6 +168,42 @@ class MemoRefreshEngineTest {
 
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
             assertEquals(setOf("2026_03_25.md" to false), capturedDeleteSet.captured)
+        }
+
+    @Test
+    fun `refresh clears pending missing state when file reappears unchanged`() =
+        runTest {
+            val knownState =
+                LocalFileStateEntity(
+                    filename = "2026_03_25.md",
+                    isTrash = false,
+                    safUri = null,
+                    lastKnownModifiedTime = 1_000L,
+                    missingSince = 500L,
+                    missingCount = 1,
+                )
+            val capturedStateUpdates = slot<List<LocalFileStateEntity>>()
+
+            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery {
+                markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
+            } returns
+                listOf(
+                    com.lomo.data.source.FileMetadataWithId(
+                        filename = "2026_03_25.md",
+                        lastModified = 1_000L,
+                        documentId = "doc-1",
+                    ),
+                )
+            coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
+            coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns emptyParseResult()
+
+            engine.refresh()
+
+            coVerify(exactly = 1) { localFileStateDao.upsertAll(capture(capturedStateUpdates)) }
+            assertEquals(1, capturedStateUpdates.captured.size)
+            assertEquals(0, capturedStateUpdates.captured.single().missingCount)
+            assertEquals(null, capturedStateUpdates.captured.single().missingSince)
         }
 
     private fun emptyParseResult() =

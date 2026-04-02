@@ -46,7 +46,12 @@ internal object StoredMemoRecovery {
                 parsedTime = parsedTime,
                 fallbackTimestamp = storedTimestamp,
             )
-        val shouldRecoverContent = storedContent != recoveredContent
+        val resolvedContent =
+            resolveRecoveredContent(
+                storedContent = storedContent,
+                recoveredContent = recoveredContent,
+            )
+        val shouldRecoverContent = storedContent != resolvedContent
         val shouldRecoverTimestamp =
             !storedTimestampMatchesRecoveredHeader(
                 storedTimestamp = storedTimestamp,
@@ -56,10 +61,20 @@ internal object StoredMemoRecovery {
             )
 
         return RecoveredStoredMemo(
-            content = if (shouldRecoverContent) recoveredContent else storedContent,
+            content = if (shouldRecoverContent) resolvedContent else storedContent,
             timestamp = if (shouldRecoverTimestamp) recoveredTimestamp else storedTimestamp,
         ).takeIf { shouldRecoverContent || shouldRecoverTimestamp }
     }
+
+    private fun resolveRecoveredContent(
+        storedContent: String,
+        recoveredContent: String,
+    ): String =
+        if (recoveredContent.isBlank() && storedContent.isNotBlank()) {
+            storedContent
+        } else {
+            recoveredContent
+        }
 
     private fun resolveRecoveredTimestamp(
         dateKey: String,

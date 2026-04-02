@@ -14,24 +14,30 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppShapes
 
+private const val DISABLED_PREFERENCE_ALPHA = 0.56f
+
 @Composable
 fun PreferenceItem(
     title: String,
     subtitle: String? = null,
+    subtitleMinLines: Int = 1,
     icon: ImageVector? = null,
+    enabled: Boolean = true,
     showChevron: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
+    val clickable = enabled && onClick != null
     ListItem(
         headlineContent = { Text(title, fontWeight = FontWeight.Medium) },
-        supportingContent = subtitle?.let { { Text(it) } },
+        supportingContent = subtitle?.let { { Text(text = it, minLines = subtitleMinLines) } },
         leadingContent =
             icon?.let { image ->
                 {
@@ -54,7 +60,7 @@ fun PreferenceItem(
                 }
             },
         trailingContent =
-            if (showChevron) {
+            if (showChevron && onClick != null) {
                 {
                     Icon(
                         imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
@@ -66,10 +72,18 @@ fun PreferenceItem(
                 null
             },
         modifier =
-            Modifier.clickable {
-                haptic.medium()
-                onClick()
-            },
+            Modifier
+                .alpha(if (enabled) 1f else DISABLED_PREFERENCE_ALPHA)
+                .then(
+                    if (clickable) {
+                        Modifier.clickable {
+                            haptic.medium()
+                            onClick()
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
     )
 }

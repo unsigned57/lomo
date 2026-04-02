@@ -10,7 +10,9 @@ import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.CalendarToday
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -37,23 +39,24 @@ fun StorageSettingsSection(
     onOpenTimestampFormatDialog: () -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_storage)) {
+        val notSetLabel = stringResource(R.string.settings_not_set)
         PreferenceItem(
             title = stringResource(R.string.settings_memo_directory),
-            subtitle = state.rootDirectory.ifBlank { stringResource(R.string.settings_not_set) },
+            subtitle = state.rootDirectory.subtitle(notSetLabel),
             icon = Icons.Default.Folder,
             onClick = onSelectRoot,
         )
         SettingsDivider()
         PreferenceItem(
             title = stringResource(R.string.settings_image_storage),
-            subtitle = state.imageDirectory.ifBlank { stringResource(R.string.settings_not_set) },
+            subtitle = state.imageDirectory.subtitle(notSetLabel),
             icon = Icons.Outlined.PhotoLibrary,
             onClick = onSelectImageRoot,
         )
         SettingsDivider()
         PreferenceItem(
             title = stringResource(R.string.settings_voice_storage),
-            subtitle = state.voiceDirectory.ifBlank { stringResource(R.string.settings_not_set) },
+            subtitle = state.voiceDirectory.subtitle(notSetLabel),
             icon = Icons.Default.Audiotrack,
             onClick = onSelectVoiceRoot,
         )
@@ -136,6 +139,42 @@ fun ShareCardSettingsSection(
             icon = Icons.Outlined.Info,
             checked = state.showBrand,
             onCheckedChange = onToggleShowBrand,
+        )
+    }
+}
+
+@Composable
+fun SnapshotSettingsSection(
+    state: SnapshotSectionState,
+    onToggleMemoSnapshots: (Boolean) -> Unit,
+    onOpenMemoCountDialog: () -> Unit,
+    onOpenMemoAgeDialog: () -> Unit,
+) {
+    SettingsGroup(title = stringResource(R.string.settings_group_snapshots)) {
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_memo_snapshots),
+            subtitle = stringResource(R.string.settings_memo_snapshots_subtitle),
+            icon = Icons.Outlined.History,
+            checked = state.memoSnapshotsEnabled,
+            onCheckedChange = onToggleMemoSnapshots,
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_memo_snapshot_keep_count),
+            subtitle = memoSnapshotKeepCountSummary(state.memoSnapshotMaxCount),
+            icon = Icons.Outlined.ContentCopy,
+            enabled = state.memoSnapshotsEnabled,
+            showChevron = state.memoSnapshotsEnabled,
+            onClick = onOpenMemoCountDialog,
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_memo_snapshot_keep_age),
+            subtitle = memoSnapshotKeepAgeSummary(state.memoSnapshotMaxAgeDays),
+            icon = Icons.Outlined.AccessTime,
+            enabled = state.memoSnapshotsEnabled,
+            showChevron = state.memoSnapshotsEnabled,
+            onClick = onOpenMemoAgeDialog,
         )
     }
 }
@@ -227,8 +266,30 @@ fun SystemSettingsSection(
 }
 
 @Composable
-fun AboutSettingsSection(onOpenGithub: () -> Unit) {
+fun AboutSettingsSection(
+    state: AboutSectionState,
+    onCheckUpdates: () -> Unit,
+    onOpenGithub: () -> Unit,
+) {
     SettingsGroup(title = stringResource(R.string.settings_group_about)) {
+        PreferenceItem(
+            title = stringResource(R.string.settings_current_version),
+            subtitle =
+                state.currentVersion.takeIf { it.isNotBlank() }
+                    ?: stringResource(R.string.settings_current_version_unknown),
+            icon = Icons.Outlined.Info,
+            showChevron = false,
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_check_updates_now),
+            subtitle = manualUpdateSubtitle(state.manualUpdateState),
+            subtitleMinLines = manualUpdateSubtitleMinLines(state.manualUpdateState),
+            icon = Icons.Outlined.Download,
+            enabled = state.manualUpdateState !is SettingsManualUpdateState.Checking,
+            onClick = onCheckUpdates,
+        )
+        SettingsDivider()
         PreferenceItem(
             title = stringResource(R.string.settings_github),
             subtitle = stringResource(R.string.settings_github_subtitle),

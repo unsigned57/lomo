@@ -12,6 +12,7 @@ internal const val MEMO_FILE_OUTBOX_TABLE = "MemoFileOutbox"
 internal const val MEMO_TAG_CROSS_REF_TABLE = "MemoTagCrossRef"
 internal const val MEMO_PIN_TABLE = "MemoPin"
 internal const val WEBDAV_SYNC_METADATA_TABLE = "webdav_sync_metadata"
+internal const val S3_SYNC_METADATA_TABLE = "s3_sync_metadata"
 internal const val FTS_TABLE = "lomo_fts"
 private const val LOCAL_FILE_STATE_LEGACY_TABLE = "local_file_state_legacy_v22"
 private const val MEMO_FILE_OUTBOX_LEGACY_TABLE = "MemoFileOutbox_legacy_v22"
@@ -87,13 +88,16 @@ internal fun migrateLegacyFileSyncMetadata(db: SupportSQLiteDatabase) {
     db.execSQL(
         """
         INSERT OR REPLACE INTO `$LOCAL_FILE_STATE_TABLE` (
-            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`
+            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`, `missing_since`, `missing_count`, `last_seen_at`
         )
         SELECT
             $filenameExpr,
             $isTrashExpr,
             NULL,
-            $lastModifiedExpr
+            $lastModifiedExpr,
+            NULL,
+            0,
+            0
         FROM `$LEGACY_FILE_SYNC_METADATA_TABLE`
         """.trimIndent(),
     )
@@ -189,17 +193,23 @@ internal fun normalizeLocalFileStateTable(db: SupportSQLiteDatabase) {
             "lastKnownModifiedTime",
             "lastModified",
         )
+    val missingSinceExpr = pickNullableIntExpr(columns, "missing_since", "missingSince")
+    val missingCountExpr = pickIntExpr(columns, "missing_count", "missingCount")
+    val lastSeenAtExpr = pickIntExpr(columns, "last_seen_at", "lastSeenAt")
 
     db.execSQL(
         """
         INSERT OR REPLACE INTO `$LOCAL_FILE_STATE_TABLE` (
-            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`
+            `filename`, `isTrash`, `saf_uri`, `last_known_modified_time`, `missing_since`, `missing_count`, `last_seen_at`
         )
         SELECT
             $filenameExpr,
             $isTrashExpr,
             $safUriExpr,
-            $lastKnownExpr
+            $lastKnownExpr,
+            $missingSinceExpr,
+            $missingCountExpr,
+            $lastSeenAtExpr
         FROM `$LOCAL_FILE_STATE_LEGACY_TABLE`
         """.trimIndent(),
     )

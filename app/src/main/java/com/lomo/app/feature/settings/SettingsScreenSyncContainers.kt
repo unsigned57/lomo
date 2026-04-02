@@ -2,9 +2,7 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.runtime.Composable
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.WebDavSyncState
 
 @Composable
 internal fun LanShareSettingsSectionContainer(
@@ -114,39 +112,62 @@ internal fun WebDavSyncSettingsSectionContainer(
     )
 }
 
-private fun SettingsDialogState.openLanPairingDialog(
-    lanShareFeature: SettingsLanShareFeatureViewModel,
+@Composable
+internal fun S3SyncSettingsSectionContainer(
+    state: S3SectionState,
+    dialogState: SettingsDialogState,
+    s3Feature: SettingsS3FeatureViewModel,
+    onSelectLocalSyncDirectory: () -> Unit,
+    syncIntervalLabels: Map<String, String>,
+    pathStyleLabels: Map<com.lomo.domain.model.S3PathStyle, String>,
+    encryptionModeLabels: Map<com.lomo.domain.model.S3EncryptionMode, String>,
 ) {
-    lanPairingCodeInput = ""
-    lanPairingCodeVisible = false
-    lanShareFeature.clearPairingCodeError()
-    showLanPairingDialog = true
+    S3SyncSettingsSection(
+        state = state,
+        pathStyleLabel = pathStyleLabels[state.pathStyle] ?: state.pathStyle.name,
+        encryptionModeLabel = encryptionModeLabels[state.encryptionMode] ?: state.encryptionMode.name,
+        syncIntervalLabel = syncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
+        syncNowSubtitle =
+            SettingsErrorPresenter.s3SyncNowSubtitle(
+                state = state.syncState,
+                lastSyncTime = state.lastSyncTime,
+            ),
+        connectionSubtitle = s3ConnectionTestSubtitle(state.connectionTestState),
+        onToggleEnabled = s3Feature.updateS3SyncEnabled,
+        onOpenEndpointUrlDialog = {
+            dialogState.s3EndpointUrlInput = state.endpointUrl
+            dialogState.showS3EndpointUrlDialog = true
+        },
+        onOpenRegionDialog = {
+            dialogState.s3RegionInput = state.region
+            dialogState.showS3RegionDialog = true
+        },
+        onOpenBucketDialog = {
+            dialogState.s3BucketInput = state.bucket
+            dialogState.showS3BucketDialog = true
+        },
+        onOpenPrefixDialog = {
+            dialogState.s3PrefixInput = state.prefix
+            dialogState.showS3PrefixDialog = true
+        },
+        onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
+        onClearLocalSyncDirectory = s3Feature.clearLocalSyncDirectory,
+        onOpenAccessKeyIdDialog = {
+            dialogState.s3AccessKeyIdInput = ""
+            dialogState.showS3AccessKeyIdDialog = true
+        },
+        onOpenSecretAccessKeyDialog = dialogState::openS3SecretAccessKeyDialog,
+        onOpenSessionTokenDialog = dialogState::openS3SessionTokenDialog,
+        onOpenPathStyleDialog = { dialogState.showS3PathStyleDialog = true },
+        onOpenEncryptionModeDialog = { dialogState.showS3EncryptionModeDialog = true },
+        onOpenEncryptionPasswordDialog = dialogState::openS3EncryptionPasswordDialog,
+        onToggleAutoSync = s3Feature.updateAutoSyncEnabled,
+        onOpenSyncIntervalDialog = { dialogState.showS3SyncIntervalDialog = true },
+        onToggleSyncOnRefresh = s3Feature.updateSyncOnRefresh,
+        onSyncNow = { if (state.syncState.canTriggerManualSync()) s3Feature.triggerSyncNow() },
+        onTestConnection = {
+            s3Feature.resetConnectionTestState()
+            s3Feature.testConnection()
+        },
+    )
 }
-
-private fun SettingsDialogState.openGitPatDialog() {
-    gitPatInput = ""
-    gitPatVisible = false
-    showGitPatDialog = true
-}
-
-private fun SettingsDialogState.openWebDavPasswordDialog() {
-    webDavPasswordInput = ""
-    webDavPasswordVisible = false
-    showWebDavPasswordDialog = true
-}
-
-private fun SyncEngineState.canTriggerManualSync(): Boolean =
-    this !is SyncEngineState.Syncing && this !is SyncEngineState.Initializing
-
-private fun WebDavSyncState.canTriggerManualSync(): Boolean =
-    when (this) {
-        WebDavSyncState.Connecting,
-        WebDavSyncState.Listing,
-        WebDavSyncState.Uploading,
-        WebDavSyncState.Downloading,
-        WebDavSyncState.Deleting,
-        WebDavSyncState.Initializing,
-        -> false
-
-        else -> true
-    }

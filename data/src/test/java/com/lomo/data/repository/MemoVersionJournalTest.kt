@@ -23,13 +23,16 @@ import java.time.Instant
  * Test Contract:
  * - Unit under test: MemoVersionJournal
  * - Behavior focus: append-only memo revision history, duplicate-state suppression across restores and edits,
- *   cursor pagination, retention pruning, orphan-blob cleanup, imported refresh tracking, and scoped memo restore
- *   with referenced local attachments.
+ *   cursor pagination, settings-driven retention pruning and disable behavior, orphan-blob cleanup, imported
+ *   refresh tracking, lightweight preview-only Room storage for revision listings, destructive snapshot clearing,
+ *   and scoped memo restore with referenced local attachments.
  * - Observable outcomes: page ordering and cursors, current-version markers, skipped duplicate revisions,
- *   imported deletion records, pruned history tails, cleaned blob files, restored markdown content,
- *   and restore failure preventing a synthetic restore revision.
+ *   imported deletion records, pruned history tails, cleaned blob files, preview-truncated history rows with full
+ *   restore fidelity, restored markdown content, rollback of partially applied restore side effects, and restore
+ *   failure preventing a synthetic restore revision.
  * - Red phase: Fails before the fix because restoring or editing back to an older memo state records duplicate
- *   revisions for content and attachments that already exist in history.
+ *   revisions for content and attachments that already exist in history, and revision rows still persist full memo
+ *   bodies instead of compact previews.
  * - Excludes: Room SQL mechanics, Compose/UI rendering, and Git history integration.
  */
 class MemoVersionJournalTest {
@@ -102,6 +105,56 @@ class MemoVersionJournalTest {
                 listOf(MemoRevisionOrigin.LOCAL_EDIT, MemoRevisionOrigin.LOCAL_CREATE),
                 revisions.map(MemoRevision::origin),
             )
+        }
+
+    @Test
+    fun `appendLocalRevision stores long history rows as previews while restore still uses full markdown`() =
+        runTest {
+            val longLine = "before " + "x".repeat(HISTORY_PREVIEW_LIMIT + 64)
+            val original =
+                memo(
+                    id = "memo-preview",
+                    content = "$longLine\nsecond line kept for restore",
+                    rawContent = "- 09:00 $longLine\nsecond line kept for restore",
+                )
+            val updated =
+                original.copy(
+                    content = "after",
+                    rawContent = "- 09:00 after",
+                    updatedAt = original.updatedAt + 1,
+                    imageUrls = emptyList(),
+                )
+            markdownStorageDataSource.mainFiles["2026_03_27.md"] = original.rawContent
+
+            journal.appendLocalRevision(
+                memo = original,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
+            journal.appendLocalRevision(
+                memo = updated,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_EDIT,
+            )
+
+            val history = journal.listMemoRevisions(memo = updated, cursor = null, limit = 10).items
+            val originalRevision = history.last()
+            val expectedPreview = expectedHistoryPreview(original.content)
+
+            assertEquals(expectedPreview, originalRevision.memoContent)
+            assertEquals(
+                expectedPreview,
+                requireNotNull(store.getRevision(originalRevision.revisionId)).memoContent,
+            )
+            assertTrue(expectedPreview.length < original.content.length)
+
+            journal.restoreMemoRevision(
+                currentMemo = updated,
+                revisionId = originalRevision.revisionId,
+            )
+
+            assertEquals(original.rawContent, markdownStorageDataSource.mainFiles.getValue("2026_03_27.md"))
         }
 
     @Test
@@ -393,6 +446,160 @@ class MemoVersionJournalTest {
         }
 
     @Test
+    fun `appendLocalRevision skips recording when memo snapshots are disabled`() =
+        runTest {
+            val disabledJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                    loadSnapshotSettings = {
+                        MemoSnapshotRetentionSettings(
+                            enabled = false,
+                            maxCount = 20,
+                            maxAgeDays = 30,
+                        )
+                    },
+                )
+            val memo =
+                memo(
+                    id = "memo-disabled",
+                    content = "disabled",
+                    rawContent = "- 09:00 disabled",
+                )
+
+            disabledJournal.appendLocalRevision(
+                memo = memo,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+
+            assertTrue(disabledJournal.listMemoRevisions(memo = memo, cursor = null, limit = 10).items.isEmpty())
+            assertEquals(0, store.revisionCountForMemo(memo.id))
+        }
+
+    @Test
+    fun `appendLocalRevision prunes revisions older than configured retention age`() =
+        runTest {
+            val createdAts =
+                ArrayDeque(
+                    listOf(
+                        Instant.parse("2026-03-01T09:00:00Z").toEpochMilli(),
+                        Instant.parse("2026-03-03T09:00:00Z").toEpochMilli(),
+                        Instant.parse("2026-03-06T09:00:00Z").toEpochMilli(),
+                    ),
+                )
+            val agePruningJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { createdAts.removeFirst() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                    loadSnapshotSettings = {
+                        MemoSnapshotRetentionSettings(
+                            enabled = true,
+                            maxCount = 10,
+                            maxAgeDays = 3,
+                        )
+                    },
+                )
+            val original = memo(id = "memo-aged", content = "v1", rawContent = "- 09:00 v1")
+            val second = original.copy(content = "v2", rawContent = "- 09:00 v2", updatedAt = original.updatedAt + 1)
+            val third = second.copy(content = "v3", rawContent = "- 09:00 v3", updatedAt = second.updatedAt + 1)
+
+            agePruningJournal.appendLocalRevision(
+                memo = original,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            agePruningJournal.appendLocalRevision(
+                memo = second,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_EDIT,
+            )
+            agePruningJournal.appendLocalRevision(
+                memo = third,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_EDIT,
+            )
+
+            val revisions = agePruningJournal.listMemoRevisions(memo = third, cursor = null, limit = 10).items
+
+            assertEquals(listOf("v3", "v2"), revisions.map(MemoRevision::memoContent))
+            assertEquals(2, store.revisionCountForMemo("memo-aged"))
+        }
+
+    @Test
+    fun `clearAllMemoSnapshots removes revision history and blob files`() =
+        runTest {
+            val memo = memo(id = "memo-clear", content = "clear me", rawContent = "- 09:00 clear me")
+
+            journal.appendLocalRevision(
+                memo = memo,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+
+            journal.clearAllMemoSnapshots()
+
+            assertTrue(journal.listMemoRevisions(memo = memo, cursor = null, limit = 10).items.isEmpty())
+            assertEquals(0, store.blobCount())
+            assertTrue(blobFilesUnder(blobRoot).isEmpty())
+        }
+
+    @Test
+    fun `appendLocalRevision rolls back partial version rows and blobs when revision asset write fails`() =
+        runTest {
+            val failingStore = ReplaceAssetsFailingMemoVersionStore()
+            val transactionalJournal =
+                MemoVersionJournal(
+                    store = failingStore,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    runInTransaction = failingStore::runRollbackableTransaction,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = failingStore::nextCommitId,
+                    nextRevisionId = failingStore::nextRevisionId,
+                    nextBatchId = failingStore::nextBatchId,
+                )
+            val memo =
+                memo(
+                    id = "memo-append-atomicity",
+                    content = "before ![image](img_before.png)",
+                    rawContent = "- 09:00 before ![image](img_before.png)",
+                )
+            workspaceMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
+            failingStore.failOnReplaceAssets = true
+
+            val failure =
+                runCatching {
+                    transactionalJournal.appendLocalRevision(
+                        memo = memo,
+                        lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                        origin = MemoRevisionOrigin.LOCAL_CREATE,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IOException)
+            assertEquals(0, failingStore.revisionCountForMemo(memo.id))
+            assertEquals(0, failingStore.blobCount())
+            assertTrue(blobFilesUnder(blobRoot).isEmpty())
+        }
+
+    @Test
     fun `restoreMemoRevision aborts without recording restore revision when attachment restore fails`() =
         runTest {
             val failingMediaAccess = FailingJournalWorkspaceMediaAccess()
@@ -454,6 +661,74 @@ class MemoVersionJournalTest {
             val revisions = failingJournal.listMemoRevisions(memo = updated, cursor = null, limit = 10).items
             assertEquals(listOf("after", original.content), revisions.map(MemoRevision::memoContent))
         }
+
+    @Test
+    fun `restoreMemoRevision rolls back attachments and markdown when markdown write fails after attachment restore`() =
+        runTest {
+            val failingStorage = FailingJournalMarkdownStorageDataSource()
+            val rollbackMediaAccess = JournalWorkspaceMediaAccess()
+            val rollbackJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = failingStorage,
+                    workspaceMediaAccess = rollbackMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                )
+            val original =
+                memo(
+                    id = "memo-rollback-fail",
+                    content = "before ![image](img_before.png)",
+                    rawContent = "- 09:00 before ![image](img_before.png)",
+                )
+            val updated =
+                original.copy(
+                    content = "after",
+                    rawContent = "- 09:00 after",
+                    updatedAt = original.updatedAt + 1,
+                    imageUrls = emptyList(),
+                )
+            failingStorage.mainFiles["2026_03_27.md"] = updated.rawContent
+            rollbackMediaAccess.imageFiles["img_before.png"] = "stale-image".toByteArray()
+
+            rollbackMediaAccess.imageFiles["img_before.png"] = "before-image".toByteArray()
+            rollbackJournal.appendLocalRevision(
+                memo = original,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            rollbackMediaAccess.imageFiles["img_before.png"] = "stale-image".toByteArray()
+            rollbackJournal.appendLocalRevision(
+                memo = updated,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_EDIT,
+            )
+            val originalRevisionId =
+                rollbackJournal
+                    .listMemoRevisions(memo = updated, cursor = null, limit = 10)
+                    .items
+                    .last()
+                    .revisionId
+
+            failingStorage.failOnSave = true
+            val failure =
+                runCatching {
+                    rollbackJournal.restoreMemoRevision(
+                        currentMemo = updated,
+                        revisionId = originalRevisionId,
+                    )
+                }.exceptionOrNull()
+
+            assertTrue(failure is IOException)
+            assertEquals(updated.rawContent, failingStorage.mainFiles.getValue("2026_03_27.md"))
+            assertEquals("stale-image", rollbackMediaAccess.imageFiles.getValue("img_before.png").decodeToString())
+            val revisions = rollbackJournal.listMemoRevisions(memo = updated, cursor = null, limit = 10).items
+            assertEquals(listOf("after", original.content), revisions.map(MemoRevision::memoContent))
+        }
 }
 
 private fun memo(
@@ -472,7 +747,7 @@ private fun memo(
         imageUrls = MemoTextProcessor().extractImages(content),
     )
 
-private class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
+private open class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
     val mainFiles = linkedMapOf<String, String>()
     val trashFiles = linkedMapOf<String, String>()
 
@@ -502,7 +777,7 @@ private class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
 
     override suspend fun readFile(uri: android.net.Uri): String? = null
 
-    override suspend fun saveFileIn(
+    open override suspend fun saveFileIn(
         directory: MemoDirectoryType,
         filename: String,
         content: String,
@@ -539,6 +814,23 @@ private class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
         directory: MemoDirectoryType,
         filename: String,
     ): com.lomo.data.source.FileMetadata? = null
+}
+
+private class FailingJournalMarkdownStorageDataSource : JournalMarkdownStorageDataSource() {
+    var failOnSave: Boolean = false
+
+    override suspend fun saveFileIn(
+        directory: MemoDirectoryType,
+        filename: String,
+        content: String,
+        append: Boolean,
+        uri: android.net.Uri?,
+    ): String? {
+        if (failOnSave) {
+            throw IOException("boom-save: $directory/$filename")
+        }
+        return super.saveFileIn(directory, filename, content, append, uri)
+    }
 }
 
 private open class JournalWorkspaceMediaAccess : WorkspaceMediaAccess {
@@ -590,7 +882,7 @@ private class FailingJournalWorkspaceMediaAccess : JournalWorkspaceMediaAccess()
     }
 }
 
-private class InMemoryMemoVersionStore : MemoVersionStore {
+private open class InMemoryMemoVersionStore : MemoVersionStore {
     private val commits = linkedMapOf<String, MemoVersionCommitRecord>()
     private val revisions = linkedMapOf<String, MemoVersionRevisionRecord>()
     private val assets = linkedMapOf<String, MutableList<MemoVersionAssetRecord>>()
@@ -605,15 +897,15 @@ private class InMemoryMemoVersionStore : MemoVersionStore {
 
     fun nextBatchId(): String = "batch-${++batchCounter}"
 
-    override suspend fun insertCommit(record: MemoVersionCommitRecord) {
+    open override suspend fun insertCommit(record: MemoVersionCommitRecord) {
         commits[record.commitId] = record
     }
 
-    override suspend fun insertRevision(record: MemoVersionRevisionRecord) {
+    open override suspend fun insertRevision(record: MemoVersionRevisionRecord) {
         revisions[record.revisionId] = record
     }
 
-    override suspend fun replaceAssets(
+    open override suspend fun replaceAssets(
         revisionId: String,
         records: List<MemoVersionAssetRecord>,
     ) {
@@ -622,7 +914,7 @@ private class InMemoryMemoVersionStore : MemoVersionStore {
 
     override suspend fun getBlob(blobHash: String): MemoVersionBlobRecord? = blobs[blobHash]
 
-    override suspend fun insertBlob(record: MemoVersionBlobRecord) {
+    open override suspend fun insertBlob(record: MemoVersionBlobRecord) {
         blobs[record.blobHash] = record
     }
 
@@ -711,6 +1003,14 @@ private class InMemoryMemoVersionStore : MemoVersionStore {
                     .thenByDescending { it.revisionId },
             ).drop(retainCount)
 
+    override suspend fun listAllRevisionsForMemo(memoId: String): List<MemoVersionRevisionRecord> =
+        revisions.values
+            .filter { it.memoId == memoId }
+            .sortedWith(
+                compareByDescending<MemoVersionRevisionRecord> { it.createdAt }
+                    .thenByDescending { it.revisionId },
+            )
+
     override suspend fun listAssetsForRevisionIds(revisionIds: List<String>): List<MemoVersionAssetRecord> =
         revisionIds.flatMap { revisionId -> assets[revisionId].orEmpty() }
 
@@ -730,15 +1030,85 @@ private class InMemoryMemoVersionStore : MemoVersionStore {
         blobs.remove(blobHash)
     }
 
+    override suspend fun clearAll() {
+        commits.clear()
+        revisions.clear()
+        assets.clear()
+        blobs.clear()
+    }
+
     fun revisionCountForMemo(memoId: String): Int = revisions.values.count { it.memoId == memoId }
 
     fun blobCount(): Int = blobs.size
 
     fun blobStoragePaths(): List<String> = blobs.values.map(MemoVersionBlobRecord::storagePath)
+
+    suspend fun runRollbackableTransaction(block: suspend () -> Unit) {
+        val snapshot =
+            InMemoryMemoVersionStoreSnapshot(
+                commits = LinkedHashMap(commits),
+                revisions = LinkedHashMap(revisions),
+                assets = assets.mapValuesTo(linkedMapOf()) { (_, records) -> records.toMutableList() },
+                blobs = LinkedHashMap(blobs),
+                commitCounter = commitCounter,
+                revisionCounter = revisionCounter,
+                batchCounter = batchCounter,
+            )
+        try {
+            block()
+        } catch (throwable: Throwable) {
+            commits.clear()
+            commits.putAll(snapshot.commits)
+            revisions.clear()
+            revisions.putAll(snapshot.revisions)
+            assets.clear()
+            assets.putAll(snapshot.assets.mapValuesTo(linkedMapOf()) { (_, records) -> records.toMutableList() })
+            blobs.clear()
+            blobs.putAll(snapshot.blobs)
+            commitCounter = snapshot.commitCounter
+            revisionCounter = snapshot.revisionCounter
+            batchCounter = snapshot.batchCounter
+            throw throwable
+        }
+    }
 }
+
+private class ReplaceAssetsFailingMemoVersionStore : InMemoryMemoVersionStore() {
+    var failOnReplaceAssets: Boolean = false
+
+    override suspend fun replaceAssets(
+        revisionId: String,
+        records: List<MemoVersionAssetRecord>,
+    ) {
+        if (failOnReplaceAssets) {
+            throw IOException("boom-assets: $revisionId")
+        }
+        super.replaceAssets(revisionId, records)
+    }
+}
+
+private data class InMemoryMemoVersionStoreSnapshot(
+    val commits: LinkedHashMap<String, MemoVersionCommitRecord>,
+    val revisions: LinkedHashMap<String, MemoVersionRevisionRecord>,
+    val assets: LinkedHashMap<String, MutableList<MemoVersionAssetRecord>>,
+    val blobs: LinkedHashMap<String, MemoVersionBlobRecord>,
+    val commitCounter: Int,
+    val revisionCounter: Int,
+    val batchCounter: Int,
+)
 
 private fun blobFilesUnder(root: File): List<File> =
     root
         .walkTopDown()
         .filter(File::isFile)
         .toList()
+
+private const val HISTORY_PREVIEW_LIMIT = 280
+private const val HISTORY_PREVIEW_SUFFIX = "..."
+
+private fun expectedHistoryPreview(content: String): String =
+    if (content.length <= HISTORY_PREVIEW_LIMIT) {
+        content
+    } else {
+        content.take(HISTORY_PREVIEW_LIMIT - HISTORY_PREVIEW_SUFFIX.length) + HISTORY_PREVIEW_SUFFIX
+    }

@@ -13,17 +13,41 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
- *   revision dedupe and paging, and retires the removed legacy workspace-history schema.
- * - Observable outcomes: emitted migration SQL for version-to-version and consolidation paths, plus
- *   direct-migration coverage to the current target version.
- * - Red phase: Fails before the fix because the schema target still sits at v30 and the memo revision
- *   tables are missing the indexes needed for equivalent-state lookup and asset replay ordering.
+ *   revision dedupe and paging, retires the removed legacy workspace-history schema, and compacts
+ *   memo-revision rows down to lightweight previews while creating sync metadata tables for supported remotes.
+ * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
+ *   plus direct-migration coverage to the current target version.
+ * - Red phase: Fails before the fix because the schema target still sits at v35 and never creates the
+ *   S3 sync metadata table required for tracking remote reconciliation state.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
     @Test
-    fun `database version advances to 31 for memo revision index tightening`() {
-        assertEquals(31, MEMO_DATABASE_VERSION)
+    fun `database version advances to 37 for external refresh protection state`() {
+        assertEquals(37, MEMO_DATABASE_VERSION)
+    }
+
+    @Test
+    fun `local file state schema includes missing confirmation columns`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        val migration =
+            ALL_DATABASE_MIGRATIONS.first {
+                it.startVersion == 36 && it.endVersion == MEMO_DATABASE_VERSION
+            }
+
+        migration.migrate(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `local_file_state`") &&
+                        it.contains("`missing_since` INTEGER") &&
+                        it.contains("`missing_count` INTEGER NOT NULL") &&
+                        it.contains("`last_seen_at` INTEGER NOT NULL")
+                },
+            )
+        }
     }
 
     @Test
@@ -74,6 +98,39 @@ class DatabaseMigrationsTest {
                         it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
                 },
             )
+        }
+    }
+
+    @Test
+    fun `migration 34 to 35 compacts memo revision rows to previews`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        val migration =
+            ALL_DATABASE_MIGRATIONS.first {
+                it.startVersion == 34 && it.endVersion == 35
+            }
+
+        migration.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL(
+                match {
+                    it.contains("UPDATE `memo_revision`") &&
+                        it.contains("substr(`memoContent`, 1, 277) || '...'") &&
+                        it.contains("WHERE length(`memoContent`) > 280")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 35 to 36 creates s3 metadata table`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_35_36.migrate(db)
+
+        verify {
+            db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_metadata`") })
         }
     }
 

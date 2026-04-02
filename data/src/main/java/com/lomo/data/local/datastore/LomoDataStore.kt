@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -129,6 +130,18 @@ interface LomoLanSharePreferencesStore {
     suspend fun updateShareCardShowBrand(enabled: Boolean)
 }
 
+interface LomoSnapshotPreferencesStore {
+    val memoSnapshotsEnabled: Flow<Boolean>
+    val memoSnapshotMaxCount: Flow<Int>
+    val memoSnapshotMaxAgeDays: Flow<Int>
+
+    suspend fun updateMemoSnapshotsEnabled(enabled: Boolean)
+
+    suspend fun updateMemoSnapshotMaxCount(count: Int)
+
+    suspend fun updateMemoSnapshotMaxAgeDays(days: Int)
+}
+
 interface LomoAppVersionStore {
     suspend fun updateLastAppVersion(version: String?)
 
@@ -204,6 +217,48 @@ interface LomoWebDavScheduleStore {
     suspend fun updateWebDavSyncOnRefresh(enabled: Boolean)
 }
 
+interface LomoS3ConnectionStore {
+    val s3SyncEnabled: Flow<Boolean>
+    val s3EndpointUrl: Flow<String?>
+    val s3Region: Flow<String?>
+    val s3Bucket: Flow<String?>
+    val s3Prefix: Flow<String?>
+    val s3LocalSyncDirectory: Flow<String?>
+    val s3PathStyle: Flow<String>
+    val s3EncryptionMode: Flow<String>
+
+    suspend fun updateS3SyncEnabled(enabled: Boolean)
+
+    suspend fun updateS3EndpointUrl(url: String?)
+
+    suspend fun updateS3Region(region: String?)
+
+    suspend fun updateS3Bucket(bucket: String?)
+
+    suspend fun updateS3Prefix(prefix: String?)
+
+    suspend fun updateS3LocalSyncDirectory(pathOrUri: String?)
+
+    suspend fun updateS3PathStyle(pathStyle: String)
+
+    suspend fun updateS3EncryptionMode(mode: String)
+}
+
+interface LomoS3ScheduleStore {
+    val s3AutoSyncEnabled: Flow<Boolean>
+    val s3AutoSyncInterval: Flow<String>
+    val s3LastSyncTime: Flow<Long>
+    val s3SyncOnRefresh: Flow<Boolean>
+
+    suspend fun updateS3AutoSyncEnabled(enabled: Boolean)
+
+    suspend fun updateS3AutoSyncInterval(interval: String)
+
+    suspend fun updateS3LastSyncTime(timestamp: Long)
+
+    suspend fun updateS3SyncOnRefresh(enabled: Boolean)
+}
+
 interface LomoDraftStore {
     val draftText: Flow<String>
 
@@ -223,12 +278,15 @@ class LomoDataStore private constructor(
     LomoInteractionPreferencesStore by InteractionPreferencesStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
+    LomoSnapshotPreferencesStore by SnapshotPreferencesStoreImpl(dataStore),
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
     LomoGitSyncBehaviorStore by GitSyncBehaviorStoreImpl(dataStore),
     LomoGitIdentityStore by GitIdentityStoreImpl(dataStore),
     LomoGitSyncStatusStore by GitSyncStatusStoreImpl(dataStore),
     LomoWebDavConnectionStore by WebDavConnectionStoreImpl(dataStore),
     LomoWebDavScheduleStore by WebDavScheduleStoreImpl(dataStore),
+    LomoS3ConnectionStore by S3ConnectionStoreImpl(dataStore),
+    LomoS3ScheduleStore by S3ScheduleStoreImpl(dataStore),
     LomoDraftStore by DraftStoreImpl(dataStore) {
     @Inject
     constructor(
@@ -263,6 +321,9 @@ internal object LomoDataStoreKeys {
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
     val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
+    val MEMO_SNAPSHOTS_ENABLED = booleanPreferencesKey(PreferenceKeys.MEMO_SNAPSHOTS_ENABLED)
+    val MEMO_SNAPSHOT_MAX_COUNT = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_COUNT)
+    val MEMO_SNAPSHOT_MAX_AGE_DAYS = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS)
     val LAST_APP_VERSION = stringPreferencesKey(PreferenceKeys.LAST_APP_VERSION)
     val GIT_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.GIT_SYNC_ENABLED)
     val GIT_REMOTE_URL = stringPreferencesKey(PreferenceKeys.GIT_REMOTE_URL)
@@ -282,6 +343,18 @@ internal object LomoDataStoreKeys {
     val WEBDAV_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.WEBDAV_AUTO_SYNC_INTERVAL)
     val WEBDAV_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.WEBDAV_LAST_SYNC_TIME)
     val WEBDAV_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.WEBDAV_SYNC_ON_REFRESH)
+    val S3_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ENABLED)
+    val S3_ENDPOINT_URL = stringPreferencesKey(PreferenceKeys.S3_ENDPOINT_URL)
+    val S3_REGION = stringPreferencesKey(PreferenceKeys.S3_REGION)
+    val S3_BUCKET = stringPreferencesKey(PreferenceKeys.S3_BUCKET)
+    val S3_PREFIX = stringPreferencesKey(PreferenceKeys.S3_PREFIX)
+    val S3_LOCAL_SYNC_DIRECTORY = stringPreferencesKey(PreferenceKeys.S3_LOCAL_SYNC_DIRECTORY)
+    val S3_PATH_STYLE = stringPreferencesKey(PreferenceKeys.S3_PATH_STYLE)
+    val S3_ENCRYPTION_MODE = stringPreferencesKey(PreferenceKeys.S3_ENCRYPTION_MODE)
+    val S3_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_ENABLED)
+    val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
+    val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)
+    val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
     val DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
 }
 
@@ -322,6 +395,18 @@ internal fun DataStore<Preferences>.longFlow(
     data
         .map { prefs -> prefs[key] ?: default }
         .catchOnlyIOException(flowName, default)
+
+internal fun DataStore<Preferences>.intFlow(
+    key: Preferences.Key<Int>,
+    flowName: String,
+    default: Int,
+    normalize: (Int) -> Int = { it },
+): Flow<Int> {
+    val fallback = normalize(default)
+    return data
+        .map { prefs -> normalize(prefs[key] ?: default) }
+        .catchOnlyIOException(flowName, fallback)
+}
 
 internal suspend fun <T> DataStore<Preferences>.firstValue(
     flowName: String,

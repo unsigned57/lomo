@@ -67,6 +67,28 @@ internal suspend fun deleteMemoVersionBlobIfUnreferenced(
     store.deleteBlob(blobHash)
 }
 
+internal suspend fun cleanupMemoVersionBlobWriteFailure(
+    store: MemoVersionStore,
+    blobRoot: File,
+    blobHash: String,
+) {
+    if (store.getBlob(blobHash) != null) {
+        deleteMemoVersionBlobIfUnreferenced(
+            store = store,
+            blobRoot = blobRoot,
+            blobHash = blobHash,
+        )
+        return
+    }
+    if (store.isBlobReferenced(blobHash)) {
+        return
+    }
+    val blobFile = resolveMemoVersionBlobFile(blobRoot, blobHash)
+    if (blobFile.exists()) {
+        blobFile.delete()
+    }
+}
+
 internal fun ByteArray.toVersionHash(): String =
     MessageDigest
         .getInstance("SHA-256")

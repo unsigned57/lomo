@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 
 @HiltViewModel
@@ -35,16 +34,25 @@ class MemoEditorViewModel
         private val setDraftTextUseCase: SetDraftTextUseCase,
     ) : ViewModel() {
         private val trackedImageFilenames = mutableSetOf<String>()
+        private var hasLocalDraftMutation = false
 
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
 
-        private val _draftText = MutableStateFlow(
-            runBlocking { observeDraftTextUseCase().first() },
-        )
+        private val _draftText = MutableStateFlow("")
         val draftText: StateFlow<String> = _draftText
 
+        init {
+            viewModelScope.launch {
+                val persistedDraft = observeDraftTextUseCase().first()
+                if (!hasLocalDraftMutation) {
+                    _draftText.value = persistedDraft
+                }
+            }
+        }
+
         fun saveDraft(text: String) {
+            hasLocalDraftMutation = true
             _draftText.value = text
             viewModelScope.launch {
                 setDraftTextUseCase(text)
@@ -52,6 +60,7 @@ class MemoEditorViewModel
         }
 
         fun clearDraft() {
+            hasLocalDraftMutation = true
             _draftText.value = ""
             viewModelScope.launch {
                 setDraftTextUseCase(null)

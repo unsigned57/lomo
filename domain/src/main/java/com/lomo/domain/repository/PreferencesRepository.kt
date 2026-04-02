@@ -79,6 +79,20 @@ interface ShareCardPreferencesRepository {
     suspend fun setShareCardShowBrand(enabled: Boolean)
 }
 
+interface MemoSnapshotPreferencesRepository {
+    fun isMemoSnapshotsEnabled(): Flow<Boolean>
+
+    suspend fun setMemoSnapshotsEnabled(enabled: Boolean)
+
+    fun getMemoSnapshotMaxCount(): Flow<Int>
+
+    suspend fun setMemoSnapshotMaxCount(count: Int)
+
+    fun getMemoSnapshotMaxAgeDays(): Flow<Int>
+
+    suspend fun setMemoSnapshotMaxAgeDays(days: Int)
+}
+
 interface DraftPreferencesRepository {
     fun getDraftText(): Flow<String>
 

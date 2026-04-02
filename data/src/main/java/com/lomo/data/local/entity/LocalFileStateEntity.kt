@@ -12,4 +12,7 @@ data class LocalFileStateEntity(
     val isTrash: Boolean = false,
     @ColumnInfo(name = "saf_uri") val safUri: String? = null,
     @ColumnInfo(name = "last_known_modified_time") val lastKnownModifiedTime: Long,
+    @ColumnInfo(name = "missing_since") val missingSince: Long? = null,
+    @ColumnInfo(name = "missing_count") val missingCount: Int = 0,
+    @ColumnInfo(name = "last_seen_at") val lastSeenAt: Long = 0L,
 )

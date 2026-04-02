@@ -3,6 +3,7 @@ package com.lomo.data.local.datastore
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import com.lomo.data.util.PreferenceKeys
+import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
@@ -310,6 +311,63 @@ internal class LanSharePreferencesStoreImpl(
     }
 }
 
+private fun normalizeMemoSnapshotMaxCount(value: Int): Int =
+    if (value in SnapshotPreferenceOptions.RETENTION_COUNT_OPTIONS) {
+        value
+    } else {
+        PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_COUNT
+    }
+
+private fun normalizeMemoSnapshotMaxAgeDays(value: Int): Int =
+    if (value in SnapshotPreferenceOptions.RETENTION_DAY_OPTIONS) {
+        value
+    } else {
+        PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_AGE_DAYS
+    }
+
+internal class SnapshotPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoSnapshotPreferencesStore {
+    override val memoSnapshotsEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOTS_ENABLED,
+            flowName = "memoSnapshotsEnabled",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOTS_ENABLED,
+        )
+
+    override val memoSnapshotMaxCount: Flow<Int> =
+        dataStore.intFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_COUNT,
+            flowName = "memoSnapshotMaxCount",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_COUNT,
+            normalize = ::normalizeMemoSnapshotMaxCount,
+        )
+
+    override val memoSnapshotMaxAgeDays: Flow<Int> =
+        dataStore.intFlow(
+            key = LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS,
+            flowName = "memoSnapshotMaxAgeDays",
+            default = PreferenceKeys.Defaults.MEMO_SNAPSHOT_MAX_AGE_DAYS,
+            normalize = ::normalizeMemoSnapshotMaxAgeDays,
+        )
+
+    override suspend fun updateMemoSnapshotsEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_SNAPSHOTS_ENABLED] = enabled }
+    }
+
+    override suspend fun updateMemoSnapshotMaxCount(count: Int) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_COUNT] = normalizeMemoSnapshotMaxCount(count)
+        }
+    }
+
+    override suspend fun updateMemoSnapshotMaxAgeDays(days: Int) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS] = normalizeMemoSnapshotMaxAgeDays(days)
+        }
+    }
+}
+
 internal class AppVersionStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoAppVersionStore {
@@ -522,6 +580,126 @@ internal class WebDavScheduleStoreImpl(
 
     override suspend fun updateWebDavSyncOnRefresh(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.WEBDAV_SYNC_ON_REFRESH] = enabled }
+    }
+}
+
+internal class S3ConnectionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoS3ConnectionStore {
+    override val s3SyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_SYNC_ENABLED,
+            flowName = "s3SyncEnabled",
+            default = PreferenceKeys.Defaults.S3_SYNC_ENABLED,
+        )
+
+    override val s3EndpointUrl: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_ENDPOINT_URL, "s3EndpointUrl")
+
+    override val s3Region: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_REGION, "s3Region")
+
+    override val s3Bucket: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_BUCKET, "s3Bucket")
+
+    override val s3Prefix: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_PREFIX, "s3Prefix")
+
+    override val s3LocalSyncDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.S3_LOCAL_SYNC_DIRECTORY, "s3LocalSyncDirectory")
+
+    override val s3PathStyle: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_PATH_STYLE,
+            flowName = "s3PathStyle",
+            default = PreferenceKeys.Defaults.S3_PATH_STYLE,
+        )
+
+    override val s3EncryptionMode: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_ENCRYPTION_MODE,
+            flowName = "s3EncryptionMode",
+            default = PreferenceKeys.Defaults.S3_ENCRYPTION_MODE,
+        )
+
+    override suspend fun updateS3SyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3EndpointUrl(url: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_ENDPOINT_URL, url)
+    }
+
+    override suspend fun updateS3Region(region: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_REGION, region)
+    }
+
+    override suspend fun updateS3Bucket(bucket: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_BUCKET, bucket)
+    }
+
+    override suspend fun updateS3Prefix(prefix: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_PREFIX, prefix)
+    }
+
+    override suspend fun updateS3LocalSyncDirectory(pathOrUri: String?) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.S3_LOCAL_SYNC_DIRECTORY, pathOrUri)
+    }
+
+    override suspend fun updateS3PathStyle(pathStyle: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_PATH_STYLE] = pathStyle }
+    }
+
+    override suspend fun updateS3EncryptionMode(mode: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_ENCRYPTION_MODE] = mode }
+    }
+}
+
+internal class S3ScheduleStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoS3ScheduleStore {
+    override val s3AutoSyncEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_AUTO_SYNC_ENABLED,
+            flowName = "s3AutoSyncEnabled",
+            default = PreferenceKeys.Defaults.S3_AUTO_SYNC_ENABLED,
+        )
+
+    override val s3AutoSyncInterval: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_AUTO_SYNC_INTERVAL,
+            flowName = "s3AutoSyncInterval",
+            default = PreferenceKeys.Defaults.S3_AUTO_SYNC_INTERVAL,
+        )
+
+    override val s3LastSyncTime: Flow<Long> =
+        dataStore.longFlow(
+            key = LomoDataStoreKeys.S3_LAST_SYNC_TIME,
+            flowName = "s3LastSyncTime",
+            default = 0L,
+        )
+
+    override val s3SyncOnRefresh: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_SYNC_ON_REFRESH,
+            flowName = "s3SyncOnRefresh",
+            default = PreferenceKeys.Defaults.S3_SYNC_ON_REFRESH,
+        )
+
+    override suspend fun updateS3AutoSyncEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_AUTO_SYNC_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3AutoSyncInterval(interval: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_AUTO_SYNC_INTERVAL] = interval }
+    }
+
+    override suspend fun updateS3LastSyncTime(timestamp: Long) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_LAST_SYNC_TIME] = timestamp }
+    }
+
+    override suspend fun updateS3SyncOnRefresh(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ON_REFRESH] = enabled }
     }
 }
 

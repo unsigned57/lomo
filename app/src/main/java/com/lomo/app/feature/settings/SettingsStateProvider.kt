@@ -8,16 +8,12 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-private typealias ShareCardAndGitState = Pair<ShareCardSectionState, GitSectionState>
-private typealias LanShareAndShareCardState = Pair<LanShareSectionState, ShareCardAndGitState>
-private typealias DisplayAndLanShareState = Pair<DisplaySectionState, LanShareAndShareCardState>
-private typealias CoreWithoutWebDavState = Pair<StorageSectionState, DisplayAndLanShareState>
-
 class SettingsStateProvider(
     appConfigCoordinator: SettingsAppConfigCoordinator,
     lanShareCoordinator: SettingsLanShareCoordinator,
     gitCoordinator: SettingsGitCoordinator,
     webDavCoordinator: SettingsWebDavCoordinator,
+    s3Coordinator: SettingsS3Coordinator,
     val operationError: StateFlow<SettingsOperationError?>,
     scope: CoroutineScope,
 ) {
@@ -54,18 +50,30 @@ class SettingsStateProvider(
         val syncState: WebDavSyncState,
     )
 
+    private data class PrimaryUiSections(
+        val storage: StorageSectionState,
+        val display: DisplaySectionState,
+        val lanShare: LanShareSectionState,
+        val shareCard: ShareCardSectionState,
+        val snapshot: SnapshotSectionState,
+    )
+
     private data class CoreUiSections(
         val storage: StorageSectionState,
         val display: DisplaySectionState,
         val lanShare: LanShareSectionState,
         val shareCard: ShareCardSectionState,
+        val snapshot: SnapshotSectionState,
         val git: GitSectionState,
         val webDav: WebDavSectionState,
+        val s3: S3SectionState,
     )
 
     val pairingCodeError: StateFlow<String?> = lanShareCoordinator.pairingCodeError
     val connectionTestState: StateFlow<SettingsGitConnectionTestState> = gitCoordinator.connectionTestState
     val webDavConnectionTestState: StateFlow<SettingsWebDavConnectionTestState> = webDavCoordinator.connectionTestState
+    private val s3StateProvider = SettingsS3StateProvider(s3Coordinator = s3Coordinator, scope = scope)
+    val s3ConnectionTestState: StateFlow<SettingsS3ConnectionTestState> = s3StateProvider.connectionTestState
 
     private val storageState: StateFlow<StorageSectionState> =
         combine(
@@ -140,6 +148,42 @@ class SettingsStateProvider(
                 ShareCardSectionState(
                     appConfigCoordinator.shareCardShowTime.value,
                     appConfigCoordinator.shareCardShowBrand.value,
+                ),
+        )
+
+    private val memoSnapshotInputs: StateFlow<Triple<Boolean, Int, Int>> =
+        combine(
+            appConfigCoordinator.memoSnapshotsEnabled,
+            appConfigCoordinator.memoSnapshotMaxCount,
+            appConfigCoordinator.memoSnapshotMaxAgeDays,
+        ) { enabled, count, days ->
+            Triple(enabled, count, days)
+        }.stateIn(
+            scope = scope,
+            started = settingsWhileSubscribed(),
+            initialValue =
+                Triple(
+                    appConfigCoordinator.memoSnapshotsEnabled.value,
+                    appConfigCoordinator.memoSnapshotMaxCount.value,
+                    appConfigCoordinator.memoSnapshotMaxAgeDays.value,
+                ),
+        )
+
+    private val snapshotState: StateFlow<SnapshotSectionState> =
+        memoSnapshotInputs.map { memoInputs ->
+            SnapshotSectionState(
+                memoSnapshotsEnabled = memoInputs.first,
+                memoSnapshotMaxCount = memoInputs.second,
+                memoSnapshotMaxAgeDays = memoInputs.third,
+            )
+        }.stateIn(
+            scope = scope,
+            started = settingsWhileSubscribed(),
+            initialValue =
+                SnapshotSectionState(
+                    memoSnapshotsEnabled = appConfigCoordinator.memoSnapshotsEnabled.value,
+                    memoSnapshotMaxCount = appConfigCoordinator.memoSnapshotMaxCount.value,
+                    memoSnapshotMaxAgeDays = appConfigCoordinator.memoSnapshotMaxAgeDays.value,
                 ),
         )
 
@@ -337,6 +381,8 @@ class SettingsStateProvider(
                 ),
         )
 
+    private val s3State: StateFlow<S3SectionState> = s3StateProvider.sectionState
+
     private val interactionState: StateFlow<InteractionSectionState> =
         combine(
             appConfigCoordinator.hapticFeedbackEnabled,
@@ -380,34 +426,45 @@ class SettingsStateProvider(
                 initialValue = SystemSectionState(appConfigCoordinator.checkUpdatesOnStartup.value),
             )
 
-    private val coreWithoutWebDav:
-        StateFlow<CoreWithoutWebDavState> =
+    private val primaryUiSections: StateFlow<PrimaryUiSections> =
         combine(
             storageState,
             displayState,
             lanShareState,
             shareCardState,
-            gitState,
-        ) { storage, display, lanShare, shareCard, git ->
-            storage to (display to (lanShare to (shareCard to git)))
+            snapshotState,
+        ) { storage, display, lanShare, shareCard, snapshot ->
+            PrimaryUiSections(
+                storage = storage,
+                display = display,
+                lanShare = lanShare,
+                shareCard = shareCard,
+                snapshot = snapshot,
+            )
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
-                storageState.value to
-                    (displayState.value to
-                        (lanShareState.value to (shareCardState.value to gitState.value))),
+                PrimaryUiSections(
+                    storage = storageState.value,
+                    display = displayState.value,
+                    lanShare = lanShareState.value,
+                    shareCard = shareCardState.value,
+                    snapshot = snapshotState.value,
+                ),
         )
 
     private val coreUiSections: StateFlow<CoreUiSections> =
-        combine(coreWithoutWebDav, webDavState) { core, webDav ->
+        combine(primaryUiSections, gitState, webDavState, s3State) { primary, git, webDav, s3 ->
             CoreUiSections(
-                storage = core.first,
-                display = core.second.first,
-                lanShare = core.second.second.first,
-                shareCard = core.second.second.second.first,
-                git = core.second.second.second.second,
+                storage = primary.storage,
+                display = primary.display,
+                lanShare = primary.lanShare,
+                shareCard = primary.shareCard,
+                snapshot = primary.snapshot,
+                git = git,
                 webDav = webDav,
+                s3 = s3,
             )
         }.stateIn(
             scope = scope,
@@ -418,8 +475,10 @@ class SettingsStateProvider(
                     display = displayState.value,
                     lanShare = lanShareState.value,
                     shareCard = shareCardState.value,
+                    snapshot = snapshotState.value,
                     git = gitState.value,
                     webDav = webDavState.value,
+                    s3 = s3State.value,
                 ),
         )
 
@@ -435,8 +494,10 @@ class SettingsStateProvider(
                 display = core.display,
                 lanShare = core.lanShare,
                 shareCard = core.shareCard,
+                snapshot = core.snapshot,
                 git = core.git,
                 webDav = core.webDav,
+                s3 = core.s3,
                 interaction = interaction,
                 system = system,
                 operationError = operationError,
@@ -450,8 +511,10 @@ class SettingsStateProvider(
                     display = coreUiSections.value.display,
                     lanShare = coreUiSections.value.lanShare,
                     shareCard = coreUiSections.value.shareCard,
+                    snapshot = coreUiSections.value.snapshot,
                     git = coreUiSections.value.git,
                     webDav = coreUiSections.value.webDav,
+                    s3 = coreUiSections.value.s3,
                     interaction = interactionState.value,
                     system = systemState.value,
                     operationError = operationError.value,

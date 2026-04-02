@@ -2,6 +2,8 @@ package com.lomo.app.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +15,8 @@ class SettingsViewModel
     @Inject
     constructor(
         coordinatorFactory: SettingsCoordinatorFactory,
+        appUpdateChecker: AppUpdateChecker? = null,
+        getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
     ) : ViewModel() {
         private val appConfigCoordinator =
             coordinatorFactory.createAppConfigCoordinator(viewModelScope)
@@ -26,6 +30,9 @@ class SettingsViewModel
         private val webDavCoordinator =
             coordinatorFactory.createWebDavCoordinator(viewModelScope)
 
+        private val s3Coordinator =
+            coordinatorFactory.createS3Coordinator(viewModelScope)
+
         private val _operationError = MutableStateFlow<SettingsOperationError?>(null)
         private val operationErrorFlow = _operationError.asStateFlow()
         private val errorMapper = coordinatorFactory.createErrorMapper()
@@ -35,6 +42,7 @@ class SettingsViewModel
                 lanShareCoordinator = lanShareCoordinator,
                 gitCoordinator = gitCoordinator,
                 webDavCoordinator = webDavCoordinator,
+                s3Coordinator = s3Coordinator,
                 errorMapper = errorMapper,
             ) { message ->
                 _operationError.value = message
@@ -45,6 +53,7 @@ class SettingsViewModel
                 lanShareCoordinator = lanShareCoordinator,
                 gitCoordinator = gitCoordinator,
                 webDavCoordinator = webDavCoordinator,
+                s3Coordinator = s3Coordinator,
                 operationError = operationErrorFlow,
                 scope = viewModelScope,
             )
@@ -70,6 +79,11 @@ class SettingsViewModel
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
             )
+        val snapshotFeature =
+            SettingsSnapshotFeatureViewModel(
+                scope = viewModelScope,
+                appConfigCoordinator = appConfigCoordinator,
+            )
         val interactionFeature =
             SettingsInteractionFeatureViewModel(
                 scope = viewModelScope,
@@ -79,6 +93,8 @@ class SettingsViewModel
             SettingsSystemFeatureViewModel(
                 scope = viewModelScope,
                 appConfigCoordinator = appConfigCoordinator,
+                appUpdateChecker = appUpdateChecker,
+                getCurrentAppVersionUseCase = getCurrentAppVersionUseCase,
             )
         val lanShareFeature =
             SettingsLanShareFeatureViewModel(
@@ -95,10 +111,16 @@ class SettingsViewModel
                 actionCoordinator = actionCoordinator,
                 webDavCoordinator = webDavCoordinator,
             )
+        val s3Feature =
+            SettingsS3FeatureViewModel(
+                actionCoordinator = actionCoordinator,
+                s3Coordinator = s3Coordinator,
+            )
 
         init {
             actionCoordinator.refreshPatConfigured()
             actionCoordinator.refreshWebDavPasswordConfigured()
+            actionCoordinator.refreshS3CredentialConfigured()
         }
 
         fun clearOperationError() {

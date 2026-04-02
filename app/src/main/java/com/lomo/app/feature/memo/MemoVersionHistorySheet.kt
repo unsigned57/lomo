@@ -1,5 +1,6 @@
 package com.lomo.app.feature.memo
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,11 +45,45 @@ private val VERSION_COMMIT_TIME_FORMATTER: DateTimeFormatter =
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 private const val VERSION_PREVIEW_MAX_VISIBLE_BLOCKS = 3
 
+internal enum class VersionHistoryCardInteraction {
+    Static,
+    Restore,
+}
+
+internal enum class VersionHistoryCardHighlight {
+    Standard,
+    Current,
+}
+
+internal data class VersionHistoryCardPresentation(
+    val interaction: VersionHistoryCardInteraction,
+    val highlight: VersionHistoryCardHighlight,
+)
+
 private fun formatCommitTime(commitTimeMillis: Long): String =
     Instant
         .ofEpochMilli(commitTimeMillis)
         .atZone(ZoneId.systemDefault())
         .format(VERSION_COMMIT_TIME_FORMATTER)
+
+internal fun resolveVersionHistoryCardPresentation(
+    version: MemoRevision,
+    isRestoreInProgress: Boolean,
+): VersionHistoryCardPresentation =
+    VersionHistoryCardPresentation(
+        interaction =
+            if (version.isCurrent || isRestoreInProgress) {
+                VersionHistoryCardInteraction.Static
+            } else {
+                VersionHistoryCardInteraction.Restore
+            },
+        highlight =
+            if (version.isCurrent) {
+                VersionHistoryCardHighlight.Current
+            } else {
+                VersionHistoryCardHighlight.Standard
+            },
+    )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -211,20 +246,24 @@ private fun VersionTimelineItem(
     isRestoreInProgress: Boolean,
     onRestore: () -> Unit,
 ) {
-    val canRestore = !version.isCurrent && !isRestoreInProgress
+    val presentation = resolveVersionHistoryCardPresentation(version, isRestoreInProgress)
     val containerColor =
-        if (version.isCurrent) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.72f)
+        if (presentation.highlight == VersionHistoryCardHighlight.Current) {
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f)
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh
         }
-    Card(
-        onClick = onRestore,
-        enabled = canRestore,
-        modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-    ) {
+    val border =
+        if (presentation.highlight == VersionHistoryCardHighlight.Current) {
+            BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+            )
+        } else {
+            null
+        }
+
+    val content: @Composable () -> Unit = {
         Column(
             modifier =
                 Modifier
@@ -254,6 +293,31 @@ private fun VersionTimelineItem(
             VersionContentPreview(
                 content = processedContent,
             )
+        }
+    }
+
+    when (presentation.interaction) {
+        VersionHistoryCardInteraction.Restore -> {
+            Card(
+                onClick = onRestore,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = containerColor),
+                border = border,
+            ) {
+                content()
+            }
+        }
+
+        VersionHistoryCardInteraction.Static -> {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = containerColor),
+                border = border,
+            ) {
+                content()
+            }
         }
     }
 }

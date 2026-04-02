@@ -34,6 +34,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -42,12 +43,14 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 @Composable
 internal fun SettingsScreenScaffold(
     uiState: SettingsScreenUiState,
+    aboutState: AboutSectionState,
     onBackClick: () -> Unit,
     snackbarHostState: SnackbarHostState,
     dialogState: SettingsDialogState,
     features: SettingsFeatures,
     resources: SettingsResources,
     storagePickers: StoragePickerActions,
+    onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     AnimatedContent(
@@ -68,11 +71,13 @@ internal fun SettingsScreenScaffold(
             SettingsBody(
                 padding = padding,
                 uiState = uiState,
+                aboutState = aboutState,
                 languageTag = languageTag,
                 dialogState = dialogState,
                 features = features,
                 dialogOptions = resources.dialogOptions,
                 storagePickers = storagePickers,
+                onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
             )
         }
     }
@@ -142,11 +147,13 @@ private fun SettingsTopBar(
 private fun SettingsBody(
     padding: PaddingValues,
     uiState: SettingsScreenUiState,
+    aboutState: AboutSectionState,
     languageTag: String,
     dialogState: SettingsDialogState,
     features: SettingsFeatures,
     dialogOptions: SettingsDialogOptions,
     storagePickers: StoragePickerActions,
+    onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
 ) {
     Column(
         modifier =
@@ -181,10 +188,21 @@ private fun SettingsBody(
             gitSyncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
             webDavProviderLabels = dialogOptions.webDavProviderLabels,
         )
+        S3SyncSettingsSectionContainer(
+            state = uiState.s3,
+            dialogState = dialogState,
+            s3Feature = features.s3,
+            onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
+            syncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
+            pathStyleLabels = dialogOptions.s3PathStyleLabels,
+            encryptionModeLabels = dialogOptions.s3EncryptionModeLabels,
+        )
         FooterSettingsSections(
             uiState = uiState,
+            aboutState = aboutState,
             interactionFeature = features.interaction,
             systemFeature = features.system,
+            onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
         )
     }
 }
@@ -226,13 +244,27 @@ private fun PrimarySettingsSections(
         onToggleShowTime = features.shareCard::updateShareCardShowTime,
         onToggleShowBrand = features.shareCard::updateShareCardShowBrand,
     )
+    SnapshotSettingsSection(
+        state = uiState.snapshot,
+        onToggleMemoSnapshots = { enabled ->
+            if (enabled) {
+                features.snapshot.updateMemoSnapshotsEnabled(true)
+            } else {
+                dialogState.pendingSnapshotDisableTarget = SettingsSnapshotDisableTarget.MEMO
+            }
+        },
+        onOpenMemoCountDialog = { dialogState.showMemoSnapshotCountDialog = true },
+        onOpenMemoAgeDialog = { dialogState.showMemoSnapshotAgeDialog = true },
+    )
 }
 
 @Composable
 private fun FooterSettingsSections(
     uiState: SettingsScreenUiState,
+    aboutState: AboutSectionState,
     interactionFeature: SettingsInteractionFeatureViewModel,
     systemFeature: SettingsSystemFeatureViewModel,
+    onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     InteractionSettingsSection(
@@ -249,5 +281,16 @@ private fun FooterSettingsSections(
         state = uiState.system,
         onToggleCheckUpdates = systemFeature::updateCheckUpdatesOnStartup,
     )
-    AboutSettingsSection(onOpenGithub = { uriHandler.openUri(GITHUB_URL) })
+    AboutSettingsSection(
+        state = aboutState,
+        onCheckUpdates = {
+            val updateState = aboutState.manualUpdateState
+            if (updateState is SettingsManualUpdateState.UpdateAvailable) {
+                onOpenAvailableUpdateDialog(updateState.dialogState)
+            } else {
+                systemFeature.checkForUpdatesManually()
+            }
+        },
+        onOpenGithub = { uriHandler.openUri(GITHUB_URL) },
+    )
 }

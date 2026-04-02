@@ -27,6 +27,13 @@ android {
         targetCompatibility = JavaVersion.toVersion(25)
     }
 
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        checkDependencies = false
+        textReport = true
+    }
+
     ksp {
         arg("room.schemaLocation", roomSchemaDir.asFile.path)
     }
@@ -34,9 +41,12 @@ android {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(platform(libs.aws.sdk.kotlin.bom))
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.aws.sdk.kotlin.s3)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.bouncycastle.bcprov)
 
     // Room
     implementation(libs.androidx.room.runtime)

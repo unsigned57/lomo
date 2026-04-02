@@ -16,6 +16,9 @@ object PreferenceDefaults {
     const val THEME_MODE = "system"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true
+    const val MEMO_SNAPSHOTS_ENABLED = true
+    const val MEMO_SNAPSHOT_MAX_COUNT = 20
+    const val MEMO_SNAPSHOT_MAX_AGE_DAYS = 30
     const val STORAGE_FILENAME_FORMAT = StorageFilenameFormats.DEFAULT_PATTERN
     const val STORAGE_TIMESTAMP_FORMAT = StorageTimestampFormats.DEFAULT_PATTERN
     const val GIT_SYNC_ENABLED = false
@@ -30,4 +33,10 @@ object PreferenceDefaults {
     const val WEBDAV_AUTO_SYNC_ENABLED = false
     const val WEBDAV_AUTO_SYNC_INTERVAL = "1h"
     const val WEBDAV_SYNC_ON_REFRESH = false
+    const val S3_SYNC_ENABLED = false
+    const val S3_PATH_STYLE = "auto"
+    const val S3_ENCRYPTION_MODE = "none"
+    const val S3_AUTO_SYNC_ENABLED = false
+    const val S3_AUTO_SYNC_INTERVAL = "1h"
+    const val S3_SYNC_ON_REFRESH = false
 }
