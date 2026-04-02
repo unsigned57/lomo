@@ -1,5 +1,6 @@
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.Exec
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 plugins {
@@ -226,6 +227,16 @@ tasks.register("detektFormatStaged", dev.detekt.gradle.Detekt::class.java) {
 }
 
 subprojects {
+    tasks.withType(KotlinCompilationTask::class.java).configureEach {
+        val isProductionCompileTask =
+            name.startsWith("compile") &&
+                name.endsWith("Kotlin") &&
+                !name.contains("Test", ignoreCase = true)
+        if (isProductionCompileTask) {
+            compilerOptions.allWarningsAsErrors.set(true)
+        }
+    }
+
     configurations.configureEach {
         resolutionStrategy {
             force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")

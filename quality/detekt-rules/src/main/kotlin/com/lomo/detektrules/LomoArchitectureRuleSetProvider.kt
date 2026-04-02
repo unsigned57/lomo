@@ -9,9 +9,26 @@ import dev.detekt.api.RuleSet
 import dev.detekt.api.RuleSetId
 import dev.detekt.api.RuleSetProvider
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
+import org.jetbrains.kotlin.psi.KtBinaryExpression
+import org.jetbrains.kotlin.psi.KtBlockExpression
+import org.jetbrains.kotlin.psi.KtBreakExpression
 import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
+import org.jetbrains.kotlin.psi.KtConstantExpression
+import org.jetbrains.kotlin.psi.KtContinueExpression
+import org.jetbrains.kotlin.psi.KtDoWhileExpression
+import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtIfExpression
+import org.jetbrains.kotlin.psi.KtParenthesizedExpression
+import org.jetbrains.kotlin.psi.KtPrefixExpression
+import org.jetbrains.kotlin.psi.KtReturnExpression
+import org.jetbrains.kotlin.psi.KtThrowExpression
+import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
+import org.jetbrains.kotlin.psi.KtWhenEntry
+import org.jetbrains.kotlin.psi.KtWhenExpression
+import org.jetbrains.kotlin.psi.KtWhileExpression
+import org.jetbrains.kotlin.lexer.KtTokens
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
@@ -36,6 +53,9 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("UiComponentsLayerBoundary") to ::UiComponentsLayerBoundaryRule,
                 RuleName("NoSourceSuppressions") to ::NoSourceSuppressionsRule,
                 RuleName("NoPlaceholderImplementation") to ::NoPlaceholderImplementationRule,
+                RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
+                RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
+                RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
             ),
         )
 }
@@ -45,6 +65,8 @@ private abstract class LomoArchitectureRule(
     description: String,
 ) : Rule(config, description) {
     protected fun KtFile.path(): String = getViewProvider().getVirtualFile().getPath().replace('\\', '/')
+
+    protected fun KtFile.isProductionSource(): Boolean = path().contains("/src/main/")
 
     protected fun KtFile.bodyText(): String =
         text
@@ -81,6 +103,13 @@ private abstract class LomoArchitectureRule(
 
     protected fun reportFile(file: KtFile, message: String) {
         report(Finding(Entity.from(file), message))
+    }
+
+    protected fun reportElement(
+        expression: KtExpression,
+        message: String,
+    ) {
+        report(Finding(Entity.from(expression), message))
     }
 
     protected fun reportDeclaration(
@@ -459,7 +488,7 @@ private class NoPlaceholderImplementationRule(
 
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
-        if (!file.path().contains("/src/main/")) return
+        if (!file.isProductionSource()) return
 
         val placeholder = placeholderPatterns.firstOrNull { it.containsMatchIn(file.bodyText()) }
         if (placeholder != null) {
@@ -467,3 +496,149 @@ private class NoPlaceholderImplementationRule(
         }
     }
 }
+
+private class NoConstantBranchConditionRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not commit branches whose conditions are already constant.") {
+    override fun visitIfExpression(expression: KtIfExpression) {
+        super.visitIfExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+
+        val condition = expression.condition ?: return
+        val constant = condition.evaluateBooleanConstant() ?: return
+        reportElement(
+            condition,
+            "Branch condition is always $constant. Remove the dead branch or make the condition depend on runtime state.",
+        )
+    }
+
+    override fun visitWhileExpression(expression: KtWhileExpression) {
+        super.visitWhileExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+
+        val condition = expression.condition ?: return
+        val constant = condition.evaluateBooleanConstant() ?: return
+        if (constant) return
+        reportElement(
+            condition,
+            "Loop condition is always $constant. Remove the dead loop or replace it with explicit runtime control flow.",
+        )
+    }
+
+    override fun visitDoWhileExpression(expression: KtDoWhileExpression) {
+        super.visitDoWhileExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+
+        val condition = expression.condition ?: return
+        val constant = condition.evaluateBooleanConstant() ?: return
+        if (constant) return
+        reportElement(
+            condition,
+            "Loop condition is always $constant. Remove the dead loop or replace it with explicit runtime control flow.",
+        )
+    }
+
+    override fun visitWhenExpression(expression: KtWhenExpression) {
+        super.visitWhenExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+        if (expression.subjectExpression != null) return
+
+        expression.entries.forEach { entry ->
+            val constant = entry.singleBooleanCondition() ?: return@forEach
+            reportElement(
+                entry.expression ?: expression,
+                "when branch condition is always $constant. Remove the dead branch or make the guard depend on runtime state.",
+            )
+        }
+    }
+}
+
+private class NoUnreachableBlockTailRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not keep statements after an unconditional control-transfer expression.") {
+    override fun visitBlockExpression(expression: KtBlockExpression) {
+        super.visitBlockExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+
+        var terminatorSeen = false
+        expression.statements.forEach { statement ->
+            if (terminatorSeen) {
+                reportElement(
+                    statement,
+                    "Unreachable statement after unconditional control transfer. Remove dead code after return/throw/break/continue.",
+                )
+                return
+            }
+
+            if (statement.isUnconditionalJump()) {
+                terminatorSeen = true
+            }
+        }
+    }
+}
+
+private class NoRedundantExhaustiveElseRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not keep an else branch when a Boolean when is already exhaustive.") {
+    override fun visitWhenExpression(expression: KtWhenExpression) {
+        super.visitWhenExpression(expression)
+        if (!expression.containingKtFile.isProductionSource()) return
+        if (expression.subjectExpression == null) return
+
+        val elseEntry = expression.entries.firstOrNull(KtWhenEntry::isElse) ?: return
+        val booleanConditions =
+            expression.entries
+                .filterNot(KtWhenEntry::isElse)
+                .mapNotNull(KtWhenEntry::singleBooleanCondition)
+                .toSet()
+
+        if (booleanConditions == setOf(true, false)) {
+            report(
+                Finding(
+                    Entity.from(elseEntry),
+                    "Redundant else branch in exhaustive Boolean when. Remove else and keep explicit true/false branches only.",
+                ),
+            )
+        }
+    }
+}
+
+private fun KtExpression.evaluateBooleanConstant(): Boolean? =
+    when (this) {
+        is KtParenthesizedExpression -> expression?.evaluateBooleanConstant()
+        is KtConstantExpression ->
+            when (text) {
+                "true" -> true
+                "false" -> false
+                else -> null
+            }
+        is KtPrefixExpression ->
+            when (operationToken) {
+                KtTokens.EXCL -> baseExpression?.evaluateBooleanConstant()?.not()
+                else -> null
+            }
+        is KtBinaryExpression -> {
+            val leftValue = left?.evaluateBooleanConstant()
+            val rightValue = right?.evaluateBooleanConstant()
+            when (operationToken) {
+                KtTokens.ANDAND -> if (leftValue != null && rightValue != null) leftValue && rightValue else null
+                KtTokens.OROR -> if (leftValue != null && rightValue != null) leftValue || rightValue else null
+                KtTokens.EQEQ -> if (leftValue != null && rightValue != null) leftValue == rightValue else null
+                KtTokens.EXCLEQ -> if (leftValue != null && rightValue != null) leftValue != rightValue else null
+                else -> null
+            }
+        }
+        else -> null
+    }
+
+private fun KtWhenEntry.singleBooleanCondition(): Boolean? {
+    if (isElse || conditions.size != 1) return null
+    val expression = (conditions.single() as? KtWhenConditionWithExpression)?.expression ?: return null
+    return expression.evaluateBooleanConstant()
+}
+
+private fun KtExpression.isUnconditionalJump(): Boolean =
+    this is KtReturnExpression ||
+        this is KtThrowExpression ||
+        this is KtBreakExpression ||
+        this is KtContinueExpression

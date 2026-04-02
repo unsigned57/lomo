@@ -11,6 +11,9 @@ java {
 
 dependencies {
     compileOnly("dev.detekt:detekt-api:${libs.versions.detekt.get()}")
+
+    testImplementation(libs.junit)
+    testImplementation("dev.detekt:detekt-test:${libs.versions.detekt.get()}")
 }
 
 kotlin {

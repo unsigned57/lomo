@@ -78,6 +78,7 @@ The AI response must begin with a short preflight summary covering:
 3. what will not be tested
 4. whether the task is test-only or will require a production change and, if so, where red proof will come from
 5. whether any existing tests are likely contract locks that must be preserved unchanged
+6. whether any new or changed production branch needs explicit reachability proof
 
 If the AI cannot explain those points after reading this file, it must stop and ask for a better target instead of writing tests.
 
@@ -110,6 +111,8 @@ After the scenario matrix, follow this sequence:
 6. Re-run the reproducer to green, then broaden validation if the change surface justifies it.
 7. If no production change is required, state that the task is a test-only coverage lock-in and do not edit production code.
 
+When a production change adds or reshapes branching (`if`, `when`, `catch`, Elvis fallback, early-return guard), the red proof must show why the branch is reachable or why removing it preserves reachable behavior. Do not accept tests that merely compile the branch or assert collaborator calls without proving an observable outcome.
+
 Every generated test must prove one of the following:
 
 - a business rule
@@ -126,6 +129,7 @@ Reject the test if it only proves:
 - that a trivial getter or setter returns the value just assigned
 - that the AI skipped the required preflight and went straight to code
 - that the AI changed production code before establishing red proof for a behavior-changing task
+- that a newly added production branch has no scenario proving it is reachable
 - that the red phase is omitted, hand-waved, or marked not applicable even though production behavior changed
 - that an old failing test was deleted or weakened so the new implementation could pass
 - that a regression test was rewritten into a happy-path test without preserving the original risk boundary

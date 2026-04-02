@@ -108,6 +108,17 @@ This file gives AI agents the minimum project context needed to work effectively
   - what retained or new test preserves the original risk coverage
   - why this is not “changing the test to fit the implementation”
 
+## 6.1 Branch Reachability Policy
+
+- AI must not add a production branch unless it can name the runtime input or upstream boundary that reaches it.
+- AI must not keep speculative fallback code, placeholder `else` branches, or “future use” error paths in production source.
+- For `Boolean`, sealed-style, or enum-style dispatch, prefer explicit exhaustive branches; do not add `else` unless the branch is genuinely reachable and required by the current contract.
+- If removing a branch leaves observable behavior unchanged, remove it instead of preserving defensive dead code.
+- Any new production branch must be justified by at least one behavior test that proves either:
+  - the branch is reachable and produces a distinct observable outcome
+  - the branch was dead and was removed without changing reachable behavior
+- If AI cannot prove why a branch is reachable, it must stop short of adding the branch and instead surface the missing contract or boundary detail.
+
 ## 7. Hotspots To Inspect First
 
 - Settings changes:

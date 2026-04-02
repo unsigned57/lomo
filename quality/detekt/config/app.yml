@@ -90,3 +90,9 @@ lomo-architecture:
     active: true
   NoPlaceholderImplementation:
     active: true
+  NoConstantBranchCondition:
+    active: true
+  NoUnreachableBlockTail:
+    active: true
+  NoRedundantExhaustiveElse:
+    active: true

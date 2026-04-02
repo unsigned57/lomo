@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <lint>
     <issue id="AndroidGradlePluginVersion" severity="ignore" />
+    <issue id="GradleDependency" severity="ignore" />
+    <issue id="NewerVersionAvailable" severity="ignore" />
+    <issue id="TrustAllX509TrustManager">
+        <ignore regexp=".*/org\.eclipse\.jgit-.*\.jar" />
+    </issue>
     <issue id="DefaultLocale" severity="error" />
     <issue id="NewApi" severity="error" />
     <issue id="ObsoleteSdkInt" severity="error" />

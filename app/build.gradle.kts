@@ -190,6 +190,13 @@ android {
             excludes += "META-INF/io.netty.versions.properties"
         }
     }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        checkDependencies = false
+        textReport = true
+    }
 }
 
 baselineProfile {
