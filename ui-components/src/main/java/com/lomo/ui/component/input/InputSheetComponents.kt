@@ -1,6 +1,12 @@
 package com.lomo.ui.component.input
 
 import android.Manifest
+import android.text.Editable
+import android.text.TextWatcher
+import android.text.method.ArrowKeyMovementMethod
+import android.view.Gravity
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -29,9 +35,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
@@ -44,8 +47,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,21 +56,27 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.graphics.toArgb
 import com.lomo.ui.R
+import com.lomo.ui.text.applyMemoParagraphAppearance
+import com.lomo.ui.text.applyMemoParagraphTextStyle
+import com.lomo.ui.text.rawMemoParagraphSpacing
+import com.lomo.ui.text.resolveRawMemoPlainTextStyle
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
+import kotlin.math.roundToInt
 
 private val InputEditorContainerPaddingHorizontal = 16.dp
 private val InputEditorContainerPaddingVertical = 12.dp
@@ -174,16 +181,19 @@ internal fun InputEditorPanel(
     slots: InputSheetSlots,
     haptic: AppHapticFeedback,
 ) {
+    val typography = MaterialTheme.typography
     Column(
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(AppSpacing.Medium),
     ) {
-        val bodyLargeStyle = MaterialTheme.typography.memoBodyTextStyle()
         val inputTextStyle =
-            remember(inputValue.text, bodyLargeStyle) {
-                bodyLargeStyle.scriptAwareFor(inputValue.text)
+            remember(inputValue.text, typography) {
+                resolveRawMemoPlainTextStyle(
+                    typography = typography,
+                    text = inputValue.text,
+                )
             }
         InputEditorTextField(
             inputValue = inputValue,
@@ -221,38 +231,118 @@ private fun InputEditorTextField(
     textStyle: androidx.compose.ui.text.TextStyle,
     onTextChange: (TextFieldValue) -> Unit,
 ) {
-    BasicTextField(
-        value = inputValue,
-        onValueChange = onTextChange,
+    val density = LocalDensity.current
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val displayStyle =
+        remember(textStyle, onSurface) {
+            textStyle.copy(color = onSurface)
+        }
+    val cursorColor = MaterialTheme.colorScheme.primary.toArgb()
+    val paragraphSpacingPx = with(density) { rawMemoParagraphSpacing().roundToPx() }
+
+    Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .focusRequester(focusRequester),
-        textStyle = textStyle.copy(color = MaterialTheme.colorScheme.onSurface),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-        keyboardActions = KeyboardActions(),
-        minLines = 3,
-        maxLines = 10,
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        decorationBox = { innerTextField ->
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(AppShapes.Large)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .padding(
-                            horizontal = InputEditorContainerPaddingHorizontal,
-                            vertical = InputEditorContainerPaddingVertical,
-                        ),
-            ) {
-                if (inputValue.text.isEmpty()) {
-                    InputHintPlaceholder(hintText = hintText)
+                .clip(AppShapes.Large)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .padding(
+                    horizontal = InputEditorContainerPaddingHorizontal,
+                    vertical = InputEditorContainerPaddingVertical,
+                ),
+    ) {
+        if (inputValue.text.isEmpty()) {
+            InputHintPlaceholder(hintText = hintText)
+        }
+
+        AndroidView(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+            factory = { context ->
+                MemoInputEditText(context).apply {
+                    layoutParams =
+                        ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT,
+                        )
+                    background = null
+                    includeFontPadding = false
+                    setPadding(0, 0, 0, 0)
+                    setTextIsSelectable(true)
+                    isSingleLine = false
+                    minLines = INPUT_EDITOR_MIN_LINES
+                    maxLines = INPUT_EDITOR_MAX_LINES
+                    gravity = Gravity.START or Gravity.TOP
+                    movementMethod = ArrowKeyMovementMethod.getInstance()
+                    imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+                    clearCursorDrawableIfSupported()
+                    highlightColor = cursorColor
+                    addTextChangedListener(
+                        object : TextWatcher {
+                            override fun beforeTextChanged(
+                                s: CharSequence?,
+                                start: Int,
+                                count: Int,
+                                after: Int,
+                            ) = Unit
+
+                            override fun onTextChanged(
+                                s: CharSequence?,
+                                start: Int,
+                                before: Int,
+                                count: Int,
+                            ) = Unit
+
+                            override fun afterTextChanged(s: Editable?) {
+                                if (isUpdatingFromModel) return
+                                onTextChange(currentTextFieldValue())
+                            }
+                        },
+                    )
+                    onSelectionChangedListener = {
+                        if (!isUpdatingFromModel) {
+                            onTextChange(currentTextFieldValue())
+                        }
+                    }
                 }
-                innerTextField()
-            }
-        },
-    )
+            },
+            update = { editText ->
+                editText.setCursorColor(cursorColor)
+                editText.isUpdatingFromModel = true
+                val shouldReplacePresentation =
+                    shouldReplaceMemoInputPresentationText(
+                        currentText = editText.text ?: "",
+                        desiredText = inputValue.text,
+                        lastAppliedParagraphSpacingPx = editText.lastAppliedParagraphSpacingPx,
+                        desiredParagraphSpacingPx = paragraphSpacingPx,
+                    )
+                if (shouldReplacePresentation) {
+                    editText.applyMemoParagraphTextStyle(
+                        text = buildRawMemoEditorPresentationText(inputValue.text, paragraphSpacingPx),
+                        style = displayStyle,
+                        density = density,
+                        maxLines = INPUT_EDITOR_MAX_LINES,
+                        overflow = TextOverflow.Clip,
+                        selectable = true,
+                    )
+                    editText.lastAppliedParagraphSpacingPx = paragraphSpacingPx
+                } else {
+                    editText.applyMemoParagraphAppearance(
+                        text = editText.text ?: "",
+                        style = displayStyle,
+                        density = density,
+                        maxLines = INPUT_EDITOR_MAX_LINES,
+                        overflow = TextOverflow.Clip,
+                        selectable = true,
+                    )
+                }
+                editText.syncWith(inputValue)
+                editText.isUpdatingFromModel = false
+            },
+        )
+    }
 }
 
 @Composable

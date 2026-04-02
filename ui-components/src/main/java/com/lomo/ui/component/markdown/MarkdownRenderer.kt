@@ -23,8 +23,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -42,12 +40,11 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.resolveRawMemoPlainTextStyle
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.BlockQuote
@@ -78,108 +75,36 @@ fun MarkdownRenderer(
     todoOverrides: Map<Int, Boolean> = emptyMap(), // State overlay for checkboxes
     onImageClick: ((String) -> Unit)? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
-    precomputedNode: ImmutableNode? = null,
+    precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: List<String> = emptyList(),
     enableTextSelection: Boolean = false,
 ) {
-    if (
-        shouldUseModernMarkdownBackend(
-            maxVisibleBlocks = maxVisibleBlocks,
-            hasTodoToggleHandler = onTodoClick != null,
-            hasTodoOverrides = todoOverrides.isNotEmpty(),
-            hasKnownTagsToStrip = knownTagsToStrip.isNotEmpty(),
-            hasImageClickHandler = onImageClick != null,
-            hasPrecomputedNode = precomputedNode != null,
-        )
-    ) {
-        ModernMarkdownRenderer(
-            content = content,
-            modifier = modifier,
-            maxVisibleBlocks = maxVisibleBlocks,
-            onTodoClick = onTodoClick,
-            todoOverrides = todoOverrides,
-            onImageClick = onImageClick,
-            onTotalBlocks = onTotalBlocks,
-            knownTagsToStrip = knownTagsToStrip,
-            enableTextSelection = enableTextSelection,
-        )
-        return
-    }
-
-    val root by
-        produceState<ImmutableNode?>(
-            initialValue = precomputedNode,
-            key1 = content,
-            key2 = precomputedNode,
-            key3 = knownTagsToStrip,
-        ) {
-            value =
-                precomputedNode
-                    ?: withContext(Dispatchers.Default) {
-                        MarkdownKnownTagFilter.eraseKnownTags(MarkdownParser.parse(content), knownTagsToStrip)
-                    }
-        }
-
-    if (root == null) {
-        MarkdownRendererFallback(
-            content = content,
-            modifier = modifier,
-            enableTextSelection = enableTextSelection,
-        )
-        return
-    }
-
-    val latestOnTotalBlocks by rememberUpdatedState(onTotalBlocks)
-    val totalBlocks = remember(root, onTotalBlocks != null) { countMarkdownBlocks(root, onTotalBlocks != null) }
-    val renderedItems = remember(root, maxVisibleBlocks) { buildMarkdownRenderItems(root, maxVisibleBlocks) }
-
-    LaunchedEffect(totalBlocks) {
-        totalBlocks?.let { latestOnTotalBlocks?.invoke(it) }
-    }
-
-    val renderedContent: @Composable () -> Unit = {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(memoParagraphBlockSpacing()),
-        ) {
-            renderedItems.forEach { item ->
-                when (item) {
-                    is MarkdownRenderItem.Block -> {
-                        MDBlock(
-                            node = item.node,
-                            onTodoClick = onTodoClick,
-                            todoOverrides = todoOverrides,
-                            onImageClick = onImageClick,
-                            enableTextSelection = enableTextSelection,
-                        )
-                    }
-
-                    is MarkdownRenderItem.Gallery -> MDImageGallery(item.images, onImageClick)
-                }
-            }
-        }
-    }
-
-    if (enableTextSelection) {
-        SelectionContainer {
-            renderedContent()
-        }
-    } else {
-        renderedContent()
-    }
+    ModernMarkdownRenderer(
+        content = content,
+        modifier = modifier,
+        maxVisibleBlocks = maxVisibleBlocks,
+        onTodoClick = onTodoClick,
+        todoOverrides = todoOverrides,
+        onImageClick = onImageClick,
+        onTotalBlocks = onTotalBlocks,
+        precomputedRenderPlan = precomputedRenderPlan,
+        knownTagsToStrip = knownTagsToStrip,
+        enableTextSelection = enableTextSelection,
+    )
 }
 
 @Composable
-private fun MarkdownRendererFallback(
+internal fun MarkdownRendererFallback(
     content: String,
     modifier: Modifier = Modifier,
     enableTextSelection: Boolean = false,
 ) {
     val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
     val textStyle =
-        MaterialTheme.typography.memoBodyTextStyle()
-            .copy(color = MaterialTheme.colorScheme.onSurface)
-            .scriptAwareFor(normalizedContent)
+        resolveRawMemoPlainTextStyle(
+            typography = MaterialTheme.typography,
+            text = normalizedContent,
+        ).copy(color = MaterialTheme.colorScheme.onSurface)
 
     val fallbackContent: @Composable () -> Unit = {
         MemoParagraphText(

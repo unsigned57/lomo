@@ -8,9 +8,11 @@ import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -97,33 +99,31 @@ private fun PlatformMemoParagraphText(
             }
         },
         update = { textView ->
-            val layoutPolicy = resolveMemoParagraphLayoutPolicy(text)
-            val hasLinks = text.hasPlatformLinks()
-            textView.text = text
-            textView.setTextColor(style.color.toArgb())
-            textView.gravity = layoutPolicy.gravity
-            textView.textAlignment = layoutPolicy.textAlignment
-            textView.maxLines = maxLines
-            textView.ellipsize = overflow.toEllipsize()
-            textView.setTextIsSelectable(selectable)
-            textView.breakStrategy = layoutPolicy.breakStrategy
-            textView.hyphenationFrequency = layoutPolicy.hyphenationFrequency
-            textView.justificationMode = layoutPolicy.justificationMode
-            textView.typeface = style.resolvePlatformTypeface()
-            textView.linksClickable = hasLinks
-            textView.movementMethod = if (hasLinks) LinkMovementMethod.getInstance() else null
-
-            with(density) {
-                textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, style.fontSize.toPx())
-                if (style.lineHeight != TextUnit.Unspecified) {
-                    TextViewCompat.setLineHeight(textView, style.lineHeight.roundToPx())
-                }
-            }
+            textView.applyMemoParagraphTextStyle(
+                text = text,
+                style = style,
+                density = density,
+                maxLines = maxLines,
+                overflow = overflow,
+                selectable = selectable,
+            )
         },
     )
 }
 
-private fun TextStyle.resolvePlatformTypeface(): Typeface {
+internal fun TextView.applyMemoParagraphTextStyle(
+    text: CharSequence,
+    style: TextStyle,
+    density: Density,
+    maxLines: Int,
+    overflow: TextOverflow,
+    selectable: Boolean,
+) {
+    this.text = text
+    applyMemoParagraphAppearance(text, style, density, maxLines, overflow, selectable)
+}
+
+internal fun TextStyle.resolvePlatformTypeface(): Typeface {
     val baseTypeface = if (fontFamily == FontFamily.Monospace) Typeface.MONOSPACE else Typeface.SANS_SERIF
     val italic = fontStyle == FontStyle.Italic
     val weight = fontWeight?.weight ?: Typeface.NORMAL
@@ -146,7 +146,7 @@ internal fun resolveMemoTypefaceStyle(
         else -> Typeface.NORMAL
     }
 
-private fun TextOverflow.toEllipsize(): TextUtils.TruncateAt? =
+internal fun TextOverflow.toEllipsize(): TextUtils.TruncateAt? =
     when (this) {
         TextOverflow.Ellipsis -> TextUtils.TruncateAt.END
         else -> null

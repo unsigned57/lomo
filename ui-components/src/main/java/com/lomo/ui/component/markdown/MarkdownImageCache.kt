@@ -78,11 +78,31 @@ internal object MarkdownImageCache {
     }
 }
 
+internal fun resolveMarkdownImageSharedElementKey(
+    destination: String,
+    hasNavigationTarget: Boolean,
+    namespace: String? = null,
+): String? {
+    if (!hasNavigationTarget) return null
+    val normalizedDestination = destination.trim()
+    if (normalizedDestination.isEmpty()) return null
+    val normalizedNamespace = namespace?.trim().orEmpty()
+    return if (normalizedNamespace.isEmpty()) {
+        normalizedDestination
+    } else {
+        "$normalizedNamespace|$normalizedDestination"
+    }
+}
+
 @Composable
 internal fun MarkdownImageBlock(
     image: Image,
     onImageClick: ((String) -> Unit)? = null,
-    sharedElementKey: String = image.destination,
+    sharedElementKey: String? =
+        resolveMarkdownImageSharedElementKey(
+            destination = image.destination,
+            hasNavigationTarget = onImageClick != null,
+        ),
 ) {
     val destination = image.destination
     val context = LocalContext.current
@@ -210,9 +230,9 @@ internal fun MarkdownImagePager(
 private fun Modifier.rememberSharedImageModifier(
     sharedTransitionScope: SharedTransitionScope?,
     animatedVisibilityScope: AnimatedVisibilityScope?,
-    sharedElementKey: String,
+    sharedElementKey: String?,
 ): Modifier =
-    if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+    if (sharedTransitionScope != null && animatedVisibilityScope != null && sharedElementKey != null) {
         with(sharedTransitionScope) {
             this@rememberSharedImageModifier.sharedElement(
                 rememberSharedContentState(key = sharedElementKey),

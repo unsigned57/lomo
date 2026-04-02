@@ -99,4 +99,22 @@ class ModernMarkdownRenderPlanTest {
         assertTrue(sanitized.contains("plain body line"))
         assertFalse(sanitized.contains("plain body #todo line"))
     }
+
+    @Test
+    fun `render plan prunes blank paragraph blocks left behind after known tag stripping`() {
+        val plan =
+            createModernMarkdownRenderPlan(
+                content =
+                    """
+                    #todo #work
+
+                    body line
+                    """.trimIndent(),
+                knownTagsToStrip = listOf("todo", "work"),
+            )
+
+        assertEquals(1, plan.totalBlocks)
+        assertEquals(1, plan.items.size)
+        assertTrue(plan.content.contains("body line"))
+    }
 }

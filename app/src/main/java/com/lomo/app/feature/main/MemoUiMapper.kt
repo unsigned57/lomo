@@ -6,9 +6,8 @@ import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
 import com.lomo.ui.component.card.shouldShowMemoCardExpand
-import com.lomo.ui.component.markdown.ImmutableNode
-import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
-import com.lomo.ui.component.markdown.MarkdownParser
+import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
+import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,22 +63,22 @@ class MemoUiMapper
             imagePath: String?,
             imageMap: Map<String, Uri>,
             precomputeMarkdown: Boolean = true,
-            existingNode: ImmutableNode? = null,
+            existingRenderPlan: ModernMarkdownRenderPlan? = null,
             existingProcessedContent: String? = null,
         ): MemoUiModel {
             val displayMemo = recoverDisplayMemoIfNeeded(memo)
             val processedContent = buildProcessedContent(displayMemo.content, rootPath, imagePath, imageMap)
-            val canReuseExistingNode =
-                existingNode != null &&
+            val canReuseExistingRenderPlan =
+                existingRenderPlan != null &&
                     existingProcessedContent != null &&
                     existingProcessedContent == processedContent
-            val parsedNode =
+            val renderPlan =
                 when {
-                    canReuseExistingNode -> existingNode
+                    canReuseExistingRenderPlan -> existingRenderPlan
                     precomputeMarkdown ->
-                        MarkdownKnownTagFilter.eraseKnownTags(
-                            MarkdownParser.parse(processedContent),
-                            displayMemo.tags,
+                        createModernMarkdownRenderPlan(
+                            content = processedContent,
+                            knownTagsToStrip = displayMemo.tags,
                         )
 
                     else -> null
@@ -91,7 +90,7 @@ class MemoUiMapper
             return MemoUiModel(
                 memo = displayMemo,
                 processedContent = processedContent,
-                markdownNode = parsedNode,
+                precomputedRenderPlan = renderPlan,
                 tags = displayMemo.tags.toImmutableList(),
                 imageUrls = imageUrls,
                 shouldShowExpand = shouldShowExpand,
@@ -120,7 +119,8 @@ class MemoUiMapper
                 memo
             } else {
                 val recoveredContent = buildRecoveredContent(lines, header.contentPart)
-                val shouldRecoverContent = memo.content != recoveredContent
+                val resolvedContent = resolveRecoveredContent(memo.content, recoveredContent)
+                val shouldRecoverContent = memo.content != resolvedContent
                 val shouldRecoverTimestamp =
                     !storedTimestampMatchesRecoveredHeader(
                         storedTimestamp = memo.timestamp,
@@ -147,11 +147,21 @@ class MemoUiMapper
                             } else {
                                 memo.updatedAt
                             },
-                        content = if (shouldRecoverContent) recoveredContent else memo.content,
+                        content = if (shouldRecoverContent) resolvedContent else memo.content,
                     )
                 }
             }
         }
+
+        private fun resolveRecoveredContent(
+            storedContent: String,
+            recoveredContent: String,
+        ): String =
+            if (recoveredContent.isBlank() && storedContent.isNotBlank()) {
+                storedContent
+            } else {
+                recoveredContent
+            }
 
         private fun buildRecoveredContent(
             lines: List<String>,

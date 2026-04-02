@@ -106,15 +106,69 @@ internal fun buildModernMarkdownAnnotatedTextFromFragment(
     style: TextStyle,
     tokenSpec: ModernMarkdownTokenSpec,
 ): AnnotatedString {
-    val root = parseModernMarkdownDocument(fragment)
+    val normalizedFragment = normalizeModernParagraphFragmentForDisplay(fragment)
+    val root = parseModernMarkdownDocument(normalizedFragment)
     val renderNode = root.children.firstOrNull { it.type != MarkdownTokenTypes.EOL } ?: root
     return buildModernMarkdownAnnotatedText(
-        content = fragment,
+        content = normalizedFragment,
         node = renderNode,
         style = style,
         tokenSpec = tokenSpec,
     )
 }
+
+internal fun normalizeModernParagraphFragmentForDisplay(
+    fragment: String,
+): String {
+    if (!fragment.contains('\n') && !fragment.contains('\r')) {
+        return fragment
+    }
+
+    val normalizedLineEndings =
+        fragment
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+
+    if (!normalizedLineEndings.contains('\n')) {
+        return normalizedLineEndings
+    }
+
+    val result = StringBuilder(normalizedLineEndings.length + MARKDOWN_VISIBLE_LINE_BREAK_BUFFER_PADDING)
+    normalizedLineEndings.forEachIndexed { index, char ->
+        if (char != '\n') {
+            result.append(char)
+            return@forEachIndexed
+        }
+
+        val adjacentNewline =
+            normalizedLineEndings.getOrNull(index - 1) == '\n' ||
+                normalizedLineEndings.getOrNull(index + 1) == '\n'
+        val alreadyHardBreak =
+            result.lastOrNull() == '\\' ||
+                result.trailingSpacesCount() >= MARKDOWN_HARD_BREAK_SPACE_COUNT
+
+        if (adjacentNewline || alreadyHardBreak) {
+            result.append('\n')
+        } else {
+            result.append(MARKDOWN_VISIBLE_LINE_BREAK)
+        }
+    }
+    return result.toString()
+}
+
+private fun StringBuilder.trailingSpacesCount(): Int {
+    var count = 0
+    var index = length - 1
+    while (index >= 0 && this[index] == ' ') {
+        count++
+        index--
+    }
+    return count
+}
+
+private const val MARKDOWN_HARD_BREAK_SPACE_COUNT = 2
+private const val MARKDOWN_VISIBLE_LINE_BREAK = "  \n"
+private const val MARKDOWN_VISIBLE_LINE_BREAK_BUFFER_PADDING = 8
 
 internal fun ASTNode.isBlankWhitespaceNode(content: String): Boolean =
     (type == MarkdownTokenTypes.WHITE_SPACE || type == MarkdownTokenTypes.TEXT) &&

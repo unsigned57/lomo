@@ -1,9 +1,10 @@
 package com.lomo.ui.text
 
-import android.graphics.text.LineBreaker
 import android.os.Build
 import android.text.Layout
 import android.view.Gravity
+
+private const val JUSTIFICATION_MODE_INTER_CHARACTER_COMPAT = 2
 
 data class MemoParagraphLayoutPolicy(
     val alignment: Layout.Alignment,
@@ -26,7 +27,7 @@ fun resolveMemoParagraphLayoutPolicy(
             gravity = Gravity.CENTER_HORIZONTAL,
             textAlignment = android.view.View.TEXT_ALIGNMENT_CENTER,
             justificationMode = Layout.JUSTIFICATION_MODE_NONE,
-            breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY,
+            breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY,
             hyphenationFrequency = Layout.HYPHENATION_FREQUENCY_NONE,
             shouldUseStrictCjkJustification = false,
         )
@@ -42,11 +43,11 @@ fun resolveMemoParagraphLayoutPolicy(
         textAlignment = android.view.View.TEXT_ALIGNMENT_VIEW_START,
         justificationMode =
             if (shouldUseStrictCjkJustification) {
-                Layout.JUSTIFICATION_MODE_INTER_CHARACTER
+                JUSTIFICATION_MODE_INTER_CHARACTER_COMPAT
             } else {
                 Layout.JUSTIFICATION_MODE_NONE
             },
-        breakStrategy = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY,
+        breakStrategy = Layout.BREAK_STRATEGY_HIGH_QUALITY,
         hyphenationFrequency =
             if (shouldUseStrictCjkJustification) {
                 Layout.HYPHENATION_FREQUENCY_NONE

@@ -10,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildFeatures {
@@ -19,6 +20,13 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.toVersion(25)
         targetCompatibility = JavaVersion.toVersion(25)
+    }
+
+    lint {
+        abortOnError = true
+        warningsAsErrors = true
+        checkDependencies = false
+        textReport = true
     }
 }
 
@@ -65,6 +73,11 @@ dependencies {
     implementation(libs.androidx.media3.common)
 
     testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(libs.androidx.test.uiautomator)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
 }
 
 kotlin {

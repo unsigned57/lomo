@@ -11,14 +11,14 @@ private val modernMarkdownParser by lazy {
     JetBrainsMarkdownParser(GFMFlavourDescriptor())
 }
 
-internal data class ModernMarkdownRenderPlan(
+data class ModernMarkdownRenderPlan(
     val content: String,
     val root: ASTNode,
     val totalBlocks: Int,
     val items: List<ModernMarkdownRenderItem>,
 )
 
-internal sealed interface ModernMarkdownRenderItem {
+sealed interface ModernMarkdownRenderItem {
     data class Block(
         val node: ASTNode,
     ) : ModernMarkdownRenderItem
@@ -28,7 +28,7 @@ internal sealed interface ModernMarkdownRenderItem {
     ) : ModernMarkdownRenderItem
 }
 
-internal data class ModernMarkdownImage(
+data class ModernMarkdownImage(
     val destination: String,
     val title: String? = null,
 )
@@ -73,33 +73,23 @@ internal fun sanitizeModernMarkdownKnownTags(
     return output.toString()
 }
 
-internal fun createModernMarkdownRenderPlan(
+fun createModernMarkdownRenderPlan(
     content: String,
-    maxVisibleBlocks: Int,
+    maxVisibleBlocks: Int = Int.MAX_VALUE,
     knownTagsToStrip: Iterable<String>,
 ): ModernMarkdownRenderPlan {
     val sanitizedContent = sanitizeModernMarkdownKnownTags(content, knownTagsToStrip)
     val root = parseModernMarkdownDocument(sanitizedContent)
-    val renderableBlocks = root.children.filter(::isModernRenderableTopLevelBlock)
-    val items = mutableListOf<ModernMarkdownRenderItem>()
-    var index = 0
-
-    while (index < renderableBlocks.size && items.size < maxVisibleBlocks) {
-        val gallery = consumeModernImageGallery(renderableBlocks, index, sanitizedContent)
-        if (gallery != null) {
-            items += ModernMarkdownRenderItem.Gallery(gallery.images)
-            index = gallery.nextIndex
-        } else {
-            items += ModernMarkdownRenderItem.Block(renderableBlocks[index])
-            index++
+    val renderableBlocks =
+        root.children.filter { node ->
+            isModernRenderableTopLevelBlock(node, sanitizedContent)
         }
-    }
 
     return ModernMarkdownRenderPlan(
         content = sanitizedContent,
         root = root,
         totalBlocks = renderableBlocks.size,
-        items = items,
+        items = buildModernMarkdownRenderItems(renderableBlocks, sanitizedContent, maxVisibleBlocks),
     )
 }
 
@@ -118,12 +108,10 @@ internal fun resolveModernTaskListPresentation(
     )
 }
 
-private data class ModernImageGallerySequence(
+internal data class ModernImageGallerySequence(
     val images: List<ModernMarkdownImage>,
     val nextIndex: Int,
 )
-
-private fun isModernRenderableTopLevelBlock(node: ASTNode): Boolean = node.type != MarkdownTokenTypes.EOL
 
 private fun collectModernTagSanitizableLeafRanges(
     node: ASTNode,
@@ -178,7 +166,7 @@ private fun mergeContiguousRanges(ranges: List<IntRange>): List<IntRange> {
     return merged
 }
 
-private fun consumeModernImageGallery(
+internal fun consumeModernImageGallery(
     nodes: List<ASTNode>,
     startIndex: Int,
     content: String,

@@ -1,5 +1,6 @@
 package com.lomo.app.util
 
+import android.annotation.SuppressLint
 import android.content.res.Resources
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -110,6 +111,12 @@ internal fun createTextPaint(
         isSubpixelText = true
     }
 
+@SuppressLint("InlinedApi")
+private fun defaultBreakStrategy(): Int = LineBreaker.BREAK_STRATEGY_HIGH_QUALITY
+
+@SuppressLint("InlinedApi")
+private fun defaultJustificationMode(): Int = LineBreaker.JUSTIFICATION_MODE_NONE
+
 internal fun buildStaticLayout(
     text: String,
     paint: TextPaint,
@@ -131,11 +138,11 @@ internal fun buildStaticLayout(
             width.coerceAtLeast(MIN_RENDER_DIMENSION_PX),
         ).setAlignment(resolvedAlignment)
         .setIncludePad(false)
-        .setBreakStrategy(paragraphLayoutPolicy?.breakStrategy ?: LineBreaker.BREAK_STRATEGY_HIGH_QUALITY)
+        .setBreakStrategy(paragraphLayoutPolicy?.breakStrategy ?: defaultBreakStrategy())
         .setHyphenationFrequency(
             paragraphLayoutPolicy?.hyphenationFrequency ?: Layout.HYPHENATION_FREQUENCY_NORMAL,
         ).setJustificationMode(
-            paragraphLayoutPolicy?.justificationMode ?: LineBreaker.JUSTIFICATION_MODE_NONE,
+            paragraphLayoutPolicy?.justificationMode ?: defaultJustificationMode(),
         )
         .setLineSpacing(0f, LAYOUT_LINE_SPACING_MULTIPLIER)
         .setMaxLines(maxLines)

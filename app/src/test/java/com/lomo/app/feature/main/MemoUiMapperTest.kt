@@ -2,19 +2,20 @@ package com.lomo.app.feature.main
 
 import com.lomo.domain.model.Memo
 import io.mockk.mockk
-import org.commonmark.node.FencedCodeBlock
-import org.commonmark.node.HardLineBreak
-import org.commonmark.node.Link
-import org.commonmark.node.Node
-import org.commonmark.node.Paragraph
-import org.commonmark.node.SoftLineBreak
-import org.commonmark.node.Text
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: MemoUiMapper
+ * - Behavior focus: processed memo content maps to the shared modern markdown render plan, strips known tags only from rendered output, and invalidates cached render plans when display content changes.
+ * - Observable outcomes: processed content, precomputed render-plan content, render-plan block count, collapsed summary metadata, and render-plan instance reuse behavior.
+ * - Red phase: Fails before the fix because the app layer still precomputes the legacy CommonMark node path and cannot supply the unified modern render plan consumed by memo cards.
+ * - Excludes: Compose card rendering, TextView paragraph layout, and repository/data-layer loading.
+ */
 class MemoUiMapperTest {
     private val mapper = MemoUiMapper()
 
@@ -27,8 +28,8 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val markdownNode = requireNotNull(uiModel.markdownNode)
-        val renderedText = collectTextLiterals(markdownNode.node).joinToString("\n")
+        val renderPlan = requireNotNull(uiModel.precomputedRenderPlan)
+        val renderedText = renderPlan.content
 
         assertTrue(uiModel.processedContent.contains("#work"))
         assertTrue(uiModel.processedContent.contains("#todo"))
@@ -53,13 +54,10 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val root = requireNotNull(uiModel.markdownNode).node
-        val renderedText = collectTextLiterals(root).joinToString("\n")
-        val codeLiterals = collectNodes(root).filterIsInstance<FencedCodeBlock>().map { it.literal.orEmpty() }
-        val linkDestinations = collectNodes(root).filterIsInstance<Link>().map { it.destination.orEmpty() }
+        val renderedText = requireNotNull(uiModel.precomputedRenderPlan).content
 
-        assertTrue(codeLiterals.any { it.contains("#todo") })
-        assertTrue(linkDestinations.any { it.contains("#todo") })
+        assertTrue(renderedText.contains("val raw = \"#todo\""))
+        assertTrue(renderedText.contains("[jump](https://example.com/#todo)"))
         assertFalse(renderedText.contains("normal #todo text"))
     }
 
@@ -77,11 +75,10 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val markdownNode = requireNotNull(uiModel.markdownNode)
-        val paragraphs = collectNodes(markdownNode.node).filterIsInstance<Paragraph>()
-        val renderedText = collectTextLiterals(markdownNode.node).joinToString("\n")
+        val renderPlan = requireNotNull(uiModel.precomputedRenderPlan)
+        val renderedText = renderPlan.content
 
-        assertEquals(1, paragraphs.size)
+        assertEquals(1, renderPlan.totalBlocks)
         assertTrue(renderedText.contains("body line"))
         assertFalse(renderedText.contains("#todo"))
         assertFalse(renderedText.contains("#work"))
@@ -100,18 +97,11 @@ class MemoUiMapperTest {
             )
 
         val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
-        val markdownNode = requireNotNull(uiModel.markdownNode)
-        val paragraph = collectNodes(markdownNode.node).filterIsInstance<Paragraph>().first()
-        val firstChild = paragraph.firstChild
-        val firstText =
-            collectNodes(paragraph)
-                .filterIsInstance<Text>()
-                .mapNotNull { it.literal }
-                .first { it.isNotBlank() }
+        val renderPlan = requireNotNull(uiModel.precomputedRenderPlan)
+        val renderedText = renderPlan.content.trimStart()
 
-        assertFalse(firstChild is SoftLineBreak || firstChild is HardLineBreak)
-        assertFalse(firstText.startsWith("\n"))
-        assertEquals("正文", firstText)
+        assertEquals(1, renderPlan.items.size)
+        assertTrue(renderedText.startsWith("正文"))
     }
 
     @Test
@@ -233,7 +223,7 @@ class MemoUiMapperTest {
                 imageMap = emptyMap(),
                 precomputeMarkdown = true,
             )
-        val initialNode = requireNotNull(initial.markdownNode)
+        val initialRenderPlan = requireNotNull(initial.precomputedRenderPlan)
 
         val updated =
             mapper.mapToUiModel(
@@ -242,12 +232,12 @@ class MemoUiMapperTest {
                 imagePath = null,
                 imageMap = mapOf("foo.png" to cachedUri),
                 precomputeMarkdown = true,
-                existingNode = initialNode,
+                existingRenderPlan = initialRenderPlan,
                 existingProcessedContent = initial.processedContent,
             )
 
         assertNotEquals(initial.processedContent, updated.processedContent)
-        assertFalse(updated.markdownNode === initialNode)
+        assertFalse(updated.precomputedRenderPlan === initialRenderPlan)
     }
 
     private fun memo(
@@ -262,26 +252,4 @@ class MemoUiMapperTest {
             dateKey = "2026_02_23",
             tags = tags,
         )
-
-    private fun collectTextLiterals(root: Node): List<String> =
-        collectNodes(root)
-            .filterIsInstance<Text>()
-            .mapNotNull { it.literal }
-
-    private fun collectNodes(root: Node): List<Node> {
-        val nodes = mutableListOf<Node>()
-
-        fun traverse(node: Node) {
-            nodes += node
-            var child = node.firstChild
-            while (child != null) {
-                val next = child.next
-                traverse(child)
-                child = next
-            }
-        }
-
-        traverse(root)
-        return nodes
-    }
 }

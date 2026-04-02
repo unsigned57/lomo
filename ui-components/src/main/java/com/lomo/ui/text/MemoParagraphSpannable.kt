@@ -2,7 +2,6 @@ package com.lomo.ui.text
 
 import android.content.ActivityNotFoundException
 import android.content.Intent
-import android.net.Uri
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -14,6 +13,7 @@ import android.text.style.TypefaceSpan
 import android.text.style.URLSpan
 import android.text.style.UnderlineSpan
 import android.view.View
+import androidx.core.net.toUri
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.AnnotatedString
@@ -111,7 +111,7 @@ private class MemoUrlSpan(
 ) : ClickableSpan() {
     override fun onClick(widget: View) {
         val intent =
-            Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            Intent(Intent.ACTION_VIEW, url.toUri()).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 

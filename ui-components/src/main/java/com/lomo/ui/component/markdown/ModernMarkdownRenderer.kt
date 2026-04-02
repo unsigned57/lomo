@@ -1,10 +1,47 @@
 package com.lomo.ui.component.markdown
 
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+internal fun resolveModernMarkdownRenderState(
+    basePlan: ModernMarkdownRenderPlan?,
+    content: String,
+    maxVisibleBlocks: Int,
+    knownTagsToStrip: List<String>,
+): ModernMarkdownRenderState =
+    if (basePlan == null) {
+        ModernMarkdownRenderState.Pending(
+            fallbackText =
+                buildPendingModernMarkdownFallbackText(
+                    content = content,
+                    knownTagsToStrip = knownTagsToStrip,
+                ),
+        )
+    } else {
+        ModernMarkdownRenderState.Ready(
+            plan =
+                if (maxVisibleBlocks == Int.MAX_VALUE) {
+                    basePlan
+                } else {
+                    limitModernMarkdownRenderPlan(basePlan, maxVisibleBlocks)
+                },
+        )
+    }
+
+internal fun buildPendingModernMarkdownFallbackText(
+    content: String,
+    knownTagsToStrip: List<String>,
+): String =
+    sanitizeModernMarkdownKnownTags(
+        content = content,
+        tags = knownTagsToStrip,
+    ).trim().ifBlank { content.trim() }
 
 @Composable
 internal fun ModernMarkdownRenderer(
@@ -15,38 +52,63 @@ internal fun ModernMarkdownRenderer(
     todoOverrides: Map<Int, Boolean> = emptyMap(),
     onImageClick: ((String) -> Unit)? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
+    precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: List<String> = emptyList(),
     enableTextSelection: Boolean = false,
 ) {
-    val renderPlan =
-        remember(content, maxVisibleBlocks, knownTagsToStrip) {
-            createModernMarkdownRenderPlan(
+    val basePlan by
+        produceState<ModernMarkdownRenderPlan?>(
+            initialValue = precomputedRenderPlan,
+            key1 = content,
+            key2 = precomputedRenderPlan,
+            key3 = knownTagsToStrip,
+        ) {
+            value =
+                precomputedRenderPlan
+                    ?: withContext(Dispatchers.Default) {
+                        createModernMarkdownRenderPlan(
+                            content = content,
+                            knownTagsToStrip = knownTagsToStrip,
+                        )
+                    }
+        }
+    val renderState =
+        remember(basePlan, content, maxVisibleBlocks, knownTagsToStrip) {
+            resolveModernMarkdownRenderState(
+                basePlan = basePlan,
                 content = content,
                 maxVisibleBlocks = maxVisibleBlocks,
                 knownTagsToStrip = knownTagsToStrip,
             )
         }
+    val readyPlan = (renderState as? ModernMarkdownRenderState.Ready)?.plan
 
-    LaunchedEffect(renderPlan.totalBlocks, onTotalBlocks) {
-        onTotalBlocks?.invoke(renderPlan.totalBlocks)
+    LaunchedEffect(readyPlan?.totalBlocks, onTotalBlocks) {
+        readyPlan?.let { plan -> onTotalBlocks?.invoke(plan.totalBlocks) }
     }
 
     val contentRenderer: @Composable () -> Unit = {
-        ModernMarkdownRenderPlanContent(
-            plan = renderPlan,
-            modifier = modifier,
-            onTodoClick = onTodoClick,
-            todoOverrides = todoOverrides,
-            onImageClick = onImageClick,
-            enableTextSelection = enableTextSelection,
-        )
+        when (renderState) {
+            is ModernMarkdownRenderState.Pending -> {
+                MarkdownRendererFallback(
+                    content = renderState.fallbackText,
+                    modifier = modifier,
+                    enableTextSelection = enableTextSelection,
+                )
+            }
+
+            is ModernMarkdownRenderState.Ready -> {
+                ModernMarkdownRenderPlanContent(
+                    plan = renderState.plan,
+                    modifier = modifier,
+                    onTodoClick = onTodoClick,
+                    todoOverrides = todoOverrides,
+                    onImageClick = onImageClick,
+                    enableTextSelection = enableTextSelection,
+                )
+            }
+        }
     }
 
-    if (enableTextSelection) {
-        SelectionContainer {
-            contentRenderer()
-        }
-    } else {
-        contentRenderer()
-    }
+    contentRenderer()
 }

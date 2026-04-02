@@ -336,7 +336,7 @@ private fun TrashMemoCardItem(
         MemoCard(
             content = uiModel.memo.content,
             processedContent = uiModel.processedContent,
-            precomputedNode = uiModel.markdownNode,
+            precomputedRenderPlan = uiModel.precomputedRenderPlan,
             timestamp = uiModel.memo.timestamp,
             dateFormat = dateFormat,
             timeFormat = timeFormat,

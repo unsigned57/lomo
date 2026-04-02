@@ -66,7 +66,7 @@ class MemoUiMapperStorageHeaderRecoveryTest {
                 precomputeMarkdown = false,
             )
 
-        assertNull(uiModel.markdownNode)
+        assertNull(uiModel.precomputedRenderPlan)
         assertTrue(uiModel.shouldShowExpand)
         assertEquals(LocalDate.of(2022, 8, 18), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalDate())
         assertEquals(LocalTime.of(21, 0, 33), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
@@ -77,6 +77,34 @@ class MemoUiMapperStorageHeaderRecoveryTest {
         assertFalse(uiModel.collapsedSummary.contains("21:00:33"))
         assertTrue(uiModel.collapsedSummary.contains("贫穷问答歌"))
         assertTrue(uiModel.collapsedSummary.contains("山上忆良"))
+    }
+
+    @Test
+    fun `mapToUiModel keeps existing content when raw storage header has no body`() {
+        val memo =
+            Memo(
+                id = "2026_03_25_21:00:00_header_only",
+                timestamp = midnightTimestampOf(2026, 3, 25),
+                updatedAt = midnightTimestampOf(2026, 3, 25),
+                content = "still visible body",
+                rawContent = "- 21:00",
+                dateKey = "2026_03_25",
+                tags = emptyList(),
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = null,
+                imagePath = null,
+                imageMap = emptyMap(),
+                precomputeMarkdown = false,
+            )
+
+        assertEquals("still visible body", uiModel.memo.content)
+        assertEquals("still visible body", uiModel.processedContent)
+        assertEquals("still visible body", uiModel.collapsedSummary)
+        assertEquals(LocalTime.of(21, 0), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
     }
 
     private fun midnightTimestampOf(
