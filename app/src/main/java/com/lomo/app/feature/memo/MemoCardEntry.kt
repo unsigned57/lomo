@@ -27,7 +27,7 @@ fun MemoCardEntry(
     MemoCard(
         content = memo.content,
         processedContent = uiModel.processedContent,
-        precomputedNode = uiModel.markdownNode,
+        precomputedRenderPlan = uiModel.precomputedRenderPlan,
         timestamp = memo.timestamp,
         dateFormat = dateFormat,
         timeFormat = timeFormat,

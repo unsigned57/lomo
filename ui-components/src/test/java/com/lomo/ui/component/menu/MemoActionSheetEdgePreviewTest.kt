@@ -1,20 +1,19 @@
 package com.lomo.ui.component.menu
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /*
  * Test Contract:
- * - Unit under test: menu edge preview helpers in MemoActionSheet
- * - Behavior focus: trigger anticipatory edge preview before the content actually collides with the horizontal boundary.
- * - Observable outcomes: signed preview offsets for near-edge drags and flings, plus zero offset when motion is far from any boundary.
- * - Red phase: Fails before the fix because pre-fling motion near the boundary has no anticipatory preview helper and only the post-collision overscroll effect appears.
- * - Excludes: Compose rendering, indicator thumb dragging, and bottom-sheet host wiring.
+ * - Unit under test: predictive menu edge preview helpers in MemoActionSheet
+ * - Behavior focus: keep the retired predictive edge preview path fully disabled so menu boundary feedback comes only from Compose overscroll.
+ * - Observable outcomes: zero preview offsets for near-edge drags, near-edge flings, and retained-preview inputs.
+ * - Red phase: Fails before the fix because the predictive helpers still emit non-zero offsets near the horizontal boundaries and can retain a previous preview.
+ * - Excludes: Compose overscroll rendering, indicator thumb dragging, and bottom-sheet host wiring.
  */
 class MemoActionSheetEdgePreviewTest {
     @Test
-    fun `calculateMenuEdgePreviewOffset responds before reaching the start edge`() {
+    fun `calculateMenuEdgePreviewOffset stays idle near the start edge`() {
         val preview =
             calculateMenuEdgePreviewOffset(
                 dragDeltaX = 120f,
@@ -23,11 +22,11 @@ class MemoActionSheetEdgePreviewTest {
                 viewportWidthPx = 320,
             )
 
-        assertTrue(preview > 0f)
+        assertEquals(0f, preview, 0.0001f)
     }
 
     @Test
-    fun `calculateMenuEdgePreviewOffset stays idle when the fling is far from both edges`() {
+    fun `calculateMenuEdgePreviewOffset stays idle when the drag is far from both edges`() {
         val preview =
             calculateMenuEdgePreviewOffset(
                 dragDeltaX = -120f,
@@ -40,7 +39,7 @@ class MemoActionSheetEdgePreviewTest {
     }
 
     @Test
-    fun `calculateMenuEdgePreviewFlingOffset anticipates the end edge before collision`() {
+    fun `calculateMenuEdgePreviewFlingOffset stays idle near the end edge`() {
         val preview =
             calculateMenuEdgePreviewFlingOffset(
                 velocityX = -2400f,
@@ -49,11 +48,11 @@ class MemoActionSheetEdgePreviewTest {
                 viewportWidthPx = 240,
             )
 
-        assertTrue(preview < 0f)
+        assertEquals(0f, preview, 0.0001f)
     }
 
     @Test
-    fun `calculateMenuEdgePreviewFlingOffset previews an impending end collision from a strong fling`() {
+    fun `calculateMenuEdgePreviewFlingOffset stays idle for a strong fling from mid list`() {
         val preview =
             calculateMenuEdgePreviewFlingOffset(
                 velocityX = -5200f,
@@ -62,28 +61,20 @@ class MemoActionSheetEdgePreviewTest {
                 viewportWidthPx = 240,
             )
 
-        assertTrue(preview < 0f)
+        assertEquals(0f, preview, 0.0001f)
     }
 
     @Test
-    fun `calculateMenuEdgePreviewFlingOffset keeps the first fling preview instead of retriggering`() {
-        val firstPreview =
-            calculateMenuEdgePreviewFlingOffset(
-                velocityX = -2400f,
-                scrollValue = 300,
-                maxScroll = 900,
-                viewportWidthPx = 240,
-            )
-
+    fun `calculateMenuEdgePreviewFlingOffset ignores retained preview state`() {
         val retainedPreview =
             calculateMenuEdgePreviewFlingOffset(
                 velocityX = -2400f,
                 scrollValue = 500,
                 maxScroll = 900,
                 viewportWidthPx = 240,
-                retainedPreviewOffsetPx = firstPreview,
+                retainedPreviewOffsetPx = -8f,
             )
 
-        assertEquals(firstPreview, retainedPreview, 0.0001f)
+        assertEquals(0f, retainedPreview, 0.0001f)
     }
 }

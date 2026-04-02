@@ -55,9 +55,11 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: MainViewModel
- * - Behavior focus: reachable main-screen search and date-filter state, gallery selection, and user-visible coordinator outcomes.
+ * - Behavior focus: reachable main-screen search and date-filter state, gallery selection, user-visible coordinator
+ *   outcomes, and automatic foreground refresh when a workspace root is available.
  * - Observable outcomes: exposed StateFlow values, derived memo lists, and delegated use-case interactions.
- * - Red phase: Not applicable - unreachable selectedTag refactor; production change removes dead API without altering reachable behavior.
+ * - Red phase: Fails before the fix when a visible main screen with a resolved workspace root does not trigger
+ *   the automatic refresh needed to import external device writes.
  * - Excludes: Compose rendering, navigation wiring, and repository implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -70,6 +72,7 @@ class MainViewModelTest {
     private lateinit var gitSyncRepo: com.lomo.domain.repository.GitSyncRepository
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var webDavSyncRepository: com.lomo.domain.repository.WebDavSyncRepository
+    private lateinit var s3SyncRepository: com.lomo.domain.repository.S3SyncRepository
     private lateinit var syncPolicyRepository: com.lomo.domain.repository.SyncPolicyRepository
     private lateinit var appVersionRepository: com.lomo.domain.repository.AppVersionRepository
     private lateinit var memoVersionRepository: com.lomo.domain.repository.MemoVersionRepository
@@ -89,6 +92,7 @@ class MainViewModelTest {
         gitSyncRepo = mockk(relaxed = true)
         mediaRepository = mockk(relaxed = true)
         webDavSyncRepository = mockk(relaxed = true)
+        s3SyncRepository = mockk(relaxed = true)
         syncPolicyRepository = mockk(relaxed = true)
         appVersionRepository = mockk(relaxed = true)
         memoVersionRepository = mockk(relaxed = true)
@@ -112,6 +116,8 @@ class MainViewModelTest {
         every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
         every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(false)
         every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
+        every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
+        every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
         every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
         every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
         coEvery { appConfigRepository.currentRootLocation() } returns null
@@ -422,7 +428,7 @@ class MainViewModelTest {
             every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
             coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
             val viewModel = createViewModel()
-            testDispatcher.scheduler.advanceUntilIdle()
+            testDispatcher.scheduler.runCurrent()
 
             assertEquals(MainViewModel.MainScreenState.Ready, viewModel.uiState.value)
         }
@@ -510,6 +516,53 @@ class MainViewModelTest {
         }
 
     @Test
+    fun `automatic refresh runs when root directory is available`() =
+        runTest {
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
+
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.runCurrent()
+
+            coVerify(exactly = 0) { repository.refreshMemos() }
+
+            viewModel.requestAutomaticRefreshForVisibleScreen()
+            testDispatcher.scheduler.runCurrent()
+
+            coVerify(exactly = 1) { repository.refreshMemos() }
+        }
+
+    @Test
+    fun `automatic refresh stays idle when root directory is missing`() =
+        runTest {
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            viewModel.requestAutomaticRefreshForVisibleScreen()
+            testDispatcher.scheduler.runCurrent()
+
+            coVerify(exactly = 0) { repository.refreshMemos() }
+        }
+
+    @Test
+    fun `automatic refresh is rate limited for repeated visible events`() =
+        runTest {
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
+
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.runCurrent()
+
+            viewModel.requestAutomaticRefreshForVisibleScreen()
+            testDispatcher.scheduler.runCurrent()
+            coVerify(exactly = 1) { repository.refreshMemos() }
+
+            viewModel.requestAutomaticRefreshForVisibleScreen()
+            testDispatcher.scheduler.runCurrent()
+            coVerify(exactly = 1) { repository.refreshMemos() }
+        }
+
+    @Test
     fun `setMemoPinned exposes mapped error when pin update fails`() =
         runTest {
             val memo = memo("memo-pin", LocalDate.of(2026, 3, 9), 8)
@@ -559,7 +612,13 @@ class MainViewModelTest {
                     initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                     refreshMemosUseCase =
                         RefreshMemosUseCase(
-                            SyncAndRebuildUseCase(repository, gitSyncRepo, webDavSyncRepository, syncPolicyRepository),
+                            SyncAndRebuildUseCase(
+                                repository,
+                                gitSyncRepo,
+                                webDavSyncRepository,
+                                s3SyncRepository,
+                                syncPolicyRepository,
+                            ),
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
                     mediaRepository = mediaRepository,
@@ -575,6 +634,7 @@ class MainViewModelTest {
                                     repository,
                                     gitSyncRepo,
                                     webDavSyncRepository,
+                                    s3SyncRepository,
                                     syncPolicyRepository,
                                 ),
                             appVersionRepository = appVersionRepository,
@@ -604,4 +664,5 @@ class MainViewModelTest {
             dateKey = date.toString().replace("-", "_"),
             localDate = date,
         )
+
 }

@@ -1,6 +1,5 @@
 package com.lomo.ui.component.card
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -33,6 +32,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,7 +64,7 @@ fun MemoCard(
     timestamp: Long,
     tags: ImmutableList<String>,
     modifier: Modifier = Modifier,
-    precomputedNode: com.lomo.ui.component.markdown.ImmutableNode? = null,
+    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan? = null,
     dateFormat: String = "yyyy-MM-dd",
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
@@ -80,9 +80,14 @@ fun MemoCard(
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
     menuContent: (@Composable () -> Unit)? = null,
 ) {
-    var isExpanded by remember { mutableStateOf(false) }
+    var isExpanded by rememberSaveable(timestamp, content) { mutableStateOf(false) }
     val isCollapsedPreview = shouldShowExpand && !isExpanded
-    val useCollapsedSummary = isCollapsedPreview && precomputedNode == null && collapsedSummary.isNotBlank()
+    val collapsedPreviewMode =
+        resolveMemoCardCollapsedPreviewMode(
+            isCollapsedPreview = isCollapsedPreview,
+            hasProcessedContent = processedContent.isNotBlank(),
+            collapsedSummary = collapsedSummary,
+        )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
     val interactionModifier =
@@ -117,10 +122,10 @@ fun MemoCard(
             MemoCardBody(
                 processedContent = processedContent,
                 tags = tags,
-                precomputedNode = precomputedNode,
+                precomputedRenderPlan = precomputedRenderPlan,
                 shouldShowExpand = shouldShowExpand,
                 isCollapsedPreview = isCollapsedPreview,
-                useCollapsedSummary = useCollapsedSummary,
+                collapsedPreviewMode = collapsedPreviewMode,
                 collapsedSummary = collapsedSummary,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTodoClick = onTodoClick,
@@ -258,41 +263,38 @@ private fun MemoCardHeaderActions(
 private fun MemoCardBody(
     processedContent: String,
     tags: ImmutableList<String>,
-    precomputedNode: com.lomo.ui.component.markdown.ImmutableNode?,
+    precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     shouldShowExpand: Boolean,
     isCollapsedPreview: Boolean,
-    useCollapsedSummary: Boolean,
+    collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: Map<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
+    val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
+
     Box(
         modifier =
             Modifier
-                .then(if (shouldShowExpand) Modifier.animateContentSize() else Modifier)
+                .fillMaxWidth()
                 .let { base -> if (isCollapsedPreview) base.heightIn(max = 240.dp) else base }
                 .clip(AppShapes.Small),
     ) {
-        if (useCollapsedSummary) {
-            MemoCardCollapsedSummary(
-                collapsedSummary = collapsedSummary,
-                allowFreeTextCopy = allowFreeTextCopy,
-            )
-        } else {
-            MarkdownRenderer(
-                content = processedContent,
-                precomputedNode = precomputedNode,
-                knownTagsToStrip = tags,
-                modifier = Modifier.padding(vertical = 4.dp),
-                maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-                enableTextSelection = allowFreeTextCopy,
-            )
-        }
+        MemoCardBodyContent(
+            collapsedPreviewMode = collapsedPreviewMode,
+            collapsedSummary = collapsedSummary,
+            allowFreeTextCopy = allowFreeTextCopy,
+            processedContent = processedContent,
+            precomputedRenderPlan = precomputedRenderPlan,
+            tags = tags,
+            isCollapsedPreview = isCollapsedPreview,
+            onTodoClick = onTodoClick,
+            todoOverrides = todoOverrides,
+            onImageClick = onImageClick,
+            bodyTransitionMode = bodyTransitionMode,
+        )
 
         if (isCollapsedPreview) {
             MemoCardCollapsedOverlay()
@@ -301,7 +303,7 @@ private fun MemoCardBody(
 }
 
 @Composable
-private fun MemoCardCollapsedSummary(
+internal fun MemoCardCollapsedSummary(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
 ) {
@@ -411,7 +413,7 @@ private fun MemoCardFooter(
 
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
-private const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
+internal const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
 private const val COLLAPSED_SUMMARY_MAX_LINES = 8
 private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
 

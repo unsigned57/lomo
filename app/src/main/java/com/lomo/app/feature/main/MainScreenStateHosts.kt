@@ -37,6 +37,7 @@ internal fun collectMainScreenUiSnapshot(
     viewModel: MainViewModel,
     sidebarViewModel: SidebarViewModel,
 ): MainScreenUiSnapshot {
+    val memos by viewModel.memos.collectAsStateWithLifecycle()
     val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val memoListFilter by viewModel.memoListFilter.collectAsStateWithLifecycle()
@@ -46,6 +47,7 @@ internal fun collectMainScreenUiSnapshot(
 
     return MainScreenUiSnapshot(
         uiMemos = uiMemos,
+        hasRawItems = memos.isNotEmpty(),
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
         sidebarUiState = sidebarUiState,
@@ -59,7 +61,6 @@ internal fun collectMainScreenUiSnapshot(
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
         shareCardShowTime = appPreferences.shareCardShowTime,
         uiState = uiState,
-        hasItems = uiMemos.isNotEmpty(),
     )
 }
 

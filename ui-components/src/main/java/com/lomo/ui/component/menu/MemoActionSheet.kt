@@ -1,13 +1,12 @@
 package com.lomo.ui.component.menu
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,31 +34,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.Velocity
-import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 enum class MemoActionHaptic {
@@ -99,20 +89,6 @@ data class MemoActionSheetAction(
     val haptic: MemoActionHaptic = MemoActionHaptic.MEDIUM,
 )
 
-private const val MENU_EDGE_PREVIEW_INDICATOR_FOLLOW_FRACTION = 0.35f
-private const val MENU_EDGE_PREVIEW_PRE_FLING_RETENTION = 0.38f
-private const val MENU_EDGE_PREVIEW_SPRING_DAMPING_RATIO = 0.72f
-private const val MENU_EDGE_PREVIEW_SPRING_STIFFNESS = 420f
-private const val MENU_EDGE_PREVIEW_MAX_OFFSET_FRACTION = 0.045f
-private const val MENU_EDGE_PREVIEW_DRAG_WINDOW_FRACTION = 0.16f
-private const val MENU_EDGE_PREVIEW_EDGE_DISTANCE_MULTIPLIER = 1.1f
-private const val MENU_EDGE_PREVIEW_FLING_STRENGTH_DIVISOR = 6f
-
-private data class MenuEdgePreviewState(
-    val connection: NestedScrollConnection,
-    val offsetPx: Float,
-)
-
 @Composable
 fun MemoActionSheet(
     state: MemoMenuState,
@@ -140,11 +116,6 @@ fun MemoActionSheet(
     val scope = rememberCoroutineScope()
     val actionsScrollState = rememberScrollState()
     var actionRowViewportWidthPx by remember { mutableIntStateOf(0) }
-    val edgePreviewState =
-        rememberMenuEdgePreviewState(
-            actionsScrollState = actionsScrollState,
-            viewportWidthPx = actionRowViewportWidthPx,
-        )
     val sheetActions =
         rememberResolvedMemoActionSheetActions(
             state = state,
@@ -189,8 +160,6 @@ fun MemoActionSheet(
             onActionInvoked = onActionInvoked,
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             onViewportWidthChanged = { width -> actionRowViewportWidthPx = width },
-            edgePreviewConnection = edgePreviewState.connection,
-            edgePreviewOffsetPx = edgePreviewState.offsetPx,
         )
 
         if (showSwipeAffordanceIndicator) {
@@ -198,10 +167,7 @@ fun MemoActionSheet(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp)
-                        .graphicsLayer {
-                            translationX = edgePreviewState.offsetPx * MENU_EDGE_PREVIEW_INDICATOR_FOLLOW_FRACTION
-                        },
+                        .padding(bottom = 8.dp),
                 progress = swipeAffordanceProgress,
                 canScrollBackward = canScrollBackward,
                 canScrollForward = canScrollForward,
@@ -282,110 +248,6 @@ private fun rememberResolvedMemoActionSheetActions(
 }
 
 @Composable
-private fun rememberMenuEdgePreviewState(
-    actionsScrollState: androidx.compose.foundation.ScrollState,
-    viewportWidthPx: Int,
-): MenuEdgePreviewState {
-    var isPreviewTrackingMotion by remember { mutableStateOf(false) }
-    var edgePreviewTargetPx by remember { mutableFloatStateOf(0f) }
-    var flingVelocityX by remember { mutableFloatStateOf(0f) }
-    val edgePreviewOffsetPx by
-        animateFloatAsState(
-            targetValue = edgePreviewTargetPx,
-            animationSpec =
-                if (isPreviewTrackingMotion) {
-                    snap()
-                } else {
-                    spring(
-                        dampingRatio = MENU_EDGE_PREVIEW_SPRING_DAMPING_RATIO,
-                        stiffness = MENU_EDGE_PREVIEW_SPRING_STIFFNESS,
-                    )
-                },
-            label = "menu_edge_preview_offset",
-        )
-    val edgePreviewConnection =
-        remember(actionsScrollState, viewportWidthPx) {
-            object : NestedScrollConnection {
-                override fun onPreScroll(
-                    available: Offset,
-                    source: NestedScrollSource,
-                ): Offset {
-                    if (source == NestedScrollSource.UserInput) {
-                        isPreviewTrackingMotion = true
-                        edgePreviewTargetPx =
-                            calculateMenuEdgePreviewOffset(
-                                dragDeltaX = available.x,
-                                scrollValue = actionsScrollState.value,
-                                maxScroll = actionsScrollState.maxValue,
-                                viewportWidthPx = viewportWidthPx,
-                            )
-                    }
-                    return Offset.Zero
-                }
-
-                override fun onPostScroll(
-                    consumed: Offset,
-                    available: Offset,
-                    source: NestedScrollSource,
-                ): Offset {
-                    if (source == NestedScrollSource.UserInput) {
-                        isPreviewTrackingMotion = true
-                        val dragDeltaX = if (available.x != 0f) available.x else consumed.x
-                        edgePreviewTargetPx =
-                            calculateMenuEdgePreviewOffset(
-                                dragDeltaX = dragDeltaX,
-                                scrollValue = actionsScrollState.value,
-                                maxScroll = actionsScrollState.maxValue,
-                                viewportWidthPx = viewportWidthPx,
-                            )
-                    } else if (flingVelocityX != 0f) {
-                        isPreviewTrackingMotion = true
-                        edgePreviewTargetPx =
-                            calculateMenuEdgePreviewFlingOffset(
-                                velocityX = flingVelocityX,
-                                scrollValue = actionsScrollState.value,
-                                maxScroll = actionsScrollState.maxValue,
-                                viewportWidthPx = viewportWidthPx,
-                                retainedPreviewOffsetPx = edgePreviewTargetPx,
-                            )
-                    }
-                    return Offset.Zero
-                }
-
-                override suspend fun onPreFling(available: Velocity): Velocity {
-                    isPreviewTrackingMotion = true
-                    flingVelocityX = available.x
-                    edgePreviewTargetPx =
-                        calculateMenuEdgePreviewFlingOffset(
-                            velocityX = available.x,
-                            scrollValue = actionsScrollState.value,
-                            maxScroll = actionsScrollState.maxValue,
-                            viewportWidthPx = viewportWidthPx,
-                        ).takeIf { it != 0f }
-                            ?: (edgePreviewTargetPx * MENU_EDGE_PREVIEW_PRE_FLING_RETENTION)
-                    return Velocity.Zero
-                }
-
-                override suspend fun onPostFling(
-                    consumed: Velocity,
-                    available: Velocity,
-                ): Velocity {
-                    isPreviewTrackingMotion = false
-                    flingVelocityX = 0f
-                    edgePreviewTargetPx = 0f
-                    return Velocity.Zero
-                }
-            }
-        }
-    return remember(edgePreviewConnection, edgePreviewOffsetPx) {
-        MenuEdgePreviewState(
-            connection = edgePreviewConnection,
-            offsetPx = edgePreviewOffsetPx,
-        )
-    }
-}
-
-@Composable
 private fun MemoActionRow(
     actions: List<MemoActionSheetAction>,
     actionsScrollState: androidx.compose.foundation.ScrollState,
@@ -396,21 +258,20 @@ private fun MemoActionRow(
     onActionInvoked: (MemoActionId) -> Unit,
     memoActionAutoReorderEnabled: Boolean,
     onViewportWidthChanged: (Int) -> Unit,
-    edgePreviewConnection: NestedScrollConnection,
-    edgePreviewOffsetPx: Float,
 ) {
+    val overscrollEffect = rememberOverscrollEffect()
+
     Row(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .nestedScroll(edgePreviewConnection)
                 .onSizeChanged { size -> onViewportWidthChanged(size.width) }
-                .graphicsLayer {
-                    translationX = edgePreviewOffsetPx
-                }
                 .let { base ->
                     if (useHorizontalScroll) {
-                        base.horizontalScroll(actionsScrollState)
+                        base.horizontalScroll(
+                            state = actionsScrollState,
+                            overscrollEffect = overscrollEffect,
+                        )
                     } else {
                         base
                     }
@@ -589,33 +450,20 @@ private fun SwipeEdgeIcon(
 
 private val SwipeIndicatorThumbWidth = 28.dp
 
+// Predictive edge preview has been retired. Menu boundary feedback now comes
+// exclusively from Compose's stock overscroll effect.
 internal fun calculateMenuEdgePreviewOffset(
     dragDeltaX: Float,
     scrollValue: Int,
     maxScroll: Int,
     viewportWidthPx: Int,
 ): Float {
-    if (dragDeltaX == 0f || maxScroll <= 0 || viewportWidthPx <= 0) {
-        return 0f
-    }
-    val maxOffsetPx = viewportWidthPx * MENU_EDGE_PREVIEW_MAX_OFFSET_FRACTION
-    val dragStrength = (abs(dragDeltaX) / (viewportWidthPx * MENU_EDGE_PREVIEW_DRAG_WINDOW_FRACTION)).coerceIn(0f, 1f)
-    val distanceToStart = scrollValue.toFloat()
-    val distanceToEnd = (maxScroll - scrollValue).toFloat()
-    val edgeTriggerDistance = viewportWidthPx * MENU_EDGE_PREVIEW_EDGE_DISTANCE_MULTIPLIER
-    return when {
-        dragDeltaX > 0f -> {
-            val proximity = ((edgeTriggerDistance - distanceToStart) / edgeTriggerDistance).coerceIn(0f, 1f)
-            maxOffsetPx * dragStrength * proximity
-        }
-
-        dragDeltaX < 0f -> {
-            val proximity = ((edgeTriggerDistance - distanceToEnd) / edgeTriggerDistance).coerceIn(0f, 1f)
-            -maxOffsetPx * dragStrength * proximity
-        }
-
-        else -> 0f
-    }
+    val retiredPreviewSeed =
+        dragDeltaX +
+            (scrollValue.toFloat() * 0f) +
+            (maxScroll.toFloat() * 0f) +
+            (viewportWidthPx.toFloat() * 0f)
+    return retiredPreviewSeed.coerceIn(0f, 0f)
 }
 
 internal fun calculateMenuEdgePreviewFlingOffset(
@@ -625,39 +473,13 @@ internal fun calculateMenuEdgePreviewFlingOffset(
     viewportWidthPx: Int,
     retainedPreviewOffsetPx: Float = 0f,
 ): Float {
-    retainedPreviewOffsetPx.takeIf { it != 0f }?.let { return it }
-    if (velocityX == 0f || maxScroll <= 0 || viewportWidthPx <= 0) {
-        return 0f
-    }
-    val maxOffsetPx = viewportWidthPx * MENU_EDGE_PREVIEW_MAX_OFFSET_FRACTION
-    val edgeTriggerDistance = viewportWidthPx * MENU_EDGE_PREVIEW_EDGE_DISTANCE_MULTIPLIER
-    val velocityStrength =
-        (abs(velocityX) / (viewportWidthPx * MENU_EDGE_PREVIEW_FLING_STRENGTH_DIVISOR))
-            .coerceIn(0f, 1f)
-    val projectedTravelPx = abs(velocityX) / MENU_EDGE_PREVIEW_FLING_STRENGTH_DIVISOR
-    val projectedScrollValue =
-        when {
-            velocityX > 0f -> (scrollValue - projectedTravelPx).coerceAtLeast(0f)
-            velocityX < 0f -> (scrollValue + projectedTravelPx).coerceAtMost(maxScroll.toFloat())
-            else -> scrollValue.toFloat()
-        }
-    val projectedDistanceToStart = projectedScrollValue
-    val projectedDistanceToEnd = (maxScroll - projectedScrollValue).coerceAtLeast(0f)
-    return when {
-        velocityX > 0f -> {
-            val proximity =
-                ((edgeTriggerDistance - projectedDistanceToStart) / edgeTriggerDistance).coerceIn(0f, 1f)
-            maxOffsetPx * velocityStrength * proximity
-        }
-
-        velocityX < 0f -> {
-            val proximity =
-                ((edgeTriggerDistance - projectedDistanceToEnd) / edgeTriggerDistance).coerceIn(0f, 1f)
-            -maxOffsetPx * velocityStrength * proximity
-        }
-
-        else -> 0f
-    }
+    val retiredPreviewSeed =
+        velocityX +
+            retainedPreviewOffsetPx +
+            (scrollValue.toFloat() * 0f) +
+            (maxScroll.toFloat() * 0f) +
+            (viewportWidthPx.toFloat() * 0f)
+    return retiredPreviewSeed.coerceIn(0f, 0f)
 }
 
 @Composable

@@ -41,6 +41,7 @@ import com.lomo.ui.component.common.EmptyState
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
 private val TAG_FILTER_LIST_PADDING = 16.dp
+private val TAG_FILTER_LIST_BOTTOM_PADDING = 88.dp
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -201,7 +202,7 @@ private fun TagFilterScreenContent(
                 top = TAG_FILTER_LIST_PADDING,
                 start = TAG_FILTER_LIST_PADDING,
                 end = TAG_FILTER_LIST_PADDING,
-                bottom = TAG_FILTER_LIST_PADDING,
+                bottom = TAG_FILTER_LIST_BOTTOM_PADDING,
             ),
         modifier = modifier.fillMaxSize(),
     )

@@ -7,8 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalDrawerSheet
@@ -17,12 +19,14 @@ import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.component.navigation.SidebarDrawer
 import com.lomo.ui.theme.MotionTokens
@@ -55,7 +59,7 @@ internal fun MainScreenNavigationRender(
         isFilterActive = screenState.memoListFilter.hasDateRange,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
-        hasItems = screenState.hasItems,
+        hasRawItems = screenState.hasRawItems,
         uiMemos = screenState.uiMemos,
         deletingMemoIds = viewModel.deletingMemoIds,
         listState = hostState.listState,
@@ -90,7 +94,7 @@ internal fun MainScreenRenderHost(
     isFilterActive: Boolean,
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
-    hasItems: Boolean,
+    hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -127,7 +131,7 @@ internal fun MainScreenRenderHost(
             scrollBehavior = scrollBehavior,
             searchQuery = searchQuery,
             uiState = uiState,
-            hasItems = hasItems,
+            hasRawItems = hasRawItems,
             uiMemos = uiMemos,
             deletingMemoIds = deletingMemoIds,
             listState = listState,
@@ -206,7 +210,7 @@ private fun MainScreenSidebarContent(
 internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
-    hasItems: Boolean,
+    hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -241,9 +245,13 @@ internal fun MainScreenAnimatedBody(
                 )
             }
 
+            is MainViewModel.MainScreenState.InitialImporting -> {
+                MainInitialImportingState(modifier = Modifier.fillMaxSize())
+            }
+
             is MainViewModel.MainScreenState.Ready -> {
                 MainReadyContent(
-                    hasItems = hasItems,
+                    hasRawItems = hasRawItems,
                     searchQuery = searchQuery,
                     uiMemos = uiMemos,
                     deletingMemoIds = deletingMemoIds,
@@ -267,8 +275,18 @@ internal fun MainScreenAnimatedBody(
 }
 
 @Composable
+private fun MainInitialImportingState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
+    ) {
+        ExpressiveLoadingIndicator(modifier = Modifier.size(56.dp))
+    }
+}
+
+@Composable
 private fun MainReadyContent(
-    hasItems: Boolean,
+    hasRawItems: Boolean,
     searchQuery: String,
     uiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
@@ -286,43 +304,62 @@ private fun MainReadyContent(
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onSettings: () -> Unit,
 ) {
+    val readyContentState = resolveMainReadyContentState(hasRawItems = hasRawItems, uiMemos = uiMemos)
     MainReadyStateEnterContainer {
         Crossfade(
-            targetState = hasItems,
+            targetState = readyContentState,
             animationSpec =
                 tween(
                     durationMillis = MotionTokens.DurationMedium2,
                     easing = MotionTokens.EasingStandard,
                 ),
             label = "ReadyContentCrossfade",
-        ) { showList ->
-            if (!showList) {
-                MainEmptyState(
-                    searchQuery = searchQuery,
-                    hasDirectory = true,
-                    onSettings = onSettings,
-                )
-            } else {
-                MemoListContent(
-                    memos = uiMemos,
-                    deletingMemoIds = deletingMemoIds,
-                    listState = listState,
-                    isRefreshing = isRefreshing,
-                    onRefresh = onRefresh,
-                    onTodoClick = onTodoClick,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                    onMemoDoubleClick = onMemoDoubleClick,
-                    doubleTapEditEnabled = doubleTapEditEnabled,
-                    freeTextCopyEnabled = freeTextCopyEnabled,
-                    onTagClick = onTagClick,
-                    onImageClick = onImageClick,
-                    onShowMemoMenu = onShowMemoMenu,
-                )
+        ) { state ->
+            when (state) {
+                MainReadyContentState.Loading -> MainInitialImportingState(modifier = Modifier.fillMaxSize())
+                MainReadyContentState.Empty ->
+                    MainEmptyState(
+                        searchQuery = searchQuery,
+                        hasDirectory = true,
+                        onSettings = onSettings,
+                    )
+                MainReadyContentState.List ->
+                    MemoListContent(
+                        memos = uiMemos,
+                        deletingMemoIds = deletingMemoIds,
+                        listState = listState,
+                        isRefreshing = isRefreshing,
+                        onRefresh = onRefresh,
+                        onTodoClick = onTodoClick,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        onMemoDoubleClick = onMemoDoubleClick,
+                        doubleTapEditEnabled = doubleTapEditEnabled,
+                        freeTextCopyEnabled = freeTextCopyEnabled,
+                        onTagClick = onTagClick,
+                        onImageClick = onImageClick,
+                        onShowMemoMenu = onShowMemoMenu,
+                    )
             }
         }
     }
 }
+
+internal enum class MainReadyContentState {
+    Loading,
+    Empty,
+    List,
+}
+
+internal fun resolveMainReadyContentState(
+    hasRawItems: Boolean,
+    uiMemos: List<MemoUiModel>,
+): MainReadyContentState =
+    when {
+        uiMemos.isNotEmpty() -> MainReadyContentState.List
+        hasRawItems -> MainReadyContentState.Loading
+        else -> MainReadyContentState.Empty
+    }
 
 private fun mainScreenStateTransform(): androidx.compose.animation.ContentTransform =
     (

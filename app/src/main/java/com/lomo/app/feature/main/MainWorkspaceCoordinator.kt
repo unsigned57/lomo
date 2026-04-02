@@ -25,6 +25,10 @@ class MainWorkspaceCoordinator
             initializeWorkspaceUseCase.ensureDefaultMediaDirectories(forImage, forVoice)
         }
 
+        suspend fun switchRoot(path: String) {
+            switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
+        }
+
         suspend fun switchRootAndRefresh(path: String) {
             switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
             repository.refreshMemos()

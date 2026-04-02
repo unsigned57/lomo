@@ -38,9 +38,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
 
 private const val DEFERRED_STARTUP_DELAY_MILLIS = 350L
+private const val AUTO_REFRESH_MIN_INTERVAL_MILLIS = 45_000L
 private val OPEN_RANGE_START: LocalDate = LocalDate.MIN
 private val OPEN_RANGE_END: LocalDate = LocalDate.MAX
 
@@ -84,6 +88,8 @@ class MainViewModel
 
             data object NoDirectory : MainScreenState
 
+            data object InitialImporting : MainScreenState
+
             data object Ready : MainScreenState
         }
 
@@ -115,14 +121,16 @@ class MainViewModel
         private val appActionQueue = MainEventQueueCoordinator<AppAction>()
         val appActionEvents: StateFlow<List<PendingUiEvent<AppAction>>> = appActionQueue.events
 
-        private val _uiState = MutableStateFlow<MainScreenState>(MainScreenState.Loading)
-        val uiState: StateFlow<MainScreenState> = _uiState
-
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
 
+        private val _hasResolvedInitialRoot = MutableStateFlow(false)
+        private val _isInitialDirectoryImporting = MutableStateFlow(false)
         private val _rootDirectory = MutableStateFlow<String?>(null)
-        val rootDirectory: StateFlow<String?> = _rootDirectory
+        private var automaticRefreshJob: kotlinx.coroutines.Job? = null
+        private var lastAutomaticRefreshMark: TimeMark? = null
+        private val manualRootRefreshPath = AtomicReference<String?>(null)
+        val rootDirectory: StateFlow<String?> = _rootDirectory.asStateFlow()
 
         val imageDirectory: StateFlow<String?> =
             appConfigUiCoordinator
@@ -140,6 +148,24 @@ class MainViewModel
             memoUiCoordinator
                 .allMemos()
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+
+        val uiState: StateFlow<MainScreenState> =
+            combine(_hasResolvedInitialRoot, rootDirectory, _isInitialDirectoryImporting) {
+                hasResolvedInitialRoot,
+                directory,
+                isInitialDirectoryImporting,
+                ->
+                when {
+                    !hasResolvedInitialRoot -> MainScreenState.Loading
+                    directory == null -> MainScreenState.NoDirectory
+                    isInitialDirectoryImporting -> MainScreenState.InitialImporting
+                    else -> MainScreenState.Ready
+                }
+            }.stateIn(
+                viewModelScope,
+                kotlinx.coroutines.flow.SharingStarted.Eagerly,
+                MainScreenState.Loading,
+            )
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val memos: StateFlow<List<Memo>> =
@@ -319,8 +345,26 @@ class MainViewModel
         }
 
         val onDirectorySelected: (String) -> Unit = { path ->
-            viewModelScope.launch(Dispatchers.IO) {
-                workspaceCoordinator.switchRootAndRefresh(path)
+            val shouldShowInitialImport = beginInitialImportIfNeeded()
+            manualRootRefreshPath.set(path)
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        runCatching {
+                            workspaceCoordinator.switchRootAndRefresh(path)
+                        }.onFailure { throwable ->
+                            handleRefreshFailure(
+                                throwable = throwable,
+                                fallbackMessage = "Failed to switch storage folder",
+                            )
+                        }
+                    }
+                } finally {
+                    if (_rootDirectory.value != path) {
+                        manualRootRefreshPath.compareAndSet(path, null)
+                    }
+                    endInitialImportIfNeeded(shouldShowInitialImport)
+                }
             }
         }
 
@@ -377,12 +421,7 @@ class MainViewModel
                 runCatching {
                     workspaceCoordinator.refreshMemos()
                 }.onFailure { throwable ->
-                    when (throwable) {
-                        is kotlinx.coroutines.CancellationException -> throw throwable
-                        is com.lomo.domain.usecase.SyncConflictException ->
-                            _syncConflictEvent.tryEmit(throwable.conflicts)
-                        else -> _errorMessage.value = throwable.toUserMessage("Failed to refresh memos")
-                    }
+                    handleRefreshFailure(throwable = throwable, fallbackMessage = "Failed to refresh memos")
                 }
             }
         }
@@ -504,13 +543,18 @@ class MainViewModel
         }
 
         private fun updateRootDirectoryUiState(directory: String?) {
+            val previousDirectory = _rootDirectory.value
+            if (_hasResolvedInitialRoot.value && directory != null && directory != previousDirectory) {
+                beginInitialImportIfNeeded()
+            }
+            if (directory != previousDirectory) {
+                lastAutomaticRefreshMark = null
+            }
             _rootDirectory.value = directory
-            _uiState.value =
-                if (directory == null) {
-                    MainScreenState.NoDirectory
-                } else {
-                    MainScreenState.Ready
-                }
+            _hasResolvedInitialRoot.value = true
+            if (directory == null) {
+                _isInitialDirectoryImporting.value = false
+            }
         }
 
         private fun loadImageMap() {
@@ -531,10 +575,75 @@ class MainViewModel
                 .drop(1)
                 .distinctUntilChanged()
                 .onEach { path: String? ->
-                    if (path != null) {
-                        refresh()
-                    }
+                    if (path != null && !consumeManualRootRefresh(path)) {
+                        refreshForRootChange()
+                        }
                 }.launchIn(viewModelScope)
+        }
+
+        internal val requestAutomaticRefreshForVisibleScreen: () -> Unit =
+            refresh@{
+                if (_rootDirectory.value == null) return@refresh
+                if (automaticRefreshJob?.isActive == true) return@refresh
+                if (!hasAutomaticRefreshCooldownElapsed(lastAutomaticRefreshMark)) return@refresh
+
+                lastAutomaticRefreshMark = TimeSource.Monotonic.markNow()
+                automaticRefreshJob =
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            runCatching {
+                                workspaceCoordinator.refreshMemos()
+                            }.onFailure { throwable ->
+                                if (throwable is kotlinx.coroutines.CancellationException) {
+                                    throw throwable
+                                }
+                                if (throwable is com.lomo.domain.usecase.SyncConflictException) {
+                                    _syncConflictEvent.tryEmit(throwable.conflicts)
+                                } else {
+                                    Timber.w(throwable, "Automatic memo refresh failed")
+                                }
+                            }
+                        } finally {
+                            automaticRefreshJob = null
+                        }
+                    }
+            }
+
+        private suspend fun refreshForRootChange() {
+            val shouldShowInitialImport = _isInitialDirectoryImporting.value
+            try {
+                refresh()
+            } finally {
+                endInitialImportIfNeeded(shouldShowInitialImport)
+            }
+        }
+
+        private fun beginInitialImportIfNeeded(): Boolean {
+            val shouldShowInitialImport = !_isInitialDirectoryImporting.value
+            if (shouldShowInitialImport) {
+                _isInitialDirectoryImporting.value = true
+            }
+            return shouldShowInitialImport
+        }
+
+        private fun endInitialImportIfNeeded(shouldShowInitialImport: Boolean) {
+            if (shouldShowInitialImport) {
+                _isInitialDirectoryImporting.value = false
+            }
+        }
+
+        private fun consumeManualRootRefresh(path: String): Boolean = manualRootRefreshPath.compareAndSet(path, null)
+
+        private fun handleRefreshFailure(
+            throwable: Throwable,
+            fallbackMessage: String,
+        ) {
+            when (throwable) {
+                is kotlinx.coroutines.CancellationException -> throw throwable
+                is com.lomo.domain.usecase.SyncConflictException ->
+                    _syncConflictEvent.tryEmit(throwable.conflicts)
+                else -> _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+            }
         }
 
         private fun resolveMemoFlow(
@@ -577,10 +686,15 @@ class MainViewModel
         // processMemoContent moved to MemoUiMapper
     }
 
+private fun hasAutomaticRefreshCooldownElapsed(lastAutomaticRefreshMark: TimeMark?): Boolean {
+    val elapsedMillis = lastAutomaticRefreshMark?.elapsedNow()?.inWholeMilliseconds ?: return true
+    return elapsedMillis >= AUTO_REFRESH_MIN_INTERVAL_MILLIS
+}
+
 data class MemoUiModel(
     val memo: Memo,
     val processedContent: String,
-    val markdownNode: com.lomo.ui.component.markdown.ImmutableNode?,
+    val precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     val tags: ImmutableList<String>,
     val imageUrls: ImmutableList<String> = persistentListOf(),
     val shouldShowExpand: Boolean = false,
