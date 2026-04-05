@@ -14,9 +14,11 @@ fun ThemeMode.toAppCompatNightMode(): Int =
         ThemeMode.DARK -> AppCompatDelegate.MODE_NIGHT_YES
     }
 
-private fun ThemeMode.toPlatformNightMode(): Int =
-    when (this) {
-        ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
+internal fun resolvePlatformNightMode(
+    themeMode: ThemeMode,
+): Int? =
+    when (themeMode) {
+        ThemeMode.SYSTEM -> null
         ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
         ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
     }
@@ -32,7 +34,7 @@ fun applyAppNightMode(
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val uiModeManager = context.getSystemService(UiModeManager::class.java)
-        val targetPlatformMode = themeMode.toPlatformNightMode()
+        val targetPlatformMode = resolvePlatformNightMode(themeMode) ?: return
         if (uiModeManager.nightMode != targetPlatformMode) {
             uiModeManager.setApplicationNightMode(targetPlatformMode)
         }

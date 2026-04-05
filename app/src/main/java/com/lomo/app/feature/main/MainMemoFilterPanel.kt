@@ -45,9 +45,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.ProvideExpressiveMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -98,6 +101,7 @@ internal fun MainMemoFilterSheet(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .benchmarkAnchorRoot(BenchmarkAnchorContract.FILTER_SHEET_ROOT)
                         .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
                         .padding(bottom = AppSpacing.ExtraLarge)
                         .verticalScroll(rememberScrollState()),
@@ -198,6 +202,8 @@ internal fun MainMemoSortButton(
     text: String,
     icon: ImageVector,
     selected: Boolean,
+    benchmarkTag: String? = null,
+    benchmarkSelectedTag: String? = null,
     onClick: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
@@ -218,6 +224,13 @@ internal fun MainMemoSortButton(
         modifier =
             modifier
                 .clip(RoundedCornerShape(12.dp))
+                .benchmarkAnchor(
+                    if (selected) {
+                        benchmarkSelectedTag ?: benchmarkTag
+                    } else {
+                        benchmarkTag
+                    },
+                )
                 .clickable {
                     haptic.medium()
                     onClick()

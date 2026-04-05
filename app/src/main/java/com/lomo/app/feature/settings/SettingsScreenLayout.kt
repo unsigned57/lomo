@@ -34,7 +34,10 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -59,7 +62,10 @@ internal fun SettingsScreenScaffold(
         label = "SettingsLanguageTransition",
     ) { languageTag ->
         Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            modifier =
+                Modifier
+                    .nestedScroll(scrollBehavior.nestedScrollConnection)
+                    .benchmarkAnchorRoot(BenchmarkAnchorContract.SETTINGS_ROOT),
             snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
             topBar = {
                 SettingsTopBar(
@@ -127,6 +133,7 @@ private fun SettingsTopBar(
                     haptic.medium()
                     onBackClick()
                 },
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SETTINGS_BACK_BUTTON),
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -196,10 +203,13 @@ private fun SettingsBody(
             syncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
             pathStyleLabels = dialogOptions.s3PathStyleLabels,
             encryptionModeLabels = dialogOptions.s3EncryptionModeLabels,
+            rcloneFilenameEncryptionLabels = dialogOptions.s3RcloneFilenameEncryptionLabels,
+            rcloneFilenameEncodingLabels = dialogOptions.s3RcloneFilenameEncodingLabels,
         )
         FooterSettingsSections(
             uiState = uiState,
             aboutState = aboutState,
+            dialogState = dialogState,
             interactionFeature = features.interaction,
             systemFeature = features.system,
             onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
@@ -262,6 +272,7 @@ private fun PrimarySettingsSections(
 private fun FooterSettingsSections(
     uiState: SettingsScreenUiState,
     aboutState: AboutSectionState,
+    dialogState: SettingsDialogState,
     interactionFeature: SettingsInteractionFeatureViewModel,
     systemFeature: SettingsSystemFeatureViewModel,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,

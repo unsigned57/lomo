@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -17,6 +18,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +28,9 @@ import java.io.File
 class MemoEditorController
     internal constructor() {
         var isVisible by mutableStateOf(false)
+            private set
+
+        var focusRequestToken by mutableLongStateOf(0L)
             private set
 
         var editingMemo: Memo? by mutableStateOf(null)
@@ -38,12 +43,14 @@ class MemoEditorController
             editingMemo = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
             isVisible = true
+            requestEditorFocus()
         }
 
         fun openForEdit(memo: Memo) {
             editingMemo = memo
             inputValue = TextFieldValue(memo.content, TextRange(memo.content.length))
             isVisible = true
+            requestEditorFocus()
         }
 
         fun appendMarkdownBlock(markdown: String) {
@@ -63,12 +70,17 @@ class MemoEditorController
 
         fun ensureVisible() {
             isVisible = true
+            requestEditorFocus()
         }
 
         fun close() {
             isVisible = false
             editingMemo = null
             inputValue = TextFieldValue("")
+        }
+
+        private fun requestEditorFocus() {
+            focusRequestToken += 1L
         }
     }
 
@@ -122,6 +134,7 @@ fun MemoEditorSheetHost(
         state =
             com.lomo.ui.component.input.InputSheetState(
                 inputValue = controller.inputValue,
+                focusRequestToken = controller.focusRequestToken,
                 availableTags = availableTags,
                 isRecording = isRecordingValue,
                 recordingDuration = recordingDurationValue,
@@ -147,6 +160,9 @@ fun MemoEditorSheetHost(
                 onStopRecording = onStopRecording,
                 onCancelRecording = onCancelRecording,
             ),
+        benchmarkRootTag = BenchmarkAnchorContract.INPUT_SHEET_ROOT,
+        benchmarkEditorTag = BenchmarkAnchorContract.INPUT_EDITOR,
+        benchmarkSubmitTag = BenchmarkAnchorContract.INPUT_SUBMIT,
     )
 }
 

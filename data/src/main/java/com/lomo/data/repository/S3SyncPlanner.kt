@@ -57,6 +57,31 @@ class S3SyncPlanner(
         )
     }
 
+    fun planPaths(
+        paths: Collection<String>,
+        localFiles: Map<String, LocalS3File>,
+        remoteFiles: Map<String, RemoteS3File>,
+        metadata: Map<String, S3SyncMetadataEntity>,
+    ): S3SyncPlan {
+        val actions =
+            paths
+                .asSequence()
+                .distinct()
+                .sorted()
+                .mapNotNull { path ->
+                    createAction(
+                        path = path,
+                        local = localFiles[path],
+                        remote = remoteFiles[path],
+                        metadata = metadata[path],
+                    )
+                }.toList()
+        return S3SyncPlan(
+            actions = actions,
+            pendingChanges = actions.count { it.direction != S3SyncDirection.NONE },
+        )
+    }
+
     private fun createAction(
         path: String,
         local: LocalS3File?,

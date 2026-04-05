@@ -6,6 +6,7 @@ import com.lomo.domain.model.MemoRevisionOrigin
 import io.mockk.every
 import io.mockk.mockk
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /*
@@ -40,6 +41,44 @@ class MemoVersionHistoryUiMapperTest {
             )
 
         assertEquals("![cover](content://images/foo%20bar.png)", models.single().processedContent)
+    }
+
+    @Test
+    fun `mapToUiModels reuses unchanged cached models when a later page is appended`() {
+        val firstPage =
+            mapper.mapToUiModels(
+                revisions =
+                    listOf(
+                        revision(
+                            revisionId = "r1",
+                            content = "first",
+                        ),
+                    ),
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = emptyMap(),
+            )
+
+        val secondPage =
+            mapper.mapToUiModels(
+                revisions =
+                    listOf(
+                        revision(
+                            revisionId = "r1",
+                            content = "first",
+                        ),
+                        revision(
+                            revisionId = "r2",
+                            content = "second",
+                        ),
+                    ),
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = emptyMap(),
+            )
+
+        assertSame(firstPage.first(), secondPage.first())
+        assertEquals(listOf("first", "second"), secondPage.map(MemoVersionHistoryUiModel::processedContent))
     }
 }
 

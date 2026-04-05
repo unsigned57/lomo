@@ -22,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
+import java.nio.file.Files
 
 /*
  * Test Contract:
@@ -69,6 +70,11 @@ class S3SyncExecutorPerformancePolicyTest {
         every { dataStore.s3Prefix } returns flowOf("")
         every { dataStore.s3PathStyle } returns flowOf("path_style")
         every { dataStore.s3EncryptionMode } returns flowOf("none")
+        every { dataStore.s3RcloneFilenameEncryption } returns flowOf("standard")
+        every { dataStore.s3RcloneFilenameEncoding } returns flowOf("base64")
+        every { dataStore.s3RcloneDirectoryNameEncryption } returns flowOf(true)
+        every { dataStore.s3RcloneDataEncryptionEnabled } returns flowOf(true)
+        every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
         every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
         every { dataStore.rootDirectory } returns flowOf("/memo")
         every { dataStore.rootUri } returns flowOf(null)
@@ -80,6 +86,7 @@ class S3SyncExecutorPerformancePolicyTest {
         every { credentialStore.getSecretAccessKey() } returns "secret"
         every { credentialStore.getSessionToken() } returns null
         every { credentialStore.getEncryptionPassword() } returns null
+        every { credentialStore.getEncryptionPassword2() } returns null
         every { clientFactory.create(any()) } returns client
 
         coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
@@ -204,6 +211,40 @@ class S3SyncExecutorPerformancePolicyTest {
             )
             coVerify(exactly = 1) { memoSynchronizer.refresh("note.md") }
             coVerify(exactly = 0) { memoSynchronizer.refresh() }
+        }
+
+    @Test
+    fun `performSync skips memo refresh for downloaded non memo markdown under explicit vault root`() =
+        runTest {
+            val vaultRoot = Files.createTempDirectory("s3-refresh-vault-root").toFile()
+            val memoRoot = vaultRoot.resolve("journal").also { it.mkdirs() }
+            val imageRoot = vaultRoot.resolve("asset").also { it.mkdirs() }
+            val voiceRoot = vaultRoot.resolve("voice").also { it.mkdirs() }
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.rootDirectory } returns flowOf(memoRoot.absolutePath)
+            every { dataStore.imageDirectory } returns flowOf(imageRoot.absolutePath)
+            every { dataStore.voiceDirectory } returns flowOf(voiceRoot.absolutePath)
+            val boardRemotePath = "pages.kanban/board.md"
+            val boardBytes = "# board".toByteArray()
+            coEvery { client.list(prefix = "", maxKeys = null) } returns
+                listOf(remoteObject(boardRemotePath, eTag = "etag-board", lastModified = 40L))
+            coEvery { client.getObject(boardRemotePath) } returns
+                remotePayload(
+                    key = boardRemotePath,
+                    eTag = "etag-board",
+                    lastModified = 40L,
+                    bytes = boardBytes,
+                )
+
+            val result = executor.performSync()
+
+            val success = result as S3SyncResult.Success
+            assertEquals("S3 sync completed", success.message)
+            assertEquals(
+                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
+                success.outcomes.map { it.direction to it.reason },
+            )
+            coVerify(exactly = 0) { memoSynchronizer.refresh(any()) }
         }
 
     private fun remoteObject(

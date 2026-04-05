@@ -69,6 +69,7 @@ internal suspend fun persistUpdatedMainFile(
         .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
         ?.let { metadata ->
             upsertMainState(runtime, filename, metadata.lastModified, savedUri)
+            runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
         }
 }
 
@@ -79,6 +80,7 @@ internal suspend fun appendMainMemoContentAndUpdateState(
 ) {
     val savedUriString = appendMainMemoContent(runtime, filename, rawContent)
     upsertMainState(runtime, filename, resolveMainFileLastModified(runtime, filename), savedUriString)
+    runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
 }
 
 internal suspend fun appendMainMemoContent(

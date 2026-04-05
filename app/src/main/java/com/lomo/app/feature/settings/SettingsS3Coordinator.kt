@@ -4,6 +4,8 @@ import com.lomo.app.feature.common.toUserMessage
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
@@ -78,6 +80,31 @@ class SettingsS3Coordinator(
             .observeEncryptionMode()
             .stateIn(scope, settingsWhileSubscribed(), S3EncryptionMode.NONE)
 
+    val s3RcloneFilenameEncryption: StateFlow<S3RcloneFilenameEncryption> =
+        s3SyncSettingsUseCase
+            .observeRcloneFilenameEncryption()
+            .stateIn(scope, settingsWhileSubscribed(), S3RcloneFilenameEncryption.STANDARD)
+
+    val s3RcloneFilenameEncoding: StateFlow<S3RcloneFilenameEncoding> =
+        s3SyncSettingsUseCase
+            .observeRcloneFilenameEncoding()
+            .stateIn(scope, settingsWhileSubscribed(), S3RcloneFilenameEncoding.BASE64)
+
+    val s3RcloneDirectoryNameEncryption: StateFlow<Boolean> =
+        s3SyncSettingsUseCase
+            .observeRcloneDirectoryNameEncryption()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
+
+    val s3RcloneDataEncryptionEnabled: StateFlow<Boolean> =
+        s3SyncSettingsUseCase
+            .observeRcloneDataEncryptionEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
+
+    val s3RcloneEncryptedSuffix: StateFlow<String> =
+        s3SyncSettingsUseCase
+            .observeRcloneEncryptedSuffix()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
+
     private val _accessKeyConfigured = MutableStateFlow(false)
     val accessKeyConfigured: StateFlow<Boolean> = _accessKeyConfigured.asStateFlow()
 
@@ -89,6 +116,9 @@ class SettingsS3Coordinator(
 
     private val _encryptionPasswordConfigured = MutableStateFlow(false)
     val encryptionPasswordConfigured: StateFlow<Boolean> = _encryptionPasswordConfigured.asStateFlow()
+
+    private val _encryptionPassword2Configured = MutableStateFlow(false)
+    val encryptionPassword2Configured: StateFlow<Boolean> = _encryptionPassword2Configured.asStateFlow()
 
     val s3AutoSyncEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
@@ -127,6 +157,7 @@ class SettingsS3Coordinator(
                 _secretAccessKeyConfigured.value = s3SyncSettingsUseCase.isSecretAccessKeyConfigured()
                 _sessionTokenConfigured.value = s3SyncSettingsUseCase.isSessionTokenConfigured()
                 _encryptionPasswordConfigured.value = s3SyncSettingsUseCase.isEncryptionPasswordConfigured()
+                _encryptionPassword2Configured.value = s3SyncSettingsUseCase.isEncryptionPassword2Configured()
             }
         }
 
@@ -222,6 +253,49 @@ class SettingsS3Coordinator(
             runWithError("Failed to update S3 encryption password") {
                 s3SyncSettingsUseCase.updateEncryptionPassword(password)
                 _encryptionPasswordConfigured.value = password.isNotBlank()
+            }
+        }
+
+    val updateS3EncryptionPassword2: suspend (String) -> SettingsOperationError? =
+        { password ->
+            runWithError("Failed to update S3 secondary encryption password") {
+                s3SyncSettingsUseCase.updateEncryptionPassword2(password)
+                _encryptionPassword2Configured.value = password.isNotBlank()
+            }
+        }
+
+    val updateS3RcloneFilenameEncryption: suspend (S3RcloneFilenameEncryption) -> SettingsOperationError? =
+        { mode ->
+            runWithError("Failed to update S3 rclone filename encryption") {
+                s3SyncSettingsUseCase.updateRcloneFilenameEncryption(mode)
+            }
+        }
+
+    val updateS3RcloneFilenameEncoding: suspend (S3RcloneFilenameEncoding) -> SettingsOperationError? =
+        { encoding ->
+            runWithError("Failed to update S3 rclone filename encoding") {
+                s3SyncSettingsUseCase.updateRcloneFilenameEncoding(encoding)
+            }
+        }
+
+    val updateS3RcloneDirectoryNameEncryption: suspend (Boolean) -> SettingsOperationError? =
+        { enabled ->
+            runWithError("Failed to update S3 directory name encryption") {
+                s3SyncSettingsUseCase.updateRcloneDirectoryNameEncryption(enabled)
+            }
+        }
+
+    val updateS3RcloneDataEncryptionEnabled: suspend (Boolean) -> SettingsOperationError? =
+        { enabled ->
+            runWithError("Failed to update S3 data encryption") {
+                s3SyncSettingsUseCase.updateRcloneDataEncryptionEnabled(enabled)
+            }
+        }
+
+    val updateS3RcloneEncryptedSuffix: suspend (String) -> SettingsOperationError? =
+        { suffix ->
+            runWithError("Failed to update S3 encrypted suffix") {
+                s3SyncSettingsUseCase.updateRcloneEncryptedSuffix(suffix)
             }
         }
 

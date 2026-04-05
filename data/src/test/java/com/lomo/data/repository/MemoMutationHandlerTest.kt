@@ -60,6 +60,9 @@ class MemoMutationHandlerTest {
     @MockK(relaxed = true)
     private lateinit var memoVersionJournal: MemoVersionJournal
 
+    @MockK(relaxed = true)
+    private lateinit var s3LocalChangeRecorder: S3LocalChangeRecorder
+
     private lateinit var handler: MemoMutationHandler
 
     @Before
@@ -78,6 +81,7 @@ class MemoMutationHandlerTest {
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = MemoIdentityPolicy(),
                 memoVersionJournal = memoVersionJournal,
+                s3LocalChangeRecorder = s3LocalChangeRecorder,
             )
     }
 
@@ -161,6 +165,64 @@ class MemoMutationHandlerTest {
             }
             assertEquals(987_654L, captured.captured.lastKnownModifiedTime)
             assertEquals("content://saved/memo_2", captured.captured.safUri)
+        }
+
+    @Test
+    fun `flushSavedMemoToFile records memo upsert for s3 incremental journal`() =
+        runTest {
+            val filename = "2024_01_15.md"
+            val savePlan =
+                MemoSavePlan(
+                    filename = filename,
+                    dateKey = "2024_01_15",
+                    timestamp = 1_700_000_000_000L,
+                    rawContent = "- 10:00 test",
+                    memo =
+                        Memo(
+                            id = "memo_1",
+                            timestamp = 1_700_000_000_000L,
+                            content = "test",
+                            rawContent = "- 10:00 test",
+                            dateKey = "2024_01_15",
+                        ),
+                )
+            coEvery { localFileStateDao.getByFilename(filename, false) } returns null
+            coEvery {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = any(),
+                    append = true,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+            } returns FileMetadata(filename, 456_789L)
+
+            handler.flushSavedMemoToFile(savePlan)
+
+            coVerify(exactly = 1) { s3LocalChangeRecorder.recordMemoUpsert(filename) }
+        }
+
+    @Test
+    fun `flushDeleteMemoToFile records memo delete when main file disappears`() =
+        runTest {
+            val memo =
+                Memo(
+                    id = "memo_delete",
+                    timestamp = 1_700_000_000_000L,
+                    content = "before",
+                    rawContent = "- 10:00 before",
+                    dateKey = "2024_01_15",
+                )
+            coEvery { trashMutationHandler.moveToTrashFileOnly(memo) } returns true
+            coEvery { localFileStateDao.getByFilename("${memo.dateKey}.md", false) } returns null
+
+            val result = handler.flushDeleteMemoToFile(memo)
+
+            assertTrue(result)
+            coVerify(exactly = 1) { s3LocalChangeRecorder.recordMemoDelete("${memo.dateKey}.md") }
         }
 
     @Test

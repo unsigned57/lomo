@@ -39,14 +39,17 @@ internal fun collectMainScreenUiSnapshot(
 ): MainScreenUiSnapshot {
     val memos by viewModel.memos.collectAsStateWithLifecycle()
     val uiMemos by viewModel.uiMemos.collectAsStateWithLifecycle()
+    val visibleUiMemos by viewModel.visibleUiMemos.collectAsStateWithLifecycle()
     val searchQuery by sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val memoListFilter by viewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val pendingNewMemoCreationRequest by viewModel.pendingNewMemoCreationRequest.collectAsStateWithLifecycle()
 
     return MainScreenUiSnapshot(
         uiMemos = uiMemos,
+        visibleUiMemos = visibleUiMemos,
         hasRawItems = memos.isNotEmpty(),
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
@@ -61,6 +64,7 @@ internal fun collectMainScreenUiSnapshot(
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
         shareCardShowTime = appPreferences.shareCardShowTime,
         uiState = uiState,
+        pendingNewMemoCreationRequest = pendingNewMemoCreationRequest,
     )
 }
 
@@ -85,6 +89,7 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
         snackbarHostState = snackbarHostState,
         scrollBehavior = scrollBehavior,
         listState = listState,
+        newMemoInsertAnimationSession = remember { NewMemoInsertAnimationSession() },
         editorController = editorController,
         isExpanded = isExpanded,
         directoryGuideController = rememberMainDirectoryGuideController(),
@@ -113,21 +118,6 @@ internal fun MainScreenDraftAutosaveEffect(
 }
 
 @Composable
-internal fun MainScreenPendingScrollEffect(
-    uiMemos: List<MemoUiModel>,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    pendingNewMemoScroll: Boolean,
-    onPendingScrollConsumed: () -> Unit,
-) {
-    LaunchedEffect(uiMemos.size, pendingNewMemoScroll) {
-        if (pendingNewMemoScroll && uiMemos.isNotEmpty()) {
-            onPendingScrollConsumed()
-            listState.animateScrollToItem(0)
-        }
-    }
-}
-
-@Composable
 internal fun MainScreenConflictHost(
     viewModel: MainViewModel,
     conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel,
@@ -151,7 +141,6 @@ internal fun MainScreenContentHost(
     unknownErrorMessage: String,
     isRefreshing: Boolean,
     onRefreshingChange: (Boolean) -> Unit,
-    onPendingNewMemoScroll: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -182,7 +171,6 @@ internal fun MainScreenContentHost(
         availableTags = allTags,
         showInputHints = screenState.showInputHints,
         onNavigateToShare = onNavigateToShare,
-        onPendingNewMemoScroll = onPendingNewMemoScroll,
     ) { showMenu, openEditor ->
         MainScreenNavigationContent(
             screenState = screenState,
@@ -255,7 +243,14 @@ private fun MainScreenNavigationContent(
         scope = hostState.scope,
         drawerState = hostState.drawerState,
         isExpanded = hostState.isExpanded,
-        canCreateMemo = screenState.uiState is MainViewModel.MainScreenState.Ready,
+        canCreateMemo =
+            screenState.uiState is MainViewModel.MainScreenState.Ready &&
+                screenState.pendingNewMemoCreationRequest == null,
+        onCreateMemoUnavailable = {
+            if (screenState.uiState !is MainViewModel.MainScreenState.Ready) {
+                onNavigateToSettings()
+            }
+        },
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToTrash = onNavigateToTrash,
         onNavigateToSearch = onNavigateToSearch,
@@ -266,7 +261,11 @@ private fun MainScreenNavigationContent(
         onClearSidebarFilters = sidebarViewModel::clearFilters,
         onClearMainFilters = clearMainFilters,
         onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
-        onOpenCreateMemo = { hostState.editorController.openForCreate(editorViewModel.draftText.value) },
+        onOpenCreateMemo = {
+            if (screenState.pendingNewMemoCreationRequest == null) {
+                hostState.editorController.openForCreate(editorViewModel.draftText.value)
+            }
+        },
         onRefreshMemos = viewModel.refresh,
         onRefreshingChange = onRefreshingChange,
     ) { actions ->

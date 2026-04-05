@@ -44,10 +44,17 @@ class S3CredentialStore
             prefs.putString(KEY_ENCRYPTION_PASSWORD, password)
         }
 
+        fun getEncryptionPassword2(): String? = prefs.getString(KEY_ENCRYPTION_PASSWORD2)
+
+        fun setEncryptionPassword2(password: String?) {
+            prefs.putString(KEY_ENCRYPTION_PASSWORD2, password)
+        }
+
         private companion object {
             const val KEY_ACCESS_KEY_ID = "s3_access_key_id"
             const val KEY_SECRET_ACCESS_KEY = "s3_secret_access_key"
             const val KEY_SESSION_TOKEN = "s3_session_token"
             const val KEY_ENCRYPTION_PASSWORD = "s3_encryption_password"
+            const val KEY_ENCRYPTION_PASSWORD2 = "s3_encryption_password2"
         }
     }

@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -76,23 +75,18 @@ internal fun ModernMarkdownBlock(
     enableTextSelection: Boolean,
     baseParagraphStyle: TextStyle? = null,
 ) {
+    resolveModernMarkdownHeadingStyle(node = node, tokenSpec = tokenSpec)?.let { headingStyle ->
+        ModernMarkdownHeading(
+            node = node,
+            content = content,
+            style = headingStyle,
+            tokenSpec = tokenSpec,
+            enableTextSelection = enableTextSelection,
+        )
+        return
+    }
+
     when (node.type) {
-        MarkdownElementTypes.ATX_1,
-        MarkdownElementTypes.SETEXT_1,
-        -> ModernMarkdownHeading(node, content, tokenSpec.heading1Style, tokenSpec)
-
-        MarkdownElementTypes.ATX_2,
-        MarkdownElementTypes.SETEXT_2,
-        -> ModernMarkdownHeading(node, content, tokenSpec.heading2Style, tokenSpec)
-
-        MarkdownElementTypes.ATX_3 -> ModernMarkdownHeading(node, content, tokenSpec.heading3Style, tokenSpec)
-
-        MarkdownElementTypes.ATX_4 -> ModernMarkdownHeading(node, content, tokenSpec.heading4Style, tokenSpec)
-
-        MarkdownElementTypes.ATX_5 -> ModernMarkdownHeading(node, content, tokenSpec.heading5Style, tokenSpec)
-
-        MarkdownElementTypes.ATX_6 -> ModernMarkdownHeading(node, content, tokenSpec.heading6Style, tokenSpec)
-
         MarkdownElementTypes.PARAGRAPH -> {
             ModernMarkdownParagraph(
                 node = node,
@@ -104,9 +98,19 @@ internal fun ModernMarkdownBlock(
             )
         }
 
-        MarkdownElementTypes.CODE_FENCE -> ModernMarkdownCodeFence(node, content, tokenSpec)
+        MarkdownElementTypes.CODE_FENCE -> ModernMarkdownCodeFence(
+            node = node,
+            content = content,
+            tokenSpec = tokenSpec,
+            enableTextSelection = enableTextSelection,
+        )
 
-        MarkdownElementTypes.CODE_BLOCK -> ModernMarkdownIndentedCodeBlock(node, content, tokenSpec)
+        MarkdownElementTypes.CODE_BLOCK -> ModernMarkdownIndentedCodeBlock(
+            node = node,
+            content = content,
+            tokenSpec = tokenSpec,
+            enableTextSelection = enableTextSelection,
+        )
 
         MarkdownElementTypes.BLOCK_QUOTE -> {
             ModernMarkdownBlockQuote(
@@ -156,6 +160,7 @@ private fun ModernMarkdownHeading(
     content: String,
     style: TextStyle,
     tokenSpec: ModernMarkdownTokenSpec,
+    enableTextSelection: Boolean,
 ) {
     val annotatedText =
         remember(content, node, style, tokenSpec) {
@@ -182,6 +187,7 @@ private fun ModernMarkdownHeading(
             Modifier
                 .fillMaxWidth()
                 .padding(top = 12.dp, bottom = 4.dp),
+        selectable = enableTextSelection,
     )
 }
 
@@ -243,6 +249,7 @@ private fun ModernMarkdownCodeFence(
     node: ASTNode,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
+    enableTextSelection: Boolean,
 ) {
     val code = remember(content, node) { node.extractCodeFenceContent(content) }
     Surface(
@@ -253,11 +260,11 @@ private fun ModernMarkdownCodeFence(
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
     ) {
-        Text(
+        MemoParagraphText(
             text = code,
-            fontFamily = FontFamily.Monospace,
-            style = tokenSpec.codeStyle,
+            style = tokenSpec.codeStyle.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier.padding(8.dp),
+            selectable = enableTextSelection,
         )
     }
 }
@@ -267,16 +274,17 @@ private fun ModernMarkdownIndentedCodeBlock(
     node: ASTNode,
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
+    enableTextSelection: Boolean,
 ) {
     val code = remember(content, node) { node.extractIndentedCodeContent(content) }
-    Text(
+    MemoParagraphText(
         text = code,
-        style = tokenSpec.codeStyle,
-        fontFamily = FontFamily.Monospace,
+        style = tokenSpec.codeStyle.copy(fontFamily = FontFamily.Monospace),
         modifier =
             Modifier
                 .fillMaxWidth()
                 .padding(top = 4.dp, bottom = 4.dp),
+        selectable = enableTextSelection,
     )
 }
 

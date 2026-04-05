@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
@@ -104,6 +105,16 @@ internal fun MainMemoSortOptionsRow(
                 text = sortOptionLabel(option),
                 icon = sortOptionIcon(option),
                 selected = selectedOption == option,
+                benchmarkTag =
+                    when (option) {
+                        MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_CREATED_TIME
+                        MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_OPTION_UPDATED_TIME
+                    },
+                benchmarkSelectedTag =
+                    when (option) {
+                        MemoSortOption.CREATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_CREATED_TIME
+                        MemoSortOption.UPDATED_TIME -> BenchmarkAnchorContract.SORT_SELECTED_UPDATED_TIME
+                    },
                 onClick = { onSortOptionSelected(option) },
             )
         }

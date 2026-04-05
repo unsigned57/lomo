@@ -290,4 +290,21 @@ class SyncAndRebuildUseCaseTest {
             coVerify(exactly = 0) { s3SyncRepository.sync() }
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
         }
+
+    @Test
+    fun `non-force s3 refresh triggers optimized s3 sync when enabled`() =
+        runTest {
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
+            every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
+            every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(true)
+            coEvery { s3SyncRepository.sync() } returns S3SyncResult.Success("S3 sync completed")
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase(forceSync = false)
+
+            coVerifyOrder {
+                s3SyncRepository.sync()
+                memoRepository.refreshMemos()
+            }
+        }
 }

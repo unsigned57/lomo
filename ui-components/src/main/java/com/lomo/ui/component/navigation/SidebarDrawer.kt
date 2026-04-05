@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
@@ -118,6 +119,9 @@ fun SidebarDrawer(
     onTagClick: (String) -> Unit = {},
     onHeatmapDateLongPress: (LocalDate) -> Unit = {},
     onSettingsClick: () -> Unit = {},
+    settingsAnchorTag: String? = null,
+    trashAnchorTag: String? = null,
+    tagAnchorForPath: (String) -> String? = { null },
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val tagTree = remember(tags) { buildTagTree(tags) }
@@ -133,7 +137,11 @@ fun SidebarDrawer(
         contentPadding = PaddingValues(AppSpacing.Medium),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
-        sidebarHeader(username = username, onSettingsClick = onSettingsClick)
+        sidebarHeader(
+            username = username,
+            onSettingsClick = onSettingsClick,
+            settingsAnchorTag = settingsAnchorTag,
+        )
         sidebarStats(stats = stats)
         sidebarHeatmap(
             memoCountByDate = memoCountByDate,
@@ -148,6 +156,7 @@ fun SidebarDrawer(
             onTrashClick = onTrashClick,
             onDailyReviewClick = onDailyReviewClick,
             onGalleryClick = onGalleryClick,
+            trashAnchorTag = trashAnchorTag,
         )
         sidebarTags(
             tags = tags,
@@ -155,6 +164,7 @@ fun SidebarDrawer(
             expandedNodes = expandedNodes,
             selectedTagPath = selectedTagPath,
             onTagClick = onTagClick,
+            anchorTagForPath = tagAnchorForPath,
         )
     }
 }
@@ -183,6 +193,7 @@ private fun NavigationItem(
     label: String,
     badge: String? = null,
     isSelected: Boolean = false,
+    anchorTag: String? = null,
     onClick: () -> Unit,
 ) {
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
@@ -199,13 +210,14 @@ private fun NavigationItem(
             NavigationDrawerItemDefaults.colors(
                 unselectedContainerColor = Color.Transparent,
             ),
-        modifier = Modifier.height(48.dp),
+        modifier = Modifier.height(48.dp).benchmarkAnchor(anchorTag),
     )
 }
 
 private fun LazyListScope.sidebarHeader(
     username: String,
     onSettingsClick: () -> Unit,
+    settingsAnchorTag: String?,
 ) {
     item {
         Row(
@@ -217,7 +229,10 @@ private fun LazyListScope.sidebarHeader(
                 text = username,
                 style = MaterialTheme.typography.titleLarge,
             )
-            IconButton(onClick = rememberMediumHapticClick(onSettingsClick)) {
+            IconButton(
+                onClick = rememberMediumHapticClick(onSettingsClick),
+                modifier = Modifier.benchmarkAnchor(settingsAnchorTag),
+            ) {
                 Icon(
                     Icons.Rounded.Settings,
                     androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_settings),
@@ -274,6 +289,7 @@ private fun LazyListScope.sidebarDestinations(
     onTrashClick: () -> Unit,
     onDailyReviewClick: () -> Unit,
     onGalleryClick: () -> Unit,
+    trashAnchorTag: String?,
 ) {
     item {
         NavigationItem(
@@ -288,6 +304,7 @@ private fun LazyListScope.sidebarDestinations(
             icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
             label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_trash),
             isSelected = isTrashSelected,
+            anchorTag = trashAnchorTag,
             onClick = onTrashClick,
         )
     }

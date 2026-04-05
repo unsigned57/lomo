@@ -56,6 +56,7 @@ data class MemoVersionRevisionRecord(
     val lifecycleState: MemoRevisionLifecycleState,
     val rawMarkdownBlobHash: String,
     val contentHash: String,
+    val assetFingerprint: String?,
     val memoTimestamp: Long,
     val memoUpdatedAt: Long,
     val memoContent: String,
@@ -146,6 +147,7 @@ interface MemoVersionStoreReader {
         lifecycleState: MemoRevisionLifecycleState,
         rawMarkdownBlobHash: String,
         contentHash: String,
+        assetFingerprint: String,
     ): List<MemoVersionRevisionRecord>
 
     suspend fun listAssetsForRevision(revisionId: String): List<MemoVersionAssetRecord>
@@ -153,6 +155,7 @@ interface MemoVersionStoreReader {
     suspend fun listStaleRevisionsForMemo(
         memoId: String,
         retainCount: Int,
+        olderThanCreatedAt: Long?,
     ): List<MemoVersionRevisionRecord>
 
     suspend fun listAssetsForRevisionIds(revisionIds: List<String>): List<MemoVersionAssetRecord>
@@ -381,10 +384,17 @@ class MemoVersionJournal
                         MemoRevisionLifecycleState.DELETED -> restoreDeletedRevision(currentMemo, revision)
                     }
                     mediaRepository?.refreshImageLocations()
-                    appendLocalRevision(
-                        memo = revision.toMemo(rawContent, memoTextProcessor),
-                        lifecycleState = revision.lifecycleState,
-                        origin = MemoRevisionOrigin.LOCAL_RESTORE,
+                    appendRestoredRevision(
+                        restoredRevision = revision,
+                        rawContent = rawContent,
+                        store = store,
+                        memoTextProcessor = memoTextProcessor,
+                        runInTransaction = runInTransaction,
+                        loadSnapshotSettings = loadSnapshotSettings,
+                        now = now,
+                        nextCommitId = nextCommitId,
+                        nextRevisionId = nextRevisionId,
+                        pruneRevisionsForMemo = ::pruneRevisionsForMemo,
                     )
                 }.exceptionOrNull()
             if (restoreFailure != null) {
@@ -420,28 +430,24 @@ class MemoVersionJournal
             if (!snapshotSettings.enabled) {
                 return
             }
-            val rawBytes = memoState.rawContent.toByteArray(StandardCharsets.UTF_8)
-            val rawContentHash = rawBytes.toVersionHash()
-            val rawMarkdownBlobHash = rawContentHash
-            val assets =
-                captureRevisionAssets(
-                    memoState = memoState,
-                    memoTextProcessor = memoTextProcessor,
-                    workspaceMediaAccess = workspaceMediaAccess,
-                )
-            val assetPairs = assets.map(ResolvedMemoRevisionAsset::pair)
+            val appendPayload = buildAppendRevisionPayload(memoState)
             val newlyPersistedBlobHashes = linkedSetOf<String>()
             val appendFailure =
                 runCatching {
                     runInTransaction {
                         val latestRevision = store.getLatestRevisionForMemo(memoState.memoId)
                         val createdAt = nextMemoVersionCreatedAt(latestRevision = latestRevision, now = now)
-                        val latestAssetPairs = listRevisionAssetPairs(store = store, revision = latestRevision)
+                        val latestAssetPairs =
+                            loadLatestAssetPairsIfNeeded(
+                                store = store,
+                                latestRevision = latestRevision,
+                            )
                         if (
                             latestRevision.matchesCurrentState(
-                                rawContentHash = rawContentHash,
+                                rawContentHash = appendPayload.rawContentHash,
                                 lifecycleState = lifecycleState,
-                                assetPairs = assetPairs,
+                                assetFingerprint = appendPayload.assetFingerprint,
+                                assetPairs = appendPayload.assetPairs,
                                 latestAssetPairs = latestAssetPairs,
                             )
                         ) {
@@ -451,9 +457,10 @@ class MemoVersionJournal
                             store.hasEquivalentHistoricalRevision(
                                 memoId = memoState.memoId,
                                 lifecycleState = lifecycleState,
-                                rawMarkdownBlobHash = rawMarkdownBlobHash,
-                                contentHash = rawContentHash,
-                                assetPairs = assetPairs,
+                                rawMarkdownBlobHash = appendPayload.rawMarkdownBlobHash,
+                                contentHash = appendPayload.rawContentHash,
+                                assetFingerprint = appendPayload.assetFingerprint,
+                                assetPairs = appendPayload.assetPairs,
                             )
                         ) {
                             return@runInTransaction
@@ -461,7 +468,7 @@ class MemoVersionJournal
                         trackAndPersistMemoVersionBlobIfNeeded(
                             store = store,
                             blobRoot = blobRoot,
-                            bytes = rawBytes,
+                            bytes = appendPayload.rawBytes,
                             contentEncoding = VERSION_MARKDOWN_CONTENT_ENCODING,
                             createdAt = createdAt,
                             newlyPersistedBlobHashes = newlyPersistedBlobHashes,
@@ -471,7 +478,7 @@ class MemoVersionJournal
                                 store = store,
                                 blobRoot = blobRoot,
                                 createdAt = createdAt,
-                                assets = assets,
+                                assets = appendPayload.assets,
                                 newlyPersistedBlobHashes = newlyPersistedBlobHashes,
                             )
                         insertMemoVersionRevision(
@@ -481,8 +488,9 @@ class MemoVersionJournal
                             origin = origin,
                             sharedCommit = sharedCommit,
                             latestRevisionId = latestRevision?.revisionId,
-                            rawMarkdownBlobHash = rawMarkdownBlobHash,
-                            rawContentHash = rawContentHash,
+                            rawMarkdownBlobHash = appendPayload.rawMarkdownBlobHash,
+                            rawContentHash = appendPayload.rawContentHash,
+                            assetFingerprint = appendPayload.assetFingerprint,
                             createdAt = createdAt,
                             nextCommitId = nextCommitId,
                             nextRevisionId = nextRevisionId,
@@ -503,6 +511,26 @@ class MemoVersionJournal
                 )
                 throw appendFailure
             }
+        }
+
+        private suspend fun buildAppendRevisionPayload(memoState: MemoVersionMemoState): MemoVersionAppendPayload {
+            val rawBytes = memoState.rawContent.toByteArray(StandardCharsets.UTF_8)
+            val assets =
+                captureRevisionAssets(
+                    memoState = memoState,
+                    memoTextProcessor = memoTextProcessor,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                )
+            val assetPairs = assets.map(ResolvedMemoRevisionAsset::pair)
+            val rawContentHash = rawBytes.toVersionHash()
+            return MemoVersionAppendPayload(
+                rawBytes = rawBytes,
+                rawContentHash = rawContentHash,
+                rawMarkdownBlobHash = rawContentHash,
+                assets = assets,
+                assetPairs = assetPairs,
+                assetFingerprint = assetPairs.toMemoVersionAssetFingerprint(),
+            )
         }
 
         private suspend fun restoreActiveRevision(
@@ -630,15 +658,14 @@ class MemoVersionJournal
                     Long.MIN_VALUE
                 }
             val staleRevisions =
-                store
-                    .listAllRevisionsForMemo(memoId)
-                    .filterIndexed { index, revision ->
-                        val exceedsCount = snapshotSettings.maxCount > 0 && index >= snapshotSettings.maxCount
-                        val exceedsAge =
-                            snapshotSettings.maxAgeDays in 1 until Int.MAX_VALUE &&
-                                revision.createdAt < ageCutoff
-                        exceedsCount || exceedsAge
-                    }.distinctBy(MemoVersionRevisionRecord::revisionId)
+                store.listStaleRevisionsForMemo(
+                    memoId = memoId,
+                    retainCount = snapshotSettings.maxCount.coerceAtLeast(0),
+                    olderThanCreatedAt =
+                        ageCutoff.takeIf {
+                            snapshotSettings.maxAgeDays in 1 until Int.MAX_VALUE
+                        },
+                )
             if (staleRevisions.isEmpty()) {
                 return
             }
@@ -691,6 +718,25 @@ internal data class MemoVersionMemoState(
             )
     }
 }
+
+internal data class MemoVersionAppendPayload(
+    val rawBytes: ByteArray,
+    val rawContentHash: String,
+    val rawMarkdownBlobHash: String,
+    val assets: List<ResolvedMemoRevisionAsset>,
+    val assetPairs: List<Pair<String, String>>,
+    val assetFingerprint: String,
+)
+
+internal suspend fun loadLatestAssetPairsIfNeeded(
+    store: MemoVersionStore,
+    latestRevision: MemoVersionRevisionRecord?,
+): List<Pair<String, String>> =
+    if (latestRevision?.assetFingerprint == null) {
+        listRevisionAssetPairs(store = store, revision = latestRevision)
+    } else {
+        emptyList()
+    }
 
 internal data class ResolvedMemoRevisionAttachment(
     val logicalPath: String,

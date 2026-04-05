@@ -5,24 +5,22 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import java.net.URI
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
-private const val CONTENT_URI_PREFIX = "content://"
-private const val FILE_URI_PREFIX = "file://"
+internal const val CONTENT_URI_PREFIX = "content://"
+internal const val FILE_URI_PREFIX = "file://"
 private const val HTTP_URI_PREFIX = "http://"
 private const val HTTPS_URI_PREFIX = "https://"
 private const val DATA_IMAGE_PREFIX = "data:image/"
 private const val PATH_ROOT_PREFIX = "/"
 private const val CURRENT_DIR_PREFIX = "./"
 private const val PARENT_DIR_PREFIX = "../"
-private const val QUERY_SEPARATOR = '?'
-private const val FRAGMENT_SEPARATOR = '#'
-private const val PATH_SEPARATOR = '/'
-private const val WIKI_IMAGE_ALT_SEPARATOR = '|'
+internal const val QUERY_SEPARATOR = '?'
+internal const val FRAGMENT_SEPARATOR = '#'
+internal const val PATH_SEPARATOR = '/'
+internal const val WIKI_IMAGE_ALT_SEPARATOR = '|'
 
-private val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
-private val MARKDOWN_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
+internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
+internal val MARKDOWN_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
 private val EXTRACT_IMAGE_URL_REGEX = Regex("""!\[.*?\]\((.*?)\)""")
 private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
 private val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav")
@@ -34,6 +32,9 @@ internal class MemoUiImageContentResolver {
         imagePath: String?,
         imageMap: Map<String, Uri>,
     ): String {
+        if (!containsInlineMediaMarkup(content)) {
+            return content
+        }
         val wikiResolvedContent =
             WIKI_IMAGE_REGEX.replace(content) { match ->
                 val path = match.groupValues[1].substringBefore(WIKI_IMAGE_ALT_SEPARATOR).trim()
@@ -123,38 +124,6 @@ internal class MemoUiImageContentResolver {
             ?: normalizedImageUrl
     }
 
-    private fun containsContentUriBase(candidateBasePaths: List<String>): Boolean =
-        candidateBasePaths.any { basePath -> basePath.startsWith(CONTENT_URI_PREFIX) }
-
-    private fun resolveExistingRelativeFile(
-        candidateBasePaths: List<String>,
-        relativePath: String,
-    ): File? =
-        candidateBasePaths.firstNotNullOfOrNull { basePath ->
-            if (basePath.startsWith(CONTENT_URI_PREFIX)) {
-                null
-            } else {
-                resolveRelativeFile(
-                    basePath = normalizeBasePath(basePath),
-                    relativePath = relativePath,
-                ).takeIf(File::exists)
-            }
-        }
-
-    private fun resolveFallbackRelativeFile(
-        candidateBasePaths: List<String>,
-        relativePath: String,
-    ): File? =
-        candidateBasePaths
-            .firstOrNull()
-            ?.takeUnless { it.startsWith(CONTENT_URI_PREFIX) }
-            ?.let { basePath ->
-                resolveRelativeFile(
-                    basePath = normalizeBasePath(basePath),
-                    relativePath = relativePath,
-                )
-            }
-
     private fun buildCandidateBasePaths(
         isWikiStyle: Boolean,
         rootPath: String?,
@@ -192,44 +161,10 @@ internal class MemoUiImageContentResolver {
         return candidates.firstNotNullOfOrNull { key -> imageMap[key] }
     }
 
-    private fun buildImageMapCandidates(imageUrl: String): List<String> {
-        val candidates = LinkedHashSet<String>()
-
-        fun decodeUrlComponent(value: String): String =
-            runCatching {
-                URLDecoder.decode(value, StandardCharsets.UTF_8.name())
-            }.getOrDefault(value)
-
-        fun addCandidate(raw: String?) {
-            val value = raw?.trim().orEmpty()
-            if (value.isNotEmpty()) {
-                candidates.add(value)
-            }
-        }
-
-        val normalized = normalizeImageUrl(imageUrl)
-        if (normalized.isBlank()) {
-            return emptyList()
-        }
-
-        addCandidate(normalized)
-        addCandidate(decodeUrlComponent(normalized))
-        val noQuery = normalized.substringBefore(QUERY_SEPARATOR).substringBefore(FRAGMENT_SEPARATOR)
-        addCandidate(noQuery)
-        addCandidate(decodeUrlComponent(noQuery))
-        val stripped = normalizeRelativePath(noQuery, removeParentSegments = true)
-        addCandidate(stripped)
-        val basename = stripped.substringAfterLast(PATH_SEPARATOR)
-        addCandidate(basename)
-        addCandidate(decodeUrlComponent(basename))
-
-        if (normalized.startsWith(FILE_URI_PREFIX) || normalized.startsWith(CONTENT_URI_PREFIX)) {
-            addCandidate(parseUriPath(normalized)?.substringAfterLast(PATH_SEPARATOR))
-        }
-
-        return candidates.toList()
-    }
 }
+
+internal fun containsInlineMediaMarkup(content: String): Boolean =
+    content.contains("![") || content.contains("![[")
 
 private fun containsContentUriBase(candidateBasePaths: List<String>): Boolean =
     candidateBasePaths.any { basePath -> basePath.startsWith(CONTENT_URI_PREFIX) }
@@ -263,7 +198,7 @@ private fun resolveFallbackRelativeFile(
             )
         }
 
-private fun normalizeImageUrl(raw: String): String =
+internal fun normalizeImageUrl(raw: String): String =
     raw
         .trim()
         .removeSurrounding("<", ">")
@@ -286,7 +221,7 @@ private fun normalizeBasePath(basePath: String): String =
         basePath
     }
 
-private fun normalizeRelativePath(
+internal fun normalizeRelativePath(
     path: String,
     removeParentSegments: Boolean,
 ): String {
@@ -318,7 +253,7 @@ private fun resolveRelativeFile(
     return File(base, path)
 }
 
-private fun parseUriPath(value: String): String? =
+internal fun parseUriPath(value: String): String? =
     runCatching {
         URI(value).path
     }.getOrNull()

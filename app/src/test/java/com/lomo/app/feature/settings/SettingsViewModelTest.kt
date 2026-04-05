@@ -5,6 +5,8 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
@@ -42,9 +44,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: SettingsViewModel
- * - Behavior focus: settings operation error mapping, memo-only snapshot state exposure, and delegated settings mutations.
- * - Observable outcomes: operationError, connectionTestState, uiState.snapshot shape, and collaborator invocations.
- * - Red phase: Fails before the fix because SettingsViewModel still depends on and exposes md-level snapshot collaborators/state.
+ * - Behavior focus: settings operation error mapping, memo-only snapshot state exposure, and delegated settings mutations after quick-send removal.
+ * - Observable outcomes: operationError, connectionTestState, uiState.snapshot and uiState.interaction shapes, and collaborator invocations.
+ * - Red phase: Fails before the fix because SettingsViewModel still depends on the removed quick-send preference contract.
  * - Excludes: Compose rendering, transport implementation details, and repository internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -132,6 +134,16 @@ class SettingsViewModelTest {
         every { s3SyncSettingsUseCase.observeLocalSyncDirectory() } returns flowOf("")
         every { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.AUTO)
         every { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.NONE)
+        every { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns
+            flowOf(S3RcloneFilenameEncryption.STANDARD)
+        every { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns
+            flowOf(S3RcloneFilenameEncoding.BASE64)
+        every { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns
+            flowOf(PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
+        every { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns
+            flowOf(PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
+        every { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns
+            flowOf(PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
         every { s3SyncSettingsUseCase.observeAutoSyncEnabled() } returns flowOf(false)
         every { s3SyncSettingsUseCase.observeAutoSyncInterval() } returns flowOf("1h")
         every { s3SyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
@@ -141,6 +153,7 @@ class SettingsViewModelTest {
         coEvery { s3SyncSettingsUseCase.isSecretAccessKeyConfigured() } returns false
         coEvery { s3SyncSettingsUseCase.isSessionTokenConfigured() } returns false
         coEvery { s3SyncSettingsUseCase.isEncryptionPasswordConfigured() } returns false
+        coEvery { s3SyncSettingsUseCase.isEncryptionPassword2Configured() } returns false
 
         coEvery { webDavSyncSettingsUseCase.isPasswordConfigured() } returns false
         coEvery { webDavSyncSettingsUseCase.testConnection() } returns WebDavSyncResult.Success("ok")
@@ -278,6 +291,14 @@ class SettingsViewModelTest {
                 flowOf("content://tree/primary%3AObsidian")
             every { s3SyncSettingsUseCase.observePathStyle() } returns flowOf(S3PathStyle.PATH_STYLE)
             every { s3SyncSettingsUseCase.observeEncryptionMode() } returns flowOf(S3EncryptionMode.RCLONE_CRYPT)
+            every { s3SyncSettingsUseCase.observeRcloneFilenameEncryption() } returns
+                flowOf(S3RcloneFilenameEncryption.OFF)
+            every { s3SyncSettingsUseCase.observeRcloneFilenameEncoding() } returns
+                flowOf(S3RcloneFilenameEncoding.BASE32768)
+            every { s3SyncSettingsUseCase.observeRcloneDirectoryNameEncryption() } returns flowOf(false)
+            every { s3SyncSettingsUseCase.observeRcloneDataEncryptionEnabled() } returns flowOf(false)
+            every { s3SyncSettingsUseCase.observeRcloneEncryptedSuffix() } returns flowOf("none")
+            coEvery { s3SyncSettingsUseCase.isEncryptionPassword2Configured() } returns true
 
             val viewModel = createViewModel()
             backgroundScope.launch { viewModel.uiState.collect {} }
@@ -288,6 +309,12 @@ class SettingsViewModelTest {
             assertEquals("content://tree/primary%3AObsidian", viewModel.uiState.value.s3.localSyncDirectory)
             assertEquals(S3PathStyle.PATH_STYLE, viewModel.uiState.value.s3.pathStyle)
             assertEquals(S3EncryptionMode.RCLONE_CRYPT, viewModel.uiState.value.s3.encryptionMode)
+            assertEquals(S3RcloneFilenameEncryption.OFF, viewModel.uiState.value.s3.rcloneFilenameEncryption)
+            assertEquals(S3RcloneFilenameEncoding.BASE32768, viewModel.uiState.value.s3.rcloneFilenameEncoding)
+            assertEquals(false, viewModel.uiState.value.s3.rcloneDirectoryNameEncryption)
+            assertEquals(false, viewModel.uiState.value.s3.rcloneDataEncryptionEnabled)
+            assertEquals("none", viewModel.uiState.value.s3.rcloneEncryptedSuffix)
+            assertEquals(true, viewModel.uiState.value.s3.encryptionPassword2Configured)
         }
 
     private fun createViewModel(): SettingsViewModel =

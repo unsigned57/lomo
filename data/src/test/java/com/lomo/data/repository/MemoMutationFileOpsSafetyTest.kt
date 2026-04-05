@@ -88,10 +88,10 @@ class MemoMutationFileOpsSafetyTest {
                         memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
                         textProcessor = textProcessor,
-                        memoVersionJournal = memoVersionJournal,
+                        memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
                     ),
                 memoIdentityPolicy = memoIdentityPolicy,
-                memoVersionJournal = memoVersionJournal,
+                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
             )
         storageFormatProvider = MemoStorageFormatProvider(dataStore)
         trashMutationHandler = runtime.trashMutationHandler

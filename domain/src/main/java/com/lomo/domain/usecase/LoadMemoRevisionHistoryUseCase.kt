@@ -23,6 +23,6 @@ class LoadMemoRevisionHistoryUseCase(
         )
 
     private companion object {
-        const val DEFAULT_REVISION_LIMIT = 50
+        const val DEFAULT_REVISION_LIMIT = 20
     }
 }

@@ -32,7 +32,11 @@ internal fun TextView.applyMemoParagraphAppearance(
     justificationMode = layoutPolicy.justificationMode
     typeface = style.resolvePlatformTypeface()
     linksClickable = hasLinks
-    movementMethod = if (hasLinks) LinkMovementMethod.getInstance() else null
+    when (resolveMemoParagraphMovementMethodPolicy(hasLinks = hasLinks, selectable = selectable)) {
+        MemoParagraphMovementMethodPolicy.PreserveExisting -> Unit
+        MemoParagraphMovementMethodPolicy.LinkOnly -> movementMethod = LinkMovementMethod.getInstance()
+        MemoParagraphMovementMethodPolicy.None -> movementMethod = null
+    }
 
     with(density) {
         setTextSize(TypedValue.COMPLEX_UNIT_PX, style.fontSize.toPx())
@@ -49,3 +53,19 @@ internal fun TextView.applyMemoParagraphAppearance(
         letterSpacing = style.letterSpacing.value / style.fontSize.value
     }
 }
+
+internal enum class MemoParagraphMovementMethodPolicy {
+    PreserveExisting,
+    LinkOnly,
+    None,
+}
+
+internal fun resolveMemoParagraphMovementMethodPolicy(
+    hasLinks: Boolean,
+    selectable: Boolean,
+): MemoParagraphMovementMethodPolicy =
+    when {
+        selectable -> MemoParagraphMovementMethodPolicy.PreserveExisting
+        hasLinks -> MemoParagraphMovementMethodPolicy.LinkOnly
+        else -> MemoParagraphMovementMethodPolicy.None
+    }

@@ -75,22 +75,30 @@ internal fun MemoVersionAssetRecord.pair(): Pair<String, String> = logicalPath t
 
 internal fun ResolvedMemoRevisionAsset.pair(): Pair<String, String> = logicalPath to blobHash
 
+internal fun List<Pair<String, String>>.toMemoVersionAssetFingerprint(): String =
+    joinToString(separator = "\n") { (logicalPath, blobHash) -> "$logicalPath:$blobHash" }.toVersionHash()
+
 internal fun MemoVersionRevisionRecord?.matchesCurrentState(
     rawContentHash: String,
     lifecycleState: MemoRevisionLifecycleState,
+    assetFingerprint: String,
     assetPairs: List<Pair<String, String>>,
     latestAssetPairs: List<Pair<String, String>>,
 ): Boolean =
     this != null &&
         contentHash == rawContentHash &&
         this.lifecycleState == lifecycleState &&
-        latestAssetPairs == assetPairs
+        (
+            this.assetFingerprint?.let { latestFingerprint -> latestFingerprint == assetFingerprint } ?:
+                (latestAssetPairs == assetPairs)
+        )
 
 internal suspend fun MemoVersionStore.hasEquivalentHistoricalRevision(
     memoId: String,
     lifecycleState: MemoRevisionLifecycleState,
     rawMarkdownBlobHash: String,
     contentHash: String,
+    assetFingerprint: String,
     assetPairs: List<Pair<String, String>>,
 ): Boolean =
     findEquivalentRevisionsForMemo(
@@ -98,8 +106,17 @@ internal suspend fun MemoVersionStore.hasEquivalentHistoricalRevision(
         lifecycleState = lifecycleState,
         rawMarkdownBlobHash = rawMarkdownBlobHash,
         contentHash = contentHash,
-    ).any { revision ->
-        listAssetsForRevision(revision.revisionId).map(MemoVersionAssetRecord::pair) == assetPairs
+        assetFingerprint = assetFingerprint,
+    ).let { candidates ->
+        if (candidates.any { revision -> revision.assetFingerprint == assetFingerprint }) {
+            true
+        } else {
+            candidates
+                .filter { revision -> revision.assetFingerprint == null }
+                .any { revision ->
+                    listAssetsForRevision(revision.revisionId).map(MemoVersionAssetRecord::pair) == assetPairs
+                }
+        }
     }
 
 internal suspend fun rollbackCurrentMemoState(

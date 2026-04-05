@@ -16,11 +16,16 @@ internal fun InputSheetContent(
     inputValue: TextFieldValue,
     hintText: String,
     focusRequester: FocusRequester,
+    focusParkingRequester: FocusRequester,
+    onEditorReady: (MemoInputEditText) -> Unit,
     haptic: AppHapticFeedback,
     dismissSheet: () -> Unit,
     requestDismiss: () -> Unit,
     handleTextChange: (TextFieldValue) -> Unit,
     submitWithLock: (String, String, String) -> Unit,
+    benchmarkRootTag: String?,
+    benchmarkEditorTag: String?,
+    benchmarkSubmitTag: String?,
 ) {
     InputSheetBody(
         isSheetVisible = sessionState.isSheetVisible,
@@ -39,6 +44,8 @@ internal fun InputSheetContent(
         availableTags = state.availableTags,
         showTagSelector = sessionState.showTagSelector,
         focusRequester = focusRequester,
+        focusParkingRequester = focusParkingRequester,
+        onEditorReady = onEditorReady,
         onTextChange = handleTextChange,
         onTagSelected = { tag ->
             haptic.medium()
@@ -55,6 +62,9 @@ internal fun InputSheetContent(
                 submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
             }
         },
+        benchmarkRootTag = benchmarkRootTag,
+        benchmarkEditorTag = benchmarkEditorTag,
+        benchmarkSubmitTag = benchmarkSubmitTag,
         onCancelRecording = callbacks.onCancelRecording,
         onStopRecording = callbacks.onStopRecording,
         slots = slots,
@@ -77,6 +87,8 @@ private fun InputSheetBody(
     availableTags: List<String>,
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
+    focusParkingRequester: FocusRequester,
+    onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
     onTagSelected: (String) -> Unit,
     onToggleTagSelector: () -> Unit,
@@ -85,6 +97,9 @@ private fun InputSheetBody(
     onStartRecording: () -> Unit,
     onInsertTodo: () -> Unit,
     onSubmit: () -> Unit,
+    benchmarkRootTag: String?,
+    benchmarkEditorTag: String?,
+    benchmarkSubmitTag: String?,
     onCancelRecording: () -> Unit,
     onStopRecording: () -> Unit,
     slots: InputSheetSlots,
@@ -101,6 +116,8 @@ private fun InputSheetBody(
         isSheetVisible = isSheetVisible,
         scrimAlpha = if (isSheetVisible) 0.32f else 0f,
         onRequestDismiss = onRequestDismiss,
+        benchmarkRootTag = benchmarkRootTag,
+        focusParkingRequester = focusParkingRequester,
     ) {
         AnimatedContent(
             targetState = isRecording,
@@ -131,6 +148,7 @@ private fun InputSheetBody(
                     availableTags = availableTags,
                     showTagSelector = showTagSelector,
                     focusRequester = focusRequester,
+                    onEditorReady = onEditorReady,
                     onTextChange = onTextChange,
                     onTagSelected = onTagSelected,
                     onToggleTagSelector = onToggleTagSelector,
@@ -139,6 +157,8 @@ private fun InputSheetBody(
                     onStartRecording = onStartRecording,
                     onInsertTodo = onInsertTodo,
                     onSubmit = onSubmit,
+                    benchmarkEditorTag = benchmarkEditorTag,
+                    benchmarkSubmitTag = benchmarkSubmitTag,
                     slots = slots,
                     haptic = haptic,
                 )

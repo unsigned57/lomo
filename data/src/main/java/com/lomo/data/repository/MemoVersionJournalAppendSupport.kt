@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
 import java.io.File
@@ -58,6 +59,7 @@ internal suspend fun insertMemoVersionRevision(
     latestRevisionId: String?,
     rawMarkdownBlobHash: String,
     rawContentHash: String,
+    assetFingerprint: String,
     createdAt: Long,
     nextCommitId: () -> String,
     nextRevisionId: () -> String,
@@ -85,6 +87,7 @@ internal suspend fun insertMemoVersionRevision(
             lifecycleState = lifecycleState,
             rawMarkdownBlobHash = rawMarkdownBlobHash,
             contentHash = rawContentHash,
+            assetFingerprint = assetFingerprint,
             memoTimestamp = memoState.timestamp,
             memoUpdatedAt = memoState.updatedAt,
             memoContent = buildMemoRevisionPreview(memoState.content),
@@ -108,6 +111,82 @@ internal suspend fun cleanupMemoVersionBlobWriteFailures(
             blobRoot = blobRoot,
             blobHash = blobHash,
         )
+    }
+}
+
+internal suspend fun appendRestoredRevision(
+    restoredRevision: MemoVersionRevisionRecord,
+    rawContent: String,
+    store: MemoVersionStore,
+    memoTextProcessor: MemoTextProcessor,
+    runInTransaction: suspend (suspend () -> Unit) -> Unit,
+    loadSnapshotSettings: suspend () -> MemoSnapshotRetentionSettings,
+    now: () -> Long,
+    nextCommitId: () -> String,
+    nextRevisionId: () -> String,
+    pruneRevisionsForMemo: suspend (String, MemoSnapshotRetentionSettings, Long) -> Unit,
+) {
+    val snapshotSettings = loadSnapshotSettings()
+    if (!snapshotSettings.enabled) {
+        return
+    }
+    val restoredMemo = restoredRevision.toMemo(rawContent, memoTextProcessor)
+    val memoState = MemoVersionMemoState.fromMemo(restoredMemo)
+    val persistedAssets = store.listAssetsForRevision(restoredRevision.revisionId)
+    val assetPairs = persistedAssets.map(MemoVersionAssetRecord::pair)
+    val assetFingerprint =
+        restoredRevision.assetFingerprint ?: assetPairs.toMemoVersionAssetFingerprint()
+
+    runInTransaction {
+        val latestRevision = store.getLatestRevisionForMemo(memoState.memoId)
+        val createdAt = nextMemoVersionCreatedAt(latestRevision = latestRevision, now = now)
+        val latestAssetPairs =
+            loadLatestAssetPairsIfNeeded(
+                store = store,
+                latestRevision = latestRevision,
+            )
+        if (
+            latestRevision.matchesCurrentState(
+                rawContentHash = restoredRevision.contentHash,
+                lifecycleState = restoredRevision.lifecycleState,
+                assetFingerprint = assetFingerprint,
+                assetPairs = assetPairs,
+                latestAssetPairs = latestAssetPairs,
+            )
+        ) {
+            return@runInTransaction
+        }
+        if (
+            store.hasEquivalentHistoricalRevision(
+                memoId = memoState.memoId,
+                lifecycleState = restoredRevision.lifecycleState,
+                rawMarkdownBlobHash = restoredRevision.rawMarkdownBlobHash,
+                contentHash = restoredRevision.contentHash,
+                assetFingerprint = assetFingerprint,
+                assetPairs = assetPairs,
+            )
+        ) {
+            return@runInTransaction
+        }
+        insertMemoVersionRevision(
+            store = store,
+            memoState = memoState,
+            lifecycleState = restoredRevision.lifecycleState,
+            origin = MemoRevisionOrigin.LOCAL_RESTORE,
+            sharedCommit = null,
+            latestRevisionId = latestRevision?.revisionId,
+            rawMarkdownBlobHash = restoredRevision.rawMarkdownBlobHash,
+            rawContentHash = restoredRevision.contentHash,
+            assetFingerprint = assetFingerprint,
+            createdAt = createdAt,
+            nextCommitId = nextCommitId,
+            nextRevisionId = nextRevisionId,
+            persistedAssets =
+                persistedAssets.map { asset ->
+                    asset.copy(revisionId = UNASSIGNED_REVISION_ID)
+                },
+        )
+        pruneRevisionsForMemo(memoState.memoId, snapshotSettings, createdAt)
     }
 }
 

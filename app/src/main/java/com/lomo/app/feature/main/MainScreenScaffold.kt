@@ -22,10 +22,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.menu.MemoMenuState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -39,7 +41,12 @@ internal fun MainScreenScaffoldContent(
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
@@ -90,7 +97,12 @@ internal fun MainScreenScaffoldContent(
             searchQuery = searchQuery,
             hasRawItems = hasRawItems,
             uiMemos = uiMemos,
+            visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
+            collapsingMemoIds = collapsingMemoIds,
+            newMemoInsertAnimationState = newMemoInsertAnimationState,
+            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
             listState = listState,
             isRefreshing = isRefreshing,
             onRefresh = actions.onRefresh,
@@ -171,7 +183,12 @@ private fun MainScreenScaffoldBody(
     searchQuery: String,
     hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -186,13 +203,24 @@ private fun MainScreenScaffoldBody(
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onSettings: () -> Unit,
 ) {
-    Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+    Box(
+        modifier =
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .benchmarkAnchorRoot(BenchmarkAnchorContract.MAIN_ROOT),
+    ) {
         MainScreenAnimatedBody(
             uiState = uiState,
             searchQuery = searchQuery,
             hasRawItems = hasRawItems,
             uiMemos = uiMemos,
+            visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
+            collapsingMemoIds = collapsingMemoIds,
+            newMemoInsertAnimationState = newMemoInsertAnimationState,
+            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
             listState = listState,
             isRefreshing = isRefreshing,
             onRefresh = onRefresh,

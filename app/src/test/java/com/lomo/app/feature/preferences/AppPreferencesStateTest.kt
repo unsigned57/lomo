@@ -13,9 +13,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: observeAppPreferences state aggregation.
- * - Behavior focus: preference streams combine into a single app-preferences snapshot, including memo action ordering settings.
+ * - Behavior focus: preference streams combine into a single app-preferences snapshot after quick-send mode is removed from shared app preferences.
  * - Observable outcomes: emitted AppPreferencesState value.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Red phase: Fails before the fix because shared app preferences still require and aggregate the removed quick-send mode contract.
  * - Excludes: Compose rendering and repository implementation details.
  */
 class AppPreferencesStateTest {

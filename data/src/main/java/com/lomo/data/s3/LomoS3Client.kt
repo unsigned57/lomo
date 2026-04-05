@@ -4,6 +4,7 @@ import aws.sdk.kotlin.runtime.auth.credentials.StaticCredentialsProvider
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.sdk.kotlin.services.s3.model.DeleteObjectRequest
 import aws.sdk.kotlin.services.s3.model.GetObjectRequest
+import aws.sdk.kotlin.services.s3.model.HeadObjectRequest
 import aws.sdk.kotlin.services.s3.model.ListObjectsV2Request
 import aws.sdk.kotlin.services.s3.model.PutObjectRequest
 import aws.smithy.kotlin.runtime.content.ByteStream
@@ -39,6 +40,8 @@ fun interface LomoS3ClientFactory {
 
 interface LomoS3Client : AutoCloseable {
     suspend fun verifyAccess(prefix: String)
+
+    suspend fun getObjectMetadata(key: String): S3RemoteObject? = null
 
     suspend fun listKeys(
         prefix: String,
@@ -127,6 +130,22 @@ internal class AwsSdkS3Client(
                 bytes = response.body?.toByteArray() ?: ByteArray(0),
             )
         }
+    }
+
+    override suspend fun getObjectMetadata(key: String): S3RemoteObject? {
+        val response =
+            client.headObject(
+                HeadObjectRequest {
+                    bucket = config.bucket
+                    this.key = key
+                },
+            )
+        return S3RemoteObject(
+            key = key,
+            eTag = response.eTag,
+            lastModified = response.lastModified?.epochMilliseconds,
+            metadata = response.metadata.orEmpty(),
+        )
     }
 
     override suspend fun putObject(

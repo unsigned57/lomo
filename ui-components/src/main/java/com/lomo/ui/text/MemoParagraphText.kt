@@ -3,7 +3,6 @@ package com.lomo.ui.text
 import android.graphics.Typeface
 import android.os.Build
 import android.text.TextUtils
-import android.text.method.LinkMovementMethod
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.TextView

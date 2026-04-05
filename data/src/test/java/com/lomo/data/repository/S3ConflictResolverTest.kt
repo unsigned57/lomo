@@ -1,16 +1,21 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.s3.S3CredentialStore
-import com.lomo.data.s3.S3OpenSslCompatCodec
 import com.lomo.data.s3.S3PutObjectResult
+import com.lomo.data.s3.S3RcloneCryptCompatCodec
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3RcloneCryptConfig
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
@@ -33,6 +38,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 
 /*
  * Test Contract:
@@ -84,7 +90,12 @@ class S3ConflictResolverTest {
         every { dataStore.s3Bucket } returns flowOf("lomo-bucket")
         every { dataStore.s3Prefix } returns flowOf("prefix")
         every { dataStore.s3PathStyle } returns flowOf("path_style")
-        every { dataStore.s3EncryptionMode } returns flowOf("openssl")
+        every { dataStore.s3EncryptionMode } returns flowOf("rclone_crypt")
+        every { dataStore.s3RcloneFilenameEncryption } returns flowOf("standard")
+        every { dataStore.s3RcloneFilenameEncoding } returns flowOf("base64")
+        every { dataStore.s3RcloneDirectoryNameEncryption } returns flowOf(true)
+        every { dataStore.s3RcloneDataEncryptionEnabled } returns flowOf(true)
+        every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
         every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
         every { dataStore.rootDirectory } returns flowOf("/memo")
         every { dataStore.rootUri } returns flowOf(null)
@@ -96,9 +107,11 @@ class S3ConflictResolverTest {
         every { credentialStore.getSecretAccessKey() } returns "secret-key"
         every { credentialStore.getSessionToken() } returns null
         every { credentialStore.getEncryptionPassword() } returns "secret"
+        every { credentialStore.getEncryptionPassword2() } returns null
         every { clientFactory.create(any()) } returns client
         coEvery { memoSynchronizer.refresh() } returns Unit
         coEvery { metadataDao.getAll() } returns emptyList()
+        coEvery { metadataDao.getByRelativePaths(any()) } returns emptyList()
 
         stateHolder = S3SyncStateHolder()
         runtime =
@@ -153,7 +166,7 @@ class S3ConflictResolverTest {
             assertEquals(
                 "LOCAL",
                 String(
-                    S3OpenSslCompatCodec().decryptBytes(uploadedBytes.captured, "secret"),
+                    S3RcloneCryptCompatCodec().decryptBytes(uploadedBytes.captured, "secret"),
                     StandardCharsets.UTF_8,
                 ),
             )
@@ -166,7 +179,8 @@ class S3ConflictResolverTest {
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val remotePath = encryptedRemotePath(path)
-            val payload = S3OpenSslCompatCodec().encryptBytes("REMOTE".toByteArray(StandardCharsets.UTF_8), "secret")
+            val payload =
+                S3RcloneCryptCompatCodec().encryptBytes("REMOTE".toByteArray(StandardCharsets.UTF_8), "secret")
             coEvery { client.list(prefix = "prefix/", maxKeys = null) } returns
                 listOf(remoteObject(remotePath))
             coEvery { client.getObject(remotePath) } returns remotePayload(remotePath, payload)
@@ -235,6 +249,164 @@ class S3ConflictResolverTest {
         }
 
     @Test
+    fun `resolveConflicts uses manifest and scoped metadata without full remote list`() =
+        runTest {
+            val path = "lomo/memo/2026_03_24.md"
+            val remotePath = encryptedRemotePath(path)
+            val protocolStateStore = InMemoryS3SyncProtocolStateStore()
+            val journalStore = InMemoryS3LocalChangeJournalStore()
+            val metadataDao =
+                PathScopedConflictMetadataDao(
+                    errorMessage = "full metadata scan should be skipped",
+                )
+            val manifestStore =
+                RecordingConflictManifestStore(
+                    manifest =
+                        S3RemoteManifest(
+                            revision = 7L,
+                            generatedAt = 70L,
+                            entries =
+                                listOf(
+                                    S3RemoteManifestEntry(
+                                        relativePath = path,
+                                        remotePath = remotePath,
+                                        etag = "etag-old",
+                                        remoteLastModified = 10L,
+                                    ),
+                                ),
+                        ),
+                )
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastManifestRevision = 7L,
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:2026_03_24.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "2026_03_24.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 100L,
+                ),
+            )
+            val uploadedKey = slot<String>()
+            val resolver =
+                createResolver(
+                    metadataDao = metadataDao,
+                    protocolStateStore = protocolStateStore,
+                    localChangeJournalStore = journalStore,
+                    remoteManifestStore = manifestStore,
+                )
+            coEvery { markdownStorageDataSource.readFileIn(com.lomo.data.source.MemoDirectoryType.MAIN, "2026_03_24.md") } returns "LOCAL"
+            coEvery {
+                client.putObject(
+                    key = capture(uploadedKey),
+                    bytes = any(),
+                    contentType = any(),
+                    metadata = any(),
+                )
+            } returns S3PutObjectResult(eTag = "etag-upload")
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_LOCAL),
+                        ),
+                    conflictSet = conflictSet(conflictFile(path = path, local = "LOCAL", remote = "REMOTE")),
+                )
+
+            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
+            assertEquals(remotePath, uploadedKey.captured)
+            assertEquals(listOf(listOf(path)), metadataDao.requestedPathBatches)
+            assertTrue(journalStore.read().isEmpty())
+            assertEquals(8L, protocolStateStore.read()?.lastManifestRevision)
+            coVerify(exactly = 0) { client.list(prefix = any(), maxKeys = any()) }
+        }
+
+    @Test
+    fun `resolveConflicts updates incremental state for vault root mode`() =
+        runTest {
+            val vaultRoot = Files.createTempDirectory("s3-conflict-vault-root").toFile()
+            val localFile = vaultRoot.resolve("note.md")
+            localFile.writeText("LOCAL")
+            assertTrue(localFile.setLastModified(120L))
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            val protocolStateStore = InMemoryS3SyncProtocolStateStore()
+            val journalStore = InMemoryS3LocalChangeJournalStore()
+            val metadataDao =
+                PathScopedConflictMetadataDao(
+                    errorMessage = "full metadata scan should be skipped",
+                )
+            val manifestStore =
+                RecordingConflictManifestStore(
+                    manifest =
+                        S3RemoteManifest(
+                            revision = 7L,
+                            generatedAt = 70L,
+                            entries =
+                                listOf(
+                                    S3RemoteManifestEntry(
+                                        relativePath = "note.md",
+                                        remotePath = "prefix/note.md",
+                                        etag = "etag-old",
+                                        remoteLastModified = 120L,
+                                    ),
+                                ),
+                        ),
+                )
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastManifestRevision = 7L,
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                    lastSuccessfulSyncAt = 70L,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 100L,
+                ),
+            )
+            val resolver =
+                createResolver(
+                    metadataDao = metadataDao,
+                    protocolStateStore = protocolStateStore,
+                    localChangeJournalStore = journalStore,
+                    remoteManifestStore = manifestStore,
+                )
+            coEvery {
+                client.putObject(
+                    key = "prefix/note.md",
+                    bytes = any(),
+                    contentType = any(),
+                    metadata = any(),
+                )
+            } returns S3PutObjectResult(eTag = "etag-upload")
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices = mapOf("note.md" to SyncConflictResolutionChoice.KEEP_LOCAL),
+                        ),
+                    conflictSet = conflictSet(conflictFile(path = "note.md", local = "LOCAL", remote = "REMOTE")),
+                )
+
+            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
+            assertEquals(8L, protocolStateStore.read()?.lastManifestRevision)
+            assertTrue(journalStore.read().isEmpty())
+            coVerify(exactly = 0) { client.list(prefix = any(), maxKeys = any()) }
+        }
+
+    @Test
     fun `resolveConflicts returns NotConfigured when config is missing`() =
         runTest {
             every { dataStore.s3SyncEnabled } returns flowOf(false)
@@ -269,8 +441,52 @@ class S3ConflictResolverTest {
             assertTrue(stateHolder.state.value is S3SyncState.Error)
         }
 
+    private fun createResolver(
+        metadataDao: S3SyncMetadataDao,
+        protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
+        localChangeJournalStore: S3LocalChangeJournalStore = DisabledS3LocalChangeJournalStore,
+        remoteManifestStore: S3RemoteManifestStore = DefaultS3RemoteManifestStore(encodingSupport),
+    ): S3ConflictResolver {
+        val runtime =
+            S3SyncRepositoryContext(
+                dataStore = dataStore,
+                credentialStore = credentialStore,
+                clientFactory = clientFactory,
+                markdownStorageDataSource = markdownStorageDataSource,
+                localMediaSyncStore = localMediaSyncStore,
+                metadataDao = metadataDao,
+                memoSynchronizer = memoSynchronizer,
+                planner = S3SyncPlanner(),
+                stateHolder = stateHolder,
+            )
+        val support = S3SyncRepositorySupport(runtime)
+        val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
+        return S3ConflictResolver(
+            runtime = runtime,
+            support = support,
+            encodingSupport = encodingSupport,
+            fileBridge = fileBridge,
+            protocolStateStore = protocolStateStore,
+            localChangeJournalStore = localChangeJournalStore,
+            remoteManifestStore = remoteManifestStore,
+        )
+    }
+
     private fun encryptedRemotePath(relativePath: String): String =
-        "prefix/" + S3OpenSslCompatCodec { byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8) }.encryptKey(relativePath, "secret")
+        "prefix/" +
+            S3RcloneCryptCompatCodec().encryptKey(
+                key = relativePath,
+                password = "secret",
+                password2 = "",
+                config =
+                    S3RcloneCryptConfig(
+                        filenameEncryption = S3RcloneFilenameEncryption.STANDARD,
+                        directoryNameEncryption = true,
+                        filenameEncoding = S3RcloneFilenameEncoding.BASE64,
+                        dataEncryptionEnabled = true,
+                        encryptedSuffix = ".bin",
+                    ),
+            )
 
     private fun remoteObject(remotePath: String) =
         com.lomo.data.s3.S3RemoteObject(
@@ -310,4 +526,111 @@ class S3ConflictResolverTest {
             remoteContent = remote,
             isBinary = isBinary,
         )
+}
+
+private class PathScopedConflictMetadataDao(
+    private val initial: List<S3SyncMetadataEntity> = emptyList(),
+    private val errorMessage: String,
+) : S3SyncMetadataDao {
+    private val entities = linkedMapOf<String, S3SyncMetadataEntity>()
+
+    val requestedPathBatches = mutableListOf<List<String>>()
+
+    init {
+        initial.forEach { entity ->
+            entities[entity.relativePath] = entity
+        }
+    }
+
+    override suspend fun getAll(): List<S3SyncMetadataEntity> = error(errorMessage)
+
+    override suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot> =
+        entities.values.map { entity ->
+            S3SyncRemoteMetadataSnapshot(
+                relativePath = entity.relativePath,
+                remotePath = entity.remotePath,
+                etag = entity.etag,
+                remoteLastModified = entity.remoteLastModified,
+            )
+        }
+
+    override suspend fun getByRelativePaths(relativePaths: List<String>): List<S3SyncMetadataEntity> {
+        requestedPathBatches += relativePaths
+        return relativePaths.mapNotNull(entities::get)
+    }
+
+    override suspend fun upsertAll(entities: List<S3SyncMetadataEntity>) {
+        entities.forEach { entity ->
+            this.entities[entity.relativePath] = entity
+        }
+    }
+
+    override suspend fun deleteByRelativePath(relativePath: String) {
+        entities.remove(relativePath)
+    }
+
+    override suspend fun deleteByRelativePaths(relativePaths: List<String>) {
+        relativePaths.forEach(entities::remove)
+    }
+
+    override suspend fun clearAll() {
+        entities.clear()
+    }
+
+    override suspend fun replaceAll(entities: List<S3SyncMetadataEntity>) {
+        clearAll()
+        upsertAll(entities)
+    }
+}
+
+private class RecordingConflictManifestStore(
+    manifest: S3RemoteManifest,
+) : S3RemoteManifestStore {
+    var currentManifest: S3RemoteManifest = manifest
+        private set
+
+    override suspend fun readMetadata(
+        client: LomoS3Client,
+        config: S3ResolvedConfig,
+    ): S3RemoteManifestMetadata =
+        S3RemoteManifestMetadata(
+            revision = currentManifest.revision,
+            generatedAt = currentManifest.generatedAt,
+        )
+
+    override suspend fun read(
+        client: LomoS3Client,
+        config: S3ResolvedConfig,
+    ): S3RemoteManifest = currentManifest
+
+    override suspend fun write(
+        client: LomoS3Client,
+        config: S3ResolvedConfig,
+        manifest: S3RemoteManifest,
+    ) {
+        currentManifest = manifest
+    }
+
+    override fun build(
+        remoteFiles: Map<String, RemoteS3File>,
+        previousRevision: Long?,
+        now: Long,
+    ): S3RemoteManifest =
+        S3RemoteManifest(
+            revision = (previousRevision ?: 0L) + 1L,
+            generatedAt = now,
+            entries =
+                remoteFiles.values
+                    .sortedBy(RemoteS3File::path)
+                    .map { remote ->
+                        S3RemoteManifestEntry(
+                            relativePath = remote.path,
+                            remotePath = remote.remotePath,
+                            etag = remote.etag,
+                            remoteLastModified = remote.lastModified,
+                        )
+                    },
+        )
+
+    override fun manifestKey(config: S3ResolvedConfig): String = "unused"
 }

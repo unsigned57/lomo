@@ -43,6 +43,12 @@ internal fun SettingsDialogState.openS3EncryptionPasswordDialog() {
     showS3EncryptionPasswordDialog = true
 }
 
+internal fun SettingsDialogState.openS3EncryptionPassword2Dialog() {
+    s3EncryptionPassword2Input = ""
+    s3EncryptionPassword2Visible = false
+    showS3EncryptionPassword2Dialog = true
+}
+
 internal fun SyncEngineState.canTriggerManualSync(): Boolean =
     this !is SyncEngineState.Syncing && this !is SyncEngineState.Initializing
 

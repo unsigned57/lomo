@@ -21,7 +21,12 @@ internal fun s3CredentialSubtitle(configured: Boolean): String =
 internal fun s3LocalSyncDirectorySubtitle(pathOrUri: String): String =
     pathOrUri
         .takeIf(String::isNotBlank)
-        ?.let(::s3LocalSyncDirectoryDisplayName)
+        ?.let { path ->
+            stringResource(
+                R.string.settings_s3_local_sync_directory_selected_subtitle,
+                s3LocalSyncDirectoryDisplayName(path),
+            )
+        }
         ?: stringResource(R.string.settings_not_set)
 
 @Composable

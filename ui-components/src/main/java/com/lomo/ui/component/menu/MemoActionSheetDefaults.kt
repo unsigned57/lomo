@@ -55,6 +55,7 @@ internal fun rememberDefaultMemoActionSheetActions(
     showJump: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    actionAnchorForId: (MemoActionId) -> String? = { null },
 ): List<MemoActionSheetAction> {
     val labels = rememberMemoActionLabels(isPinned)
     val handlers =
@@ -80,6 +81,7 @@ internal fun rememberDefaultMemoActionSheetActions(
         hasJumpAction,
         hasHistoryAction,
         hasPinAction,
+        actionAnchorForId,
     ) {
         buildList {
             addAll(primaryMemoActions(labels, handlers))
@@ -91,9 +93,10 @@ internal fun rememberDefaultMemoActionSheetActions(
                     hasPinAction = hasPinAction,
                     hasJumpAction = hasJumpAction,
                     hasHistoryAction = hasHistoryAction,
+                    actionAnchorForId = actionAnchorForId,
                 ),
             )
-            addAll(editingMemoActions(labels, handlers))
+            addAll(editingMemoActions(labels, handlers, actionAnchorForId))
         }
     }
 }
@@ -210,6 +213,7 @@ private fun optionalMemoActions(
     hasPinAction: Boolean,
     hasJumpAction: Boolean,
     hasHistoryAction: Boolean,
+    actionAnchorForId: (MemoActionId) -> String?,
 ): List<MemoActionSheetAction> =
     listOfNotNull(
         if (hasPinAction) {
@@ -217,6 +221,7 @@ private fun optionalMemoActions(
                 id = MemoActionId.PIN,
                 icon = Icons.Outlined.PushPin,
                 label = labels.pin,
+                benchmarkTag = actionAnchorForId(MemoActionId.PIN),
                 onClick = { handlers.onTogglePin.value?.invoke() },
                 isHighlighted = isPinned,
             )
@@ -228,6 +233,7 @@ private fun optionalMemoActions(
                 id = MemoActionId.JUMP,
                 icon = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
                 label = labels.jump,
+                benchmarkTag = actionAnchorForId(MemoActionId.JUMP),
                 onClick = { handlers.onJump.value?.invoke() },
             )
         } else {
@@ -238,6 +244,7 @@ private fun optionalMemoActions(
                 id = MemoActionId.HISTORY,
                 icon = Icons.Outlined.History,
                 label = labels.history,
+                benchmarkTag = actionAnchorForId(MemoActionId.HISTORY),
                 onClick = { handlers.onHistory.value?.invoke() },
             )
         } else {
@@ -248,12 +255,14 @@ private fun optionalMemoActions(
 private fun editingMemoActions(
     labels: MemoActionLabels,
     handlers: MemoActionHandlers,
+    actionAnchorForId: (MemoActionId) -> String?,
 ): List<MemoActionSheetAction> =
     listOf(
         MemoActionSheetAction(
             id = MemoActionId.EDIT,
             icon = Icons.Outlined.Edit,
             label = labels.edit,
+            benchmarkTag = actionAnchorForId(MemoActionId.EDIT),
             onClick = { handlers.onEdit.value() },
             dismissAfterClick = false,
         ),
@@ -261,6 +270,7 @@ private fun editingMemoActions(
             id = MemoActionId.DELETE,
             icon = Icons.Outlined.Delete,
             label = labels.delete,
+            benchmarkTag = actionAnchorForId(MemoActionId.DELETE),
             onClick = { handlers.onDelete.value() },
             isDestructive = true,
             dismissAfterClick = false,

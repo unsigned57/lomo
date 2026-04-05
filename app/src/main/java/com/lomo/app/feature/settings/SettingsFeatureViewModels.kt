@@ -4,6 +4,8 @@ import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
@@ -284,6 +286,14 @@ class SettingsS3FeatureViewModel(
     val updatePathStyle: (S3PathStyle) -> Unit = actionCoordinator.updateS3PathStyle
     val updateEncryptionMode: (S3EncryptionMode) -> Unit = actionCoordinator.updateS3EncryptionMode
     val updateEncryptionPassword = actionCoordinator.updateS3EncryptionPassword
+    val updateEncryptionPassword2 = actionCoordinator.updateS3EncryptionPassword2
+    val updateRcloneFilenameEncryption: (S3RcloneFilenameEncryption) -> Unit =
+        actionCoordinator.updateS3RcloneFilenameEncryption
+    val updateRcloneFilenameEncoding: (S3RcloneFilenameEncoding) -> Unit =
+        actionCoordinator.updateS3RcloneFilenameEncoding
+    val updateRcloneDirectoryNameEncryption = actionCoordinator.updateS3RcloneDirectoryNameEncryption
+    val updateRcloneDataEncryptionEnabled = actionCoordinator.updateS3RcloneDataEncryptionEnabled
+    val updateRcloneEncryptedSuffix = actionCoordinator.updateS3RcloneEncryptedSuffix
     val updateAutoSyncEnabled = actionCoordinator.updateS3AutoSyncEnabled
     val updateAutoSyncInterval = actionCoordinator.updateS3AutoSyncInterval
     val updateSyncOnRefresh = actionCoordinator.updateS3SyncOnRefresh

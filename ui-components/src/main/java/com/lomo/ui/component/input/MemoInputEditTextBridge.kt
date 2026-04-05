@@ -1,15 +1,30 @@
 package com.lomo.ui.component.input
 
 import android.content.Context
-import android.os.Build
 import android.text.Editable
+import android.text.TextWatcher
+import android.text.method.ArrowKeyMovementMethod
 import android.text.Spanned
 import android.text.style.LineHeightSpan
 import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView.BufferType
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
+import androidx.core.widget.TextViewCompat
+import com.lomo.ui.text.resolvePlatformTypeface
+import com.lomo.ui.text.toEllipsize
 import kotlin.math.roundToInt
 
 internal const val INPUT_EDITOR_MIN_LINES = 3
@@ -79,22 +94,139 @@ internal fun buildRawMemoEditorPresentationText(
     return editable
 }
 
-internal fun EditText.clearCursorDrawableIfSupported() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        setTextCursorDrawable(null)
-    }
-}
-
 internal fun EditText.setCursorColor(color: Int) {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    isCursorVisible = true
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
         runCatching {
-            textCursorDrawable?.setTint(color)
+            applyCursorDrawableProperty(color)
+            postInvalidateOnAnimation()
         }.onFailure {
             refreshCursorStyle()
         }
-        return
+    } else {
+        runCatching {
+            applyReflectionCursorDrawables(buildCursorDrawable(color))
+            postInvalidateOnAnimation()
+        }.onFailure {
+            refreshCursorStyle()
+        }
     }
-    refreshCursorStyle()
+}
+
+internal fun createMemoInputEditText(
+    context: Context,
+    cursorColor: Int,
+    onEditorReady: (MemoInputEditText) -> Unit,
+    onTextChange: (TextFieldValue) -> Unit,
+): MemoInputEditText =
+    MemoInputEditText(context).apply {
+        val inputMethodManager = context.getSystemService(InputMethodManager::class.java)
+        onEditorReady(this)
+        layoutParams =
+            ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        background = null
+        includeFontPadding = false
+        setPadding(0, 0, 0, 0)
+        setTextIsSelectable(true)
+        isCursorVisible = true
+        isSingleLine = false
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            isFallbackLineSpacing = false
+        }
+        minLines = INPUT_EDITOR_MIN_LINES
+        maxLines = INPUT_EDITOR_MAX_LINES
+        gravity = Gravity.START or Gravity.TOP
+        movementMethod = ArrowKeyMovementMethod.getInstance()
+        imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
+        overScrollMode = View.OVER_SCROLL_NEVER
+        highlightColor = cursorColor
+        onFocusChangeListener =
+            View.OnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    setCursorColor(cursorColor)
+                    post {
+                        requestFocusFromTouch()
+                        inputMethodManager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+                    }
+                }
+            }
+        addTextChangedListener(
+            object : TextWatcher {
+                override fun beforeTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int,
+                ) = Unit
+
+                override fun onTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int,
+                ) = Unit
+
+                override fun afterTextChanged(s: Editable?) {
+                    if (isUpdatingFromModel) return
+                    onTextChange(currentTextFieldValue())
+                }
+            },
+        )
+        onSelectionChangedListener = {
+            if (!isUpdatingFromModel) {
+                onTextChange(currentTextFieldValue())
+            }
+        }
+    }
+
+internal fun updateMemoInputEditText(
+    editText: MemoInputEditText,
+    inputValue: TextFieldValue,
+    paragraphSpacingPx: Int,
+    displayStyle: TextStyle,
+    density: Density,
+    cursorColor: Int,
+    onEditorReady: (MemoInputEditText) -> Unit,
+) {
+    onEditorReady(editText)
+    val minimumContentHeightPx = resolveMemoInputMinimumContentHeightPx(displayStyle, density)
+    editText.isUpdatingFromModel = true
+    editText.minimumHeight = minimumContentHeightPx
+    val shouldReplacePresentation =
+        shouldReplaceMemoInputPresentationText(
+            currentText = editText.text ?: "",
+            desiredText = inputValue.text,
+            lastAppliedParagraphSpacingPx = editText.lastAppliedParagraphSpacingPx,
+            desiredParagraphSpacingPx = paragraphSpacingPx,
+        )
+    if (shouldReplacePresentation) {
+        editText.applyMemoInputParagraphTextStyle(
+            text = buildRawMemoEditorPresentationText(inputValue.text, paragraphSpacingPx),
+            style = displayStyle,
+            density = density,
+            maxLines = INPUT_EDITOR_MAX_LINES,
+            overflow = TextOverflow.Clip,
+        )
+        editText.lastAppliedParagraphSpacingPx = paragraphSpacingPx
+    } else {
+        editText.applyMemoInputParagraphAppearance(
+            text = editText.text ?: "",
+            style = displayStyle,
+            density = density,
+            maxLines = INPUT_EDITOR_MAX_LINES,
+            overflow = TextOverflow.Clip,
+        )
+    }
+    editText.hint = null
+    editText.syncWith(inputValue)
+    editText.setCursorColor(cursorColor)
+    editText.isUpdatingFromModel = false
+    if (editText.hasFocus()) {
+        editText.post { editText.setCursorColor(cursorColor) }
+    }
 }
 
 private fun MemoInputEditText.restoreSelection(
@@ -118,6 +250,59 @@ private fun EditText.refreshCursorStyle() {
     runCatching {
         setTextColor(currentTextColor)
         setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize)
+        invalidate()
+    }
+}
+
+private fun EditText.applyMemoInputParagraphTextStyle(
+    text: CharSequence,
+    style: TextStyle,
+    density: Density,
+    maxLines: Int,
+    overflow: TextOverflow,
+) {
+    setText(text, BufferType.EDITABLE)
+    applyMemoInputParagraphAppearance(
+        text = text,
+        style = style,
+        density = density,
+        maxLines = maxLines,
+        overflow = overflow,
+    )
+}
+
+private fun EditText.applyMemoInputParagraphAppearance(
+    text: CharSequence,
+    style: TextStyle,
+    density: Density,
+    maxLines: Int,
+    overflow: TextOverflow,
+) {
+    val layoutPolicy = resolveMemoInputParagraphLayoutPolicy(text)
+    setTextColor(style.color.toArgb())
+    gravity = layoutPolicy.gravity
+    textAlignment = layoutPolicy.textAlignment
+    this.maxLines = maxLines
+    ellipsize = overflow.toEllipsize()
+    setTextIsSelectable(true)
+    breakStrategy = layoutPolicy.breakStrategy
+    hyphenationFrequency = layoutPolicy.hyphenationFrequency
+    justificationMode = layoutPolicy.justificationMode
+    typeface = style.resolvePlatformTypeface()
+
+    with(density) {
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, style.fontSize.toPx())
+        if (style.lineHeight != TextUnit.Unspecified) {
+            TextViewCompat.setLineHeight(this@applyMemoInputParagraphAppearance, style.lineHeight.roundToPx())
+        }
+    }
+
+    if (
+        style.letterSpacing.type == TextUnitType.Sp &&
+        style.fontSize != TextUnit.Unspecified &&
+        style.fontSize.value != 0f
+    ) {
+        letterSpacing = style.letterSpacing.value / style.fontSize.value
     }
 }
 

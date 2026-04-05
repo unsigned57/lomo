@@ -40,6 +40,8 @@ fun MemoMenuHost(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: List<String> = emptyList(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    benchmarkRootTag: String? = null,
+    benchmarkActionAnchorForId: (MemoActionId) -> String? = { null },
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     var activeState by remember { mutableStateOf<MemoMenuState?>(null) }
@@ -73,6 +75,8 @@ fun MemoMenuHost(
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
         onMemoActionInvoked = onMemoActionInvoked,
+        benchmarkRootTag = benchmarkRootTag,
+        benchmarkActionAnchorForId = benchmarkActionAnchorForId,
     )
 }
 
@@ -98,6 +102,8 @@ private fun MemoMenuBottomSheetHost(
     memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: List<String>,
     onMemoActionInvoked: (MemoActionId) -> Unit,
+    benchmarkRootTag: String?,
+    benchmarkActionAnchorForId: (MemoActionId) -> String?,
 ) {
     current?.let { state ->
         MemoMenuBottomSheet(
@@ -158,6 +164,8 @@ private fun MemoMenuBottomSheetHost(
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             memoActionOrder = memoActionOrder,
             onMemoActionInvoked = onMemoActionInvoked,
+            benchmarkRootTag = benchmarkRootTag,
+            actionAnchorForId = benchmarkActionAnchorForId,
         )
     }
 }

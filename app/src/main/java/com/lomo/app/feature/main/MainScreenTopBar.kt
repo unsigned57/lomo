@@ -14,6 +14,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.ui.benchmark.benchmarkAnchor
 
 /**
  * Extracted TopBar from MainScreen.kt
@@ -38,6 +41,7 @@ internal fun MainTopBar(
                 MainTopBarIconButton(
                     icon = Icons.Rounded.Menu,
                     contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_menu),
+                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_DRAWER_BUTTON),
                     onClick = {
                         haptic.medium()
                         onMenu()
@@ -59,6 +63,7 @@ internal fun MainTopBar(
             MainTopBarIconButton(
                 icon = Icons.Rounded.Search,
                 contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_search),
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_SEARCH_BUTTON),
                 onClick = {
                     haptic.medium()
                     onSearch()
@@ -67,6 +72,7 @@ internal fun MainTopBar(
             MainTopBarIconButton(
                 icon = Icons.Rounded.FilterList,
                 contentDescription = androidx.compose.ui.res.stringResource(com.lomo.app.R.string.cd_filter),
+                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_FILTER_BUTTON),
                 onClick = {
                     haptic.medium()
                     onFilter()
@@ -86,9 +92,13 @@ internal fun MainTopBar(
 private fun MainTopBarIconButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick = onClick) {
+    IconButton(
+        onClick = onClick,
+        modifier = modifier,
+    ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,

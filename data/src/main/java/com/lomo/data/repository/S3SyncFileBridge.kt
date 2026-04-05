@@ -42,6 +42,7 @@ class S3SyncFileBridge
             metadataByPath: Map<String, S3SyncMetadataEntity>,
             actionOutcomes: Map<String, Pair<S3SyncDirection, S3SyncReason>>,
             unresolvedPaths: Set<String>,
+            completeSnapshot: Boolean = true,
         ) {
             val intersectionPaths = localFiles.keys.intersect(remoteFiles.keys)
             val now = System.currentTimeMillis()
@@ -66,11 +67,22 @@ class S3SyncFileBridge
                         )
                     }.toList()
             val deletePaths =
-                metadataByPath.keys
-                    .asSequence()
-                    .filter { path -> path !in intersectionPaths && path !in unresolvedPaths }
-                    .sorted()
-                    .toList()
+                if (completeSnapshot) {
+                    metadataByPath.keys
+                        .asSequence()
+                        .filter { path -> path !in intersectionPaths && path !in unresolvedPaths }
+                        .sorted()
+                        .toList()
+                } else {
+                    actionOutcomes.keys
+                        .asSequence()
+                        .filter { path ->
+                            path !in unresolvedPaths &&
+                                path !in intersectionPaths &&
+                                path in metadataByPath
+                        }.sorted()
+                        .toList()
+                }
             if (deletePaths.isNotEmpty()) {
                 runtime.metadataDao.deleteByRelativePaths(deletePaths)
             }
@@ -130,6 +142,9 @@ internal class S3SyncFileBridgeScope(
         client
             .list(prefix = encodingSupport.remoteKeyPrefix(config))
             .mapNotNull { remote ->
+                if (remote.key == encodingSupport.remoteKeyPrefix(config) + S3_MANIFEST_FILENAME) {
+                    return@mapNotNull null
+                }
                 val decoded =
                     runNonFatalCatching {
                         encodingSupport.decodeRelativePath(remote.key, config)

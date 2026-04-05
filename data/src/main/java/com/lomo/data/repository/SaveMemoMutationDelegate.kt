@@ -21,7 +21,7 @@ internal class SaveMemoMutationDelegate(
         val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp)
         persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(savePlan.memo))
         flushSavedMemoToFile(savePlan)
-        runtime.memoVersionJournal.appendLocalRevision(
+        runtime.memoVersionRecorder.enqueueLocalRevision(
             memo = savePlan.memo,
             lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
             origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_CREATE,
@@ -39,7 +39,7 @@ internal class SaveMemoMutationDelegate(
                 memo = MemoEntity.fromDomain(savePlan.memo),
                 outbox = buildCreateOutbox(savePlan),
             )
-        runtime.memoVersionJournal.appendLocalRevision(
+        runtime.memoVersionRecorder.enqueueLocalRevision(
             memo = savePlan.memo,
             lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
             origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_CREATE,

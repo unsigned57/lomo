@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
@@ -32,12 +33,16 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -65,6 +70,7 @@ import java.time.ZoneId
 @OptIn(ExperimentalCoroutinesApi::class)
 class MainViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
+    private val createdViewModels = mutableListOf<MainViewModel>()
 
     private lateinit var repository: com.lomo.domain.repository.MemoRepository
     private lateinit var sidebarStateHolder: MainSidebarStateHolder
@@ -150,6 +156,10 @@ class MainViewModelTest {
 
     @After
     fun tearDown() {
+        createdViewModels
+            .asReversed()
+            .forEach(::clearViewModel)
+        createdViewModels.clear()
         Dispatchers.resetMain()
     }
 
@@ -247,6 +257,59 @@ class MainViewModelTest {
             assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
             assertSame(initialUiMemos, viewModel.uiMemos.value)
             assertSame(initialUiMemos.first(), viewModel.uiMemos.value.first())
+        }
+
+    /*
+     * Test Change Justification:
+     * - Reason category: product contract changed.
+     * - Old behavior/assertion being replaced: this test previously asserted that visibleUiMemos becomes empty
+     *   as soon as the fade completes.
+     * - Why the previous assertion is no longer correct: removing the row from the rendered list at fade
+     *   completion causes a second structural list update when the repository result arrives, which shows up as
+     *   a visible delete-time rebound.
+     * - Coverage preserved by: the updated scenario still locks delete timing, delete markers, and final removal
+     *   after repository completion, while now protecting the single-collapse contract.
+     * - Why this is not fitting the test to the implementation: the revised assertion encodes the user-visible
+     *   motion requirement rather than a private state-flow detail.
+     */
+    @Test
+    fun `delete keeps memo in rendered list until collapse settles after repository removal`() =
+        runTest {
+            val memo = memo("memo-visible-delete", LocalDate.of(2026, 3, 8), 10)
+            val memosFlow = MutableStateFlow(listOf(memo))
+            val finishDelete = CompletableDeferred<Unit>()
+            every { repository.getAllMemosList() } returns memosFlow
+            coEvery { repository.deleteMemo(memo) } coAnswers {
+                finishDelete.await()
+                memosFlow.value = emptyList()
+            }
+
+            val viewModel = createViewModel()
+            viewModel.uiMemos.first { it.size == 1 }
+
+            viewModel.deleteMemo(memo)
+            runCurrent()
+
+            assertEquals(listOf(memo.id), viewModel.visibleUiMemos.value.map { it.memo.id })
+
+            advanceTimeBy(300L)
+            runCurrent()
+
+            assertEquals(listOf(memo.id), viewModel.visibleUiMemos.value.map { it.memo.id })
+            assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
+            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
+
+            finishDelete.complete(Unit)
+            runCurrent()
+
+            assertEquals(listOf(memo.id), viewModel.visibleUiMemos.value.map { it.memo.id })
+            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
+
+            advanceTimeBy(220L)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.visibleUiMemos.first { it.isEmpty() }.isEmpty())
+            assertTrue(viewModel.collapsingMemoIds.value.isEmpty())
         }
 
     @Test
@@ -641,10 +704,15 @@ class MainViewModelTest {
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                     audioPlayerManager = audioPlayerManager,
-                ),
+            ),
             applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase(),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
-        )
+        ).also(createdViewModels::add)
+
+    private fun clearViewModel(viewModel: MainViewModel) {
+        ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
 
     private fun memo(
         id: String,

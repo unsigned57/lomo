@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.RetainedVisibleListTracker
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
@@ -18,11 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -40,6 +39,8 @@ class TrashViewModel
 
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
+        private val _collapsedMemoIds = MutableStateFlow<Set<String>>(emptySet())
+        val collapsingMemoIds: StateFlow<Set<String>> = _collapsedMemoIds.asStateFlow()
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
         val imageDirectory: StateFlow<String?> =
@@ -55,16 +56,6 @@ class TrashViewModel
             memoUiCoordinator
                 .deletedMemos()
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
-
-        init {
-            // Keep deletion flags only for rows that still exist in current trash list.
-            // This avoids alpha "bounce back" when DB removal arrives slightly later.
-            trashMemos
-                .onEach { memos ->
-                    val existingIds = memos.asSequence().map { it.id }.toSet()
-                    _deletingMemoIds.update { current -> current.intersect(existingIds) }
-                }.launchIn(viewModelScope)
-        }
 
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
@@ -100,6 +91,27 @@ class TrashViewModel
                     )
                 }
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        private val visibleTrashMemoListTracker =
+            RetainedVisibleListTracker(
+                scope = viewModelScope,
+                sourceItemsProvider = { trashUiMemos.value },
+                deletingIds = _deletingMemoIds,
+                retainedIds = _collapsedMemoIds,
+                itemId = { item -> item.memo.id },
+            )
+        val visibleTrashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
+            visibleTrashMemoListTracker.visibleItems.asStateFlow()
+
+        init {
+            combine(trashUiMemos, collapsingMemoIds) { sourceUiMemos, collapsingIds ->
+                sourceUiMemos to collapsingIds
+            }.onEach { (sourceUiMemos, collapsingIds) ->
+                visibleTrashMemoListTracker.reconcile(
+                    sourceItems = sourceUiMemos,
+                    retainedIdsSnapshot = collapsingIds,
+                )
+            }.launchIn(viewModelScope)
+        }
 
         fun restoreMemo(memo: Memo) {
             viewModelScope.launch {
@@ -107,6 +119,7 @@ class TrashViewModel
                     runDeleteAnimationWithRollback(
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
+                        collapsedIds = _collapsedMemoIds,
                     ) {
                         memoUiCoordinator.restoreMemo(memo)
                     }
@@ -122,6 +135,7 @@ class TrashViewModel
                     runDeleteAnimationWithRollback(
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
+                        collapsedIds = _collapsedMemoIds,
                     ) {
                         memoUiCoordinator.deletePermanently(memo)
                     }
@@ -140,6 +154,7 @@ class TrashViewModel
                     runDeleteAnimationWithRollback(
                         itemIds = trashSnapshot.asSequence().map { it.id }.toSet(),
                         deletingIds = _deletingMemoIds,
+                        collapsedIds = _collapsedMemoIds,
                     ) {
                         memoUiCoordinator.clearTrash()
                     }

@@ -2,6 +2,8 @@ package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
@@ -97,6 +99,12 @@ data class S3SectionState(
     val pathStyle: S3PathStyle,
     val encryptionMode: S3EncryptionMode,
     val encryptionPasswordConfigured: Boolean,
+    val encryptionPassword2Configured: Boolean,
+    val rcloneFilenameEncryption: S3RcloneFilenameEncryption,
+    val rcloneFilenameEncoding: S3RcloneFilenameEncoding,
+    val rcloneDirectoryNameEncryption: Boolean,
+    val rcloneDataEncryptionEnabled: Boolean,
+    val rcloneEncryptedSuffix: String,
     val autoSyncEnabled: Boolean,
     val autoSyncInterval: String,
     val syncOnRefreshEnabled: Boolean,

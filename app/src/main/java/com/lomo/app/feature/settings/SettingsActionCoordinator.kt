@@ -161,6 +161,24 @@ class SettingsActionCoordinator(
     val updateS3EncryptionPassword: (String) -> Unit =
         { password -> launchWithOperationResult { s3Coordinator.updateS3EncryptionPassword(password) } }
 
+    val updateS3EncryptionPassword2: (String) -> Unit =
+        { password -> launchWithOperationResult { s3Coordinator.updateS3EncryptionPassword2(password) } }
+
+    val updateS3RcloneFilenameEncryption: (com.lomo.domain.model.S3RcloneFilenameEncryption) -> Unit =
+        { mode -> launchWithOperationResult { s3Coordinator.updateS3RcloneFilenameEncryption(mode) } }
+
+    val updateS3RcloneFilenameEncoding: (com.lomo.domain.model.S3RcloneFilenameEncoding) -> Unit =
+        { encoding -> launchWithOperationResult { s3Coordinator.updateS3RcloneFilenameEncoding(encoding) } }
+
+    val updateS3RcloneDirectoryNameEncryption: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { s3Coordinator.updateS3RcloneDirectoryNameEncryption(enabled) } }
+
+    val updateS3RcloneDataEncryptionEnabled: (Boolean) -> Unit =
+        { enabled -> launchWithOperationResult { s3Coordinator.updateS3RcloneDataEncryptionEnabled(enabled) } }
+
+    val updateS3RcloneEncryptedSuffix: (String) -> Unit =
+        { suffix -> launchWithOperationResult { s3Coordinator.updateS3RcloneEncryptedSuffix(suffix) } }
+
     val updateS3AutoSyncEnabled: (Boolean) -> Unit =
         { enabled -> launchWithOperationResult { s3Coordinator.updateS3AutoSyncEnabled(enabled) } }
 

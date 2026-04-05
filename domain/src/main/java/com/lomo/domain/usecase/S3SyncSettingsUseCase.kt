@@ -2,6 +2,8 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
@@ -28,6 +30,16 @@ interface S3SyncConnectionObservation {
 interface S3SyncBehaviorObservation {
     fun observeEncryptionMode(): Flow<S3EncryptionMode>
 
+    fun observeRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption>
+
+    fun observeRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding>
+
+    fun observeRcloneDirectoryNameEncryption(): Flow<Boolean>
+
+    fun observeRcloneDataEncryptionEnabled(): Flow<Boolean>
+
+    fun observeRcloneEncryptedSuffix(): Flow<String>
+
     fun observeAutoSyncEnabled(): Flow<Boolean>
 
     fun observeAutoSyncInterval(): Flow<String>
@@ -47,6 +59,8 @@ interface S3SyncCredentialObservation {
     suspend fun isSessionTokenConfigured(): Boolean
 
     suspend fun isEncryptionPasswordConfigured(): Boolean
+
+    suspend fun isEncryptionPassword2Configured(): Boolean
 }
 
 interface S3SyncConnectionMutation {
@@ -75,10 +89,22 @@ interface S3SyncCredentialMutation {
     suspend fun updateSessionToken(sessionToken: String)
 
     suspend fun updateEncryptionPassword(password: String)
+
+    suspend fun updateEncryptionPassword2(password: String)
 }
 
 interface S3SyncBehaviorMutation {
     suspend fun updateEncryptionMode(mode: S3EncryptionMode)
+
+    suspend fun updateRcloneFilenameEncryption(mode: S3RcloneFilenameEncryption)
+
+    suspend fun updateRcloneFilenameEncoding(encoding: S3RcloneFilenameEncoding)
+
+    suspend fun updateRcloneDirectoryNameEncryption(enabled: Boolean)
+
+    suspend fun updateRcloneDataEncryptionEnabled(enabled: Boolean)
+
+    suspend fun updateRcloneEncryptedSuffix(suffix: String)
 
     suspend fun updateAutoSyncEnabled(enabled: Boolean)
 
@@ -144,6 +170,21 @@ private class S3SyncBehaviorObservationImpl(
 ) : S3SyncBehaviorObservation {
     override fun observeEncryptionMode(): Flow<S3EncryptionMode> = s3SyncRepository.getEncryptionMode()
 
+    override fun observeRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption> =
+        s3SyncRepository.getRcloneFilenameEncryption()
+
+    override fun observeRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding> =
+        s3SyncRepository.getRcloneFilenameEncoding()
+
+    override fun observeRcloneDirectoryNameEncryption(): Flow<Boolean> =
+        s3SyncRepository.getRcloneDirectoryNameEncryption()
+
+    override fun observeRcloneDataEncryptionEnabled(): Flow<Boolean> =
+        s3SyncRepository.getRcloneDataEncryptionEnabled()
+
+    override fun observeRcloneEncryptedSuffix(): Flow<String> =
+        s3SyncRepository.getRcloneEncryptedSuffix()
+
     override fun observeAutoSyncEnabled(): Flow<Boolean> = s3SyncRepository.getAutoSyncEnabled()
 
     override fun observeAutoSyncInterval(): Flow<String> = s3SyncRepository.getAutoSyncInterval()
@@ -166,6 +207,9 @@ private class S3SyncCredentialObservationImpl(
 
     override suspend fun isEncryptionPasswordConfigured(): Boolean =
         s3SyncRepository.isEncryptionPasswordConfigured()
+
+    override suspend fun isEncryptionPassword2Configured(): Boolean =
+        s3SyncRepository.isEncryptionPassword2Configured()
 }
 
 private class S3SyncConnectionMutationImpl(
@@ -224,6 +268,10 @@ private class S3SyncCredentialMutationImpl(
     override suspend fun updateEncryptionPassword(password: String) {
         s3SyncRepository.setEncryptionPassword(password)
     }
+
+    override suspend fun updateEncryptionPassword2(password: String) {
+        s3SyncRepository.setEncryptionPassword2(password)
+    }
 }
 
 private class S3SyncBehaviorMutationImpl(
@@ -232,6 +280,26 @@ private class S3SyncBehaviorMutationImpl(
 ) : S3SyncBehaviorMutation {
     override suspend fun updateEncryptionMode(mode: S3EncryptionMode) {
         s3SyncRepository.setEncryptionMode(mode)
+    }
+
+    override suspend fun updateRcloneFilenameEncryption(mode: S3RcloneFilenameEncryption) {
+        s3SyncRepository.setRcloneFilenameEncryption(mode)
+    }
+
+    override suspend fun updateRcloneFilenameEncoding(encoding: S3RcloneFilenameEncoding) {
+        s3SyncRepository.setRcloneFilenameEncoding(encoding)
+    }
+
+    override suspend fun updateRcloneDirectoryNameEncryption(enabled: Boolean) {
+        s3SyncRepository.setRcloneDirectoryNameEncryption(enabled)
+    }
+
+    override suspend fun updateRcloneDataEncryptionEnabled(enabled: Boolean) {
+        s3SyncRepository.setRcloneDataEncryptionEnabled(enabled)
+    }
+
+    override suspend fun updateRcloneEncryptedSuffix(suffix: String) {
+        s3SyncRepository.setRcloneEncryptedSuffix(suffix)
     }
 
     override suspend fun updateAutoSyncEnabled(enabled: Boolean) {

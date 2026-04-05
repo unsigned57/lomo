@@ -189,6 +189,38 @@ class S3SyncFileBridgeTest {
         }
 
     @Test
+    fun `remoteFiles keep configured vault relative folders when explicit sync directory is set`() =
+        runTest {
+            val vaultRoot = tempFolder.newFolder("obsidian-vault-explicit")
+            every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
+            every { dataStore.rootDirectory } returns flowOf(File(vaultRoot, "journal").absolutePath)
+            every { dataStore.rootUri } returns flowOf(null)
+            every { dataStore.imageDirectory } returns flowOf(File(vaultRoot, "asset").absolutePath)
+            every { dataStore.imageUri } returns flowOf(null)
+            every { dataStore.voiceDirectory } returns flowOf(File(vaultRoot, "voice").absolutePath)
+            every { dataStore.voiceUri } returns flowOf(null)
+            coEvery { client.list(prefix = "", maxKeys = null) } returns
+                listOf(
+                    remoteObject("journal/today.md"),
+                    remoteObject("asset/cover.png"),
+                    remoteObject("pages.kanban/board.md"),
+                    remoteObject("archives/2024.md"),
+                )
+
+            val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
+
+            assertEquals(
+                setOf(
+                    "journal/today.md",
+                    "asset/cover.png",
+                    "pages.kanban/board.md",
+                    "archives/2024.md",
+                ),
+                files.keys,
+            )
+        }
+
+    @Test
     fun `remoteFiles keeps nested content files and ignores hidden or unsupported objects`() =
         runTest {
             configureRoots(
@@ -219,7 +251,7 @@ class S3SyncFileBridgeTest {
         }
 
     @Test
-    fun `remoteFiles remap legacy lomo folders for saf specific sync directory`() =
+    fun `remoteFiles ignore legacy lomo folders for explicit sync directory`() =
         runTest {
             every { dataStore.s3LocalSyncDirectory } returns flowOf("content://tree/primary%3AObsidian")
             every { dataStore.rootDirectory } returns flowOf("/memo")
@@ -237,14 +269,7 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
-            assertEquals(
-                setOf(
-                    "today.md",
-                    "cover.png",
-                    "clip.m4a",
-                ),
-                files.keys,
-            )
+            assertEquals(emptySet<String>(), files.keys)
         }
 
     private fun configureRoots(

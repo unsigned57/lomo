@@ -21,6 +21,7 @@ sealed interface MainVersionHistoryState {
         val nextCursor: MemoRevisionCursor?,
         val isLoadingMore: Boolean = false,
         val isRestoring: Boolean = false,
+        val restoringRevisionId: String? = null,
     ) : MainVersionHistoryState {
         val hasMore: Boolean
             get() = nextCursor != null
@@ -83,7 +84,11 @@ class MainVersionHistoryCoordinator
                 return
             }
             if (current != null) {
-                _state.value = current.copy(isRestoring = true)
+                _state.value =
+                    current.copy(
+                        isRestoring = true,
+                        restoringRevisionId = version.revisionId,
+                    )
             }
             runCatching {
                 restoreMemoRevisionUseCase(memo, version)
@@ -91,7 +96,11 @@ class MainVersionHistoryCoordinator
                 _state.value = MainVersionHistoryState.Hidden
             }.onFailure { throwable ->
                 if (current != null) {
-                    _state.value = current.copy(isRestoring = false)
+                    _state.value =
+                        current.copy(
+                            isRestoring = false,
+                            restoringRevisionId = null,
+                        )
                 }
                 throw throwable
             }

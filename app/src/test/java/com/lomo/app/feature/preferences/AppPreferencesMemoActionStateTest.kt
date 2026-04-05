@@ -13,9 +13,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: observeAppPreferences in AppPreferencesState.kt
- * - Behavior focus: aggregation of memo action auto-reorder settings into shared app preference state consumed by menu hosts.
+ * - Behavior focus: aggregation of memo action auto-reorder settings into shared app preference state after quick-send removal.
  * - Observable outcomes: combined AppPreferencesState fields for the new auto-reorder flag and persisted action-id order.
- * - Red phase: Fails before the fix because the aggregated app preference state does not yet include memo action auto-reorder data.
+ * - Red phase: Fails before the fix because the aggregated app preference state still depends on the removed quick-send contract.
  * - Excludes: screen-specific menu rendering, DataStore serialization, and unrelated settings groups.
  */
 class AppPreferencesMemoActionStateTest {

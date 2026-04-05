@@ -13,7 +13,9 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
@@ -25,11 +27,13 @@ import com.lomo.data.local.entity.MemoRevisionEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import com.lomo.data.local.entity.MemoVersionBlobEntity
 import com.lomo.data.local.entity.MemoVersionCommitEntity
+import com.lomo.data.local.entity.S3LocalChangeJournalEntity
 import com.lomo.data.local.entity.S3SyncMetadataEntity
+import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 37
+const val MEMO_DATABASE_VERSION = 39
 
 @Database(
     entities =
@@ -43,6 +47,8 @@ const val MEMO_DATABASE_VERSION = 37
             MemoPinEntity::class,
             WebDavSyncMetadataEntity::class,
             S3SyncMetadataEntity::class,
+            S3SyncProtocolStateEntity::class,
+            S3LocalChangeJournalEntity::class,
             MemoVersionCommitEntity::class,
             MemoVersionBlobEntity::class,
             MemoRevisionEntity::class,
@@ -77,4 +83,8 @@ abstract class MemoDatabase : RoomDatabase() {
     abstract fun webDavSyncMetadataDao(): WebDavSyncMetadataDao
 
     abstract fun s3SyncMetadataDao(): S3SyncMetadataDao
+
+    abstract fun s3SyncProtocolStateDao(): S3SyncProtocolStateDao
+
+    abstract fun s3LocalChangeJournalDao(): S3LocalChangeJournalDao
 }

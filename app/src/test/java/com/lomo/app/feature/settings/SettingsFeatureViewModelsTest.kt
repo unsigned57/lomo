@@ -3,6 +3,8 @@ package com.lomo.app.feature.settings
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.WebDavProvider
 import io.mockk.every
 import io.mockk.mockk
@@ -138,6 +140,12 @@ class SettingsFeatureViewModelsTest {
         var localSyncDirectoryArg: String? = null
         var pathStyleArg: S3PathStyle? = null
         var encryptionModeArg: S3EncryptionMode? = null
+        var password2Arg: String? = null
+        var filenameEncryptionArg: S3RcloneFilenameEncryption? = null
+        var filenameEncodingArg: S3RcloneFilenameEncoding? = null
+        var directoryNameEncryptionArg: Boolean? = null
+        var dataEncryptionArg: Boolean? = null
+        var encryptedSuffixArg: String? = null
         var clearLocalSyncDirectoryInvoked = false
         var syncNowInvoked = false
         var testConnectionInvoked = false
@@ -155,6 +163,14 @@ class SettingsFeatureViewModelsTest {
         every { actionCoordinator.updateS3PathStyle } returns { style -> pathStyleArg = style }
         every { actionCoordinator.updateS3EncryptionMode } returns { mode -> encryptionModeArg = mode }
         every { actionCoordinator.updateS3EncryptionPassword } returns {}
+        every { actionCoordinator.updateS3EncryptionPassword2 } returns { password -> password2Arg = password }
+        every { actionCoordinator.updateS3RcloneFilenameEncryption } returns { mode -> filenameEncryptionArg = mode }
+        every { actionCoordinator.updateS3RcloneFilenameEncoding } returns { encoding -> filenameEncodingArg = encoding }
+        every { actionCoordinator.updateS3RcloneDirectoryNameEncryption } returns { enabled ->
+            directoryNameEncryptionArg = enabled
+        }
+        every { actionCoordinator.updateS3RcloneDataEncryptionEnabled } returns { enabled -> dataEncryptionArg = enabled }
+        every { actionCoordinator.updateS3RcloneEncryptedSuffix } returns { suffix -> encryptedSuffixArg = suffix }
         every { actionCoordinator.updateS3AutoSyncEnabled } returns {}
         every { actionCoordinator.updateS3AutoSyncInterval } returns {}
         every { actionCoordinator.updateS3SyncOnRefresh } returns {}
@@ -170,6 +186,12 @@ class SettingsFeatureViewModelsTest {
         viewModel.clearLocalSyncDirectory()
         viewModel.updatePathStyle(S3PathStyle.PATH_STYLE)
         viewModel.updateEncryptionMode(S3EncryptionMode.RCLONE_CRYPT)
+        viewModel.updateEncryptionPassword2("secret-salt")
+        viewModel.updateRcloneFilenameEncryption(S3RcloneFilenameEncryption.OFF)
+        viewModel.updateRcloneFilenameEncoding(S3RcloneFilenameEncoding.BASE32768)
+        viewModel.updateRcloneDirectoryNameEncryption(false)
+        viewModel.updateRcloneDataEncryptionEnabled(false)
+        viewModel.updateRcloneEncryptedSuffix("none")
         viewModel.triggerSyncNow()
         viewModel.testConnection()
         viewModel.resetConnectionTestState()
@@ -179,6 +201,12 @@ class SettingsFeatureViewModelsTest {
         assertEquals("content://tree/primary%3AObsidian", localSyncDirectoryArg)
         assertEquals(S3PathStyle.PATH_STYLE, pathStyleArg)
         assertEquals(S3EncryptionMode.RCLONE_CRYPT, encryptionModeArg)
+        assertEquals("secret-salt", password2Arg)
+        assertEquals(S3RcloneFilenameEncryption.OFF, filenameEncryptionArg)
+        assertEquals(S3RcloneFilenameEncoding.BASE32768, filenameEncodingArg)
+        assertEquals(false, directoryNameEncryptionArg)
+        assertEquals(false, dataEncryptionArg)
+        assertEquals("none", encryptedSuffixArg)
         assertTrue(clearLocalSyncDirectoryInvoked)
         assertTrue(syncNowInvoked)
         assertTrue(testConnectionInvoked)

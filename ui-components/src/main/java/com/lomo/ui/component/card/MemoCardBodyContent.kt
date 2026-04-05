@@ -31,69 +31,72 @@ internal fun MemoCardBodyContent(
     onImageClick: ((String) -> Unit)?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
 ) {
-    if (collapsedPreviewMode != MemoCardCollapsedPreviewMode.Summary) {
-        MemoCardMarkdownContent(
-            processedContent = processedContent,
-            precomputedRenderPlan = precomputedRenderPlan,
-            tags = tags,
-            isCollapsedPreview = isCollapsedPreview,
-            allowFreeTextCopy = allowFreeTextCopy,
-            onTodoClick = onTodoClick,
-            todoOverrides = todoOverrides,
-            onImageClick = onImageClick,
-        )
-        return
-    }
-
-    when (bodyTransitionMode) {
-        MemoCardBodyTransitionMode.Snap -> {
-            MemoCardBodyBranch(
-                useCollapsedSummary = true,
-                collapsedSummary = collapsedSummary,
-                allowFreeTextCopy = allowFreeTextCopy,
+    val bodyContent: @Composable () -> Unit = {
+        if (collapsedPreviewMode != MemoCardCollapsedPreviewMode.Summary) {
+            MemoCardMarkdownContent(
                 processedContent = processedContent,
                 precomputedRenderPlan = precomputedRenderPlan,
                 tags = tags,
                 isCollapsedPreview = isCollapsedPreview,
+                allowFreeTextCopy = allowFreeTextCopy,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
             )
-        }
-
-        MemoCardBodyTransitionMode.VerticalVisibility -> {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = memoCardBodyEnterTransition(),
-                    exit = memoCardBodyExitTransition(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    MemoCardCollapsedSummary(
+        } else {
+            when (bodyTransitionMode) {
+                MemoCardBodyTransitionMode.Snap -> {
+                    MemoCardBodyBranch(
+                        useCollapsedSummary = true,
                         collapsedSummary = collapsedSummary,
                         allowFreeTextCopy = allowFreeTextCopy,
-                    )
-                }
-                AnimatedVisibility(
-                    visible = false,
-                    enter = memoCardBodyEnterTransition(),
-                    exit = memoCardBodyExitTransition(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    MemoCardMarkdownContent(
                         processedContent = processedContent,
                         precomputedRenderPlan = precomputedRenderPlan,
                         tags = tags,
                         isCollapsedPreview = isCollapsedPreview,
-                        allowFreeTextCopy = allowFreeTextCopy,
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
                     )
                 }
+
+                MemoCardBodyTransitionMode.VerticalVisibility -> {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = memoCardBodyEnterTransition(),
+                            exit = memoCardBodyExitTransition(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MemoCardCollapsedSummary(
+                                collapsedSummary = collapsedSummary,
+                                allowFreeTextCopy = allowFreeTextCopy,
+                            )
+                        }
+                        AnimatedVisibility(
+                            visible = false,
+                            enter = memoCardBodyEnterTransition(),
+                            exit = memoCardBodyExitTransition(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            MemoCardMarkdownContent(
+                                processedContent = processedContent,
+                                precomputedRenderPlan = precomputedRenderPlan,
+                                tags = tags,
+                                isCollapsedPreview = isCollapsedPreview,
+                                allowFreeTextCopy = allowFreeTextCopy,
+                                onTodoClick = onTodoClick,
+                                todoOverrides = todoOverrides,
+                                onImageClick = onImageClick,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
+
+    bodyContent()
 }
 
 @Composable

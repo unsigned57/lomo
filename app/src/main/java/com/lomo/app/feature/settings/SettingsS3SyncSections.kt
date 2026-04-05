@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.outlined.DataObject
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Refresh
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
@@ -22,6 +24,8 @@ fun S3SyncSettingsSection(
     state: S3SectionState,
     pathStyleLabel: String,
     encryptionModeLabel: String,
+    rcloneFilenameEncryptionLabel: String,
+    rcloneFilenameEncodingLabel: String,
     syncIntervalLabel: String,
     syncNowSubtitle: String,
     connectionSubtitle: String,
@@ -38,6 +42,12 @@ fun S3SyncSettingsSection(
     onOpenPathStyleDialog: () -> Unit,
     onOpenEncryptionModeDialog: () -> Unit,
     onOpenEncryptionPasswordDialog: () -> Unit,
+    onOpenEncryptionPassword2Dialog: () -> Unit,
+    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
+    onOpenRcloneFilenameEncodingDialog: () -> Unit,
+    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
+    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
+    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
     onToggleAutoSync: (Boolean) -> Unit,
     onOpenSyncIntervalDialog: () -> Unit,
     onToggleSyncOnRefresh: (Boolean) -> Unit,
@@ -60,6 +70,8 @@ fun S3SyncSettingsSection(
                 state = state,
                 pathStyleLabel = pathStyleLabel,
                 encryptionModeLabel = encryptionModeLabel,
+                rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
+                rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
                 syncIntervalLabel = syncIntervalLabel,
                 syncNowSubtitle = syncNowSubtitle,
                 connectionSubtitle = connectionSubtitle,
@@ -75,6 +87,12 @@ fun S3SyncSettingsSection(
                 onOpenPathStyleDialog = onOpenPathStyleDialog,
                 onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
                 onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
+                onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
+                onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
+                onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
+                onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
+                onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
+                onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
                 onToggleAutoSync = onToggleAutoSync,
                 onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
                 onToggleSyncOnRefresh = onToggleSyncOnRefresh,
@@ -90,6 +108,8 @@ private fun S3SyncAdvancedContent(
     state: S3SectionState,
     pathStyleLabel: String,
     encryptionModeLabel: String,
+    rcloneFilenameEncryptionLabel: String,
+    rcloneFilenameEncodingLabel: String,
     syncIntervalLabel: String,
     syncNowSubtitle: String,
     connectionSubtitle: String,
@@ -105,6 +125,12 @@ private fun S3SyncAdvancedContent(
     onOpenPathStyleDialog: () -> Unit,
     onOpenEncryptionModeDialog: () -> Unit,
     onOpenEncryptionPasswordDialog: () -> Unit,
+    onOpenEncryptionPassword2Dialog: () -> Unit,
+    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
+    onOpenRcloneFilenameEncodingDialog: () -> Unit,
+    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
+    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
+    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
     onToggleAutoSync: (Boolean) -> Unit,
     onOpenSyncIntervalDialog: () -> Unit,
     onToggleSyncOnRefresh: (Boolean) -> Unit,
@@ -116,6 +142,8 @@ private fun S3SyncAdvancedContent(
             state = state,
             pathStyleLabel = pathStyleLabel,
             encryptionModeLabel = encryptionModeLabel,
+            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
+            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
             onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
             onOpenRegionDialog = onOpenRegionDialog,
             onOpenBucketDialog = onOpenBucketDialog,
@@ -128,6 +156,12 @@ private fun S3SyncAdvancedContent(
             onOpenPathStyleDialog = onOpenPathStyleDialog,
             onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
             onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
+            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
+            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
+            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
+            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
+            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
+            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
         )
         S3BehaviorPreferences(
             state = state,
@@ -150,6 +184,8 @@ private fun S3ConnectionPreferences(
     state: S3SectionState,
     pathStyleLabel: String,
     encryptionModeLabel: String,
+    rcloneFilenameEncryptionLabel: String,
+    rcloneFilenameEncodingLabel: String,
     onOpenEndpointUrlDialog: () -> Unit,
     onOpenRegionDialog: () -> Unit,
     onOpenBucketDialog: () -> Unit,
@@ -162,6 +198,12 @@ private fun S3ConnectionPreferences(
     onOpenPathStyleDialog: () -> Unit,
     onOpenEncryptionModeDialog: () -> Unit,
     onOpenEncryptionPasswordDialog: () -> Unit,
+    onOpenEncryptionPassword2Dialog: () -> Unit,
+    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
+    onOpenRcloneFilenameEncodingDialog: () -> Unit,
+    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
+    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
+    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
 ) {
     Column {
         S3EndpointPreferences(
@@ -183,9 +225,17 @@ private fun S3ConnectionPreferences(
             state = state,
             pathStyleLabel = pathStyleLabel,
             encryptionModeLabel = encryptionModeLabel,
+            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
+            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
             onOpenPathStyleDialog = onOpenPathStyleDialog,
             onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
             onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
+            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
+            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
+            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
+            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
+            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
+            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
         )
     }
 }
@@ -288,9 +338,17 @@ private fun S3EncryptionPreferences(
     state: S3SectionState,
     pathStyleLabel: String,
     encryptionModeLabel: String,
+    rcloneFilenameEncryptionLabel: String,
+    rcloneFilenameEncodingLabel: String,
     onOpenPathStyleDialog: () -> Unit,
     onOpenEncryptionModeDialog: () -> Unit,
     onOpenEncryptionPasswordDialog: () -> Unit,
+    onOpenEncryptionPassword2Dialog: () -> Unit,
+    onOpenRcloneFilenameEncryptionDialog: () -> Unit,
+    onOpenRcloneFilenameEncodingDialog: () -> Unit,
+    onToggleRcloneDirectoryNameEncryption: (Boolean) -> Unit,
+    onToggleRcloneDataEncryptionEnabled: (Boolean) -> Unit,
+    onOpenRcloneEncryptedSuffixDialog: () -> Unit,
 ) {
     SettingsDivider()
     PreferenceItem(
@@ -322,6 +380,73 @@ private fun S3EncryptionPreferences(
         showChevron = state.encryptionMode != S3EncryptionMode.NONE,
         onClick = onOpenEncryptionPasswordDialog,
     )
+    SettingsExpandableContent(
+        visible = state.encryptionMode == S3EncryptionMode.RCLONE_CRYPT,
+        label = "S3RcloneCryptAdvancedVisibility",
+    ) {
+        Column {
+            SettingsDivider()
+            PreferenceItem(
+                title = stringResource(R.string.settings_s3_encryption_password2),
+                subtitle =
+                    stringResource(
+                        if (state.encryptionPassword2Configured) {
+                            R.string.settings_s3_encryption_password2_configured
+                        } else {
+                            R.string.settings_s3_encryption_password2_not_set
+                        },
+                    ),
+                icon = Icons.Default.Lock,
+                onClick = onOpenEncryptionPassword2Dialog,
+            )
+            SettingsDivider()
+            PreferenceItem(
+                title = stringResource(R.string.settings_s3_rclone_filename_encryption),
+                subtitle = rcloneFilenameEncryptionLabel,
+                icon = Icons.Outlined.DataObject,
+                onClick = onOpenRcloneFilenameEncryptionDialog,
+            )
+            when (state.rcloneFilenameEncryption) {
+                S3RcloneFilenameEncryption.STANDARD -> {
+                    SettingsDivider()
+                    PreferenceItem(
+                        title = stringResource(R.string.settings_s3_rclone_filename_encoding),
+                        subtitle = rcloneFilenameEncodingLabel,
+                        icon = Icons.Outlined.DataObject,
+                        onClick = onOpenRcloneFilenameEncodingDialog,
+                    )
+                    SettingsDivider()
+                    SwitchPreferenceItem(
+                        title = stringResource(R.string.settings_s3_rclone_directory_name_encryption),
+                        subtitle = stringResource(R.string.settings_s3_rclone_directory_name_encryption_subtitle),
+                        icon = Icons.Default.Lock,
+                        checked = state.rcloneDirectoryNameEncryption,
+                        onCheckedChange = onToggleRcloneDirectoryNameEncryption,
+                    )
+                }
+
+                S3RcloneFilenameEncryption.OFF -> {
+                    SettingsDivider()
+                    PreferenceItem(
+                        title = stringResource(R.string.settings_s3_rclone_encrypted_suffix),
+                        subtitle = s3EncryptedSuffixSubtitle(state.rcloneEncryptedSuffix),
+                        icon = Icons.Outlined.DataObject,
+                        onClick = onOpenRcloneEncryptedSuffixDialog,
+                    )
+                }
+
+                S3RcloneFilenameEncryption.OBFUSCATE -> Unit
+            }
+            SettingsDivider()
+            SwitchPreferenceItem(
+                title = stringResource(R.string.settings_s3_rclone_data_encryption),
+                subtitle = stringResource(R.string.settings_s3_rclone_data_encryption_subtitle),
+                icon = Icons.Default.Lock,
+                checked = state.rcloneDataEncryptionEnabled,
+                onCheckedChange = onToggleRcloneDataEncryptionEnabled,
+            )
+        }
+    }
 }
 
 @Composable
@@ -385,4 +510,14 @@ private fun S3ActionPreferences(
         icon = Icons.Outlined.Link,
         onClick = onTestConnection,
     )
+}
+
+@Composable
+private fun s3EncryptedSuffixSubtitle(rawValue: String): String {
+    val normalized = rawValue.trim()
+    return if (normalized.isBlank() || normalized.equals("none", ignoreCase = true)) {
+        stringResource(R.string.settings_s3_rclone_encrypted_suffix_none)
+    } else {
+        normalized
+    }
 }

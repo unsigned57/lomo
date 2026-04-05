@@ -1,6 +1,7 @@
 package com.lomo.app
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
@@ -24,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,6 +43,8 @@ import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.util.LocalShareUtils
 import com.lomo.app.util.ShareUtils
 import com.lomo.domain.repository.LanShareService
+import com.lomo.ui.benchmark.BenchmarkAnchorConfig
+import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
@@ -60,10 +64,12 @@ class MainActivity : AppCompatActivity() {
     @Inject lateinit var shareServiceManager: LanShareService
 
     private val viewModel: MainViewModel by viewModels()
+    private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+        currentUiMode = resources.configuration.uiMode
 
         splashScreen.setKeepOnScreenCondition(::shouldKeepSplashScreenVisible)
         enableEdgeToEdge()
@@ -75,6 +81,16 @@ class MainActivity : AppCompatActivity() {
         window.decorView.post {
             shareServiceManager.startServices()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        currentUiMode = resources.configuration.uiMode
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        currentUiMode = newConfig.uiMode
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -117,44 +133,6 @@ class MainActivity : AppCompatActivity() {
         // Fallback for mixed or missing MIME type.
         extractSharedTexts(intent).forEach(viewModel.handleSharedText)
         extractSharedImageUris(intent).forEach(viewModel.handleSharedImage)
-    }
-
-    private fun extractSharedTexts(intent: Intent): List<String> {
-        val texts = mutableListOf<String>()
-        val extras = intent.extras
-        intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-            if (text.isNotBlank()) {
-                texts += text
-            }
-        }
-        extras?.getStringArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
-            if (text.isNotBlank()) {
-                texts += text
-            }
-        }
-        extras?.getCharSequenceArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
-            val normalized = text?.toString()
-            if (!normalized.isNullOrBlank()) {
-                texts += normalized
-            }
-        }
-        return texts.distinct()
-    }
-
-    private fun extractSharedImageUris(intent: Intent): List<Uri> {
-        val uris = mutableListOf<Uri>()
-        IntentCompat
-            .getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-            ?.let(uris::add)
-        IntentCompat
-            .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-            ?.forEach(uris::add)
-        intent.clipData?.let { clipData ->
-            repeat(clipData.itemCount) { index ->
-                clipData.getItemAt(index).uri?.let(uris::add)
-            }
-        }
-        return uris.distinct()
     }
 
     private fun requestAppUnlock(
@@ -240,7 +218,10 @@ class MainActivity : AppCompatActivity() {
                 audioPlayerController = audioPlayerController,
                 shareUtils = shareUtils,
                 shareServiceManager = shareServiceManager,
-                onThemeModeChanged = { applyAppNightMode(this@MainActivity, it) },
+                currentUiMode = currentUiMode,
+                onThemeModeChanged = { themeMode ->
+                    applyAppNightMode(this@MainActivity, themeMode)
+                },
                 onRequestUnlock = ::requestAppUnlock,
             )
         }
@@ -253,12 +234,51 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
+private fun extractSharedTexts(intent: Intent): List<String> {
+    val texts = mutableListOf<String>()
+    val extras = intent.extras
+    intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
+        if (text.isNotBlank()) {
+            texts += text
+        }
+    }
+    extras?.getStringArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
+        if (text.isNotBlank()) {
+            texts += text
+        }
+    }
+    extras?.getCharSequenceArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
+        val normalized = text?.toString()
+        if (!normalized.isNullOrBlank()) {
+            texts += normalized
+        }
+    }
+    return texts.distinct()
+}
+
+private fun extractSharedImageUris(intent: Intent): List<Uri> {
+    val uris = mutableListOf<Uri>()
+    IntentCompat
+        .getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        ?.let(uris::add)
+    IntentCompat
+        .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
+        ?.forEach(uris::add)
+    intent.clipData?.let { clipData ->
+        repeat(clipData.itemCount) { index ->
+            clipData.getItemAt(index).uri?.let(uris::add)
+        }
+    }
+    return uris.distinct()
+}
+
 @Composable
 private fun MainActivityScreen(
     viewModel: MainViewModel,
     audioPlayerController: AudioPlayerController,
     shareUtils: ShareUtils,
     shareServiceManager: LanShareService,
+    currentUiMode: Int,
     onThemeModeChanged: (com.lomo.domain.model.ThemeMode) -> Unit,
     onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
 ) {
@@ -270,7 +290,7 @@ private fun MainActivityScreen(
             onRequestUnlock = onRequestUnlock,
         )
 
-    LaunchedEffect(appPreferences.themeMode) {
+    LaunchedEffect(appPreferences.themeMode, currentUiMode) {
         onThemeModeChanged(appPreferences.themeMode)
     }
 
@@ -282,6 +302,7 @@ private fun MainActivityScreen(
         audioPlayerController = audioPlayerController,
         shareUtils = shareUtils,
         shareServiceManager = shareServiceManager,
+        currentUiMode = currentUiMode,
     )
 }
 
@@ -356,8 +377,12 @@ private fun MainActivityRoot(
     audioPlayerController: AudioPlayerController,
     shareUtils: ShareUtils,
     shareServiceManager: LanShareService,
+    currentUiMode: Int,
 ) {
-    LomoTheme(themeMode = appPreferences.themeMode.value) {
+    LomoTheme(
+        themeMode = appPreferences.themeMode.value,
+        currentUiMode = currentUiMode,
+    ) {
         androidx.activity.compose.ReportDrawnWhen { !appLockUiState.isGateVisible }
         com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
             AnimatedContent(
@@ -399,6 +424,8 @@ private fun UnlockedAppRoot(
     androidx.compose.runtime.CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
         LocalShareUtils provides shareUtils,
+        LocalBenchmarkAnchorConfig provides
+            BenchmarkAnchorConfig(enabled = com.lomo.app.benchmark.areBenchmarkFeaturesEnabled()),
     ) {
         LomoAppRoot(
             viewModel = viewModel,

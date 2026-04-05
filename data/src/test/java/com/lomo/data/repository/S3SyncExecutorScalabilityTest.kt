@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
@@ -71,6 +72,11 @@ class S3SyncExecutorScalabilityTest {
         every { dataStore.s3Prefix } returns flowOf("")
         every { dataStore.s3PathStyle } returns flowOf("path_style")
         every { dataStore.s3EncryptionMode } returns flowOf("none")
+        every { dataStore.s3RcloneFilenameEncryption } returns flowOf("standard")
+        every { dataStore.s3RcloneFilenameEncoding } returns flowOf("base64")
+        every { dataStore.s3RcloneDirectoryNameEncryption } returns flowOf(true)
+        every { dataStore.s3RcloneDataEncryptionEnabled } returns flowOf(true)
+        every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
         every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
         every { dataStore.rootDirectory } returns flowOf("/memo")
         every { dataStore.rootUri } returns flowOf(null)
@@ -82,6 +88,7 @@ class S3SyncExecutorScalabilityTest {
         every { credentialStore.getSecretAccessKey() } returns "secret"
         every { credentialStore.getSessionToken() } returns null
         every { credentialStore.getEncryptionPassword() } returns null
+        every { credentialStore.getEncryptionPassword2() } returns null
 
         coEvery { dataStore.updateS3LastSyncTime(any()) } returns Unit
         coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } answers {
@@ -492,6 +499,19 @@ private class RecordingMetadataDao(
     }
 
     override suspend fun getAll(): List<S3SyncMetadataEntity> = entities.values.toList()
+
+    override suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot> =
+        entities.values.map { entity ->
+            S3SyncRemoteMetadataSnapshot(
+                relativePath = entity.relativePath,
+                remotePath = entity.remotePath,
+                etag = entity.etag,
+                remoteLastModified = entity.remoteLastModified,
+            )
+        }
+
+    override suspend fun getByRelativePaths(relativePaths: List<String>): List<S3SyncMetadataEntity> =
+        relativePaths.mapNotNull(entities::get)
 
     override suspend fun upsertAll(entities: List<S3SyncMetadataEntity>) {
         upsertBatches += entities

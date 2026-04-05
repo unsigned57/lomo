@@ -7,6 +7,8 @@ complexity:
     ignoreOverridden: true
     ignoreAnnotated:
       - Database
+    excludes:
+      - "**/com/lomo/data/s3/S3RcloneCryptCompatCodec.kt"
   ComplexCondition:
     allowedConditions: 4
   CyclomaticComplexMethod:
@@ -49,6 +51,10 @@ exceptions:
       - RuntimeException
       - Error
 style:
+  MagicNumber:
+    excludes:
+      - "**/com/lomo/data/s3/Base32768SafeEncoding.kt"
+      - "**/com/lomo/data/s3/S3RcloneCryptCompatCodec.kt"
   ForbiddenMethodCall:
     active: true
     methods:

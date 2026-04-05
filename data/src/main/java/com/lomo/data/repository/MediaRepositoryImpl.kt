@@ -22,11 +22,13 @@ class MediaRepositoryImpl
     constructor(
         private val workspaceConfigSource: WorkspaceConfigSource,
         private val mediaStorageDataSource: MediaStorageDataSource,
+        private val s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
     ) : MediaRepository {
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
         override suspend fun importImage(source: StorageLocation): StorageLocation {
             val filename = mediaStorageDataSource.saveImage(source.raw.toUri())
+            s3LocalChangeRecorder.recordImageUpsert(filename)
             mediaStorageDataSource.getImageLocation(filename)?.let { location ->
                 imageLocationMap.update { currentMap ->
                     currentMap + (MediaEntryId(filename) to StorageLocation(location))
@@ -37,6 +39,7 @@ class MediaRepositoryImpl
 
         override suspend fun removeImage(entryId: MediaEntryId) {
             mediaStorageDataSource.deleteImage(entryId.raw)
+            s3LocalChangeRecorder.recordImageDelete(entryId.raw)
             imageLocationMap.update { currentMap -> currentMap - entryId }
         }
 
@@ -71,11 +74,15 @@ class MediaRepositoryImpl
                 }
             }
 
-        override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation =
-            StorageLocation(mediaStorageDataSource.createVoiceFile(entryId.raw).toString())
+        override suspend fun allocateVoiceCaptureTarget(entryId: MediaEntryId): StorageLocation {
+            val target = StorageLocation(mediaStorageDataSource.createVoiceFile(entryId.raw).toString())
+            s3LocalChangeRecorder.recordVoiceUpsert(entryId.raw)
+            return target
+        }
 
         override suspend fun removeVoiceCapture(entryId: MediaEntryId) {
             mediaStorageDataSource.deleteVoiceFile(entryId.raw)
+            s3LocalChangeRecorder.recordVoiceDelete(entryId.raw)
         }
 
         private suspend fun createDefaultWorkspace(

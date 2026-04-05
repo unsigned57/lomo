@@ -2,6 +2,8 @@ package com.lomo.app.feature.settings
 
 import androidx.compose.runtime.Composable
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.WebDavProvider
 
 @Composable
@@ -121,11 +123,17 @@ internal fun S3SyncSettingsSectionContainer(
     syncIntervalLabels: Map<String, String>,
     pathStyleLabels: Map<com.lomo.domain.model.S3PathStyle, String>,
     encryptionModeLabels: Map<com.lomo.domain.model.S3EncryptionMode, String>,
+    rcloneFilenameEncryptionLabels: Map<S3RcloneFilenameEncryption, String>,
+    rcloneFilenameEncodingLabels: Map<S3RcloneFilenameEncoding, String>,
 ) {
     S3SyncSettingsSection(
         state = state,
         pathStyleLabel = pathStyleLabels[state.pathStyle] ?: state.pathStyle.name,
         encryptionModeLabel = encryptionModeLabels[state.encryptionMode] ?: state.encryptionMode.name,
+        rcloneFilenameEncryptionLabel =
+            rcloneFilenameEncryptionLabels[state.rcloneFilenameEncryption] ?: state.rcloneFilenameEncryption.name,
+        rcloneFilenameEncodingLabel =
+            rcloneFilenameEncodingLabels[state.rcloneFilenameEncoding] ?: state.rcloneFilenameEncoding.name,
         syncIntervalLabel = syncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
         syncNowSubtitle =
             SettingsErrorPresenter.s3SyncNowSubtitle(
@@ -161,6 +169,15 @@ internal fun S3SyncSettingsSectionContainer(
         onOpenPathStyleDialog = { dialogState.showS3PathStyleDialog = true },
         onOpenEncryptionModeDialog = { dialogState.showS3EncryptionModeDialog = true },
         onOpenEncryptionPasswordDialog = dialogState::openS3EncryptionPasswordDialog,
+        onOpenEncryptionPassword2Dialog = dialogState::openS3EncryptionPassword2Dialog,
+        onOpenRcloneFilenameEncryptionDialog = { dialogState.showS3RcloneFilenameEncryptionDialog = true },
+        onOpenRcloneFilenameEncodingDialog = { dialogState.showS3RcloneFilenameEncodingDialog = true },
+        onToggleRcloneDirectoryNameEncryption = s3Feature.updateRcloneDirectoryNameEncryption,
+        onToggleRcloneDataEncryptionEnabled = s3Feature.updateRcloneDataEncryptionEnabled,
+        onOpenRcloneEncryptedSuffixDialog = {
+            dialogState.s3RcloneEncryptedSuffixInput = state.rcloneEncryptedSuffix
+            dialogState.showS3RcloneEncryptedSuffixDialog = true
+        },
         onToggleAutoSync = s3Feature.updateAutoSyncEnabled,
         onOpenSyncIntervalDialog = { dialogState.showS3SyncIntervalDialog = true },
         onToggleSyncOnRefresh = s3Feature.updateSyncOnRefresh,

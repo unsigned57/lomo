@@ -89,6 +89,7 @@ interface MemoVersionRevisionDao {
           AND lifecycleState = :lifecycleState
           AND rawMarkdownBlobHash = :rawMarkdownBlobHash
           AND contentHash = :contentHash
+          AND (assetFingerprint = :assetFingerprint OR assetFingerprint IS NULL)
         ORDER BY createdAt DESC, revisionId DESC
         """,
     )
@@ -97,19 +98,29 @@ interface MemoVersionRevisionDao {
         lifecycleState: String,
         rawMarkdownBlobHash: String,
         contentHash: String,
+        assetFingerprint: String,
     ): List<MemoRevisionEntity>
 
     @Query(
         """
-        SELECT * FROM memo_revision
+        SELECT DISTINCT * FROM memo_revision
         WHERE memoId = :memoId
+          AND (
+            (:retainCount > 0 AND revisionId IN (
+                SELECT revisionId FROM memo_revision
+                WHERE memoId = :memoId
+                ORDER BY createdAt DESC, revisionId DESC
+                LIMIT -1 OFFSET :retainCount
+            )) OR
+            (:olderThanCreatedAt IS NOT NULL AND createdAt < :olderThanCreatedAt)
+          )
         ORDER BY createdAt DESC, revisionId DESC
-        LIMIT -1 OFFSET :retainCount
         """,
     )
     suspend fun listStaleRevisionsForMemo(
         memoId: String,
         retainCount: Int,
+        olderThanCreatedAt: Long?,
     ): List<MemoRevisionEntity>
 
     @Query(

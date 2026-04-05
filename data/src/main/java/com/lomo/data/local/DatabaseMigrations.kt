@@ -21,6 +21,8 @@ const val SCHEMA_VERSION_34 = 34
 const val SCHEMA_VERSION_35 = 35
 const val SCHEMA_VERSION_36 = 36
 const val SCHEMA_VERSION_37 = 37
+const val SCHEMA_VERSION_38 = 38
+const val SCHEMA_VERSION_39 = 39
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -196,6 +198,21 @@ val MIGRATION_36_37: Migration =
         }
     }
 
+val MIGRATION_37_38: Migration =
+    object : Migration(SCHEMA_VERSION_37, SCHEMA_VERSION_38) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createS3SyncProtocolStateTable(db)
+            createS3LocalChangeJournalTable(db)
+        }
+    }
+
+val MIGRATION_38_39: Migration =
+    object : Migration(SCHEMA_VERSION_38, SCHEMA_VERSION_39) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            migrateMemoRevisionAssetFingerprintColumn(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -238,6 +255,8 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_34_35,
             MIGRATION_35_36,
             MIGRATION_36_37,
+            MIGRATION_37_38,
+            MIGRATION_38_39,
         )
 
 /**
@@ -258,6 +277,8 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase J: Apply v34→v35 changes (compact memo-revision previews).
  * Phase K: Apply v35→v36 changes (S3 sync metadata table).
  * Phase L: Apply v36→v37 changes (external refresh protection state).
+ * Phase M: Apply v37→v38 changes (S3 incremental protocol/journal tables).
+ * Phase N: Apply v38→v39 changes (memo revision asset fingerprints).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -327,6 +348,13 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase L: v36 → v37 (external refresh protection state) ────
     normalizeLocalFileStateTable(db)
+
+    // ── Phase M: v37 → v38 (S3 incremental local state) ───────────
+    createS3SyncProtocolStateTable(db)
+    createS3LocalChangeJournalTable(db)
+
+    // ── Phase N: v38 → v39 (memo revision asset fingerprints) ─────
+    migrateMemoRevisionAssetFingerprintColumn(db)
 }
 
 private fun createMemoVersionTables(db: SupportSQLiteDatabase) {

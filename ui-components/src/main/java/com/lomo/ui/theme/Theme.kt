@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -22,7 +23,9 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
@@ -112,6 +115,18 @@ enum class ThemeMode(
 private const val FONT_WEIGHT_ADJUSTMENT_FALLBACK = 0
 private const val THEME_COLOR_ANIMATION_DURATION_MS = 220
 
+internal fun shouldAnimateThemeColorTransition(
+    themeMode: ThemeMode,
+    previousDarkTheme: Boolean?,
+    currentDarkTheme: Boolean,
+): Boolean =
+    when {
+        previousDarkTheme == null -> true
+        themeMode != ThemeMode.SYSTEM -> true
+        previousDarkTheme == currentDarkTheme -> true
+        else -> false
+    }
+
 private data class AnimatedCoreColors(
     val primary: Color,
     val onPrimary: Color,
@@ -173,15 +188,12 @@ private data class AnimatedFixedColors(
 fun LomoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     dynamicColor: Boolean = true,
+    currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
-    val darkTheme =
-        when (themeMode) {
-            ThemeMode.LIGHT -> false
-            ThemeMode.DARK -> true
-            ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        }
+    val darkTheme = resolveDarkTheme(themeMode, currentUiMode, isSystemInDarkTheme())
+    var previousDarkTheme by remember(themeMode) { mutableStateOf<Boolean?>(null) }
 
     val targetColorScheme =
         when {
@@ -202,7 +214,16 @@ fun LomoTheme(
             }
         }
 
-    val animatedColorScheme = animateColorSchemeAsState(targetColorScheme)
+    val animatedColorScheme =
+        animateColorSchemeAsState(
+            targetColorScheme = targetColorScheme,
+            animationSpec =
+                if (shouldAnimateThemeColorTransition(themeMode, previousDarkTheme, darkTheme)) {
+                    tween(durationMillis = THEME_COLOR_ANIMATION_DURATION_MS)
+                } else {
+                    snap()
+                },
+        )
     val configuration = LocalConfiguration.current
     val systemFontWeightAdjustment =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -219,6 +240,7 @@ fun LomoTheme(
     if (!view.isInEditMode) {
         val activity = view.context.findActivity()
         SideEffect {
+            previousDarkTheme = darkTheme
             activity?.window?.let { window ->
                 val controller = WindowCompat.getInsetsController(window, view)
                 controller.isAppearanceLightStatusBars = !darkTheme
@@ -239,11 +261,13 @@ fun LomoTheme(
 fun LomoTheme(
     themeMode: String,
     dynamicColor: Boolean = true,
+    currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
     LomoTheme(
         themeMode = ThemeMode.fromStorageValue(themeMode),
         dynamicColor = dynamicColor,
+        currentUiMode = currentUiMode,
         content = content,
     )
 }
@@ -401,17 +425,10 @@ private inline fun <T> withAnimatedColor(
     block: (@Composable (Color, String) -> Color) -> T,
 ): T {
     val animateColor: @Composable (Color, String) -> Color = { targetColor, label ->
-        animatedThemeColor(targetColor, animationSpec, label).value
+        animateColorAsState(targetColor, animationSpec, label = label).value
     }
     return block(animateColor)
 }
-
-@Composable
-private fun animatedThemeColor(
-    targetColor: Color,
-    animationSpec: AnimationSpec<Color>,
-    label: String,
-) = animateColorAsState(targetColor, animationSpec, label = label)
 
 private tailrec fun Context.findActivity(): Activity? =
     when (this) {

@@ -14,17 +14,18 @@ import org.junit.Test
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
  *   revision dedupe and paging, retires the removed legacy workspace-history schema, and compacts
- *   memo-revision rows down to lightweight previews while creating sync metadata tables for supported remotes.
+ *   memo-revision rows down to lightweight previews while creating sync metadata, incremental-state tables,
+ *   and asset-fingerprint indexing for supported remotes.
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
  *   plus direct-migration coverage to the current target version.
- * - Red phase: Fails before the fix because the schema target still sits at v35 and never creates the
- *   S3 sync metadata table required for tracking remote reconciliation state.
+ * - Red phase: Fails before the fix because the schema target stops before the asset-fingerprint upgrade and
+ *   still asserts the retired memo-revision dedupe index name.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
     @Test
-    fun `database version advances to 37 for external refresh protection state`() {
-        assertEquals(37, MEMO_DATABASE_VERSION)
+    fun `database version advances to 39 for memo revision asset fingerprints`() {
+        assertEquals(39, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -45,6 +46,68 @@ class DatabaseMigrationsTest {
                         it.contains("`missing_since` INTEGER") &&
                         it.contains("`missing_count` INTEGER NOT NULL") &&
                         it.contains("`last_seen_at` INTEGER NOT NULL")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 37 to 38 creates s3 incremental protocol and journal tables`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_37_38.migrate(db)
+
+        verify {
+            db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_protocol_state`") })
+        }
+        verify {
+            db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `s3_local_change_journal`") })
+        }
+        verify {
+            db.execSQL(match { it.contains("index_s3_local_change_journal_updated_at") })
+        }
+    }
+
+    @Test
+    fun `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        every { db.query(any<String>()) } answers {
+            val sql = args[0] as String
+            when {
+                sql.contains("PRAGMA table_info(`memo_revision`)") -> {
+                    mockColumnsCursor(
+                        setOf(
+                            "revisionId",
+                            "memoId",
+                            "createdAt",
+                            "lifecycleState",
+                            "contentHash",
+                            "rawMarkdownBlobHash",
+                        ),
+                    )
+                }
+
+                else -> {
+                    mockCursor(false)
+                }
+            }
+        }
+
+        MIGRATION_38_39.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `memo_revision` ADD COLUMN `assetFingerprint` TEXT")
+        }
+        verify(exactly = 1) {
+            db.execSQL("DROP INDEX IF EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`")
+        }
+        verify(exactly = 1) {
+            db.execSQL(
+                match {
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
+                        it.contains(
+                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
+                        )
                 },
             )
         }
@@ -78,8 +141,10 @@ class DatabaseMigrationsTest {
         verify(exactly = 1) {
             db.execSQL(
                 match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
-                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
+                        it.contains(
+                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
+                        )
                 },
             )
         }
@@ -341,8 +406,10 @@ class DatabaseMigrationsTest {
         verify {
             db.execSQL(
                 match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
-                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
+                        it.contains(
+                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
+                        )
                 },
             )
         }
@@ -457,8 +524,10 @@ class DatabaseMigrationsTest {
         verify {
             db.execSQL(
                 match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`") &&
-                        it.contains("ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)")
+                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
+                        it.contains(
+                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
+                        )
                 },
             )
         }

@@ -24,9 +24,12 @@ import java.time.LocalDate
 /*
  * Test Contract:
  * - Unit under test: MemoRefreshParserWorker
- * - Behavior focus: main/trash parse routing, metadata replacement output, null-content skipping, and filtering trash memos already active in the main DB.
- * - Observable outcomes: produced MemoEntity/TrashMemoEntity lists, LocalFileStateEntity metadata, date-replacement sets, and collaborator inputs.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: main/trash parse routing, stable memo-id preservation across refresh reparse, metadata replacement
+ *   output, null-content skipping, and filtering trash memos already active in the main DB.
+ * - Observable outcomes: produced MemoEntity/TrashMemoEntity lists, LocalFileStateEntity metadata, date-replacement
+ *   sets, and collaborator inputs.
+ * - Red phase: Fails before the fix when refresh reparses an edited memo with a content-derived parser id and replaces
+ *   the existing stable memo id, which splits version history across different memo ids after refresh.
  * - Excludes: MarkdownParser parsing internals, Room implementation details, and file-storage backend transport behavior.
  */
 class MemoRefreshParserWorkerTest {
@@ -133,6 +136,35 @@ class MemoRefreshParserWorkerTest {
             assertEquals(emptySet<String>(), result.trashDatesToReplace)
             verify(exactly = 0) { parser.parseContent(any(), any(), any()) }
             coVerify(exactly = 0) { dao.getMemosByIds(any()) }
+        }
+
+    @Test
+    fun `parse reuses existing main memo id for refreshed content with the same timestamp`() =
+        runTest {
+            val mainMeta = fileMeta("2026_03_06.md", 606L, "main-stable-id", "content://lomo/main-stable-id")
+            val existingMemo = memo(id = "memo_original", dateKey = "2026_03_06", content = "alpha")
+            val reparsedMemo =
+                existingMemo.copy(
+                    id = "memo_reparsed",
+                    content = "beta",
+                    rawContent = "- 10:00 beta",
+                )
+
+            coEvery {
+                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
+            } returns "- 10:00 beta"
+            every {
+                parser.parseContent("- 10:00 beta", "2026_03_06", 606L)
+            } returns listOf(reparsedMemo)
+            coEvery { dao.getMemosByDate("2026_03_06") } returns listOf(MemoEntity.fromDomain(existingMemo))
+
+            val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
+
+            assertEquals(
+                listOf(MemoEntity.fromDomain(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L)),
+                result.mainMemos,
+            )
+            coVerify(exactly = 1) { dao.getMemosByDate("2026_03_06") }
         }
 
     @Test

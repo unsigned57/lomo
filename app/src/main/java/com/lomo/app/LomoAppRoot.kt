@@ -22,8 +22,10 @@ import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.feature.update.AppUpdateViewModel
 import com.lomo.app.navigation.LomoNavHost
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.repository.LanShareService
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 
 @Composable
 fun LomoAppRoot(
@@ -38,7 +40,7 @@ fun LomoAppRoot(
     )
 
     Surface(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().benchmarkAnchorRoot(BenchmarkAnchorContract.APP_ROOT),
         color = MaterialTheme.colorScheme.background,
     ) {
         val navController = rememberNavController()

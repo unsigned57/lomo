@@ -62,28 +62,35 @@ class RoomMemoVersionStore
         override suspend fun getLatestRevisionForMemo(memoId: String): MemoVersionRevisionRecord? =
             memoVersionDao.getLatestRevisionForMemo(memoId)?.toRecord()
 
-        override suspend fun findEquivalentRevisionsForMemo(
-            memoId: String,
-            lifecycleState: MemoRevisionLifecycleState,
-            rawMarkdownBlobHash: String,
-            contentHash: String,
-        ): List<MemoVersionRevisionRecord> =
+    override suspend fun findEquivalentRevisionsForMemo(
+        memoId: String,
+        lifecycleState: MemoRevisionLifecycleState,
+        rawMarkdownBlobHash: String,
+        contentHash: String,
+        assetFingerprint: String,
+    ): List<MemoVersionRevisionRecord> =
             memoVersionDao
                 .listEquivalentRevisionsForMemo(
                     memoId = memoId,
                     lifecycleState = lifecycleState.name,
                     rawMarkdownBlobHash = rawMarkdownBlobHash,
                     contentHash = contentHash,
+                    assetFingerprint = assetFingerprint,
                 ).map(MemoRevisionEntity::toRecord)
 
         override suspend fun listAssetsForRevision(revisionId: String): List<MemoVersionAssetRecord> =
             memoVersionDao.listAssetsForRevision(revisionId).map(MemoRevisionAssetEntity::toRecord)
 
-        override suspend fun listStaleRevisionsForMemo(
-            memoId: String,
-            retainCount: Int,
-        ): List<MemoVersionRevisionRecord> =
-            memoVersionDao.listStaleRevisionsForMemo(memoId = memoId, retainCount = retainCount).map(
+    override suspend fun listStaleRevisionsForMemo(
+        memoId: String,
+        retainCount: Int,
+        olderThanCreatedAt: Long?,
+    ): List<MemoVersionRevisionRecord> =
+            memoVersionDao.listStaleRevisionsForMemo(
+                memoId = memoId,
+                retainCount = retainCount,
+                olderThanCreatedAt = olderThanCreatedAt,
+            ).map(
                 MemoRevisionEntity::toRecord,
             )
 
@@ -168,6 +175,7 @@ private fun MemoVersionRevisionRecord.toEntity(): MemoRevisionEntity =
         lifecycleState = lifecycleState.name,
         rawMarkdownBlobHash = rawMarkdownBlobHash,
         contentHash = contentHash,
+        assetFingerprint = assetFingerprint,
         memoTimestamp = memoTimestamp,
         memoUpdatedAt = memoUpdatedAt,
         memoContent = memoContent,
@@ -184,6 +192,7 @@ private fun MemoRevisionEntity.toRecord(): MemoVersionRevisionRecord =
         lifecycleState = MemoRevisionLifecycleState.valueOf(lifecycleState),
         rawMarkdownBlobHash = rawMarkdownBlobHash,
         contentHash = contentHash,
+        assetFingerprint = assetFingerprint,
         memoTimestamp = memoTimestamp,
         memoUpdatedAt = memoUpdatedAt,
         memoContent = memoContent,

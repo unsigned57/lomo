@@ -217,7 +217,7 @@ interface LomoWebDavScheduleStore {
     suspend fun updateWebDavSyncOnRefresh(enabled: Boolean)
 }
 
-interface LomoS3ConnectionStore {
+interface LomoS3ConnectionStateStore {
     val s3SyncEnabled: Flow<Boolean>
     val s3EndpointUrl: Flow<String?>
     val s3Region: Flow<String?>
@@ -226,7 +226,9 @@ interface LomoS3ConnectionStore {
     val s3LocalSyncDirectory: Flow<String?>
     val s3PathStyle: Flow<String>
     val s3EncryptionMode: Flow<String>
+}
 
+interface LomoS3ConnectionMutationStore {
     suspend fun updateS3SyncEnabled(enabled: Boolean)
 
     suspend fun updateS3EndpointUrl(url: String?)
@@ -243,6 +245,29 @@ interface LomoS3ConnectionStore {
 
     suspend fun updateS3EncryptionMode(mode: String)
 }
+
+interface LomoS3RcloneCryptStore {
+    val s3RcloneFilenameEncryption: Flow<String>
+    val s3RcloneFilenameEncoding: Flow<String>
+    val s3RcloneDirectoryNameEncryption: Flow<Boolean>
+    val s3RcloneDataEncryptionEnabled: Flow<Boolean>
+    val s3RcloneEncryptedSuffix: Flow<String>
+
+    suspend fun updateS3RcloneFilenameEncryption(mode: String)
+
+    suspend fun updateS3RcloneFilenameEncoding(encoding: String)
+
+    suspend fun updateS3RcloneDirectoryNameEncryption(enabled: Boolean)
+
+    suspend fun updateS3RcloneDataEncryptionEnabled(enabled: Boolean)
+
+    suspend fun updateS3RcloneEncryptedSuffix(suffix: String)
+}
+
+interface LomoS3ConnectionStore :
+    LomoS3ConnectionStateStore,
+    LomoS3ConnectionMutationStore,
+    LomoS3RcloneCryptStore
 
 interface LomoS3ScheduleStore {
     val s3AutoSyncEnabled: Flow<Boolean>
@@ -351,6 +376,13 @@ internal object LomoDataStoreKeys {
     val S3_LOCAL_SYNC_DIRECTORY = stringPreferencesKey(PreferenceKeys.S3_LOCAL_SYNC_DIRECTORY)
     val S3_PATH_STYLE = stringPreferencesKey(PreferenceKeys.S3_PATH_STYLE)
     val S3_ENCRYPTION_MODE = stringPreferencesKey(PreferenceKeys.S3_ENCRYPTION_MODE)
+    val S3_RCLONE_FILENAME_ENCRYPTION = stringPreferencesKey(PreferenceKeys.S3_RCLONE_FILENAME_ENCRYPTION)
+    val S3_RCLONE_FILENAME_ENCODING = stringPreferencesKey(PreferenceKeys.S3_RCLONE_FILENAME_ENCODING)
+    val S3_RCLONE_DIRECTORY_NAME_ENCRYPTION =
+        booleanPreferencesKey(PreferenceKeys.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
+    val S3_RCLONE_DATA_ENCRYPTION_ENABLED =
+        booleanPreferencesKey(PreferenceKeys.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
+    val S3_RCLONE_ENCRYPTED_SUFFIX = stringPreferencesKey(PreferenceKeys.S3_RCLONE_ENCRYPTED_SUFFIX)
     val S3_AUTO_SYNC_ENABLED = booleanPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_ENABLED)
     val S3_AUTO_SYNC_INTERVAL = stringPreferencesKey(PreferenceKeys.S3_AUTO_SYNC_INTERVAL)
     val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)

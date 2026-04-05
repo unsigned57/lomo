@@ -61,4 +61,3 @@ class InteractionPreferencesRepositoryImplTest {
             coVerify(exactly = 1) { dataStore.updateQuickSaveOnBackEnabled(true) }
         }
 }
-

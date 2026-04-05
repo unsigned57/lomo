@@ -72,6 +72,13 @@ class SettingsDialogState {
     var showS3EncryptionPasswordDialog by mutableStateOf(false)
     var s3EncryptionPasswordInput by mutableStateOf("")
     var s3EncryptionPasswordVisible by mutableStateOf(false)
+    var showS3EncryptionPassword2Dialog by mutableStateOf(false)
+    var s3EncryptionPassword2Input by mutableStateOf("")
+    var s3EncryptionPassword2Visible by mutableStateOf(false)
+    var showS3RcloneFilenameEncryptionDialog by mutableStateOf(false)
+    var showS3RcloneFilenameEncodingDialog by mutableStateOf(false)
+    var showS3RcloneEncryptedSuffixDialog by mutableStateOf(false)
+    var s3RcloneEncryptedSuffixInput by mutableStateOf("")
     var showS3SyncIntervalDialog by mutableStateOf(false)
 }
 

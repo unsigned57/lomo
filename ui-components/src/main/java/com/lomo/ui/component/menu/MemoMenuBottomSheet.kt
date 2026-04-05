@@ -36,6 +36,8 @@ fun MemoMenuBottomSheet(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: List<String> = emptyList(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    benchmarkRootTag: String? = null,
+    actionAnchorForId: (MemoActionId) -> String? = { null },
 ) {
     ProvideExpressiveMotion {
         ModalBottomSheet(
@@ -71,6 +73,8 @@ fun MemoMenuBottomSheet(
                 memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 memoActionOrder = memoActionOrder,
                 onActionInvoked = onMemoActionInvoked,
+                benchmarkRootTag = benchmarkRootTag,
+                actionAnchorForId = actionAnchorForId,
             )
         }
     }

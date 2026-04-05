@@ -6,26 +6,39 @@ import java.io.File
 import java.util.Locale
 
 internal suspend fun resolveLocalSyncMode(runtime: S3SyncRepositoryContext): S3LocalSyncMode {
+    val rootDirectory = runtime.dataStore.rootDirectory.first()
     val s3LocalSyncDirectory =
         runtime.dataStore.s3LocalSyncDirectory.first()?.trim()?.takeIf(String::isNotBlank)
+    val rootUri = runtime.dataStore.rootUri.first()
+    val imageDirectory = runtime.dataStore.imageDirectory.first()
+    val imageUri = runtime.dataStore.imageUri.first()
+    val voiceDirectory = runtime.dataStore.voiceDirectory.first()
+    val voiceUri = runtime.dataStore.voiceUri.first()
     if (s3LocalSyncDirectory != null) {
+        val memoLocation = effectiveConfiguredLocation(rootDirectory, rootUri)
+        val imageLocation = effectiveConfiguredLocation(imageDirectory, imageUri)
+        val voiceLocation = effectiveConfiguredLocation(voiceDirectory, voiceUri)
         return if (isContentUriRoot(s3LocalSyncDirectory)) {
-            S3LocalSyncMode.SafVaultRoot(rootUriString = s3LocalSyncDirectory)
+            S3LocalSyncMode.SafVaultRoot(
+                rootUriString = s3LocalSyncDirectory,
+                memoRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, memoLocation),
+                imageRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, imageLocation),
+                voiceRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, voiceLocation),
+                legacyRemoteCompatibility = false,
+            )
         } else {
             S3LocalSyncMode.FileVaultRoot(
                 rootDir = File(s3LocalSyncDirectory),
-                memoRelativeDir = null,
-                imageRelativeDir = null,
-                voiceRelativeDir = null,
+                memoRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, memoLocation),
+                imageRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, imageLocation),
+                voiceRelativeDir = relativeConfiguredLocation(s3LocalSyncDirectory, voiceLocation),
+                legacyRemoteCompatibility = false,
             )
         }
     }
 
-    val rootUri = runtime.dataStore.rootUri.first()
-    val imageUri = runtime.dataStore.imageUri.first()
-    val voiceUri = runtime.dataStore.voiceUri.first()
-    val imageRoot = runtime.dataStore.imageDirectory.first()?.takeIf(String::isNotBlank)?.let(::File)
-    val voiceRoot = runtime.dataStore.voiceDirectory.first()?.takeIf(String::isNotBlank)?.let(::File)
+    val imageRoot = imageDirectory?.takeIf(String::isNotBlank)?.let(::File)
+    val voiceRoot = voiceDirectory?.takeIf(String::isNotBlank)?.let(::File)
     val legacyMode =
         S3LocalSyncMode.Legacy(
             directImageRoot = imageRoot.takeIf { imageUri.isNullOrBlank() },
@@ -41,7 +54,7 @@ internal suspend fun resolveLocalSyncMode(runtime: S3SyncRepositoryContext): S3L
         return legacyMode
     }
 
-    val memoRoot = runtime.dataStore.rootDirectory.first()?.takeIf(String::isNotBlank)?.let(::File)
+    val memoRoot = rootDirectory?.takeIf(String::isNotBlank)?.let(::File)
     val configuredRoots = listOfNotNull(memoRoot, imageRoot, voiceRoot)
     val commonRoot = resolveCommonRoot(configuredRoots) ?: return legacyMode
 
@@ -50,6 +63,7 @@ internal suspend fun resolveLocalSyncMode(runtime: S3SyncRepositoryContext): S3L
         memoRelativeDir = memoRoot?.let { relativePathFrom(commonRoot, it) },
         imageRelativeDir = imageRoot?.let { relativePathFrom(commonRoot, it) },
         voiceRelativeDir = voiceRoot?.let { relativePathFrom(commonRoot, it) },
+        legacyRemoteCompatibility = true,
     )
 }
 
@@ -59,12 +73,7 @@ internal fun normalizeRemoteRelativePath(
     mode: S3LocalSyncMode,
 ): String? =
     when (mode) {
-        is S3LocalSyncMode.VaultRoot -> {
-            val sanitized = sanitizeRelativePath(relativePath) ?: return null
-            val withoutLegacyRoot = sanitized.removeLegacyRootPrefix()
-            val mapped = mode.mapLegacyCompatiblePath(withoutLegacyRoot, layout)
-            mapped.takeIf(::isSyncableContentPath)
-        }
+        is S3LocalSyncMode.VaultRoot -> resolveVaultRootPath(relativePath, layout, mode)
 
         is S3LocalSyncMode.Legacy -> {
             val sanitized = sanitizeRelativePath(relativePath) ?: return null
@@ -95,9 +104,17 @@ internal fun resolveVaultRootPath(
     mode: S3LocalSyncMode.VaultRoot,
 ): String? {
     val sanitized = sanitizeRelativePath(path) ?: return null
-    val withoutLegacyRoot = sanitized.removeLegacyRootPrefix()
-    val mapped = mode.mapLegacyCompatiblePath(withoutLegacyRoot, layout)
-    return mapped.takeIf(::isSyncableContentPath)
+    val normalized =
+        if (mode.legacyRemoteCompatibility) {
+            normalizeLegacyCompatibleVaultRootPath(
+                relativePath = sanitized,
+                layout = layout,
+                mode = mode,
+            )
+        } else {
+            sanitized.takeUnless { isLegacyVaultRootCompatibilityPath(it, layout) } ?: return null
+        }
+    return normalized.takeIf(::isSyncableContentPath)
 }
 
 internal fun legacyIsMemoPath(
@@ -129,68 +146,48 @@ internal sealed interface S3LocalSyncMode {
     ) : S3LocalSyncMode
 
     sealed interface VaultRoot : S3LocalSyncMode {
-        fun mapLegacyCompatiblePath(
-            relativePath: String,
-            layout: SyncDirectoryLayout,
-        ): String
+        val memoRelativeDir: String?
+        val imageRelativeDir: String?
+        val voiceRelativeDir: String?
+        val legacyRemoteCompatibility: Boolean
     }
 
     data class FileVaultRoot(
         val rootDir: File,
-        val memoRelativeDir: String?,
-        val imageRelativeDir: String?,
-        val voiceRelativeDir: String?,
-    ) : VaultRoot {
-        override fun mapLegacyCompatiblePath(
-            relativePath: String,
-            layout: SyncDirectoryLayout,
-        ): String =
-            remapLegacyVaultRootPath(
-                relativePath = relativePath,
-                layout = layout,
-                memoRelativeDir = memoRelativeDir,
-                imageRelativeDir = imageRelativeDir,
-                voiceRelativeDir = voiceRelativeDir,
-            )
-    }
+        override val memoRelativeDir: String?,
+        override val imageRelativeDir: String?,
+        override val voiceRelativeDir: String?,
+        override val legacyRemoteCompatibility: Boolean,
+    ) : VaultRoot
 
     data class SafVaultRoot(
         val rootUriString: String,
-    ) : VaultRoot {
-        override fun mapLegacyCompatiblePath(
-            relativePath: String,
-            layout: SyncDirectoryLayout,
-        ): String = remapLegacyVaultRootPath(relativePath = relativePath, layout = layout)
-    }
+        override val memoRelativeDir: String?,
+        override val imageRelativeDir: String?,
+        override val voiceRelativeDir: String?,
+        override val legacyRemoteCompatibility: Boolean,
+    ) : VaultRoot
 }
 
-private fun remapLegacyVaultRootPath(
-    relativePath: String,
-    layout: SyncDirectoryLayout,
-    memoRelativeDir: String? = null,
-    imageRelativeDir: String? = null,
-    voiceRelativeDir: String? = null,
-): String {
-    if (relativePath.matchesLegacyFolder(layout.memoFolder)) {
-        return remapLegacyFolder(relativePath, layout.memoFolder, memoRelativeDir)
-    }
-    if (relativePath.matchesLegacyFolder(layout.imageFolder)) {
-        return remapLegacyFolder(relativePath, layout.imageFolder, imageRelativeDir)
-    }
-    if (relativePath.matchesLegacyFolder(layout.voiceFolder)) {
-        return remapLegacyFolder(relativePath, layout.voiceFolder, voiceRelativeDir)
-    }
-    return relativePath
-}
+internal fun S3LocalSyncMode.fingerprint(): String =
+    when (this) {
+        is S3LocalSyncMode.Legacy ->
+            "legacy:${directImageRoot?.absolutePath.orEmpty()}:${directVoiceRoot?.absolutePath.orEmpty()}"
 
-private fun remapLegacyFolder(
-    relativePath: String,
-    folder: String,
-    targetRelativeDir: String?,
-): String {
-    val remainder = relativePath.removePrefix("$folder/").removePrefix(folder).trimStart('/')
-    return joinRelativePath(targetRelativeDir, remainder)
-}
+        is S3LocalSyncMode.FileVaultRoot ->
+            "file-vault:${rootDir.absolutePath}:${memoRelativeDir.orEmpty()}:${imageRelativeDir.orEmpty()}:${voiceRelativeDir.orEmpty()}:$legacyRemoteCompatibility"
+
+        is S3LocalSyncMode.SafVaultRoot ->
+            "saf-vault:$rootUriString:${memoRelativeDir.orEmpty()}:${imageRelativeDir.orEmpty()}:${voiceRelativeDir.orEmpty()}:$legacyRemoteCompatibility"
+    }
+
+internal fun S3LocalSyncMode.VaultRoot.relativeDirectoryFor(kind: S3LocalChangeKind): String? =
+    when (kind) {
+        S3LocalChangeKind.MEMO -> memoRelativeDir
+        S3LocalChangeKind.IMAGE -> imageRelativeDir
+        S3LocalChangeKind.VOICE -> voiceRelativeDir
+        S3LocalChangeKind.GENERIC -> null
+    }
 
 private fun resolveCommonRoot(configuredRoots: List<File>): File? {
     if (configuredRoots.isEmpty()) {

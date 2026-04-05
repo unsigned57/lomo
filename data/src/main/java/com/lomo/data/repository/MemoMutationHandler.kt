@@ -127,6 +127,7 @@ class MemoMutationHandler private constructor(
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionJournal: MemoVersionJournal,
+        s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
     ) : this(
         runtime =
             MemoMutationRuntime(
@@ -137,7 +138,8 @@ class MemoMutationHandler private constructor(
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
-                memoVersionJournal = memoVersionJournal,
+                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
+                s3LocalChangeRecorder = s3LocalChangeRecorder,
             ),
         storageFormatProvider = MemoStorageFormatProvider(dataStore),
     )
@@ -159,7 +161,8 @@ class MemoMutationHandler private constructor(
         dataStore: LomoDataStore,
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
-        memoVersionJournal: MemoVersionJournal,
+        memoVersionRecorder: AsyncMemoVersionRecorder,
+        s3LocalChangeRecorder: S3LocalChangeRecorder,
     ) : this(
         runtime =
             MemoMutationRuntime(
@@ -184,7 +187,8 @@ class MemoMutationHandler private constructor(
                 textProcessor = textProcessor,
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = memoIdentityPolicy,
-                memoVersionJournal = memoVersionJournal,
+                memoVersionRecorder = memoVersionRecorder,
+                s3LocalChangeRecorder = s3LocalChangeRecorder,
             ),
         storageFormatProvider = MemoStorageFormatProvider(dataStore),
     )
@@ -198,7 +202,8 @@ internal class MemoMutationRuntime(
     val textProcessor: MemoTextProcessor,
     val trashMutationHandler: MemoTrashMutationHandler,
     val memoIdentityPolicy: MemoIdentityPolicy,
-    val memoVersionJournal: MemoVersionJournal,
+    val memoVersionRecorder: MemoVersionRecorder,
+    val s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
 )
 
 class MemoMutationDaoBundle(

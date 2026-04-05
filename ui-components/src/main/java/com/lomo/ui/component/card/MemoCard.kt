@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.rounded.MoreVert
@@ -76,6 +75,7 @@ fun MemoCard(
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     todoOverrides: Map<Int, Boolean> = emptyMap(), // State overlay for checkboxes
     onImageClick: ((String) -> Unit)? = null,
+    menuButtonModifier: Modifier = Modifier,
     shouldShowExpand: Boolean = shouldShowMemoCardExpand(content),
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
     menuContent: (@Composable () -> Unit)? = null,
@@ -115,8 +115,9 @@ fun MemoCard(
                 dateTimeFormatter = dateTimeFormatter,
                 isPinned = isPinned,
                 onMenuClick = onMenuClick,
-                menuContent = menuContent,
                 haptic = haptic,
+                modifier = menuButtonModifier,
+                menuContent = menuContent,
             )
             Spacer(modifier = Modifier.height(AppSpacing.Small))
             MemoCardBody(
@@ -174,6 +175,7 @@ private fun MemoCardHeader(
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
+    modifier: Modifier,
     menuContent: (@Composable () -> Unit)?,
 ) {
     val timeStr =
@@ -194,8 +196,9 @@ private fun MemoCardHeader(
         MemoCardHeaderActions(
             isPinned = isPinned,
             onMenuClick = onMenuClick,
-            menuContent = menuContent,
             haptic = haptic,
+            modifier = modifier,
+            menuContent = menuContent,
         )
     }
 }
@@ -205,6 +208,7 @@ private fun MemoCardHeaderActions(
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
+    modifier: Modifier,
     menuContent: (@Composable () -> Unit)?,
 ) {
     Row(
@@ -244,7 +248,7 @@ private fun MemoCardHeaderActions(
                         haptic.medium()
                         onMenuClick()
                     },
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(20.dp).then(modifier),
                 ) {
                     Icon(
                         Icons.Rounded.MoreVert,
@@ -312,22 +316,14 @@ internal fun MemoCardCollapsedSummary(
         MaterialTheme.typography.memoSummaryTextStyle()
             .copy(color = MaterialTheme.colorScheme.onSurface)
             .scriptAwareFor(displaySummary)
-    val content: @Composable () -> Unit = {
-        MemoParagraphText(
-            text = displaySummary,
-            style = summaryStyle,
-            maxLines = COLLAPSED_SUMMARY_MAX_LINES,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            selectable = allowFreeTextCopy,
-        )
-    }
-
-    if (allowFreeTextCopy) {
-        SelectionContainer { content() }
-    } else {
-        content()
-    }
+    MemoParagraphText(
+        text = displaySummary,
+        style = summaryStyle,
+        maxLines = COLLAPSED_SUMMARY_MAX_LINES,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        selectable = allowFreeTextCopy,
+    )
 }
 
 @Composable

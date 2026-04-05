@@ -36,7 +36,7 @@ internal fun resolveMemoRefreshTarget(
     mode: S3LocalSyncMode,
 ): String? {
     return when (mode) {
-        is S3LocalSyncMode.FileVaultRoot -> {
+        is S3LocalSyncMode.VaultRoot -> {
             val mapped = resolveVaultRootPath(path, layout, mode) ?: return null
             if (!mapped.endsWith(S3_MEMO_SUFFIX)) {
                 return null
@@ -50,7 +50,6 @@ internal fun resolveMemoRefreshTarget(
             }?.takeIf(String::isNotBlank)
         }
 
-        is S3LocalSyncMode.SafVaultRoot -> null
         is S3LocalSyncMode.Legacy ->
             legacyExtractMemoFilename(path, layout)
                 .takeIf { legacyIsMemoPath(path, layout) }

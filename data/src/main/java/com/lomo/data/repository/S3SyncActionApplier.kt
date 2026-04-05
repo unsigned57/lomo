@@ -187,11 +187,8 @@ class S3SyncActionApplier
             layout: com.lomo.data.sync.SyncDirectoryLayout,
             mode: S3LocalSyncMode,
         ): S3MemoRefreshPlan {
-            if (!isMemoPath(path, layout, mode)) {
-                return S3MemoRefreshPlan.None
-            }
-            val target = resolveMemoRefreshTarget(path, layout, mode)
-            return target?.let(S3MemoRefreshPlan::Targets) ?: S3MemoRefreshPlan.Full
+            val target = resolveMemoRefreshTarget(path, layout, mode) ?: return S3MemoRefreshPlan.None
+            return S3MemoRefreshPlan.Targets(target)
         }
 
         private suspend fun buildDeleteMemoRefreshPlan(
@@ -199,7 +196,7 @@ class S3SyncActionApplier
             layout: com.lomo.data.sync.SyncDirectoryLayout,
             mode: S3LocalSyncMode,
         ): S3MemoRefreshPlan =
-            if (isMemoPath(path, layout, mode)) {
+            if (resolveMemoRefreshTarget(path, layout, mode) != null) {
                 S3MemoRefreshPlan.Full
             } else {
                 S3MemoRefreshPlan.None

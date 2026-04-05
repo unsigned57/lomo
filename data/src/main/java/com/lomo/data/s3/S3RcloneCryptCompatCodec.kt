@@ -1,6 +1,9 @@
 package com.lomo.data.s3
 
 import android.annotation.SuppressLint
+import com.lomo.domain.model.S3RcloneCryptConfig
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import org.bouncycastle.crypto.engines.XSalsa20Engine
 import org.bouncycastle.crypto.generators.SCrypt
 import org.bouncycastle.crypto.macs.Poly1305
@@ -20,45 +23,86 @@ class S3RcloneCryptCompatCodec(
     fun encryptKey(
         key: String,
         password: String,
+    ): String =
+        encryptKey(
+            key = key,
+            password = password,
+            password2 = "",
+            config = defaultConfig(),
+        )
+
+    fun decryptKey(
+        encryptedKey: String,
+        password: String,
+    ): String =
+        decryptKey(
+            encryptedKey = encryptedKey,
+            password = password,
+            password2 = "",
+            config = defaultConfig(),
+        )
+
+    fun encryptKey(
+        key: String,
+        password: String,
+        password2: String,
+        config: S3RcloneCryptConfig,
     ): String {
-        val keyMaterial = deriveKeyMaterial(password)
-        return key
-            .split('/')
-            .joinToString(PATH_SEPARATOR) { segment ->
-                if (segment.isEmpty()) {
-                    segment
-                } else {
+        val keyMaterial = deriveKeyMaterial(password, password2)
+        return when (config.filenameEncryption) {
+            S3RcloneFilenameEncryption.STANDARD ->
+                transformSegments(key, config.directoryNameEncryption) { segment ->
                     val padded = pkcs7Pad(segment.toByteArray(StandardCharsets.UTF_8), AES_BLOCK_SIZE)
                     val encrypted = EmeCipher(keyMaterial.nameKey).encrypt(keyMaterial.nameTweak, padded)
-                    Base64UrlNoPadding.encode(encrypted)
+                    filenameEncoding(config.filenameEncoding).encode(encrypted)
                 }
-            }
+
+            S3RcloneFilenameEncryption.OBFUSCATE ->
+                transformSegments(key, config.directoryNameEncryption) { segment ->
+                    obfuscateSegment(segment, keyMaterial.nameKey)
+                }
+
+            S3RcloneFilenameEncryption.OFF -> key + normalizedSuffix(config.encryptedSuffix)
+        }
     }
 
     fun decryptKey(
         encryptedKey: String,
         password: String,
+        password2: String,
+        config: S3RcloneCryptConfig,
     ): String {
-        val keyMaterial = deriveKeyMaterial(password)
-        return encryptedKey
-            .split('/')
-            .joinToString(PATH_SEPARATOR) { segment ->
-                if (segment.isEmpty()) {
-                    segment
-                } else {
-                    decryptFilenameSegment(
+        val keyMaterial = deriveKeyMaterial(password, password2)
+        return when (config.filenameEncryption) {
+            S3RcloneFilenameEncryption.STANDARD ->
+                transformSegments(encryptedKey, config.directoryNameEncryption) { segment ->
+                    decryptStandardSegment(
                         encryptedSegment = segment,
                         keyMaterial = keyMaterial,
+                        filenameEncoding = config.filenameEncoding,
                     )
                 }
-            }
+
+            S3RcloneFilenameEncryption.OBFUSCATE ->
+                transformSegments(encryptedKey, config.directoryNameEncryption) { segment ->
+                    deobfuscateSegment(segment, keyMaterial.nameKey)
+                }
+
+            S3RcloneFilenameEncryption.OFF -> decryptOffFilename(encryptedKey, config.encryptedSuffix)
+        }
     }
 
     fun encryptBytes(
         plaintext: ByteArray,
         password: String,
+    ): ByteArray = encryptBytes(plaintext, password, password2 = "")
+
+    fun encryptBytes(
+        plaintext: ByteArray,
+        password: String,
+        password2: String,
     ): ByteArray {
-        val keyMaterial = deriveKeyMaterial(password)
+        val keyMaterial = deriveKeyMaterial(password, password2)
         val initialNonce = nonceGenerator()
         require(initialNonce.size == FILE_NONCE_SIZE_BYTES) {
             "Rclone-compatible nonce must be 24 bytes"
@@ -87,6 +131,12 @@ class S3RcloneCryptCompatCodec(
     fun decryptBytes(
         encrypted: ByteArray,
         password: String,
+    ): ByteArray = decryptBytes(encrypted, password, password2 = "")
+
+    fun decryptBytes(
+        encrypted: ByteArray,
+        password: String,
+        password2: String,
     ): ByteArray {
         require(encrypted.size >= FILE_HEADER_SIZE) {
             "Encrypted rclone payload is too short"
@@ -95,7 +145,7 @@ class S3RcloneCryptCompatCodec(
             "Encrypted payload does not use the rclone magic header"
         }
 
-        val keyMaterial = deriveKeyMaterial(password)
+        val keyMaterial = deriveKeyMaterial(password, password2)
         if (encrypted.size == FILE_HEADER_SIZE) {
             return ByteArray(0)
         }
@@ -117,21 +167,24 @@ class S3RcloneCryptCompatCodec(
         return output.toByteArray()
     }
 
-    private fun deriveKeyMaterial(password: String): DerivedKeyMaterial {
+    private fun deriveKeyMaterial(
+        password: String,
+        password2: String,
+    ): RcloneDerivedKeyMaterial {
         val derived =
             if (password.isEmpty()) {
                 ByteArray(TOTAL_KEY_MATERIAL_SIZE_BYTES)
             } else {
                 SCrypt.generate(
                     password.toByteArray(StandardCharsets.UTF_8),
-                    DEFAULT_SALT,
+                    if (password2.isEmpty()) DEFAULT_SALT else password2.toByteArray(StandardCharsets.UTF_8),
                     SCRYPT_N,
                     SCRYPT_R,
                     SCRYPT_P,
                     TOTAL_KEY_MATERIAL_SIZE_BYTES,
                 )
             }
-        return DerivedKeyMaterial(
+        return RcloneDerivedKeyMaterial(
             dataKey = derived.copyOfRange(0, DATA_KEY_SIZE_BYTES),
             nameKey = derived.copyOfRange(DATA_KEY_SIZE_BYTES, DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES),
             nameTweak = derived.copyOfRange(DATA_KEY_SIZE_BYTES + NAME_KEY_SIZE_BYTES, derived.size),
@@ -188,70 +241,263 @@ class S3RcloneCryptCompatCodec(
             xsalsa20.processBytes(ciphertext, SECRETBOX_MAC_SIZE, payloadSize, plaintext, 0)
         }
     }
+}
 
-    private data class DerivedKeyMaterial(
-        val dataKey: ByteArray,
-        val nameKey: ByteArray,
-        val nameTweak: ByteArray,
+private fun defaultConfig() =
+    S3RcloneCryptConfig(
+        filenameEncryption = S3RcloneFilenameEncryption.STANDARD,
+        directoryNameEncryption = true,
+        filenameEncoding = S3RcloneFilenameEncoding.BASE64,
+        dataEncryptionEnabled = true,
+        encryptedSuffix = ".bin",
     )
 
-    private fun decryptFilenameSegment(
-        encryptedSegment: String,
-        keyMaterial: DerivedKeyMaterial,
-    ): String {
-        val failures = mutableListOf<IllegalArgumentException>()
-        decodeFilenameCandidates(encryptedSegment, failures).forEach { decoded ->
-            try {
-                require(decoded.isNotEmpty() && decoded.size % AES_BLOCK_SIZE == 0) {
-                    "Encrypted rclone filename is malformed"
-                }
-                val decrypted = EmeCipher(keyMaterial.nameKey).decrypt(keyMaterial.nameTweak, decoded)
-                val unpadded = pkcs7Unpad(decrypted, AES_BLOCK_SIZE)
-                return unpadded.toString(StandardCharsets.UTF_8)
-            } catch (error: IllegalArgumentException) {
-                failures += error
+private data class RcloneDerivedKeyMaterial(
+    val dataKey: ByteArray,
+    val nameKey: ByteArray,
+    val nameTweak: ByteArray,
+)
+
+private fun transformSegments(
+    value: String,
+    encryptDirectories: Boolean,
+    transform: (String) -> String,
+): String {
+    val segments = value.split(PATH_SEPARATOR)
+    return segments
+        .mapIndexed { index, segment ->
+            if (segment.isEmpty()) {
+                segment
+            } else if (!encryptDirectories && index != segments.lastIndex) {
+                segment
+            } else {
+                transform(segment)
             }
-        }
-        throw failures.firstOrNull() ?: IllegalArgumentException(
-            "Encrypted rclone filename is neither valid base64url nor legacy base32hex",
-        )
-    }
+        }.joinToString(PATH_SEPARATOR)
+}
 
-    private fun decodeFilenameCandidates(
-        encryptedSegment: String,
-        failures: MutableList<IllegalArgumentException>,
-    ): List<ByteArray> {
-        val candidates = mutableListOf<ByteArray>()
-        decodeFilenameCandidate(
-            decode = Base64UrlNoPadding::decode,
-            input = encryptedSegment,
-            failures = failures,
-            candidates = candidates,
-        )
-        decodeFilenameCandidate(
-            decode = Base32HexLowercaseNoPadding::decode,
-            input = encryptedSegment,
-            failures = failures,
-            candidates = candidates,
-        )
-        return candidates
-    }
-
-    private fun decodeFilenameCandidate(
-        decode: (String) -> ByteArray,
-        input: String,
-        failures: MutableList<IllegalArgumentException>,
-        candidates: MutableList<ByteArray>,
-    ) {
-        runCatching { decode(input) }
+private fun decryptStandardSegment(
+    encryptedSegment: String,
+    keyMaterial: RcloneDerivedKeyMaterial,
+    filenameEncoding: S3RcloneFilenameEncoding,
+): String {
+    val failures = mutableListOf<IllegalArgumentException>()
+    filenameDecoders(filenameEncoding).forEach { decoder ->
+        runCatching { decoder(encryptedSegment) }
             .onSuccess { decoded ->
-                if (candidates.none(decoded::contentEquals)) {
-                    candidates += decoded
+                try {
+                    require(decoded.isNotEmpty() && decoded.size % AES_BLOCK_SIZE == 0) {
+                        "Encrypted rclone filename is malformed"
+                    }
+                    val decrypted = EmeCipher(keyMaterial.nameKey).decrypt(keyMaterial.nameTweak, decoded)
+                    val unpadded = pkcs7Unpad(decrypted, AES_BLOCK_SIZE)
+                    return unpadded.toString(StandardCharsets.UTF_8)
+                } catch (error: IllegalArgumentException) {
+                    failures += error
                 }
             }.onFailure { error ->
                 (error as? IllegalArgumentException)?.let(failures::add)
             }
     }
+    throw failures.firstOrNull() ?: IllegalArgumentException("Encrypted rclone filename is malformed")
+}
+
+private fun filenameEncoding(filenameEncoding: S3RcloneFilenameEncoding): FilenameEncoding =
+    when (filenameEncoding) {
+        S3RcloneFilenameEncoding.BASE32 -> Base32HexLowercaseNoPadding
+        S3RcloneFilenameEncoding.BASE64 -> Base64UrlNoPadding
+        S3RcloneFilenameEncoding.BASE32768 -> Base32768FilenameEncoding
+    }
+
+private fun filenameDecoders(filenameEncoding: S3RcloneFilenameEncoding): List<(String) -> ByteArray> =
+    when (filenameEncoding) {
+        S3RcloneFilenameEncoding.BASE32 -> listOf(Base32HexLowercaseNoPadding::decode)
+        S3RcloneFilenameEncoding.BASE64 ->
+            listOf(
+                Base64UrlNoPadding::decode,
+                Base32HexLowercaseNoPadding::decode,
+            )
+
+        S3RcloneFilenameEncoding.BASE32768 -> listOf(Base32768FilenameEncoding::decode)
+    }
+
+private fun obfuscateSegment(
+    plaintext: String,
+    nameKey: ByteArray,
+): String {
+    if (plaintext.isEmpty()) {
+        return ""
+    }
+    if (!StandardCharsets.UTF_8.newEncoder().canEncode(plaintext)) {
+        return "$OBFUSCATE_QUOTE.$plaintext"
+    }
+    var direction = 0
+    plaintext.forEachCodePoint { codePoint -> direction += codePoint }
+    direction %= 256
+
+    val result = StringBuilder()
+    result.append(direction).append('.')
+    nameKey.forEach { byte -> direction += byte.toInt() and BYTE_MASK }
+
+    plaintext.forEachCodePoint { codePoint ->
+        when {
+            codePoint == OBFUSCATE_QUOTE.code -> {
+                result.append(OBFUSCATE_QUOTE).append(OBFUSCATE_QUOTE)
+            }
+
+            codePoint in '0'.code..'9'.code -> {
+                val offset = (direction % 9) + 1
+                result.appendCodePoint('0'.code + (codePoint - '0'.code + offset) % 10)
+            }
+
+            codePoint in 'A'.code..'Z'.code || codePoint in 'a'.code..'z'.code -> {
+                val offset = direction % 25 + 1
+                var position = codePoint - 'A'.code
+                if (position >= 26) {
+                    position -= 6
+                }
+                position = (position + offset) % 52
+                if (position >= 26) {
+                    position += 6
+                }
+                result.appendCodePoint('A'.code + position)
+            }
+
+            codePoint in 0xA0..0xFF -> {
+                val offset = (direction % 95) + 1
+                result.appendCodePoint(0xA0 + (codePoint - 0xA0 + offset) % 96)
+            }
+
+            codePoint >= 0x100 -> {
+                val offset = (direction % 127) + 1
+                val base = codePoint - codePoint % 256
+                val rotated = base + (codePoint - base + offset) % 256
+                if (!Character.isValidCodePoint(rotated) || rotated in 0xD800..0xDFFF) {
+                    result.append(OBFUSCATE_QUOTE)
+                    result.appendCodePoint(codePoint)
+                } else {
+                    result.appendCodePoint(rotated)
+                }
+            }
+
+            else -> result.appendCodePoint(codePoint)
+        }
+    }
+    return result.toString()
+}
+
+private fun deobfuscateSegment(
+    ciphertext: String,
+    nameKey: ByteArray,
+): String {
+    if (ciphertext.isEmpty()) {
+        return ""
+    }
+    val dotIndex = ciphertext.indexOf('.')
+    require(dotIndex >= 0) { "Encrypted rclone filename is not a valid obfuscated segment" }
+    val prefix = ciphertext.substring(0, dotIndex)
+    val encoded = ciphertext.substring(dotIndex + 1)
+    if (prefix == OBFUSCATE_QUOTE.toString()) {
+        return encoded
+    }
+    var direction = prefix.toIntOrNull()
+        ?: throw IllegalArgumentException("Encrypted rclone filename is not a valid obfuscated segment")
+    nameKey.forEach { byte -> direction += byte.toInt() and BYTE_MASK }
+
+    val result = StringBuilder()
+    var inQuote = false
+    encoded.forEachCodePoint { codePoint ->
+        when {
+            inQuote -> {
+                result.appendCodePoint(codePoint)
+                inQuote = false
+            }
+
+            codePoint == OBFUSCATE_QUOTE.code -> inQuote = true
+            codePoint in '0'.code..'9'.code -> {
+                val offset = (direction % 9) + 1
+                var rotated = '0'.code + codePoint - '0'.code - offset
+                if (rotated < '0'.code) {
+                    rotated += 10
+                }
+                result.appendCodePoint(rotated)
+            }
+
+            codePoint in 'A'.code..'Z'.code || codePoint in 'a'.code..'z'.code -> {
+                val offset = direction % 25 + 1
+                var position = codePoint - 'A'.code
+                if (position >= 26) {
+                    position -= 6
+                }
+                position -= offset
+                if (position < 0) {
+                    position += 52
+                }
+                if (position >= 26) {
+                    position += 6
+                }
+                result.appendCodePoint('A'.code + position)
+            }
+
+            codePoint in 0xA0..0xFF -> {
+                val offset = (direction % 95) + 1
+                var rotated = 0xA0 + codePoint - 0xA0 - offset
+                if (rotated < 0xA0) {
+                    rotated += 96
+                }
+                result.appendCodePoint(rotated)
+            }
+
+            codePoint >= 0x100 -> {
+                val offset = (direction % 127) + 1
+                val base = codePoint - codePoint % 256
+                var rotated = base + (codePoint - base - offset)
+                if (rotated < base) {
+                    rotated += 256
+                }
+                result.appendCodePoint(rotated)
+            }
+
+            else -> result.appendCodePoint(codePoint)
+        }
+    }
+    return result.toString()
+}
+
+private fun decryptOffFilename(
+    encryptedKey: String,
+    configuredSuffix: String,
+): String {
+    val suffix = normalizedSuffix(configuredSuffix)
+    return if (suffix.isEmpty()) {
+        require(encryptedKey.isNotEmpty()) { "Encrypted rclone filename is malformed" }
+        encryptedKey
+    } else {
+        require(encryptedKey.endsWith(suffix) && encryptedKey.length > suffix.length) {
+            "Encrypted rclone filename is malformed"
+        }
+        encryptedKey.removeSuffix(suffix)
+    }
+}
+
+private fun normalizedSuffix(value: String): String =
+    when {
+        value.isBlank() -> ""
+        value.equals("none", ignoreCase = true) -> ""
+        value.startsWith(".") -> value
+        else -> ".$value"
+    }
+
+private interface FilenameEncoding {
+    fun encode(input: ByteArray): String
+
+    fun decode(input: String): ByteArray
+}
+
+private object Base32768FilenameEncoding : FilenameEncoding {
+    override fun encode(input: ByteArray): String = Base32768SafeEncoding.encode(input)
+
+    override fun decode(input: String): ByteArray = Base32768SafeEncoding.decode(input)
 }
 
 @SuppressLint("GetInstance")
@@ -366,7 +612,7 @@ private class EmeCipher(
     }
 }
 
-private object Base32HexLowercaseNoPadding {
+private object Base32HexLowercaseNoPadding : FilenameEncoding {
     private const val ALPHABET = "0123456789abcdefghijklmnopqrstuv"
     private val decodeTable =
         IntArray(ASCII_TABLE_SIZE) { INVALID_BASE32_VALUE }.apply {
@@ -376,7 +622,7 @@ private object Base32HexLowercaseNoPadding {
             }
         }
 
-    fun encode(input: ByteArray): String {
+    override fun encode(input: ByteArray): String {
         if (input.isEmpty()) return ""
         val output = StringBuilder((input.size * Byte.SIZE_BITS + BASE32_OUTPUT_ROUNDING) / BASE32_BITS)
         var buffer = 0
@@ -395,7 +641,7 @@ private object Base32HexLowercaseNoPadding {
         return output.toString()
     }
 
-    fun decode(input: String): ByteArray {
+    override fun decode(input: String): ByteArray {
         require(!input.endsWith('=')) { "Encrypted rclone filename is not valid base32hex" }
         if (input.isEmpty()) return ByteArray(0)
 
@@ -417,13 +663,13 @@ private object Base32HexLowercaseNoPadding {
     }
 }
 
-private object Base64UrlNoPadding {
+private object Base64UrlNoPadding : FilenameEncoding {
     private val encoder = Base64.getUrlEncoder().withoutPadding()
     private val decoder = Base64.getUrlDecoder()
 
-    fun encode(input: ByteArray): String = encoder.encodeToString(input)
+    override fun encode(input: ByteArray): String = encoder.encodeToString(input)
 
-    fun decode(input: String): ByteArray {
+    override fun decode(input: String): ByteArray {
         require(!input.endsWith('=')) { "Encrypted rclone filename is not valid base64url" }
         val normalized =
             input +
@@ -530,6 +776,20 @@ private fun incrementNonce(nonce: ByteArray) {
 
 private fun generateNonce(): ByteArray = ByteArray(FILE_NONCE_SIZE_BYTES).also(SecureRandom()::nextBytes)
 
+private fun String.forEachCodePoint(block: (Int) -> Unit) {
+    var index = 0
+    while (index < length) {
+        val codePoint = codePointAt(index)
+        block(codePoint)
+        index += Character.charCount(codePoint)
+    }
+}
+
+private fun StringBuilder.appendCodePoint(codePoint: Int): StringBuilder {
+    append(String(Character.toChars(codePoint)))
+    return this
+}
+
 private const val AES_ALGORITHM = "AES"
 private const val AES_ECB_TRANSFORMATION = "AES/ECB/NoPadding"
 private const val AES_BLOCK_SIZE = 16
@@ -565,6 +825,7 @@ private const val TOTAL_KEY_MATERIAL_SIZE_BYTES = DATA_KEY_SIZE_BYTES + NAME_KEY
 private const val ENCRYPTED_BLOCK_SIZE_BYTES = BLOCK_DATA_SIZE_BYTES + SECRETBOX_MAC_SIZE
 private const val FILE_HEADER_SIZE = FILE_MAGIC_SIZE_BYTES + FILE_NONCE_SIZE_BYTES
 private const val DEFAULT_SALT_HEX = "a80df43a8fbd0308a7cab83e581f86b1"
+private const val OBFUSCATE_QUOTE = '!'
 private val DEFAULT_SALT = DEFAULT_SALT_HEX.hexToByteArray()
 private val FILE_MAGIC = "RCLONE\u0000\u0000".toByteArray(StandardCharsets.UTF_8)
 

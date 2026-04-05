@@ -10,7 +10,7 @@ object PreferenceDefaults {
     const val FREE_TEXT_COPY_ENABLED = false
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = true
     const val MEMO_ACTION_ORDER = ""
-    const val QUICK_SAVE_ON_BACK_ENABLED = false
+    const val QUICK_SAVE_ON_BACK_ENABLED = true
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
@@ -36,6 +36,11 @@ object PreferenceDefaults {
     const val S3_SYNC_ENABLED = false
     const val S3_PATH_STYLE = "auto"
     const val S3_ENCRYPTION_MODE = "none"
+    const val S3_RCLONE_FILENAME_ENCRYPTION = "standard"
+    const val S3_RCLONE_FILENAME_ENCODING = "base64"
+    const val S3_RCLONE_DIRECTORY_NAME_ENCRYPTION = true
+    const val S3_RCLONE_DATA_ENCRYPTION_ENABLED = true
+    const val S3_RCLONE_ENCRYPTED_SUFFIX = ".bin"
     const val S3_AUTO_SYNC_ENABLED = false
     const val S3_AUTO_SYNC_INTERVAL = "1h"
     const val S3_SYNC_ON_REFRESH = false

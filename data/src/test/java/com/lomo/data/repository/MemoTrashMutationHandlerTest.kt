@@ -54,7 +54,7 @@ class MemoTrashMutationHandlerTest {
                 memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 textProcessor = MemoTextProcessor(),
-                memoVersionJournal = memoVersionJournal,
+                memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
             )
     }
 

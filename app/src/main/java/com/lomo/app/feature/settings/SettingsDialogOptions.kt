@@ -3,6 +3,8 @@ package com.lomo.app.feature.settings
 import androidx.compose.runtime.Composable
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.WebDavProvider
 
@@ -18,6 +20,8 @@ data class SettingsDialogOptions(
     val webDavProviders: List<WebDavProvider>,
     val s3PathStyles: List<S3PathStyle>,
     val s3EncryptionModes: List<S3EncryptionMode>,
+    val s3RcloneFilenameEncryptions: List<S3RcloneFilenameEncryption>,
+    val s3RcloneFilenameEncodings: List<S3RcloneFilenameEncoding>,
     val languageTag: String,
     val languageLabels: Map<String, String>,
     val themeModeLabels: Map<ThemeMode, String>,
@@ -25,6 +29,8 @@ data class SettingsDialogOptions(
     val webDavProviderLabels: Map<WebDavProvider, String>,
     val s3PathStyleLabels: Map<S3PathStyle, String>,
     val s3EncryptionModeLabels: Map<S3EncryptionMode, String>,
+    val s3RcloneFilenameEncryptionLabels: Map<S3RcloneFilenameEncryption, String>,
+    val s3RcloneFilenameEncodingLabels: Map<S3RcloneFilenameEncoding, String>,
 )
 
 @Composable

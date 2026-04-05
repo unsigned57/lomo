@@ -2,6 +2,8 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
@@ -29,6 +31,16 @@ interface S3SyncConnectionConfigurationRepository {
 
 interface S3SyncBehaviorConfigurationRepository {
     fun getEncryptionMode(): Flow<S3EncryptionMode>
+
+    fun getRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption>
+
+    fun getRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding>
+
+    fun getRcloneDirectoryNameEncryption(): Flow<Boolean>
+
+    fun getRcloneDataEncryptionEnabled(): Flow<Boolean>
+
+    fun getRcloneEncryptedSuffix(): Flow<String>
 
     fun getAutoSyncEnabled(): Flow<Boolean>
 
@@ -75,6 +87,8 @@ interface S3SyncCredentialMutationRepository {
 
     suspend fun setEncryptionPassword(password: String)
 
+    suspend fun setEncryptionPassword2(password: String)
+
     suspend fun isAccessKeyConfigured(): Boolean
 
     suspend fun isSecretAccessKeyConfigured(): Boolean
@@ -82,10 +96,22 @@ interface S3SyncCredentialMutationRepository {
     suspend fun isSessionTokenConfigured(): Boolean
 
     suspend fun isEncryptionPasswordConfigured(): Boolean
+
+    suspend fun isEncryptionPassword2Configured(): Boolean
 }
 
 interface S3SyncBehaviorMutationRepository {
     suspend fun setEncryptionMode(mode: S3EncryptionMode)
+
+    suspend fun setRcloneFilenameEncryption(mode: S3RcloneFilenameEncryption)
+
+    suspend fun setRcloneFilenameEncoding(encoding: S3RcloneFilenameEncoding)
+
+    suspend fun setRcloneDirectoryNameEncryption(enabled: Boolean)
+
+    suspend fun setRcloneDataEncryptionEnabled(enabled: Boolean)
+
+    suspend fun setRcloneEncryptedSuffix(suffix: String)
 
     suspend fun setAutoSyncEnabled(enabled: Boolean)
 

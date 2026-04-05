@@ -58,6 +58,9 @@ class S3SyncStatusTester
         private val support: S3SyncRepositorySupport,
         private val encodingSupport: S3SyncEncodingSupport,
         private val fileBridge: S3SyncFileBridge,
+        private val protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
+        private val localChangeJournalStore: S3LocalChangeJournalStore = DisabledS3LocalChangeJournalStore,
+        private val remoteManifestStore: S3RemoteManifestStore = DefaultS3RemoteManifestStore(encodingSupport),
     ) {
         suspend fun getStatus(): S3SyncStatus {
             val config = support.resolveConfig() ?: return S3SyncStatus(0, 0, 0, null)
@@ -66,6 +69,15 @@ class S3SyncStatusTester
             val fileBridgeScope = fileBridge.modeAware(mode)
             return support.withClient(config) { client ->
                 runtime.stateHolder.state.value = S3SyncState.Listing
+                prepareIncrementalStatus(
+                    client = client,
+                    config = config,
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                )?.let { status ->
+                    return@withClient status
+                }
                 val (localFiles, remoteFiles, metadata) =
                     coroutineScope {
                         val localFilesDeferred = async { fileBridgeScope.localFiles(layout) }
@@ -89,6 +101,97 @@ class S3SyncStatusTester
                 )
             }
         }
+
+        private suspend fun prepareIncrementalStatus(
+            client: com.lomo.data.s3.LomoS3Client,
+            config: S3ResolvedConfig,
+            layout: SyncDirectoryLayout,
+            mode: S3LocalSyncMode,
+            fileBridgeScope: S3SyncFileBridgeScope,
+        ): S3SyncStatus? {
+            val protocolState =
+                protocolStateStore.read()
+                    ?.takeIf {
+                        protocolStateStore.incrementalSyncEnabled &&
+                            localChangeJournalStore.incrementalSyncEnabled &&
+                            it.protocolVersion == S3_INCREMENTAL_PROTOCOL_VERSION &&
+                            it.localModeFingerprint.compatibleWith(mode)
+                    } ?: return null
+            val lastSyncTime = runtime.dataStore.s3LastSyncTime.first().takeIf { it > 0L }
+            val effectiveLocalChanges =
+                resolveEffectiveLocalChangeSet(
+                    journalEntries = localChangeJournalStore.read(),
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                    metadataDao = runtime.metadataDao,
+                )
+            val journalEntries = effectiveLocalChanges.journalEntries
+            val localAuditExpired = shouldPerformFullLocalAudit(mode, protocolState)
+            val manifestMetadata = remoteManifestStore.readMetadata(client, config)
+            val sameRevisionFastStatus =
+                buildSameRevisionFastStatus(
+                    protocolState = protocolState,
+                    lastSyncTime = lastSyncTime,
+                    journalEntries = journalEntries,
+                    currentLocalFileCount = effectiveLocalChanges.currentLocalFileCount,
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                    planner = runtime.planner,
+                    metadataDao = runtime.metadataDao,
+                    manifestRevision = manifestMetadata?.revision,
+                )
+            if (sameRevisionFastStatus != null || localAuditExpired) {
+                return sameRevisionFastStatus
+            }
+            val manifest = remoteManifestStore.read(client, config) ?: return null
+            val stableStatus =
+                buildSameRevisionFastStatus(
+                    protocolState = protocolState,
+                    lastSyncTime = lastSyncTime,
+                    journalEntries = journalEntries,
+                    currentLocalFileCount = effectiveLocalChanges.currentLocalFileCount,
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                    planner = runtime.planner,
+                    metadataDao = runtime.metadataDao,
+                    manifestRevision = manifest.revision,
+                    remoteFileCount = manifest.entries.size,
+                )
+            if (stableStatus != null) {
+                return stableStatus
+            }
+            val incremental =
+                prepareIncrementalSync(
+                    manifest = manifest,
+                    journalEntries = journalEntries,
+                    layout = layout,
+                    mode = mode,
+                    fileBridgeScope = fileBridgeScope,
+                    planner = runtime.planner,
+                    metadataDao = runtime.metadataDao,
+                    protocolState = protocolState,
+                )
+            return S3SyncStatus(
+                remoteFileCount = manifest.entries.size,
+                localFileCount = effectiveLocalChanges.currentLocalFileCount ?: protocolState.indexedLocalFileCount,
+                pendingChanges = incremental.plan.pendingChanges,
+                lastSyncTime = lastSyncTime,
+            )
+        }
+
+        private fun shouldPerformFullLocalAudit(
+            mode: S3LocalSyncMode,
+            protocolState: S3SyncProtocolState,
+        ): Boolean =
+            mode is S3LocalSyncMode.VaultRoot &&
+                (
+                    protocolState.lastSuccessfulSyncAt == null ||
+                        System.currentTimeMillis() - protocolState.lastSuccessfulSyncAt >
+                        S3_VAULT_ROOT_AUDIT_INTERVAL_MS
+                )
 
         suspend fun testConnection(): S3SyncResult {
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
@@ -155,10 +258,14 @@ class S3SyncStatusTester
             layout: SyncDirectoryLayout,
             mode: S3LocalSyncMode,
         ): ListingCompatibilityAnalysis {
+            val manifestKey = encodingSupport.remoteKeyPrefix(config) + S3_MANIFEST_FILENAME
             var firstInvalidKey: String? = null
             var lastDecodeError: Throwable? = null
             val ignoredExternalKeys = mutableListOf<String>()
             for (remoteKey in remoteKeys) {
+                if (remoteKey == manifestKey) {
+                    return ListingCompatibilityAnalysis(hasCompatibleKey = true)
+                }
                 val rawRelativePath = remoteKey.removePrefix(prefix)
                 val decoded =
                     when (config.encryptionMode) {
@@ -250,7 +357,51 @@ class S3SyncStatusTester
                 )
             }
         }
+}
+
+private fun String?.compatibleWith(mode: S3LocalSyncMode): Boolean =
+    this == null || this == mode.fingerprint()
+
+private suspend fun buildSameRevisionFastStatus(
+    protocolState: S3SyncProtocolState,
+    lastSyncTime: Long?,
+    journalEntries: Map<String, S3LocalChangeJournalEntry>,
+    currentLocalFileCount: Int?,
+    layout: SyncDirectoryLayout,
+    mode: S3LocalSyncMode,
+    fileBridgeScope: S3SyncFileBridgeScope,
+    planner: S3SyncPlanner,
+    metadataDao: com.lomo.data.local.dao.S3SyncMetadataDao,
+    manifestRevision: Long?,
+    remoteFileCount: Int = protocolState.indexedRemoteFileCount,
+): S3SyncStatus? {
+    if (manifestRevision != protocolState.lastManifestRevision) {
+        return null
     }
+    if (journalEntries.isEmpty()) {
+        return S3SyncStatus(
+            remoteFileCount = remoteFileCount,
+            localFileCount = currentLocalFileCount ?: protocolState.indexedLocalFileCount,
+            pendingChanges = 0,
+            lastSyncTime = lastSyncTime,
+        )
+    }
+    val localOnly =
+        prepareLocalOnlyIncrementalSync(
+            journalEntries = journalEntries,
+            layout = layout,
+            mode = mode,
+            fileBridgeScope = fileBridgeScope,
+            planner = planner,
+            metadataDao = metadataDao,
+        )
+    return S3SyncStatus(
+        remoteFileCount = remoteFileCount,
+        localFileCount = currentLocalFileCount ?: protocolState.indexedLocalFileCount,
+        pendingChanges = localOnly.plan.pendingChanges,
+        lastSyncTime = lastSyncTime,
+    )
+}
 
 private data class ListingCompatibilityAnalysis(
     val hasCompatibleKey: Boolean,

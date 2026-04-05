@@ -18,7 +18,7 @@ internal class UpdateMemoMutationDelegate(
             flushMemoUpdateToFile(memo, newContent) -> {
                 val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, memo, newContent)
                 persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(finalUpdatedMemo))
-                runtime.memoVersionJournal.appendLocalRevision(
+                runtime.memoVersionRecorder.enqueueLocalRevision(
                     memo = finalUpdatedMemo,
                     lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
                     origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,
@@ -43,11 +43,11 @@ internal class UpdateMemoMutationDelegate(
                 val finalUpdatedMemo = buildUpdatedMemo(runtime, storageFormatProvider, sourceMemo, newContent)
                 val outboxId =
                     persistMemoWithOutbox(
-                    daoBundle = runtime.daoBundle,
-                    memo = MemoEntity.fromDomain(finalUpdatedMemo),
-                    outbox = buildUpdateOutbox(sourceMemo, newContent),
-                )
-                runtime.memoVersionJournal.appendLocalRevision(
+                        daoBundle = runtime.daoBundle,
+                        memo = MemoEntity.fromDomain(finalUpdatedMemo),
+                        outbox = buildUpdateOutbox(sourceMemo, newContent),
+                    )
+                runtime.memoVersionRecorder.enqueueLocalRevision(
                     memo = finalUpdatedMemo,
                     lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
                     origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_EDIT,

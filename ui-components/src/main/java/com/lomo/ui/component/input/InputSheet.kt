@@ -39,13 +39,10 @@ import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -65,7 +62,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
@@ -85,6 +81,7 @@ private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 
 data class InputSheetState(
     val inputValue: TextFieldValue,
+    val focusRequestToken: Long = 0L,
     val availableTags: List<String> = emptyList(),
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
@@ -109,21 +106,14 @@ fun interface InputInterceptor {
     ): InputInterceptionResult
 }
 
-object TripleEnterSubmitInterceptor : InputInterceptor {
+private object PassThroughInputInterceptor : InputInterceptor {
     override fun intercept(
         previousValue: TextFieldValue,
         newValue: TextFieldValue,
-    ): InputInterceptionResult {
-        val oldText = previousValue.text
-        val newText = newValue.text
-        val shouldSubmit = newText.length > oldText.length && newText.endsWith("""\n\n\n""")
-        return if (shouldSubmit) {
-            InputInterceptionResult.SubmitContent(newText.trim())
-        } else {
-            InputInterceptionResult.UpdateValue(newValue)
-        }
-    }
+    ): InputInterceptionResult = InputInterceptionResult.UpdateValue(newValue)
 }
+
+fun passThroughInputInterceptor(): InputInterceptor = PassThroughInputInterceptor
 
 data class InputSheetCallbacks(
     val onInputValueChange: (TextFieldValue) -> Unit,
@@ -134,7 +124,7 @@ data class InputSheetCallbacks(
     val onStartRecording: () -> Unit = {},
     val onStopRecording: () -> Unit = {},
     val onCancelRecording: () -> Unit = {},
-    val inputInterceptor: InputInterceptor = TripleEnterSubmitInterceptor,
+    val inputInterceptor: InputInterceptor = passThroughInputInterceptor(),
     val autoSubmitOnDismiss: Boolean = false,
     val hasDraftPersistence: Boolean = false,
 )
@@ -155,6 +145,9 @@ fun InputSheet(
     state: InputSheetState,
     callbacks: InputSheetCallbacks,
     slots: InputSheetSlots = InputSheetSlots(),
+    benchmarkRootTag: String? = null,
+    benchmarkEditorTag: String? = null,
+    benchmarkSubmitTag: String? = null,
 ) {
     val inputValue = state.inputValue
     val hintText = remember(state.hints) { state.hints.randomOrNull().orEmpty() }
@@ -162,18 +155,30 @@ fun InputSheet(
     val sessionState = rememberInputSheetSessionState(inputValue.text)
     val haptic = LocalAppHapticFeedback.current
     val focusRequester = remember { FocusRequester() }
+    val focusParkingRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    var editorView by remember { mutableStateOf<MemoInputEditText?>(null) }
     val scope = rememberCoroutineScope()
     val dismissSheet =
         rememberDismissSheetAction(
             isDismissing = sessionState.isDismissing,
             onDismissingChange = { sessionState.isDismissing = it },
             onSheetVisibleChange = { sessionState.isSheetVisible = it },
+            focusParkingRequester = focusParkingRequester,
+            editorView = editorView,
             keyboardController = keyboardController,
             scope = scope,
             onDismiss = callbacks.onDismiss,
         )
-    val submitWithLock = rememberSubmitWithLock(sessionState, callbacks.onSubmit)
+    val submitWithLock =
+        rememberSubmitWithLock(
+            sessionState = sessionState,
+            onSubmit = callbacks.onSubmit,
+            editorView = editorView,
+            keyboardController = keyboardController,
+            focusParkingRequester = focusParkingRequester,
+            scope = scope,
+        )
     val requestDismiss =
         rememberRequestDismiss(
             sessionState = sessionState,
@@ -189,6 +194,9 @@ fun InputSheet(
         state = state,
         inputText = inputValue.text,
         focusRequester = focusRequester,
+        focusParkingRequester = focusParkingRequester,
+        focusRequestToken = state.focusRequestToken,
+        editorView = editorView,
         keyboardController = keyboardController,
         onRequestDismiss = requestDismiss,
     )
@@ -211,11 +219,16 @@ fun InputSheet(
         inputValue = inputValue,
         hintText = hintText,
         focusRequester = focusRequester,
+        focusParkingRequester = focusParkingRequester,
+        onEditorReady = { editorView = it },
         haptic = haptic,
         dismissSheet = dismissSheet,
         requestDismiss = requestDismiss,
         handleTextChange = handleTextChange,
         submitWithLock = submitWithLock,
+        benchmarkRootTag = benchmarkRootTag,
+        benchmarkEditorTag = benchmarkEditorTag,
+        benchmarkSubmitTag = benchmarkSubmitTag,
     )
 }
 
@@ -232,6 +245,7 @@ internal class InputSheetSessionState(
     var submissionLockSourceText by mutableStateOf<String?>(null)
     var showDiscardDialog by mutableStateOf(false)
     var isSheetVisible by mutableStateOf(false)
+    var isSheetEntrySettled by mutableStateOf(false)
     var isDismissing by mutableStateOf(false)
 
     fun clearSubmissionLock() {
@@ -245,8 +259,12 @@ internal class InputSheetSessionState(
 private fun rememberSubmitWithLock(
     sessionState: InputSheetSessionState,
     onSubmit: (String) -> Unit,
+    editorView: MemoInputEditText?,
+    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    focusParkingRequester: FocusRequester,
+    scope: kotlinx.coroutines.CoroutineScope,
 ): (String, String, String) -> Unit =
-    remember(sessionState, onSubmit) {
+    remember(sessionState, onSubmit, editorView, keyboardController, focusParkingRequester, scope) {
         submit@{ content, triggerText, sourceText ->
             if (sessionState.isSubmitting && sessionState.pendingSubmissionTriggerText == triggerText) {
                 return@submit
@@ -254,7 +272,16 @@ private fun rememberSubmitWithLock(
             sessionState.isSubmitting = true
             sessionState.pendingSubmissionTriggerText = triggerText
             sessionState.submissionLockSourceText = sourceText
-            onSubmit(content)
+            releaseEditorFocusAndKeyboardImmediately(
+                editor = editorView,
+                keyboardController = keyboardController,
+                focusParkingRequester = focusParkingRequester,
+            )
+            scope.launch {
+                delay(INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS)
+                withFrameNanos { }
+                onSubmit(content)
+            }
         }
     }
 
@@ -325,6 +352,8 @@ private fun rememberDismissSheetAction(
     isDismissing: Boolean,
     onDismissingChange: (Boolean) -> Unit,
     onSheetVisibleChange: (Boolean) -> Unit,
+    focusParkingRequester: FocusRequester,
+    editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     scope: kotlinx.coroutines.CoroutineScope,
     onDismiss: () -> Unit,
@@ -332,8 +361,12 @@ private fun rememberDismissSheetAction(
     dismiss@{
         if (isDismissing) return@dismiss
         onDismissingChange(true)
+        releaseEditorFocusAndKeyboardImmediately(
+            editor = editorView,
+            keyboardController = keyboardController,
+            focusParkingRequester = focusParkingRequester,
+        )
         scope.launch {
-            keyboardController?.hide()
             delay(INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS)
             onSheetVisibleChange(false)
             delay(MotionTokens.DurationLong2.toLong())
@@ -342,37 +375,14 @@ private fun rememberDismissSheetAction(
     }
 
 @Composable
-private fun InputSheetVisibilityEffects(
-    isSheetVisible: Boolean,
-    isRecording: Boolean,
-    isDismissing: Boolean,
-    focusRequester: FocusRequester,
-    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-    onSheetVisibleChange: (Boolean) -> Unit,
-) {
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        onSheetVisibleChange(true)
-    }
-
-    LaunchedEffect(isSheetVisible, isRecording, isDismissing) {
-        if (!isSheetVisible || isDismissing) return@LaunchedEffect
-        if (isRecording) {
-            keyboardController?.hide()
-            return@LaunchedEffect
-        }
-        delay(MotionTokens.DurationLong2.toLong())
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-}
-
-@Composable
 private fun InputSheetLifecycle(
     sessionState: InputSheetSessionState,
     state: InputSheetState,
     inputText: String,
     focusRequester: FocusRequester,
+    focusParkingRequester: FocusRequester,
+    focusRequestToken: Long,
+    editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     onRequestDismiss: () -> Unit,
 ) {
@@ -380,9 +390,19 @@ private fun InputSheetLifecycle(
         isSheetVisible = sessionState.isSheetVisible,
         isRecording = state.isRecording,
         isDismissing = sessionState.isDismissing,
-        focusRequester = focusRequester,
-        keyboardController = keyboardController,
         onSheetVisibleChange = { sessionState.isSheetVisible = it },
+        onSheetEntrySettledChange = { sessionState.isSheetEntrySettled = it },
+    )
+    InputSheetFocusRequestEffects(
+        isSheetVisible = sessionState.isSheetVisible,
+        isSheetEntrySettled = sessionState.isSheetEntrySettled,
+        isRecording = state.isRecording,
+        isDismissing = sessionState.isDismissing,
+        focusRequester = focusRequester,
+        focusParkingRequester = focusParkingRequester,
+        focusRequestToken = focusRequestToken,
+        editorView = editorView,
+        keyboardController = keyboardController,
     )
     BackHandler(enabled = true) { onRequestDismiss() }
     InputSheetSubmissionResetEffect(
@@ -390,43 +410,5 @@ private fun InputSheetLifecycle(
         isSubmitting = sessionState.isSubmitting,
         submissionLockSourceText = sessionState.submissionLockSourceText,
         onClearSubmissionLock = sessionState::clearSubmissionLock,
-    )
-}
-
-@Composable
-private fun InputSheetSubmissionResetEffect(
-    inputText: String,
-    isSubmitting: Boolean,
-    submissionLockSourceText: String?,
-    onClearSubmissionLock: () -> Unit,
-) {
-    LaunchedEffect(inputText, isSubmitting, submissionLockSourceText) {
-        val sourceText = submissionLockSourceText ?: return@LaunchedEffect
-        if (isSubmitting && inputText != sourceText) {
-            onClearSubmissionLock()
-        }
-    }
-}
-
-
-@Composable
-internal fun InputDiscardDialog(
-    onDismiss: () -> Unit,
-    onConfirmDiscard: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.input_discard_title)) },
-        text = { Text(stringResource(R.string.input_discard_message)) },
-        confirmButton = {
-            TextButton(onClick = onConfirmDiscard) {
-                Text(stringResource(R.string.input_discard_confirm))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.input_discard_cancel))
-            }
-        },
     )
 }

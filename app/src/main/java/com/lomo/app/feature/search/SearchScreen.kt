@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,15 +40,20 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
 
 private data class SearchScreenUiSnapshot(
     val query: String,
+    val showLoading: Boolean,
     val searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
     val dateFormat: String,
     val timeFormat: String,
@@ -108,6 +114,7 @@ fun SearchScreen(
         ) { padding ->
             SearchScreenContent(
                 query = uiState.query,
+                showLoading = uiState.showLoading,
                 searchResults = uiState.searchResults,
                 dateFormat = uiState.dateFormat,
                 timeFormat = uiState.timeFormat,
@@ -124,6 +131,7 @@ fun SearchScreen(
 @Composable
 private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScreenUiSnapshot {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val showLoading by viewModel.showLoading.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
@@ -132,6 +140,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
 
     return SearchScreenUiSnapshot(
         query = query,
+        showLoading = showLoading,
         searchResults = searchResults,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
@@ -158,7 +167,10 @@ private fun SearchScreenScaffold(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier =
+            Modifier
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .benchmarkAnchorRoot(BenchmarkAnchorContract.SEARCH_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             SearchTopBar(
@@ -215,6 +227,7 @@ private fun SearchTopBar(
                         haptic.medium()
                         onQueryChange("")
                     },
+                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
                 ) {
                     Icon(
                         Icons.Default.Close,
@@ -279,7 +292,8 @@ private fun SearchQueryField(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .focusRequester(focusRequester),
+                .focusRequester(focusRequester)
+                .benchmarkAnchor(BenchmarkAnchorContract.SEARCH_INPUT),
         textStyle =
             MaterialTheme.typography.bodyLarge.copy(
                 color = MaterialTheme.colorScheme.onSurface,
@@ -305,6 +319,7 @@ private fun SearchQueryField(
 @Composable
 private fun SearchScreenContent(
     query: String,
+    showLoading: Boolean,
     searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
@@ -327,6 +342,10 @@ private fun SearchScreenContent(
                     title = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_title),
                     description = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_desc),
                 )
+            }
+
+            showLoading -> {
+                SearchLoadingState()
             }
 
             searchResults.isEmpty() -> {
@@ -357,5 +376,15 @@ private fun SearchScreenContent(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SearchLoadingState(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        ExpressiveLoadingIndicator(modifier = Modifier.size(56.dp))
     }
 }

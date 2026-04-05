@@ -80,7 +80,15 @@ class MemoSynchronizer
         suspend fun updateMemo(
             memo: Memo,
             newContent: String,
-        ) = mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.updateMemo(memo, newContent) } }
+        ) = withContext(Dispatchers.IO) {
+            val outboxId =
+                mutex.withLock {
+                    mutationHandler.updateMemoInDb(memo, newContent)
+                }
+            if (outboxId != null) {
+                outboxCoordinator.requestOutboxDrain()
+            }
+        }
 
         suspend fun updateMemoAsync(
             memo: Memo,

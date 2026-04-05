@@ -36,14 +36,14 @@ class MemoTrashMutationHandler
         private val memoSearchDao: MemoSearchDao,
         private val localFileStateDao: LocalFileStateDao,
         private val textProcessor: MemoTextProcessor,
-        private val memoVersionJournal: MemoVersionJournal,
+        private val memoVersionRecorder: AsyncMemoVersionRecorder,
     ) {
         suspend fun moveToTrash(memo: Memo) {
             if (!moveToTrashFileOnly(memo)) {
                 throw UnsafeWorkspaceMutationException("Unable to move memo to trash safely: ${memo.id}")
             }
             moveToTrashInDb(memo)
-            memoVersionJournal.appendLocalRevision(
+            memoVersionRecorder.enqueueLocalRevision(
                 memo = memo.copy(isDeleted = true),
                 lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.TRASHED,
                 origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
@@ -113,7 +113,7 @@ class MemoTrashMutationHandler
                 throw UnsafeWorkspaceMutationException("Unable to restore trash memo safely: ${memo.id}")
             }
             restoreFromTrashInDb(memo)
-            memoVersionJournal.appendLocalRevision(
+            memoVersionRecorder.enqueueLocalRevision(
                 memo = memo.copy(isDeleted = false),
                 lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
                 origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
@@ -201,7 +201,7 @@ class MemoTrashMutationHandler
                 memoTrashDao.deleteTrashMemoById(memo.id)
             }
 
-            memoVersionJournal.appendLocalRevision(
+            memoVersionRecorder.enqueueLocalRevision(
                 memo = memo.copy(isDeleted = true),
                 lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.DELETED,
                 origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_DELETE,

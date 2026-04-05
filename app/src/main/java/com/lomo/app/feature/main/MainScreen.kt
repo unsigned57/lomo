@@ -13,8 +13,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -34,7 +36,9 @@ import com.lomo.domain.model.MemoRevision
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
@@ -59,9 +63,9 @@ fun MainScreen(
 ) {
     val screenState = collectMainScreenUiSnapshot(viewModel = viewModel, sidebarViewModel = sidebarViewModel)
     val hostState = rememberMainScreenHostState()
+    val currentListTopMemoId = screenState.visibleUiMemos.firstOrNull()?.memo?.id
     val unknownErrorMessage = stringResource(R.string.error_unknown)
     var isRefreshing by remember { mutableStateOf(false) }
-    var pendingNewMemoScroll by remember { mutableStateOf(false) }
 
     MainScreenDraftAutosaveEffect(
         editorController = hostState.editorController,
@@ -71,11 +75,19 @@ fun MainScreen(
         viewModel = viewModel,
         uiState = screenState.uiState,
     )
-    MainScreenPendingScrollEffect(
-        uiMemos = screenState.uiMemos,
+    MainScreenPendingNewMemoCreationEffect(
+        pendingRequest = screenState.pendingNewMemoCreationRequest,
         listState = hostState.listState,
-        pendingNewMemoScroll = pendingNewMemoScroll,
-        onPendingScrollConsumed = { pendingNewMemoScroll = false },
+        currentListTopMemoId = currentListTopMemoId,
+        newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
+        viewModel = viewModel,
+        editorViewModel = editorViewModel,
+    )
+    MainScreenNewMemoInsertAnimationEffect(
+        listState = hostState.listState,
+        currentListTopMemoId = currentListTopMemoId,
+        currentTopViewportMemoId = null,
+        newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
     )
 
     MainScreenTransientEffects(
@@ -87,6 +99,9 @@ fun MainScreen(
         directoryGuideController = hostState.directoryGuideController,
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
+        canOpenCreateMemo =
+            screenState.uiState is MainViewModel.MainScreenState.Ready &&
+                screenState.pendingNewMemoCreationRequest == null,
     )
     MainScreenConflictHost(viewModel = viewModel, conflictViewModel = conflictViewModel)
     MainScreenContentHost(
@@ -99,7 +114,6 @@ fun MainScreen(
         unknownErrorMessage = unknownErrorMessage,
         isRefreshing = isRefreshing,
         onRefreshingChange = { isRefreshing = it },
-        onPendingNewMemoScroll = { pendingNewMemoScroll = true },
         onNavigateToSettings = onNavigateToSettings,
         onNavigateToTrash = onNavigateToTrash,
         onNavigateToSearch = onNavigateToSearch,
@@ -139,6 +153,99 @@ private fun MainScreenAutomaticRefreshEffect(
     }
 }
 
+@Composable
+private fun MainScreenPendingNewMemoCreationEffect(
+    pendingRequest: PendingNewMemoCreationRequest?,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    currentListTopMemoId: String?,
+    newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
+    viewModel: MainViewModel,
+    editorViewModel: MemoEditorViewModel,
+) {
+    val scope = rememberCoroutineScope()
+    val latestViewModel = rememberUpdatedState(viewModel)
+    val latestEditorViewModel = rememberUpdatedState(editorViewModel)
+    val latestListTopMemoId = rememberUpdatedState(currentListTopMemoId)
+    val latestNewMemoInsertAnimationSession = rememberUpdatedState(newMemoInsertAnimationSession)
+    val creationCoordinator =
+        remember(listState, scope) {
+            NewMemoCreationCoordinator<PendingNewMemoCreationRequest>(
+                scope = scope,
+                isListAtAbsoluteTop = {
+                    listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+                },
+                scrollListToAbsoluteTop = {
+                    listState.scrollToItem(0)
+                },
+                createMemo = { request ->
+                    latestNewMemoInsertAnimationSession.value.arm(
+                        previousTopMemoId = latestListTopMemoId.value,
+                    )
+                    val consumedRequest =
+                        latestViewModel.value.consumePendingNewMemoCreationRequest(request.requestId)
+                    if (consumedRequest != null) {
+                        latestEditorViewModel.value.createMemo(consumedRequest.content)
+                    }
+                },
+            )
+        }
+
+    LaunchedEffect(pendingRequest?.requestId) {
+        pendingRequest?.let(creationCoordinator::submit)
+    }
+}
+
+@Composable
+private fun MainScreenNewMemoInsertAnimationEffect(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    currentListTopMemoId: String?,
+    currentTopViewportMemoId: String?,
+    newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
+) {
+    val currentState = newMemoInsertAnimationSession.state
+    val isListPinnedAtTop by
+        remember(listState) {
+            androidx.compose.runtime.derivedStateOf {
+                listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+            }
+        }
+
+    LaunchedEffect(
+        currentListTopMemoId,
+        currentTopViewportMemoId,
+        currentState.awaitingInsertedTopMemo,
+        currentState.blankSpaceMemoId,
+        currentState.previousTopMemoId,
+        currentState.gapReadyMemoId,
+        isListPinnedAtTop,
+    ) {
+        when {
+            currentState.awaitingInsertedTopMemo -> {
+                withFrameNanos { }
+                if (
+                    isInsertedTopMemoReadyForSpaceStage(
+                        state = currentState,
+                        currentListTopMemoId = currentListTopMemoId,
+                        isListPinnedAtTop = listState.firstVisibleItemIndex == 0 &&
+                            listState.firstVisibleItemScrollOffset == 0,
+                    )
+                ) {
+                    newMemoInsertAnimationSession.markInsertedTopMemoReady(
+                        insertedTopMemoId = currentListTopMemoId,
+                    )
+                }
+            }
+
+            currentState.gapReadyMemoId != null -> {
+                withFrameNanos { }
+                if (newMemoInsertAnimationSession.state.gapReadyMemoId == currentState.gapReadyMemoId) {
+                    newMemoInsertAnimationSession.markRevealReady(currentState.gapReadyMemoId)
+                }
+            }
+        }
+    }
+}
+
 internal data class DraftAutosaveState(
     val editingMemoId: String?,
     val text: String,
@@ -147,6 +254,7 @@ internal data class DraftAutosaveState(
 
 internal data class MainScreenUiSnapshot(
     val uiMemos: List<MemoUiModel>,
+    val visibleUiMemos: List<MemoUiModel>,
     val hasRawItems: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
@@ -161,6 +269,7 @@ internal data class MainScreenUiSnapshot(
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val uiState: MainViewModel.MainScreenState,
+    val pendingNewMemoCreationRequest: PendingNewMemoCreationRequest?,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -170,6 +279,7 @@ internal data class MainScreenHostState(
     val snackbarHostState: SnackbarHostState,
     val scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     val listState: androidx.compose.foundation.lazy.LazyListState,
+    val newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
     val editorController: MemoEditorController,
     val isExpanded: Boolean,
     val directoryGuideController: MainDirectoryGuideController,
@@ -189,18 +299,17 @@ private data class MainScreenInteractionCallbacks(
 @Composable
 private fun rememberInputHints(showInputHints: Boolean): List<String> {
     val hint1 = stringResource(R.string.input_hint_1)
-    val hint2 = stringResource(R.string.input_hint_2)
     val hint3 = stringResource(R.string.input_hint_3)
     val hint4 = stringResource(R.string.input_hint_4)
     val hint5 = stringResource(R.string.input_hint_5)
     val hint6 = stringResource(R.string.input_hint_6)
     val hint7 = stringResource(R.string.input_hint_7)
 
-    return remember(showInputHints, hint1, hint2, hint3, hint4, hint5, hint6, hint7) {
+    return remember(showInputHints, hint1, hint3, hint4, hint5, hint6, hint7) {
         if (!showInputHints) {
             emptyList()
         } else {
-            listOf(hint1, hint2, hint3, hint4, hint5, hint6, hint7)
+            listOf(hint1, hint3, hint4, hint5, hint6, hint7)
         }
     }
 }
@@ -215,6 +324,7 @@ private fun MainScreenTransientEffects(
     directoryGuideController: MainDirectoryGuideController,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
+    canOpenCreateMemo: Boolean,
 ) {
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
@@ -236,7 +346,11 @@ private fun MainScreenTransientEffects(
         onAppendMarkdown = editorController::appendMarkdownBlock,
         onAppendImageMarkdown = editorController::appendImageMarkdown,
         onEnsureEditorVisible = editorController::ensureVisible,
-        onOpenCreateMemo = { editorController.openForCreate(draftText) },
+        onOpenCreateMemo = {
+            if (canOpenCreateMemo) {
+                editorController.openForCreate(draftText)
+            }
+        },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
             val index = uiMemos.indexOfFirst { it.memo.id == memoId }
@@ -275,7 +389,6 @@ internal fun MainScreenInteractionBindings(
     availableTags: List<String>,
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
-    onPendingNewMemoScroll: () -> Unit,
     content: MainScreenInteractionContent,
 ) {
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
@@ -289,7 +402,6 @@ internal fun MainScreenInteractionBindings(
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
             viewModel = viewModel,
-            editorViewModel = editorViewModel,
             recordingViewModel = recordingViewModel,
             editorController = editorController,
             directoryGuideController = directoryGuideController,
@@ -297,7 +409,6 @@ internal fun MainScreenInteractionBindings(
             scope = scope,
             snackbarHostState = snackbarHostState,
             unknownErrorMessage = unknownErrorMessage,
-            onPendingNewMemoScroll = onPendingNewMemoScroll,
         )
 
     MemoInteractionHost(
@@ -346,7 +457,6 @@ internal fun MainScreenInteractionBindings(
 @Composable
 private fun rememberMainScreenInteractionCallbacks(
     viewModel: MainViewModel,
-    editorViewModel: MemoEditorViewModel,
     recordingViewModel: RecordingViewModel,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
@@ -354,11 +464,9 @@ private fun rememberMainScreenInteractionCallbacks(
     scope: CoroutineScope,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
-    onPendingNewMemoScroll: () -> Unit,
 ): MainScreenInteractionCallbacks =
     remember(
         viewModel,
-        editorViewModel,
         recordingViewModel,
         editorController,
         directoryGuideController,
@@ -366,13 +474,10 @@ private fun rememberMainScreenInteractionCallbacks(
         scope,
         snackbarHostState,
         unknownErrorMessage,
-        onPendingNewMemoScroll,
     ) {
         MainScreenInteractionCallbacks(
             onCreateMemo = { contentText ->
-                editorViewModel.createMemo(contentText) {
-                    onPendingNewMemoScroll()
-                }
+                viewModel.requestPendingNewMemoCreation(contentText)
             },
             onCameraCaptureError = { error ->
                 scope.launch {
@@ -438,6 +543,7 @@ private fun VersionHistoryOverlay(
                 canLoadMore = false,
                 isLoadingMore = false,
                 isRestoreInProgress = false,
+                restoringRevisionId = null,
                 onLoadMore = {},
                 onRestore = {},
                 onDismiss = onDismiss,
@@ -445,23 +551,46 @@ private fun VersionHistoryOverlay(
         }
 
         is MainVersionHistoryState.Loaded -> {
-            val versionUiModels =
-                remember(state.versions, rootPath, imagePath, imageMap) {
-                    mapper.mapToUiModels(
-                        revisions = state.versions,
-                        rootPath = rootPath,
-                        imagePath = imagePath,
-                        imageMap = imageMap,
+            var pendingRestoreRevisionId by remember(state.memo.id) { mutableStateOf<String?>(null) }
+            var versionUiModels by
+                remember {
+                    mutableStateOf<List<com.lomo.app.feature.memo.MemoVersionHistoryUiModel>>(
+                        emptyList(),
                     )
                 }
+            LaunchedEffect(state.isRestoring, state.restoringRevisionId, state.memo.id) {
+                if (!state.isRestoring && state.restoringRevisionId == null) {
+                    pendingRestoreRevisionId = null
+                }
+            }
+            LaunchedEffect(state.versions, rootPath, imagePath, imageMap) {
+                val revisions = state.versions
+                versionUiModels =
+                    withContext(Dispatchers.Default) {
+                        mapper.mapToUiModels(
+                            revisions = revisions,
+                            rootPath = rootPath,
+                            imagePath = imagePath,
+                            imageMap = imageMap,
+                        )
+                    }
+            }
+            val restoringRevisionId = pendingRestoreRevisionId ?: state.restoringRevisionId
+            val isRestoreInProgress = state.isRestoring || restoringRevisionId != null
             com.lomo.app.feature.memo.MemoVersionHistorySheet(
                 versions = versionUiModels,
-                isLoading = false,
+                isLoading = versionUiModels.isEmpty() && state.versions.isNotEmpty(),
                 canLoadMore = state.hasMore,
                 isLoadingMore = state.isLoadingMore,
-                isRestoreInProgress = state.isRestoring,
+                isRestoreInProgress = isRestoreInProgress,
+                restoringRevisionId = restoringRevisionId,
                 onLoadMore = onLoadMore,
-                onRestore = { version -> onRestore(state.memo, version) },
+                onRestore = { version ->
+                    if (restoringRevisionId == null && !state.isRestoring) {
+                        pendingRestoreRevisionId = version.revisionId
+                        onRestore(state.memo, version)
+                    }
+                },
                 onDismiss = onDismiss,
             )
         }

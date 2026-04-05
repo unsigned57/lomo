@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.app.R
 import com.lomo.ui.theme.MotionTokens
 
@@ -43,7 +45,7 @@ internal fun MainFab(
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         shadowElevation = 6.dp,
         tonalElevation = 3.dp,
-        modifier = modifier,
+        modifier = modifier.benchmarkAnchor(BenchmarkAnchorContract.MAIN_CREATE_FAB),
     ) {
         Row(
             modifier =

@@ -1,10 +1,13 @@
 package com.lomo.app.feature.main
 
-import androidx.compose.animation.core.Spring
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,9 +16,10 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -48,12 +53,14 @@ import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 
 private const val PRELOAD_LOOKAHEAD_COUNT = 5
+private const val STARTUP_PRELOAD_MEMO_COUNT = 6
 private const val PRELOAD_EVENT_THROTTLE_MS = 150L
 private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
@@ -67,8 +74,7 @@ private const val MEMO_ITEM_VISIBLE_ALPHA = 1f
 private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f
 private const val MEMO_DELETE_ANIMATION_DURATION_MILLIS = 300
 private const val MEMO_DELETE_FADE_DELAY_MILLIS = 300
-private const val MEMO_INSERT_ANIMATION_DURATION_MILLIS = 600
-private const val MEMO_INSERT_FADE_DELAY_MILLIS = 300
+private const val MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS = 220
 
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
@@ -79,6 +85,10 @@ private const val MEMO_INSERT_FADE_DELAY_MILLIS = 300
 internal fun MemoListContent(
     memos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState = NewMemoInsertAnimationState(),
+    onNewMemoSpacePrepared: (String) -> Unit = {},
+    onNewMemoRevealConsumed: (String) -> Unit = {},
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -94,6 +104,7 @@ internal fun MemoListContent(
 ) {
     val pullState = rememberPullToRefreshState()
     val deletingIds by deletingMemoIds.collectAsStateWithLifecycle()
+    val collapsingIds by collapsingMemoIds.collectAsStateWithLifecycle()
 
     MemoListPreloadEffect(
         memos = memos,
@@ -103,6 +114,10 @@ internal fun MemoListContent(
     MemoListBody(
         memos = memos,
         deletingIds = deletingIds,
+        collapsingIds = collapsingIds,
+        newMemoInsertAnimationState = newMemoInsertAnimationState,
+        onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+        onNewMemoRevealConsumed = onNewMemoRevealConsumed,
         listState = listState,
         pullState = pullState,
         isRefreshing = isRefreshing,
@@ -129,6 +144,23 @@ private fun MemoListPreloadEffect(
     val preloadGate = remember { ImagePreloadGate() }
     val latestMemos by rememberUpdatedState(memos)
 
+    LaunchedEffect(memos, context, imageLoader, preloadGate) {
+        val urlsToPreload =
+            withContext(Dispatchers.Default) {
+                preloadGate.selectUrlsToEnqueue(
+                    buildStartupImagePreloadCandidates(
+                        memos = memos,
+                        startupMemoCount = STARTUP_PRELOAD_MEMO_COUNT,
+                    ),
+                )
+            }
+        enqueueImagePreloadRequests(
+            context = context,
+            imageLoader = imageLoader,
+            urls = urlsToPreload,
+        )
+    }
+
     LaunchedEffect(listState, context, imageLoader, preloadGate) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.layoutInfo.visibleItemsInfo.size
@@ -136,26 +168,63 @@ private fun MemoListPreloadEffect(
             .collectLatest { (firstVisible, visibleCount) ->
                 val urlsToPreload =
                     withContext(Dispatchers.Default) {
-                        val currentMemos = latestMemos
-                        val preloadStart = firstVisible + visibleCount
-                        val preloadEnd = preloadStart + PRELOAD_LOOKAHEAD_COUNT
                         val preloadCandidates =
-                            (preloadStart..preloadEnd)
-                                .asSequence()
-                                .filter { index -> index in currentMemos.indices }
-                                .flatMap { index -> currentMemos[index].imageUrls.asSequence() }
-                                .toList()
+                            buildVisibleAndLookaheadImagePreloadCandidates(
+                                memos = latestMemos,
+                                firstVisible = firstVisible,
+                                visibleCount = visibleCount,
+                                lookaheadCount = PRELOAD_LOOKAHEAD_COUNT,
+                            )
                         preloadGate.selectUrlsToEnqueue(preloadCandidates)
                     }
-                urlsToPreload.forEach { url ->
-                    val request =
-                        ImageRequest
-                            .Builder(context)
-                            .data(url)
-                            .build()
-                    imageLoader.enqueue(request)
-                }
+                enqueueImagePreloadRequests(
+                    context = context,
+                    imageLoader = imageLoader,
+                    urls = urlsToPreload,
+                )
             }
+    }
+}
+
+internal fun buildStartupImagePreloadCandidates(
+    memos: List<MemoUiModel>,
+    startupMemoCount: Int,
+): List<String> =
+    memos
+        .asSequence()
+        .take(startupMemoCount.coerceAtLeast(0))
+        .flatMap { memo -> memo.imageUrls.asSequence() }
+        .toList()
+
+private fun buildVisibleAndLookaheadImagePreloadCandidates(
+    memos: List<MemoUiModel>,
+    firstVisible: Int,
+    visibleCount: Int,
+    lookaheadCount: Int,
+): List<String> {
+    val visibleEndExclusive = firstVisible + visibleCount
+    val lookaheadStart = visibleEndExclusive
+    val preloadEndExclusive = lookaheadStart + lookaheadCount
+    return (firstVisible until visibleEndExclusive)
+        .asSequence()
+        .plus((lookaheadStart until preloadEndExclusive).asSequence())
+        .filter { index -> index in memos.indices }
+        .flatMap { index -> memos[index].imageUrls.asSequence() }
+        .toList()
+}
+
+private fun enqueueImagePreloadRequests(
+    context: android.content.Context,
+    imageLoader: coil3.ImageLoader,
+    urls: List<String>,
+) {
+    urls.forEach { url ->
+        val request =
+            ImageRequest
+                .Builder(context)
+                .data(url)
+                .build()
+        imageLoader.enqueue(request)
     }
 }
 
@@ -164,6 +233,10 @@ private fun MemoListPreloadEffect(
 private fun MemoListBody(
     memos: List<MemoUiModel>,
     deletingIds: Set<String>,
+    collapsingIds: Set<String>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: LazyListState,
     pullState: PullToRefreshState,
     isRefreshing: Boolean,
@@ -203,6 +276,10 @@ private fun MemoListBody(
         MemoListColumn(
             memos = memos,
             deletingIds = deletingIds,
+            collapsingIds = collapsingIds,
+            newMemoInsertAnimationState = newMemoInsertAnimationState,
+            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
             listState = listState,
             onTodoClick = onTodoClick,
             dateFormat = dateFormat,
@@ -221,6 +298,10 @@ private fun MemoListBody(
 private fun MemoListColumn(
     memos: List<MemoUiModel>,
     deletingIds: Set<String>,
+    collapsingIds: Set<String>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: LazyListState,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
@@ -244,21 +325,37 @@ private fun MemoListColumn(
                         .asPaddingValues()
                         .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
             ),
-        verticalArrangement = Arrangement.spacedBy(MEMO_LIST_ITEM_SPACING),
+        verticalArrangement = Arrangement.Top,
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(
+        itemsIndexed(
             items = memos,
-            key = { it.memo.id },
-            contentType = { "memo" },
-        ) { uiModel ->
+            key = { _, item -> item.memo.id },
+            contentType = { _, _ -> "memo" },
+        ) { index, uiModel ->
             val deleteAnimationPolicy =
                 resolveDeleteAnimationVisualPolicy(
                     isDeleting = uiModel.memo.id in deletingIds,
                 )
+            val shouldHoldNewMemoHidden =
+                index == 0 &&
+                    newMemoInsertAnimationState.awaitingInsertedTopMemo &&
+                    uiModel.memo.id != newMemoInsertAnimationState.previousTopMemoId
+            val shouldAnimateNewMemoSpace =
+                newMemoInsertAnimationState.blankSpaceMemoId == uiModel.memo.id
+            val shouldHoldGapReadyMemoHidden =
+                newMemoInsertAnimationState.gapReadyMemoId == uiModel.memo.id
+            val shouldAnimateNewMemoReveal =
+                newMemoInsertAnimationState.pendingRevealMemoId == uiModel.memo.id
             MemoListItem(
                 uiModel = uiModel,
                 isDeleting = uiModel.memo.id in deletingIds,
+                isCollapsing = uiModel.memo.id in collapsingIds,
+                shouldHoldNewMemoHidden = shouldHoldNewMemoHidden,
+                shouldHoldGapReadyMemoHidden = shouldHoldGapReadyMemoHidden,
+                shouldAnimateNewMemoSpace = shouldAnimateNewMemoSpace,
+                shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
+                bottomSpacing = if (index == memos.lastIndex) 0.dp else MEMO_LIST_ITEM_SPACING,
                 deleteAnimationPolicy = deleteAnimationPolicy,
                 onTodoClick = onTodoClick,
                 dateFormat = dateFormat,
@@ -269,11 +366,14 @@ private fun MemoListColumn(
                 onTagClick = onTagClick,
                 onImageClick = onImageClick,
                 onShowMemoMenu = onShowMemoMenu,
+                onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                onNewMemoRevealConsumed = onNewMemoRevealConsumed,
                 modifier =
                     Modifier
                         .memoListPlacementAnimation(
                             lazyItemScope = this,
                             deleteAnimationPolicy = deleteAnimationPolicy,
+                            newMemoInsertAnimationState = newMemoInsertAnimationState,
                         )
                         .fillMaxWidth(),
             )
@@ -285,6 +385,12 @@ private fun MemoListColumn(
 private fun MemoListItem(
     uiModel: MemoUiModel,
     isDeleting: Boolean,
+    isCollapsing: Boolean,
+    shouldHoldNewMemoHidden: Boolean,
+    shouldHoldGapReadyMemoHidden: Boolean,
+    shouldAnimateNewMemoSpace: Boolean,
+    shouldAnimateNewMemoReveal: Boolean,
+    bottomSpacing: androidx.compose.ui.unit.Dp,
     deleteAnimationPolicy: DeleteAnimationVisualPolicy,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
@@ -295,6 +401,8 @@ private fun MemoListItem(
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val deleteAlpha by animateFloatAsState(
@@ -311,6 +419,15 @@ private fun MemoListItem(
             ),
         label = "DeleteAlpha",
     )
+    val animatedBottomSpacing by animateDpAsState(
+        targetValue = if (isCollapsing) 0.dp else bottomSpacing,
+        animationSpec =
+            androidx.compose.animation.core.tween(
+                durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS,
+                easing = MotionTokens.EasingStandard,
+            ),
+        label = "DeleteSpacing",
+    )
     val stableTodoClick =
         remember(uiModel.memo, onTodoClick) {
             { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
@@ -326,59 +443,86 @@ private fun MemoListItem(
                 )
             }
         }
+    val insertAnimation =
+        rememberMemoItemInsertAnimation(
+            memoId = uiModel.memo.id,
+            shouldHoldNewMemoHidden = shouldHoldNewMemoHidden,
+            shouldHoldGapReadyMemoHidden = shouldHoldGapReadyMemoHidden,
+            shouldAnimateNewMemoSpace = shouldAnimateNewMemoSpace,
+            shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
+            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+        )
+    val combinedAlpha = deleteAlpha * insertAnimation.contentAlpha
 
-    MemoCardEntry(
-        uiModel = uiModel,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        onTodoClick = stableTodoClick,
-        onTagClick = onTagClick,
-        onMemoEdit = onMemoDoubleClick,
-        doubleTapEditEnabled = doubleTapEditEnabled,
-        freeTextCopyEnabled = freeTextCopyEnabled,
-        onImageClick = stableImageClick,
-        onShowMenu = onShowMemoMenu,
-        modifier =
-            modifier.memoDeletingModifier(
-                deleteAlpha = deleteAlpha,
-                keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
+    AnimatedVisibility(
+        visible = !isCollapsing,
+        enter = EnterTransition.None,
+        exit =
+            shrinkVertically(
+                animationSpec =
+                    androidx.compose.animation.core.tween(
+                        durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS,
+                        easing = MotionTokens.EasingStandard,
+                    ),
+                shrinkTowards = Alignment.Top,
             ),
-    )
+        modifier =
+            modifier.memoInsertSpaceModifier(
+                spaceFraction = insertAnimation.spaceFraction,
+                bottomSpacing = animatedBottomSpacing,
+            ),
+    ) {
+        MemoCardEntry(
+            uiModel = uiModel,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            onTodoClick = stableTodoClick,
+            onTagClick = onTagClick,
+            onMemoEdit = onMemoDoubleClick,
+            doubleTapEditEnabled = doubleTapEditEnabled,
+            freeTextCopyEnabled = freeTextCopyEnabled,
+            onImageClick = stableImageClick,
+            onShowMenu = onShowMemoMenu,
+            modifier =
+                Modifier.memoVisibilityModifier(
+                    alpha = combinedAlpha,
+                    keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
+                ),
+        )
+    }
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 private fun Modifier.memoListPlacementAnimation(
     lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
     deleteAnimationPolicy: DeleteAnimationVisualPolicy,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
 ): Modifier =
     with(lazyItemScope) {
         this@memoListPlacementAnimation.animateItem(
-            fadeInSpec =
-                keyframes {
-                    durationMillis = MEMO_INSERT_ANIMATION_DURATION_MILLIS
-                    MEMO_ITEM_HIDDEN_ALPHA at 0
-                    MEMO_ITEM_HIDDEN_ALPHA at MEMO_INSERT_FADE_DELAY_MILLIS
-                    MEMO_ITEM_VISIBLE_ALPHA at MEMO_INSERT_ANIMATION_DURATION_MILLIS using
-                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                },
+            fadeInSpec = null,
             fadeOutSpec = null,
             placementSpec =
-                if (deleteAnimationPolicy.animatePlacement) {
-                    spring(stiffness = Spring.StiffnessLow)
+                if (deleteAnimationPolicy.animatePlacement && !newMemoInsertAnimationState.blocksPlacementSpring) {
+                    spring(
+                        stiffness = Spring.StiffnessLow,
+                        dampingRatio = Spring.DampingRatioNoBouncy,
+                    )
                 } else {
                     snap()
                 },
         )
     }
 
-private fun Modifier.memoDeletingModifier(
-    deleteAlpha: Float,
+private fun Modifier.memoVisibilityModifier(
+    alpha: Float,
     keepStableAlphaLayer: Boolean,
 ): Modifier =
-    if (keepStableAlphaLayer || deleteAlpha < MEMO_ITEM_ALPHA_THRESHOLD) {
+    if (keepStableAlphaLayer || alpha < MEMO_ITEM_ALPHA_THRESHOLD) {
         then(
             Modifier.graphicsLayer {
-                alpha = deleteAlpha
+                this.alpha = alpha
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             },
         )

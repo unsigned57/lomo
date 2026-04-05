@@ -5,13 +5,6 @@ import java.util.Locale
 
 internal fun String.matchesLegacyFolder(folder: String): Boolean = this == folder || startsWith("$folder/")
 
-internal fun String.removeLegacyRootPrefix(): String =
-    when {
-        startsWith("$S3_ROOT/") -> removePrefix("$S3_ROOT/")
-        this == S3_ROOT -> ""
-        else -> this
-    }
-
 internal fun joinRelativePath(
     base: String?,
     remainder: String,
@@ -45,7 +38,7 @@ internal fun isSyncableContentPath(relativePath: String): Boolean =
     !hasHiddenSegment(relativePath) &&
         (relativePath.endsWith(S3_MEMO_SUFFIX) || isSupportedAttachmentPath(relativePath))
 
-private fun isSupportedAttachmentPath(relativePath: String): Boolean {
+internal fun isSupportedAttachmentPath(relativePath: String): Boolean {
     val extension = relativePath.substringAfterLast('.', "").lowercase(Locale.ROOT)
     return extension in S3_SYNC_IMAGE_EXTENSIONS || extension in S3_SYNC_VOICE_EXTENSIONS
 }

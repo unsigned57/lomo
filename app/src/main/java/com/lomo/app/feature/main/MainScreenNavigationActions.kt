@@ -15,6 +15,7 @@ fun MainScreenNavigationActionHost(
     drawerState: DrawerState,
     isExpanded: Boolean,
     canCreateMemo: Boolean,
+    onCreateMemoUnavailable: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -38,6 +39,7 @@ fun MainScreenNavigationActionHost(
             haptic = haptic,
             isExpanded = isExpanded,
             canCreateMemo = canCreateMemo,
+            onCreateMemoUnavailable = onCreateMemoUnavailable,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToTrash = onNavigateToTrash,
             onNavigateToSearch = onNavigateToSearch,
@@ -62,6 +64,7 @@ fun rememberMainScreenActions(
     haptic: com.lomo.ui.util.AppHapticFeedback,
     isExpanded: Boolean,
     canCreateMemo: Boolean,
+    onCreateMemoUnavailable: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTrash: () -> Unit,
     onNavigateToSearch: () -> Unit,
@@ -82,6 +85,7 @@ fun rememberMainScreenActions(
         haptic,
         isExpanded,
         canCreateMemo,
+        onCreateMemoUnavailable,
         onNavigateToSettings,
         onNavigateToTrash,
         onNavigateToSearch,
@@ -122,7 +126,7 @@ fun rememberMainScreenActions(
                     haptic = haptic,
                     canCreateMemo = canCreateMemo,
                     onOpenCreateMemo = onOpenCreateMemo,
-                    onNavigateToSettings = onNavigateToSettings,
+                    onCreateMemoUnavailable = onCreateMemoUnavailable,
                 ),
             onRefresh =
                 createRefreshAction(
@@ -148,14 +152,14 @@ private fun createFabAction(
     haptic: com.lomo.ui.util.AppHapticFeedback,
     canCreateMemo: Boolean,
     onOpenCreateMemo: () -> Unit,
-    onNavigateToSettings: () -> Unit,
+    onCreateMemoUnavailable: () -> Unit,
 ): () -> Unit =
     {
         haptic.longPress()
         if (canCreateMemo) {
             onOpenCreateMemo()
         } else {
-            onNavigateToSettings()
+            onCreateMemoUnavailable()
         }
     }
 

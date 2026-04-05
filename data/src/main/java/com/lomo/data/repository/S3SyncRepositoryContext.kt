@@ -8,6 +8,7 @@ import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneCryptConfig
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -30,6 +31,8 @@ data class S3ResolvedConfig(
     val pathStyle: S3PathStyle,
     val encryptionMode: S3EncryptionMode,
     val encryptionPassword: String?,
+    val encryptionPassword2: String? = null,
+    val rcloneCryptConfig: S3RcloneCryptConfig = S3RcloneCryptConfig(),
 )
 
 @Singleton

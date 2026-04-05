@@ -622,6 +622,41 @@ internal class S3ConnectionStoreImpl(
             default = PreferenceKeys.Defaults.S3_ENCRYPTION_MODE,
         )
 
+    override val s3RcloneFilenameEncryption: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCRYPTION,
+            flowName = "s3RcloneFilenameEncryption",
+            default = PreferenceKeys.Defaults.S3_RCLONE_FILENAME_ENCRYPTION,
+        )
+
+    override val s3RcloneFilenameEncoding: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCODING,
+            flowName = "s3RcloneFilenameEncoding",
+            default = PreferenceKeys.Defaults.S3_RCLONE_FILENAME_ENCODING,
+        )
+
+    override val s3RcloneDirectoryNameEncryption: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
+            flowName = "s3RcloneDirectoryNameEncryption",
+            default = PreferenceKeys.Defaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION,
+        )
+
+    override val s3RcloneDataEncryptionEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
+            flowName = "s3RcloneDataEncryptionEnabled",
+            default = PreferenceKeys.Defaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED,
+        )
+
+    override val s3RcloneEncryptedSuffix: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.S3_RCLONE_ENCRYPTED_SUFFIX,
+            flowName = "s3RcloneEncryptedSuffix",
+            default = PreferenceKeys.Defaults.S3_RCLONE_ENCRYPTED_SUFFIX,
+        )
+
     override suspend fun updateS3SyncEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.S3_SYNC_ENABLED] = enabled }
     }
@@ -652,6 +687,26 @@ internal class S3ConnectionStoreImpl(
 
     override suspend fun updateS3EncryptionMode(mode: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.S3_ENCRYPTION_MODE] = mode }
+    }
+
+    override suspend fun updateS3RcloneFilenameEncryption(mode: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCRYPTION] = mode }
+    }
+
+    override suspend fun updateS3RcloneFilenameEncoding(encoding: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_FILENAME_ENCODING] = encoding }
+    }
+
+    override suspend fun updateS3RcloneDirectoryNameEncryption(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION] = enabled }
+    }
+
+    override suspend fun updateS3RcloneDataEncryptionEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_DATA_ENCRYPTION_ENABLED] = enabled }
+    }
+
+    override suspend fun updateS3RcloneEncryptedSuffix(suffix: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.S3_RCLONE_ENCRYPTED_SUFFIX] = suffix }
     }
 }
 

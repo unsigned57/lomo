@@ -10,7 +10,7 @@ import androidx.room.PrimaryKey
         [
             Index(value = ["memoId", "createdAt"]),
             Index(value = ["memoId", "createdAt", "revisionId"]),
-            Index(value = ["memoId", "lifecycleState", "contentHash", "rawMarkdownBlobHash"]),
+            Index(value = ["memoId", "lifecycleState", "contentHash", "rawMarkdownBlobHash", "assetFingerprint"]),
             Index(value = ["commitId"]),
             Index(value = ["rawMarkdownBlobHash"]),
         ],
@@ -24,6 +24,7 @@ data class MemoRevisionEntity(
     val lifecycleState: String,
     val rawMarkdownBlobHash: String,
     val contentHash: String,
+    val assetFingerprint: String?,
     val memoTimestamp: Long,
     val memoUpdatedAt: Long,
     val memoContent: String,

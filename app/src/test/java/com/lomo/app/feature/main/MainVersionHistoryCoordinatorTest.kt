@@ -98,6 +98,7 @@ class MainVersionHistoryCoordinatorTest {
             runCurrent()
 
             assertTrue(restoringState.isRestoring)
+            assertEquals("restore-target", restoringState.restoringRevisionId)
             assertEquals(1, repository.restoreCalls)
 
             gate.complete(Unit)

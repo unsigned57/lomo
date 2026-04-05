@@ -160,6 +160,7 @@ internal fun createMemoRevisionTable(db: SupportSQLiteDatabase) {
             `lifecycleState` TEXT NOT NULL,
             `rawMarkdownBlobHash` TEXT NOT NULL,
             `contentHash` TEXT NOT NULL,
+            `assetFingerprint` TEXT,
             `memoTimestamp` INTEGER NOT NULL,
             `memoUpdatedAt` INTEGER NOT NULL,
             `memoContent` TEXT NOT NULL,

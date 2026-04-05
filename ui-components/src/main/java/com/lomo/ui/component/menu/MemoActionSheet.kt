@@ -47,6 +47,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.R
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.launch
@@ -82,6 +84,7 @@ data class MemoActionSheetAction(
     val id: MemoActionId? = null,
     val icon: ImageVector,
     val label: String,
+    val benchmarkTag: String? = null,
     val onClick: () -> Unit,
     val isDestructive: Boolean = false,
     val isHighlighted: Boolean = false,
@@ -108,6 +111,8 @@ fun MemoActionSheet(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: List<String> = emptyList(),
     onActionInvoked: (MemoActionId) -> Unit = {},
+    benchmarkRootTag: String? = null,
+    actionAnchorForId: (MemoActionId) -> String? = { null },
     useHorizontalScroll: Boolean = true,
     showSwipeAffordance: Boolean = true,
     equalWidthActions: Boolean = false,
@@ -133,6 +138,7 @@ fun MemoActionSheet(
             actions = actions,
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             memoActionOrder = memoActionOrder,
+            actionAnchorForId = actionAnchorForId,
         )
     val showSwipeAffordanceIndicator by rememberShowSwipeAffordanceIndicator(
         actionsScrollState = actionsScrollState,
@@ -146,6 +152,7 @@ fun MemoActionSheet(
     Column(
         modifier =
             Modifier
+                .benchmarkAnchorRoot(benchmarkRootTag)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 32.dp),
@@ -220,6 +227,7 @@ private fun rememberResolvedMemoActionSheetActions(
     actions: List<MemoActionSheetAction>?,
     memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: List<String>,
+    actionAnchorForId: (MemoActionId) -> String?,
 ): List<MemoActionSheetAction> {
     val rankedActionOrder =
         remember(memoActionOrder) {
@@ -238,6 +246,7 @@ private fun rememberResolvedMemoActionSheetActions(
         showJump = showJump,
         onEdit = onEdit,
         onDelete = onDelete,
+        actionAnchorForId = actionAnchorForId,
     )
     return actions
         ?: sortDefaultMemoActionSheetActions(
@@ -289,7 +298,7 @@ private fun MemoActionRow(
                         Modifier.weight(1f)
                     } else {
                         Modifier.width(92.dp)
-                    },
+                    }.benchmarkAnchor(action.benchmarkTag),
                 onClick = {
                     onPerformHaptic(action.haptic)
                     action.id

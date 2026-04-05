@@ -4,6 +4,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.repository.S3SyncConfigurationMutationRepository
 import com.lomo.domain.repository.S3SyncConfigurationRepository
@@ -35,6 +37,21 @@ class S3SyncConfigurationRepositoryImpl
 
         override fun getEncryptionMode(): Flow<S3EncryptionMode> =
             dataStore.s3EncryptionMode.map(::s3EncryptionModeFromPreference)
+
+        override fun getRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption> =
+            dataStore.s3RcloneFilenameEncryption.map(::s3RcloneFilenameEncryptionFromPreference)
+
+        override fun getRcloneFilenameEncoding(): Flow<S3RcloneFilenameEncoding> =
+            dataStore.s3RcloneFilenameEncoding.map(::s3RcloneFilenameEncodingFromPreference)
+
+        override fun getRcloneDirectoryNameEncryption(): Flow<Boolean> =
+            dataStore.s3RcloneDirectoryNameEncryption
+
+        override fun getRcloneDataEncryptionEnabled(): Flow<Boolean> =
+            dataStore.s3RcloneDataEncryptionEnabled
+
+        override fun getRcloneEncryptedSuffix(): Flow<String> =
+            dataStore.s3RcloneEncryptedSuffix
 
         override fun getAutoSyncEnabled(): Flow<Boolean> = dataStore.s3AutoSyncEnabled
 
@@ -101,8 +118,32 @@ class S3SyncConfigurationMutationRepositoryImpl
             dataStore.updateS3EncryptionMode(mode.preferenceValue)
         }
 
+        override suspend fun setRcloneFilenameEncryption(mode: S3RcloneFilenameEncryption) {
+            dataStore.updateS3RcloneFilenameEncryption(mode.preferenceValue)
+        }
+
+        override suspend fun setRcloneFilenameEncoding(encoding: S3RcloneFilenameEncoding) {
+            dataStore.updateS3RcloneFilenameEncoding(encoding.preferenceValue)
+        }
+
+        override suspend fun setRcloneDirectoryNameEncryption(enabled: Boolean) {
+            dataStore.updateS3RcloneDirectoryNameEncryption(enabled)
+        }
+
+        override suspend fun setRcloneDataEncryptionEnabled(enabled: Boolean) {
+            dataStore.updateS3RcloneDataEncryptionEnabled(enabled)
+        }
+
+        override suspend fun setRcloneEncryptedSuffix(suffix: String) {
+            dataStore.updateS3RcloneEncryptedSuffix(s3RcloneEncryptedSuffixToPreference(suffix))
+        }
+
         override suspend fun setEncryptionPassword(password: String) {
             credentialStore.setEncryptionPassword(password.trim())
+        }
+
+        override suspend fun setEncryptionPassword2(password: String) {
+            credentialStore.setEncryptionPassword2(password.trim())
         }
 
         override suspend fun isAccessKeyConfigured(): Boolean = !credentialStore.getAccessKeyId().isNullOrBlank()
@@ -114,6 +155,9 @@ class S3SyncConfigurationMutationRepositoryImpl
 
         override suspend fun isEncryptionPasswordConfigured(): Boolean =
             !credentialStore.getEncryptionPassword().isNullOrBlank()
+
+        override suspend fun isEncryptionPassword2Configured(): Boolean =
+            !credentialStore.getEncryptionPassword2().isNullOrBlank()
 
         override suspend fun setAutoSyncEnabled(enabled: Boolean) {
             dataStore.updateS3AutoSyncEnabled(enabled)
@@ -157,3 +201,32 @@ internal val S3EncryptionMode.preferenceValue: String
 internal fun s3EncryptionModeFromPreference(value: String): S3EncryptionMode =
     S3EncryptionMode.entries.firstOrNull { it.preferenceValue == value.lowercase(java.util.Locale.ROOT) }
         ?: S3EncryptionMode.NONE
+
+internal val S3RcloneFilenameEncryption.preferenceValue: String
+    get() = name.lowercase(java.util.Locale.ROOT)
+
+internal fun s3RcloneFilenameEncryptionFromPreference(value: String): S3RcloneFilenameEncryption =
+    S3RcloneFilenameEncryption.entries.firstOrNull {
+        it.preferenceValue == value.lowercase(java.util.Locale.ROOT)
+    } ?: S3RcloneFilenameEncryption.STANDARD
+
+internal val S3RcloneFilenameEncoding.preferenceValue: String
+    get() = name.lowercase(java.util.Locale.ROOT)
+
+internal fun s3RcloneFilenameEncodingFromPreference(value: String): S3RcloneFilenameEncoding =
+    S3RcloneFilenameEncoding.entries.firstOrNull {
+        it.preferenceValue == value.lowercase(java.util.Locale.ROOT)
+    } ?: S3RcloneFilenameEncoding.BASE64
+
+internal fun s3RcloneEncryptedSuffixFromPreference(value: String): String {
+    val normalized = value.trim()
+    return when {
+        normalized.isBlank() -> ".bin"
+        normalized.equals("none", ignoreCase = true) -> ""
+        normalized.startsWith(".") -> normalized
+        else -> ".$normalized"
+    }
+}
+
+internal fun s3RcloneEncryptedSuffixToPreference(value: String): String =
+    value.trim().ifBlank { "none" }

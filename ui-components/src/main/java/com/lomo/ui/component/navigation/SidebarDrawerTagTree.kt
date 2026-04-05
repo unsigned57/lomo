@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.theme.AppSpacing
 
 internal object SidebarDrawerTagTree
@@ -59,6 +60,7 @@ internal fun LazyListScope.sidebarTags(
     expandedNodes: SnapshotStateMap<String, Boolean>,
     selectedTagPath: String?,
     onTagClick: (String) -> Unit,
+    anchorTagForPath: (String) -> String?,
 ) {
     if (tags.isEmpty()) return
 
@@ -79,6 +81,7 @@ internal fun LazyListScope.sidebarTags(
             expandedNodes = expandedNodes,
             selectedTagPath = selectedTagPath,
             onToggleExpand = { path -> expandedNodes[path] = !(expandedNodes[path] ?: false) },
+            anchorTagForPath = anchorTagForPath,
         )
     }
 }
@@ -91,6 +94,7 @@ private fun TagTreeItem(
     expandedNodes: Map<String, Boolean>,
     selectedTagPath: String?,
     onToggleExpand: (String) -> Unit,
+    anchorTagForPath: (String) -> String?,
 ) {
     val isExpanded = expandedNodes[node.fullPath] ?: false
     val hasChildren = node.children.isNotEmpty()
@@ -115,7 +119,8 @@ private fun TagTreeItem(
         modifier =
             Modifier
                 .height(48.dp)
-                .padding(start = (level * AppSpacing.Medium.value).dp),
+                .padding(start = (level * AppSpacing.Medium.value).dp)
+                .benchmarkAnchor(anchorTagForPath(node.fullPath)),
     )
 
     TagTreeChildren(
@@ -126,6 +131,7 @@ private fun TagTreeItem(
         expandedNodes = expandedNodes,
         selectedTagPath = selectedTagPath,
         onToggleExpand = onToggleExpand,
+        anchorTagForPath = anchorTagForPath,
     )
 }
 
@@ -210,6 +216,7 @@ private fun TagTreeChildren(
     expandedNodes: Map<String, Boolean>,
     selectedTagPath: String?,
     onToggleExpand: (String) -> Unit,
+    anchorTagForPath: (String) -> String?,
 ) {
     AnimatedVisibility(
         visible = isExpanded,
@@ -251,6 +258,7 @@ private fun TagTreeChildren(
                     expandedNodes = expandedNodes,
                     selectedTagPath = selectedTagPath,
                     onToggleExpand = onToggleExpand,
+                    anchorTagForPath = anchorTagForPath,
                 )
             }
         }

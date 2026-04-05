@@ -1,6 +1,5 @@
 package com.lomo.app.feature.memo
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +14,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material3.Card
@@ -28,15 +29,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
+import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderer
+import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -58,6 +65,7 @@ internal enum class VersionHistoryCardHighlight {
 internal data class VersionHistoryCardPresentation(
     val interaction: VersionHistoryCardInteraction,
     val highlight: VersionHistoryCardHighlight,
+    val isBusy: Boolean,
 )
 
 private fun formatCommitTime(commitTimeMillis: Long): String =
@@ -69,6 +77,7 @@ private fun formatCommitTime(commitTimeMillis: Long): String =
 internal fun resolveVersionHistoryCardPresentation(
     version: MemoRevision,
     isRestoreInProgress: Boolean,
+    restoringRevisionId: String?,
 ): VersionHistoryCardPresentation =
     VersionHistoryCardPresentation(
         interaction =
@@ -83,6 +92,10 @@ internal fun resolveVersionHistoryCardPresentation(
             } else {
                 VersionHistoryCardHighlight.Standard
             },
+        isBusy =
+            !version.isCurrent &&
+                isRestoreInProgress &&
+                restoringRevisionId == version.revisionId,
     )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -93,6 +106,7 @@ internal fun MemoVersionHistorySheet(
     canLoadMore: Boolean,
     isLoadingMore: Boolean,
     isRestoreInProgress: Boolean,
+    restoringRevisionId: String?,
     onLoadMore: () -> Unit,
     onRestore: (MemoRevision) -> Unit,
     onDismiss: () -> Unit,
@@ -109,6 +123,7 @@ internal fun MemoVersionHistorySheet(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .benchmarkAnchorRoot(BenchmarkAnchorContract.VERSION_HISTORY_ROOT)
                     .padding(horizontal = 20.dp, vertical = 4.dp)
                     .padding(bottom = 24.dp),
         ) {
@@ -121,6 +136,7 @@ internal fun MemoVersionHistorySheet(
                 canLoadMore = canLoadMore,
                 isLoadingMore = isLoadingMore,
                 isRestoreInProgress = isRestoreInProgress,
+                restoringRevisionId = restoringRevisionId,
                 onLoadMore = onLoadMore,
                 onRestore = onRestore,
             )
@@ -160,6 +176,7 @@ private fun MemoVersionHistoryBody(
     canLoadMore: Boolean,
     isLoadingMore: Boolean,
     isRestoreInProgress: Boolean,
+    restoringRevisionId: String?,
     onLoadMore: () -> Unit,
     onRestore: (MemoRevision) -> Unit,
 ) {
@@ -188,8 +205,10 @@ private fun MemoVersionHistoryBody(
                     VersionTimelineItem(
                         version = version.revision,
                         processedContent = version.processedContent,
+                        precomputedRenderPlan = version.precomputedRenderPlan,
                         formattedTime = formatCommitTime(version.revision.createdAt),
                         isRestoreInProgress = isRestoreInProgress,
+                        restoringRevisionId = restoringRevisionId,
                         onRestore = { onRestore(version.revision) },
                     )
                 }
@@ -197,6 +216,7 @@ private fun MemoVersionHistoryBody(
                     item(key = "load-more") {
                         LoadMoreHistoryItem(
                             isLoadingMore = isLoadingMore,
+                            enabled = !isRestoreInProgress,
                             onLoadMore = onLoadMore,
                         )
                     }
@@ -242,25 +262,29 @@ private fun MemoVersionHistoryPlaceholder(
 private fun VersionTimelineItem(
     version: MemoRevision,
     processedContent: String,
+    precomputedRenderPlan: ModernMarkdownRenderPlan,
     formattedTime: String,
     isRestoreInProgress: Boolean,
+    restoringRevisionId: String?,
     onRestore: () -> Unit,
 ) {
-    val presentation = resolveVersionHistoryCardPresentation(version, isRestoreInProgress)
+    val presentation =
+        resolveVersionHistoryCardPresentation(
+            version = version,
+            isRestoreInProgress = isRestoreInProgress,
+            restoringRevisionId = restoringRevisionId,
+        )
     val containerColor =
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
-            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.92f)
+            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
         }
-    val border =
+    val topMetaColor =
         if (presentation.highlight == VersionHistoryCardHighlight.Current) {
-            BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
-            )
+            MaterialTheme.colorScheme.onSecondaryContainer
         } else {
-            null
+            MaterialTheme.colorScheme.onSurfaceVariant
         }
 
     val content: @Composable () -> Unit = {
@@ -279,12 +303,15 @@ private fun VersionTimelineItem(
                 Text(
                     text = formattedTime,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = topMetaColor,
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (presentation.isBusy) {
+                        VersionRestoringBadge()
+                    }
                     if (version.lifecycleState != MemoRevisionLifecycleState.ACTIVE) {
                         VersionLifecycleBadge(lifecycleState = version.lifecycleState)
                     }
@@ -292,6 +319,7 @@ private fun VersionTimelineItem(
             }
             VersionContentPreview(
                 content = processedContent,
+                precomputedRenderPlan = precomputedRenderPlan,
             )
         }
     }
@@ -299,22 +327,40 @@ private fun VersionTimelineItem(
     when (presentation.interaction) {
         VersionHistoryCardInteraction.Restore -> {
             Card(
-                onClick = onRestore,
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .benchmarkAnchor(BenchmarkAnchorContract.versionHistoryRestore(version.revisionId)),
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = containerColor),
-                border = border,
             ) {
-                content()
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    content()
+                    Box(
+                        modifier =
+                            Modifier
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource =
+                                        remember {
+                                            MutableInteractionSource()
+                                        },
+                                    indication = null,
+                                    onClick = onRestore,
+                                ),
+                    )
+                }
             }
         }
 
         VersionHistoryCardInteraction.Static -> {
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .benchmarkAnchor(BenchmarkAnchorContract.versionHistoryCard(version.revisionId)),
                 shape = MaterialTheme.shapes.large,
                 colors = CardDefaults.cardColors(containerColor = containerColor),
-                border = border,
             ) {
                 content()
             }
@@ -323,7 +369,10 @@ private fun VersionTimelineItem(
 }
 
 @Composable
-private fun VersionContentPreview(content: String) {
+private fun VersionContentPreview(
+    content: String,
+    precomputedRenderPlan: ModernMarkdownRenderPlan,
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -332,7 +381,32 @@ private fun VersionContentPreview(content: String) {
             content = content,
             modifier = Modifier.fillMaxWidth(),
             maxVisibleBlocks = VERSION_PREVIEW_MAX_VISIBLE_BLOCKS,
+            precomputedRenderPlan = precomputedRenderPlan,
         )
+    }
+}
+
+@Composable
+private fun VersionRestoringBadge() {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ExpressiveLoadingIndicator(
+                modifier = Modifier.size(14.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            Text(
+                text = stringResource(R.string.memo_version_restoring),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+        }
     }
 }
 
@@ -369,6 +443,7 @@ private fun VersionLifecycleBadge(lifecycleState: MemoRevisionLifecycleState) {
 @Composable
 private fun LoadMoreHistoryItem(
     isLoadingMore: Boolean,
+    enabled: Boolean,
     onLoadMore: () -> Unit,
 ) {
     Surface(
@@ -385,7 +460,7 @@ private fun LoadMoreHistoryItem(
         ) {
             TextButton(
                 onClick = onLoadMore,
-                enabled = !isLoadingMore,
+                enabled = enabled && !isLoadingMore,
             ) {
                 Text(
                     text =

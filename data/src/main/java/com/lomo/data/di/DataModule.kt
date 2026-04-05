@@ -19,7 +19,9 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.s3.AwsSdkS3ClientFactory
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -55,12 +57,14 @@ import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
+import com.lomo.domain.repository.InteractionPreferencesRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -164,6 +168,16 @@ object DatabaseSupportModule {
     @Provides
     @Singleton
     fun provideS3SyncMetadataDao(database: MemoDatabase): S3SyncMetadataDao = database.s3SyncMetadataDao()
+
+    @Provides
+    @Singleton
+    fun provideS3SyncProtocolStateDao(database: MemoDatabase): S3SyncProtocolStateDao =
+        database.s3SyncProtocolStateDao()
+
+    @Provides
+    @Singleton
+    fun provideS3LocalChangeJournalDao(database: MemoDatabase): S3LocalChangeJournalDao =
+        database.s3LocalChangeJournalDao()
 
     @Provides
     @Singleton
@@ -390,6 +404,22 @@ object SnapshotPreferencesRepositoryModule {
     fun provideMemoSnapshotPreferencesRepository(
         impl: com.lomo.data.repository.MemoSnapshotPreferencesRepositoryImpl,
     ): MemoSnapshotPreferencesRepository = impl
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object PreferenceFacetRepositoryModule {
+    @Provides
+    @Singleton
+    fun provideInteractionPreferencesRepository(
+        impl: SettingsRepositoryImpl,
+    ): InteractionPreferencesRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSecurityPreferencesRepository(
+        impl: SettingsRepositoryImpl,
+    ): SecurityPreferencesRepository = impl
 }
 
 @Module

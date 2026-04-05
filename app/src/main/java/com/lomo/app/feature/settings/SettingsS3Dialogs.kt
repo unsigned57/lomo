@@ -9,8 +9,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 
@@ -49,45 +47,15 @@ internal fun S3Dialogs(
         s3Feature = s3Feature,
         dialogState = dialogState,
     )
-    SelectionDialogIfVisible(
-        visible = dialogState.showS3PathStyleDialog,
-        title = stringResource(R.string.settings_s3_select_path_style),
-        options = options.s3PathStyles,
-        currentSelection = uiState.s3.pathStyle,
-        onDismiss = { dialogState.showS3PathStyleDialog = false },
-        onSelect = {
-            s3Feature.updatePathStyle(it)
-            dialogState.showS3PathStyleDialog = false
-        },
-        labelProvider = { options.s3PathStyleLabels[it] ?: it.name },
-    )
-    SelectionDialogIfVisible(
-        visible = dialogState.showS3EncryptionModeDialog,
-        title = stringResource(R.string.settings_s3_select_encryption_mode),
-        options = options.s3EncryptionModes,
-        currentSelection = uiState.s3.encryptionMode,
-        onDismiss = { dialogState.showS3EncryptionModeDialog = false },
-        onSelect = {
-            s3Feature.updateEncryptionMode(it)
-            dialogState.showS3EncryptionModeDialog = false
-        },
-        labelProvider = { options.s3EncryptionModeLabels[it] ?: it.name },
-    )
     S3EncryptionPasswordDialog(
         s3Feature = s3Feature,
         dialogState = dialogState,
     )
-    SelectionDialogIfVisible(
-        visible = dialogState.showS3SyncIntervalDialog,
-        title = stringResource(R.string.settings_s3_select_sync_interval),
-        options = options.gitSyncIntervals,
-        currentSelection = uiState.s3.autoSyncInterval,
-        onDismiss = { dialogState.showS3SyncIntervalDialog = false },
-        onSelect = {
-            s3Feature.updateAutoSyncInterval(it)
-            dialogState.showS3SyncIntervalDialog = false
-        },
-        labelProvider = { options.gitSyncIntervalLabels[it] ?: it },
+    S3SelectionDialogs(
+        uiState = uiState,
+        s3Feature = s3Feature,
+        dialogState = dialogState,
+        options = options,
     )
 }
 
@@ -406,39 +374,4 @@ private fun S3EncryptionPasswordDialog(
             }
         },
     )
-}
-
-@Composable
-private fun SecretFieldDialogContent(
-    value: String,
-    onValueChange: (String) -> Unit,
-    visible: Boolean,
-    onToggleVisibility: () -> Unit,
-    label: String,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            label = { Text(label) },
-            visualTransformation =
-                if (visible) {
-                    VisualTransformation.None
-                } else {
-                    PasswordVisualTransformation()
-                },
-        )
-        TextButton(onClick = onToggleVisibility) {
-            Text(
-                stringResource(
-                    if (visible) {
-                        R.string.settings_hide_password
-                    } else {
-                        R.string.settings_show_password
-                    },
-                ),
-            )
-        }
-    }
 }

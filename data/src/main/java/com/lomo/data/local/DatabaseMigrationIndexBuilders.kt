@@ -17,8 +17,8 @@ internal fun createMemoRevisionIndexes(db: SupportSQLiteDatabase) {
     )
     db.execSQL(
         """
-        CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash`
-        ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`)
+        CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`
+        ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)
         """.trimIndent(),
     )
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_memo_revision_commitId` ON `memo_revision` (`commitId`)")

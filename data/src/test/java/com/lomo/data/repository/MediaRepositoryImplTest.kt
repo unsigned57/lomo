@@ -1,3 +1,11 @@
+/*
+ * Test Contract:
+ * - Unit under test: MediaRepositoryImpl
+ * - Behavior focus: cached media location updates, workspace fallback behavior, and S3 local change journal recording for image and voice mutations.
+ * - Observable outcomes: returned storage locations, emitted image-location maps, null workspace results on directory failures, and recorder invocations for S3-visible media changes.
+ * - Red phase: Fails before the fix because media imports and voice capture mutations do not record S3 local journal entries, so the new recorder assertions stay red.
+ * - Excludes: FileDataSource backend internals, platform URI parsing behavior, and downstream S3 executor reconciliation.
+ */
 package com.lomo.data.repository
 
 import android.net.Uri
@@ -26,12 +34,20 @@ class MediaRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var dataSource: FileDataSource
 
+    @MockK(relaxed = true)
+    private lateinit var s3LocalChangeRecorder: S3LocalChangeRecorder
+
     private lateinit var repository: MediaRepositoryImpl
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        repository = MediaRepositoryImpl(workspaceConfigSource = dataSource, mediaStorageDataSource = dataSource)
+        repository =
+            MediaRepositoryImpl(
+                workspaceConfigSource = dataSource,
+                mediaStorageDataSource = dataSource,
+                s3LocalChangeRecorder = s3LocalChangeRecorder,
+            )
     }
 
     @Test
@@ -109,6 +125,40 @@ class MediaRepositoryImplTest {
             )
             coVerify { dataSource.deleteImage("drop.jpg") }
             coVerify(exactly = 1) { dataSource.listImageFiles() }
+        }
+
+    @Test
+    fun `importImage records image upsert in s3 local journal`() =
+        runTest {
+            val source = StorageLocation("content://source/image")
+            val sourceUri = mockk<Uri>()
+            mockkStatic(Uri::class)
+            try {
+                every { Uri.parse(source.raw) } returns sourceUri
+                coEvery { dataSource.saveImage(sourceUri) } returns "new.jpg"
+                coEvery { dataSource.getImageLocation("new.jpg") } returns "content://images/new.jpg"
+
+                repository.importImage(source)
+
+                coVerify(exactly = 1) { s3LocalChangeRecorder.recordImageUpsert("new.jpg") }
+            } finally {
+                unmockkStatic(Uri::class)
+            }
+        }
+
+    @Test
+    fun `voice capture lifecycle records s3 journal mutations`() =
+        runTest {
+            val targetUri = mockk<Uri>()
+            every { targetUri.toString() } returns "content://voice/voice_1.m4a"
+            coEvery { dataSource.createVoiceFile("voice_1.m4a") } returns targetUri
+
+            val allocated = repository.allocateVoiceCaptureTarget(MediaEntryId("voice_1.m4a"))
+            repository.removeVoiceCapture(MediaEntryId("voice_1.m4a"))
+
+            assertEquals(StorageLocation("content://voice/voice_1.m4a"), allocated)
+            coVerify(exactly = 1) { s3LocalChangeRecorder.recordVoiceUpsert("voice_1.m4a") }
+            coVerify(exactly = 1) { s3LocalChangeRecorder.recordVoiceDelete("voice_1.m4a") }
         }
 
     @Test

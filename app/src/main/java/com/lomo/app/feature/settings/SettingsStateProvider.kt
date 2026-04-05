@@ -50,6 +50,12 @@ class SettingsStateProvider(
         val syncState: WebDavSyncState,
     )
 
+    private data class InteractionPrimaryState(
+        val hapticEnabled: Boolean,
+        val showInputHints: Boolean,
+        val doubleTapEditEnabled: Boolean,
+    )
+
     private data class PrimaryUiSections(
         val storage: StorageSectionState,
         val display: DisplaySectionState,
@@ -383,24 +389,50 @@ class SettingsStateProvider(
 
     private val s3State: StateFlow<S3SectionState> = s3StateProvider.sectionState
 
-    private val interactionState: StateFlow<InteractionSectionState> =
+    private val interactionPrimaryState: StateFlow<InteractionPrimaryState> =
         combine(
             appConfigCoordinator.hapticFeedbackEnabled,
             appConfigCoordinator.showInputHints,
             appConfigCoordinator.doubleTapEditEnabled,
+        ) { hapticEnabled, showInputHints, doubleTapEditEnabled ->
+            InteractionPrimaryState(
+                hapticEnabled = hapticEnabled,
+                showInputHints = showInputHints,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+            )
+        }.stateIn(
+            scope = scope,
+            started = settingsWhileSubscribed(),
+            initialValue =
+                InteractionPrimaryState(
+                    hapticEnabled = appConfigCoordinator.hapticFeedbackEnabled.value,
+                    showInputHints = appConfigCoordinator.showInputHints.value,
+                    doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
+                ),
+        )
+
+    private val interactionState: StateFlow<InteractionSectionState> =
+        combine(
+            interactionPrimaryState,
             appConfigCoordinator.freeTextCopyEnabled,
             appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
             appConfigCoordinator.quickSaveOnBackEnabled,
-        ) { values ->
+        ) {
+                primary,
+                freeTextCopyEnabled,
+                memoActionAutoReorderEnabled,
+                appLockEnabled,
+                quickSaveOnBackEnabled,
+            ->
             InteractionSectionState(
-                hapticEnabled = values[0],
-                showInputHints = values[1],
-                doubleTapEditEnabled = values[2],
-                freeTextCopyEnabled = values[3],
-                memoActionAutoReorderEnabled = values[4],
-                appLockEnabled = values[5],
-                quickSaveOnBackEnabled = values[6],
+                hapticEnabled = primary.hapticEnabled,
+                showInputHints = primary.showInputHints,
+                doubleTapEditEnabled = primary.doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                appLockEnabled = appLockEnabled,
+                quickSaveOnBackEnabled = quickSaveOnBackEnabled,
             )
         }.stateIn(
             scope = scope,

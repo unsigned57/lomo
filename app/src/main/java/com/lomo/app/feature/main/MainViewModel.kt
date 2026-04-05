@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.RetainedVisibleListTracker
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
@@ -120,9 +121,15 @@ class MainViewModel
 
         private val appActionQueue = MainEventQueueCoordinator<AppAction>()
         val appActionEvents: StateFlow<List<PendingUiEvent<AppAction>>> = appActionQueue.events
+        private val pendingNewMemoCreationCoordinator = PendingNewMemoCreationCoordinator()
+        private val _pendingNewMemoCreationRequest = MutableStateFlow<PendingNewMemoCreationRequest?>(null)
+        internal val pendingNewMemoCreationRequest: StateFlow<PendingNewMemoCreationRequest?> =
+            _pendingNewMemoCreationRequest.asStateFlow()
 
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
+        private val _collapsedMemoIds = MutableStateFlow<Set<String>>(emptySet())
+        val collapsingMemoIds: StateFlow<Set<String>> = _collapsedMemoIds.asStateFlow()
 
         private val _hasResolvedInitialRoot = MutableStateFlow(false)
         private val _isInitialDirectoryImporting = MutableStateFlow(false)
@@ -178,16 +185,6 @@ class MainViewModel
                     }
             }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
-        init {
-            // Keep deleting flags only for rows that still exist in current list.
-            // This avoids alpha bounce-back when DB removal arrives a little later.
-            memos
-                .onEach { list ->
-                    val existingIds = list.asSequence().map { it.id }.toSet()
-                    _deletingMemoIds.value = _deletingMemoIds.value.intersect(existingIds)
-                }.launchIn(viewModelScope)
-        }
-
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<MemoUiModel>> =
             combine(memos, rootDirectory, imageDirectory, imageMap) {
@@ -214,6 +211,15 @@ class MainViewModel
                     )
                 }
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        private val visibleMemoListTracker =
+            RetainedVisibleListTracker(
+                scope = viewModelScope,
+                sourceItemsProvider = { uiMemos.value },
+                deletingIds = _deletingMemoIds,
+                retainedIds = _collapsedMemoIds,
+                itemId = { item -> item.memo.id },
+            )
+        val visibleUiMemos: StateFlow<List<MemoUiModel>> = visibleMemoListTracker.visibleItems.asStateFlow()
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val galleryUiMemos: StateFlow<List<MemoUiModel>> =
@@ -246,6 +252,15 @@ class MainViewModel
                 }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
         init {
+            combine(uiMemos, collapsingMemoIds) { sourceUiMemos, collapsingIds ->
+                sourceUiMemos to collapsingIds
+            }.onEach { (sourceUiMemos, collapsingIds) ->
+                visibleMemoListTracker.reconcile(
+                    sourceItems = sourceUiMemos,
+                    retainedIdsSnapshot = collapsingIds,
+                )
+            }.launchIn(viewModelScope)
+
             // P1-002 Fix: Consolidated initialization to prevent race condition
             // First get initial value synchronously, then listen for subsequent updates
             viewModelScope.launch {
@@ -329,6 +344,25 @@ class MainViewModel
 
         val consumeAppActionEvent: (Long) -> Unit = { eventId ->
             appActionQueue.consume(eventId)
+        }
+
+        internal val requestPendingNewMemoCreation: (String) -> Boolean = { content ->
+            pendingNewMemoCreationCoordinator
+                .submit(content)
+                ?.also { request ->
+                    _pendingNewMemoCreationRequest.value = request
+                } != null
+        }
+
+        internal val consumePendingNewMemoCreationRequest: (Long) -> PendingNewMemoCreationRequest? = { requestId ->
+            pendingNewMemoCreationCoordinator.consume(requestId).also {
+                _pendingNewMemoCreationRequest.value = pendingNewMemoCreationCoordinator.pendingRequest
+            }
+        }
+
+        internal val cancelPendingNewMemoCreationRequest: (Long) -> Unit = { requestId ->
+            pendingNewMemoCreationCoordinator.cancel(requestId)
+            _pendingNewMemoCreationRequest.value = pendingNewMemoCreationCoordinator.pendingRequest
         }
 
         val createDefaultDirectories: (Boolean, Boolean) -> Unit = { forImage, forVoice ->
@@ -439,6 +473,7 @@ class MainViewModel
                     runDeleteAnimationWithRollback(
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
+                        collapsedIds = _collapsedMemoIds,
                     ) {
                         mainMemoMutationCoordinator.deleteMemo(memo)
                     }

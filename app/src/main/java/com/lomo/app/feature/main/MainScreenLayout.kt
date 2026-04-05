@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
@@ -61,7 +62,12 @@ internal fun MainScreenNavigationRender(
         uiState = screenState.uiState,
         hasRawItems = screenState.hasRawItems,
         uiMemos = screenState.uiMemos,
+        visibleUiMemos = screenState.visibleUiMemos,
         deletingMemoIds = viewModel.deletingMemoIds,
+        collapsingMemoIds = viewModel.collapsingMemoIds,
+        newMemoInsertAnimationState = hostState.newMemoInsertAnimationSession.state,
+        onNewMemoSpacePrepared = hostState.newMemoInsertAnimationSession::markBlankSpacePrepared,
+        onNewMemoRevealConsumed = hostState.newMemoInsertAnimationSession::clearReveal,
         listState = hostState.listState,
         isRefreshing = isRefreshing,
         onTodoClick = viewModel.updateMemo,
@@ -96,7 +102,12 @@ internal fun MainScreenRenderHost(
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
@@ -133,7 +144,12 @@ internal fun MainScreenRenderHost(
             uiState = uiState,
             hasRawItems = hasRawItems,
             uiMemos = uiMemos,
+            visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
+            collapsingMemoIds = collapsingMemoIds,
+            newMemoInsertAnimationState = newMemoInsertAnimationState,
+            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
             listState = listState,
             isRefreshing = isRefreshing,
             onTodoClick = onTodoClick,
@@ -203,6 +219,9 @@ private fun MainScreenSidebarContent(
         onGalleryClick = actions.onGalleryClick,
         onHeatmapDateLongPress = onHeatmapDateLongPress,
         modifier = Modifier.fillMaxWidth(),
+        settingsAnchorTag = BenchmarkAnchorContract.DRAWER_SETTINGS,
+        trashAnchorTag = BenchmarkAnchorContract.DRAWER_TRASH,
+        tagAnchorForPath = BenchmarkAnchorContract::drawerTag,
     )
 }
 
@@ -212,7 +231,12 @@ internal fun MainScreenAnimatedBody(
     searchQuery: String,
     hasRawItems: Boolean,
     uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -254,7 +278,12 @@ internal fun MainScreenAnimatedBody(
                     hasRawItems = hasRawItems,
                     searchQuery = searchQuery,
                     uiMemos = uiMemos,
+                    visibleUiMemos = visibleUiMemos,
                     deletingMemoIds = deletingMemoIds,
+                    collapsingMemoIds = collapsingMemoIds,
+                    newMemoInsertAnimationState = newMemoInsertAnimationState,
+                    onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                    onNewMemoRevealConsumed = onNewMemoRevealConsumed,
                     listState = listState,
                     isRefreshing = isRefreshing,
                     onRefresh = onRefresh,
@@ -289,7 +318,12 @@ private fun MainReadyContent(
     hasRawItems: Boolean,
     searchQuery: String,
     uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    onNewMemoSpacePrepared: (String) -> Unit,
+    onNewMemoRevealConsumed: (String) -> Unit,
     listState: androidx.compose.foundation.lazy.LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -325,8 +359,12 @@ private fun MainReadyContent(
                     )
                 MainReadyContentState.List ->
                     MemoListContent(
-                        memos = uiMemos,
+                        memos = visibleUiMemos,
                         deletingMemoIds = deletingMemoIds,
+                        collapsingMemoIds = collapsingMemoIds,
+                        newMemoInsertAnimationState = newMemoInsertAnimationState,
+                        onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                        onNewMemoRevealConsumed = onNewMemoRevealConsumed,
                         listState = listState,
                         isRefreshing = isRefreshing,
                         onRefresh = onRefresh,

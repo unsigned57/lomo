@@ -5,6 +5,7 @@ import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.S3RcloneCryptConfig
 import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.http.middleware.HttpResponseException
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,7 @@ class S3SyncRepositorySupport
             val secretAccessKey = runtime.credentialStore.getSecretAccessKey()?.trim().orEmpty()
             val sessionToken = runtime.credentialStore.getSessionToken()?.trim()?.takeIf(String::isNotBlank)
             val encryptionPassword = runtime.credentialStore.getEncryptionPassword()?.takeIf(String::isNotBlank)
+            val encryptionPassword2 = runtime.credentialStore.getEncryptionPassword2()?.takeIf(String::isNotBlank)
             val enabled = runtime.dataStore.s3SyncEnabled.first()
             if (!enabled || !hasRequiredFields(endpointUrl, region, bucket, accessKeyId, secretAccessKey)) {
                 return null
@@ -45,6 +47,24 @@ class S3SyncRepositorySupport
                 pathStyle = s3PathStyleFromPreference(runtime.dataStore.s3PathStyle.first()),
                 encryptionMode = s3EncryptionModeFromPreference(runtime.dataStore.s3EncryptionMode.first()),
                 encryptionPassword = encryptionPassword,
+                encryptionPassword2 = encryptionPassword2,
+                rcloneCryptConfig =
+                    S3RcloneCryptConfig(
+                        filenameEncryption =
+                            s3RcloneFilenameEncryptionFromPreference(
+                                runtime.dataStore.s3RcloneFilenameEncryption.first(),
+                            ),
+                        directoryNameEncryption = runtime.dataStore.s3RcloneDirectoryNameEncryption.first(),
+                        filenameEncoding =
+                            s3RcloneFilenameEncodingFromPreference(
+                                runtime.dataStore.s3RcloneFilenameEncoding.first(),
+                            ),
+                        dataEncryptionEnabled = runtime.dataStore.s3RcloneDataEncryptionEnabled.first(),
+                        encryptedSuffix =
+                            s3RcloneEncryptedSuffixFromPreference(
+                                runtime.dataStore.s3RcloneEncryptedSuffix.first(),
+                            ),
+                    ),
             )
         }
 

@@ -21,17 +21,21 @@ import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -41,9 +45,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: SearchViewModel
- * - Behavior focus: debounced search behavior, error mapping for memo mutation actions, and image save outcomes.
- * - Observable outcomes: search result state flow values, surfaced error messages, callback invocation, and collaborator calls.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Behavior focus: debounced search loading timing, search result propagation, error mapping for memo mutation actions, and image save outcomes.
+ * - Observable outcomes: searching and search-result state flow values, surfaced error messages, callback invocation, and collaborator calls.
+ * - Red phase: Fails before the fix because SearchViewModel enters searching during the debounce window instead of waiting until the debounced repository search actually starts.
  * - Excludes: Compose rendering details, MemoUiMapper internals, and repository implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -153,6 +157,232 @@ class SearchViewModelTest {
             verify(exactly = 1) { memoRepository.searchMemosList("苏") }
             verify(exactly = 1) { memoRepository.searchMemosList("苏格") }
             collectJob.cancel()
+        }
+
+    @Test
+    fun `non blank query stays idle through debounce window`() =
+        runTest {
+            val viewModel = createViewModel()
+            val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("search-hit")
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+
+            testDispatcher.scheduler.advanceTimeBy(299)
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+            searchingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `searching starts after debounce and clears when delayed repository result arrives`() =
+        runTest {
+            val expectedMemo = sampleMemo(id = "memo-delayed", content = "delayed-result")
+            every { memoRepository.searchMemosList("delayed-result") } returns
+                flow {
+                    delay(500)
+                    emit(listOf(expectedMemo))
+                }
+            val viewModel = createViewModel()
+            val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("delayed-result")
+            runCurrent()
+            assertFalse(viewModel.isSearching.value)
+
+            testDispatcher.scheduler.advanceTimeBy(299)
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+
+            testDispatcher.scheduler.advanceTimeBy(1)
+            runCurrent()
+
+            assertTrue(viewModel.isSearching.value)
+            verify(exactly = 1) { memoRepository.searchMemosList("delayed-result") }
+
+            testDispatcher.scheduler.advanceTimeBy(500)
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            assertEquals(listOf(expectedMemo), viewModel.searchResults.value)
+            searchingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `fast search result never exposes loading indicator`() =
+        runTest {
+            val expectedMemo = sampleMemo(id = "memo-fast", content = "fast-result")
+            every { memoRepository.searchMemosList("fast-result") } returns
+                flow {
+                    delay(80)
+                    emit(listOf(expectedMemo))
+                }
+            val viewModel = createViewModel()
+            val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("fast-result")
+            runCurrent()
+
+            testDispatcher.scheduler.advanceTimeBy(300)
+            runCurrent()
+
+            assertFalse(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(80)
+            runCurrent()
+
+            assertFalse(viewModel.showLoading.value)
+            assertEquals(listOf(expectedMemo), viewModel.searchResults.value)
+            loadingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `loading indicator remains visible for minimum duration after delayed result`() =
+        runTest {
+            val expectedMemo = sampleMemo(id = "memo-min-visible", content = "min-visible")
+            every { memoRepository.searchMemosList("min-visible") } returns
+                flow {
+                    delay(121)
+                    emit(listOf(expectedMemo))
+                }
+            val viewModel = createViewModel()
+            val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("min-visible")
+            runCurrent()
+
+            testDispatcher.scheduler.advanceTimeBy(300)
+            runCurrent()
+            assertFalse(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(120)
+            runCurrent()
+            assertTrue(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(1)
+            runCurrent()
+            assertTrue(viewModel.showLoading.value)
+            assertEquals(listOf(expectedMemo), viewModel.searchResults.value)
+
+            testDispatcher.scheduler.advanceTimeBy(278)
+            runCurrent()
+            assertTrue(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(2)
+            runCurrent()
+            assertFalse(viewModel.showLoading.value)
+            loadingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `query replacement cancels prior loading timer before it becomes visible`() =
+        runTest {
+            val replacementMemo = sampleMemo(id = "memo-replacement", content = "replacement")
+            every { memoRepository.searchMemosList("slow-first") } returns
+                flow {
+                    delay(500)
+                    emit(emptyList())
+                }
+            every { memoRepository.searchMemosList("replacement") } returns
+                flow {
+                    delay(10)
+                    emit(listOf(replacementMemo))
+                }
+            val viewModel = createViewModel()
+            val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("slow-first")
+            runCurrent()
+
+            testDispatcher.scheduler.advanceTimeBy(300)
+            runCurrent()
+            assertFalse(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(60)
+            runCurrent()
+            assertFalse(viewModel.showLoading.value)
+
+            viewModel.onSearchQueryChanged("replacement")
+            runCurrent()
+
+            testDispatcher.scheduler.advanceTimeBy(300)
+            runCurrent()
+            assertFalse(viewModel.showLoading.value)
+
+            testDispatcher.scheduler.advanceTimeBy(10)
+            runCurrent()
+
+            assertFalse(viewModel.showLoading.value)
+            assertEquals(listOf(replacementMemo), viewModel.searchResults.value)
+            verify(exactly = 1) { memoRepository.searchMemosList("slow-first") }
+            verify(exactly = 1) { memoRepository.searchMemosList("replacement") }
+            loadingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `search failure clears searching and falls back to empty results`() =
+        runTest {
+            every { memoRepository.searchMemosList("boom") } returns
+                flow {
+                    delay(500)
+                    throw IllegalStateException("search failed")
+                }
+            val viewModel = createViewModel()
+            val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("boom")
+            runCurrent()
+            assertFalse(viewModel.isSearching.value)
+
+            testDispatcher.scheduler.advanceTimeBy(300)
+            runCurrent()
+
+            assertTrue(viewModel.isSearching.value)
+
+            testDispatcher.scheduler.advanceTimeBy(800)
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            assertTrue(viewModel.searchResults.value.isEmpty())
+            searchingJob.cancel()
+            resultsJob.cancel()
+        }
+
+    @Test
+    fun `blank query stays out of searching state`() =
+        runTest {
+            val viewModel = createViewModel()
+            val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
+            val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
+
+            viewModel.onSearchQueryChanged("   ")
+            runCurrent()
+            testDispatcher.scheduler.advanceTimeBy(350)
+            runCurrent()
+
+            assertFalse(viewModel.isSearching.value)
+            assertTrue(viewModel.searchResults.value.isEmpty())
+            verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+            searchingJob.cancel()
+            resultsJob.cancel()
         }
 
     @Test

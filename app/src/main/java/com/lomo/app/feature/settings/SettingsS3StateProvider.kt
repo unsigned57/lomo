@@ -23,11 +23,24 @@ class SettingsS3StateProvider(
         val secretAccessKeyConfigured: Boolean,
         val sessionTokenConfigured: Boolean,
         val encryptionPasswordConfigured: Boolean,
+        val encryptionPassword2Configured: Boolean,
     )
 
     private data class RoutingState(
         val pathStyle: com.lomo.domain.model.S3PathStyle,
         val encryptionMode: com.lomo.domain.model.S3EncryptionMode,
+        val rcloneFilenameEncryption: com.lomo.domain.model.S3RcloneFilenameEncryption,
+        val rcloneFilenameEncoding: com.lomo.domain.model.S3RcloneFilenameEncoding,
+        val rcloneDirectoryNameEncryption: Boolean,
+        val rcloneDataEncryptionEnabled: Boolean,
+        val rcloneEncryptedSuffix: String,
+    )
+
+    private data class RcloneFilenameState(
+        val filenameEncryption: com.lomo.domain.model.S3RcloneFilenameEncryption,
+        val filenameEncoding: com.lomo.domain.model.S3RcloneFilenameEncoding,
+        val directoryNameEncryption: Boolean,
+        val encryptedSuffix: String,
     )
 
     private data class IdentityState(
@@ -43,6 +56,12 @@ class SettingsS3StateProvider(
         val pathStyle: com.lomo.domain.model.S3PathStyle,
         val encryptionMode: com.lomo.domain.model.S3EncryptionMode,
         val encryptionPasswordConfigured: Boolean,
+        val encryptionPassword2Configured: Boolean,
+        val rcloneFilenameEncryption: com.lomo.domain.model.S3RcloneFilenameEncryption,
+        val rcloneFilenameEncoding: com.lomo.domain.model.S3RcloneFilenameEncoding,
+        val rcloneDirectoryNameEncryption: Boolean,
+        val rcloneDataEncryptionEnabled: Boolean,
+        val rcloneEncryptedSuffix: String,
     )
 
     private data class SyncSettingsState(
@@ -106,12 +125,20 @@ class SettingsS3StateProvider(
             s3Coordinator.secretAccessKeyConfigured,
             s3Coordinator.sessionTokenConfigured,
             s3Coordinator.encryptionPasswordConfigured,
-        ) { accessKeyConfigured, secretAccessKeyConfigured, sessionTokenConfigured, encryptionPasswordConfigured ->
+            s3Coordinator.encryptionPassword2Configured,
+        ) {
+                accessKeyConfigured,
+                secretAccessKeyConfigured,
+                sessionTokenConfigured,
+                encryptionPasswordConfigured,
+                encryptionPassword2Configured,
+            ->
             CredentialState(
                 accessKeyConfigured = accessKeyConfigured,
                 secretAccessKeyConfigured = secretAccessKeyConfigured,
                 sessionTokenConfigured = sessionTokenConfigured,
                 encryptionPasswordConfigured = encryptionPasswordConfigured,
+                encryptionPassword2Configured = encryptionPassword2Configured,
             )
         }.stateIn(
             scope = scope,
@@ -122,18 +149,40 @@ class SettingsS3StateProvider(
                     secretAccessKeyConfigured = s3Coordinator.secretAccessKeyConfigured.value,
                     sessionTokenConfigured = s3Coordinator.sessionTokenConfigured.value,
                     encryptionPasswordConfigured = s3Coordinator.encryptionPasswordConfigured.value,
+                    encryptionPassword2Configured = s3Coordinator.encryptionPassword2Configured.value,
                 ),
         )
 
     private val routingState: StateFlow<RoutingState> =
         combine(
+            s3Coordinator.s3RcloneFilenameEncryption,
+            s3Coordinator.s3RcloneFilenameEncoding,
+            s3Coordinator.s3RcloneDirectoryNameEncryption,
+            s3Coordinator.s3RcloneEncryptedSuffix,
+        ) { filenameEncryption, filenameEncoding, directoryNameEncryption, encryptedSuffix ->
+            RcloneFilenameState(
+                filenameEncryption = filenameEncryption,
+                filenameEncoding = filenameEncoding,
+                directoryNameEncryption = directoryNameEncryption,
+                encryptedSuffix = encryptedSuffix,
+            )
+        }.let { rcloneFilenameState ->
+        combine(
             s3Coordinator.s3PathStyle,
             s3Coordinator.s3EncryptionMode,
-        ) { pathStyle, encryptionMode ->
+            s3Coordinator.s3RcloneDataEncryptionEnabled,
+            rcloneFilenameState,
+        ) { pathStyle, encryptionMode, dataEncryptionEnabled, filenameState ->
             RoutingState(
                 pathStyle = pathStyle,
                 encryptionMode = encryptionMode,
+                rcloneFilenameEncryption = filenameState.filenameEncryption,
+                rcloneFilenameEncoding = filenameState.filenameEncoding,
+                rcloneDirectoryNameEncryption = filenameState.directoryNameEncryption,
+                rcloneDataEncryptionEnabled = dataEncryptionEnabled,
+                rcloneEncryptedSuffix = filenameState.encryptedSuffix,
             )
+        }
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
@@ -141,6 +190,11 @@ class SettingsS3StateProvider(
                 RoutingState(
                     pathStyle = s3Coordinator.s3PathStyle.value,
                     encryptionMode = s3Coordinator.s3EncryptionMode.value,
+                    rcloneFilenameEncryption = s3Coordinator.s3RcloneFilenameEncryption.value,
+                    rcloneFilenameEncoding = s3Coordinator.s3RcloneFilenameEncoding.value,
+                    rcloneDirectoryNameEncryption = s3Coordinator.s3RcloneDirectoryNameEncryption.value,
+                    rcloneDataEncryptionEnabled = s3Coordinator.s3RcloneDataEncryptionEnabled.value,
+                    rcloneEncryptedSuffix = s3Coordinator.s3RcloneEncryptedSuffix.value,
                 ),
         )
 
@@ -163,6 +217,12 @@ class SettingsS3StateProvider(
                 pathStyle = routing.pathStyle,
                 encryptionMode = routing.encryptionMode,
                 encryptionPasswordConfigured = credentials.encryptionPasswordConfigured,
+                encryptionPassword2Configured = credentials.encryptionPassword2Configured,
+                rcloneFilenameEncryption = routing.rcloneFilenameEncryption,
+                rcloneFilenameEncoding = routing.rcloneFilenameEncoding,
+                rcloneDirectoryNameEncryption = routing.rcloneDirectoryNameEncryption,
+                rcloneDataEncryptionEnabled = routing.rcloneDataEncryptionEnabled,
+                rcloneEncryptedSuffix = routing.rcloneEncryptedSuffix,
             )
         }.stateIn(
             scope = scope,
@@ -181,6 +241,12 @@ class SettingsS3StateProvider(
                     pathStyle = routingState.value.pathStyle,
                     encryptionMode = routingState.value.encryptionMode,
                     encryptionPasswordConfigured = credentialState.value.encryptionPasswordConfigured,
+                    encryptionPassword2Configured = credentialState.value.encryptionPassword2Configured,
+                    rcloneFilenameEncryption = routingState.value.rcloneFilenameEncryption,
+                    rcloneFilenameEncoding = routingState.value.rcloneFilenameEncoding,
+                    rcloneDirectoryNameEncryption = routingState.value.rcloneDirectoryNameEncryption,
+                    rcloneDataEncryptionEnabled = routingState.value.rcloneDataEncryptionEnabled,
+                    rcloneEncryptedSuffix = routingState.value.rcloneEncryptedSuffix,
                 ),
         )
 
@@ -231,6 +297,12 @@ class SettingsS3StateProvider(
                 pathStyle = identity.pathStyle,
                 encryptionMode = identity.encryptionMode,
                 encryptionPasswordConfigured = identity.encryptionPasswordConfigured,
+                encryptionPassword2Configured = identity.encryptionPassword2Configured,
+                rcloneFilenameEncryption = identity.rcloneFilenameEncryption,
+                rcloneFilenameEncoding = identity.rcloneFilenameEncoding,
+                rcloneDirectoryNameEncryption = identity.rcloneDirectoryNameEncryption,
+                rcloneDataEncryptionEnabled = identity.rcloneDataEncryptionEnabled,
+                rcloneEncryptedSuffix = identity.rcloneEncryptedSuffix,
                 autoSyncEnabled = syncSettings.autoSyncEnabled,
                 autoSyncInterval = syncSettings.autoSyncInterval,
                 syncOnRefreshEnabled = syncSettings.syncOnRefreshEnabled,
@@ -255,6 +327,12 @@ class SettingsS3StateProvider(
                     pathStyle = identityState.value.pathStyle,
                     encryptionMode = identityState.value.encryptionMode,
                     encryptionPasswordConfigured = identityState.value.encryptionPasswordConfigured,
+                    encryptionPassword2Configured = identityState.value.encryptionPassword2Configured,
+                    rcloneFilenameEncryption = identityState.value.rcloneFilenameEncryption,
+                    rcloneFilenameEncoding = identityState.value.rcloneFilenameEncoding,
+                    rcloneDirectoryNameEncryption = identityState.value.rcloneDirectoryNameEncryption,
+                    rcloneDataEncryptionEnabled = identityState.value.rcloneDataEncryptionEnabled,
+                    rcloneEncryptedSuffix = identityState.value.rcloneEncryptedSuffix,
                     autoSyncEnabled = syncSettingsState.value.autoSyncEnabled,
                     autoSyncInterval = syncSettingsState.value.autoSyncInterval,
                     syncOnRefreshEnabled = syncSettingsState.value.syncOnRefreshEnabled,

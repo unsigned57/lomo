@@ -14,8 +14,27 @@ enum class S3SyncErrorCode {
 enum class S3EncryptionMode {
     NONE,
     RCLONE_CRYPT,
-    OPENSSL,
 }
+
+enum class S3RcloneFilenameEncryption {
+    STANDARD,
+    OBFUSCATE,
+    OFF,
+}
+
+enum class S3RcloneFilenameEncoding {
+    BASE32,
+    BASE64,
+    BASE32768,
+}
+
+data class S3RcloneCryptConfig(
+    val filenameEncryption: S3RcloneFilenameEncryption = S3RcloneFilenameEncryption.STANDARD,
+    val directoryNameEncryption: Boolean = true,
+    val filenameEncoding: S3RcloneFilenameEncoding = S3RcloneFilenameEncoding.BASE64,
+    val dataEncryptionEnabled: Boolean = true,
+    val encryptedSuffix: String = ".bin",
+)
 
 enum class S3PathStyle {
     AUTO,

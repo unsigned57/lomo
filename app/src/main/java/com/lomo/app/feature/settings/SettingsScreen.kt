@@ -19,6 +19,8 @@ import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RcloneFilenameEncoding
+import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
@@ -226,7 +228,22 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
         mapOf(
             S3EncryptionMode.NONE to stringResource(R.string.settings_s3_encryption_mode_none),
             S3EncryptionMode.RCLONE_CRYPT to stringResource(R.string.settings_s3_encryption_mode_rclone_crypt),
-            S3EncryptionMode.OPENSSL to stringResource(R.string.settings_s3_encryption_mode_openssl),
+        )
+    val s3RcloneFilenameEncryptionLabels =
+        mapOf(
+            S3RcloneFilenameEncryption.STANDARD to
+                stringResource(R.string.settings_s3_rclone_filename_encryption_standard),
+            S3RcloneFilenameEncryption.OBFUSCATE to
+                stringResource(R.string.settings_s3_rclone_filename_encryption_obfuscate),
+            S3RcloneFilenameEncryption.OFF to
+                stringResource(R.string.settings_s3_rclone_filename_encryption_off),
+        )
+    val s3RcloneFilenameEncodingLabels =
+        mapOf(
+            S3RcloneFilenameEncoding.BASE64 to stringResource(R.string.settings_s3_rclone_filename_encoding_base64),
+            S3RcloneFilenameEncoding.BASE32 to stringResource(R.string.settings_s3_rclone_filename_encoding_base32),
+            S3RcloneFilenameEncoding.BASE32768 to
+                stringResource(R.string.settings_s3_rclone_filename_encoding_base32768),
         )
     return SettingsDialogOptions(
         dateFormats = DateFormatOptions,
@@ -240,6 +257,8 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
         webDavProviders = WebDavProvider.entries,
         s3PathStyles = S3PathStyle.entries,
         s3EncryptionModes = S3EncryptionMode.entries,
+        s3RcloneFilenameEncryptions = S3RcloneFilenameEncryption.entries,
+        s3RcloneFilenameEncodings = S3RcloneFilenameEncoding.entries,
         languageTag = currentLanguageTag,
         languageLabels = languageLabels,
         themeModeLabels = themeModeLabels,
@@ -247,6 +266,8 @@ private fun settingsDialogOptions(currentLanguageTag: String): SettingsDialogOpt
         webDavProviderLabels = webDavProviderLabels,
         s3PathStyleLabels = s3PathStyleLabels,
         s3EncryptionModeLabels = s3EncryptionModeLabels,
+        s3RcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
+        s3RcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
     )
 }
 

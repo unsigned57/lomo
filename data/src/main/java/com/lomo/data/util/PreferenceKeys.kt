@@ -71,6 +71,11 @@ object PreferenceKeys {
     const val S3_LOCAL_SYNC_DIRECTORY = "s3_local_sync_directory"
     const val S3_PATH_STYLE = "s3_path_style"
     const val S3_ENCRYPTION_MODE = "s3_encryption_mode"
+    const val S3_RCLONE_FILENAME_ENCRYPTION = "s3_rclone_filename_encryption"
+    const val S3_RCLONE_FILENAME_ENCODING = "s3_rclone_filename_encoding"
+    const val S3_RCLONE_DIRECTORY_NAME_ENCRYPTION = "s3_rclone_directory_name_encryption"
+    const val S3_RCLONE_DATA_ENCRYPTION_ENABLED = "s3_rclone_data_encryption_enabled"
+    const val S3_RCLONE_ENCRYPTED_SUFFIX = "s3_rclone_encrypted_suffix"
     const val S3_AUTO_SYNC_ENABLED = "s3_auto_sync_enabled"
     const val S3_AUTO_SYNC_INTERVAL = "s3_auto_sync_interval"
     const val S3_LAST_SYNC_TIME = "s3_last_sync_time"
@@ -120,6 +125,13 @@ object PreferenceKeys {
         const val S3_SYNC_ENABLED = PreferenceDefaults.S3_SYNC_ENABLED
         const val S3_PATH_STYLE = PreferenceDefaults.S3_PATH_STYLE
         const val S3_ENCRYPTION_MODE = PreferenceDefaults.S3_ENCRYPTION_MODE
+        const val S3_RCLONE_FILENAME_ENCRYPTION = PreferenceDefaults.S3_RCLONE_FILENAME_ENCRYPTION
+        const val S3_RCLONE_FILENAME_ENCODING = PreferenceDefaults.S3_RCLONE_FILENAME_ENCODING
+        const val S3_RCLONE_DIRECTORY_NAME_ENCRYPTION =
+            PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION
+        const val S3_RCLONE_DATA_ENCRYPTION_ENABLED =
+            PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED
+        const val S3_RCLONE_ENCRYPTED_SUFFIX = PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX
         const val S3_AUTO_SYNC_ENABLED = PreferenceDefaults.S3_AUTO_SYNC_ENABLED
         const val S3_AUTO_SYNC_INTERVAL = PreferenceDefaults.S3_AUTO_SYNC_INTERVAL
         const val S3_SYNC_ON_REFRESH = PreferenceDefaults.S3_SYNC_ON_REFRESH

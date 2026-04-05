@@ -21,10 +21,12 @@ class MemoVersionHistoryInteractionPolicyTest {
             resolveVersionHistoryCardPresentation(
                 version = revision(id = "current", isCurrent = true),
                 isRestoreInProgress = false,
+                restoringRevisionId = null,
             )
 
         assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
         assertEquals(VersionHistoryCardHighlight.Current, presentation.highlight)
+        assertEquals(false, presentation.isBusy)
     }
 
     @Test
@@ -33,22 +35,40 @@ class MemoVersionHistoryInteractionPolicyTest {
             resolveVersionHistoryCardPresentation(
                 version = revision(id = "historical", isCurrent = false),
                 isRestoreInProgress = false,
+                restoringRevisionId = null,
             )
 
         assertEquals(VersionHistoryCardInteraction.Restore, presentation.interaction)
         assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
+        assertEquals(false, presentation.isBusy)
     }
 
     @Test
-    fun `restore in progress turns historical revisions into static cards`() {
+    fun `restore in progress turns non-target historical revisions into static cards`() {
         val presentation =
             resolveVersionHistoryCardPresentation(
                 version = revision(id = "historical", isCurrent = false),
                 isRestoreInProgress = true,
+                restoringRevisionId = "another",
             )
 
         assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
         assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
+        assertEquals(false, presentation.isBusy)
+    }
+
+    @Test
+    fun `restore target is marked busy while restore is in progress`() {
+        val presentation =
+            resolveVersionHistoryCardPresentation(
+                version = revision(id = "historical", isCurrent = false),
+                isRestoreInProgress = true,
+                restoringRevisionId = "historical",
+            )
+
+        assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
+        assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
+        assertEquals(true, presentation.isBusy)
     }
 }
 

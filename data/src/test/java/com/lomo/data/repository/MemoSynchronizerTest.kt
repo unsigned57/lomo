@@ -70,7 +70,7 @@ class MemoSynchronizerTest {
                         memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
                         textProcessor = processor,
-                        memoVersionJournal = memoVersionJournal,
+                        memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
                     ),
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionJournal = memoVersionJournal,

@@ -1,6 +1,5 @@
 package com.lomo.data.repository
 
-import com.lomo.data.s3.S3OpenSslCompatCodec
 import com.lomo.data.s3.S3RcloneCryptCompatCodec
 import com.lomo.domain.model.S3EncryptionMode
 import javax.inject.Inject
@@ -10,7 +9,6 @@ import javax.inject.Singleton
 class S3SyncEncodingSupport
     @Inject
     constructor() {
-        private val openSslCodec = S3OpenSslCompatCodec()
         private val rcloneCodec = S3RcloneCryptCompatCodec()
 
         fun remoteKeyPrefix(config: S3ResolvedConfig): String =
@@ -29,10 +27,13 @@ class S3SyncEncodingSupport
             val encodedPath = remotePath.removePrefix(remoteKeyPrefix(config))
             return when (config.encryptionMode) {
                 S3EncryptionMode.NONE -> encodedPath
-                S3EncryptionMode.OPENSSL ->
-                    openSslCodec.decryptKey(encodedPath, config.requireEncryptionPassword())
                 S3EncryptionMode.RCLONE_CRYPT ->
-                    rcloneCodec.decryptKey(encodedPath, config.requireEncryptionPassword())
+                    rcloneCodec.decryptKey(
+                        encryptedKey = encodedPath,
+                        password = config.requireEncryptionPassword(),
+                        password2 = config.encryptionPassword2.orEmpty(),
+                        config = config.rcloneCryptConfig,
+                    )
             }
         }
 
@@ -42,10 +43,16 @@ class S3SyncEncodingSupport
         ): ByteArray =
             when (config.encryptionMode) {
                 S3EncryptionMode.NONE -> bytes
-                S3EncryptionMode.OPENSSL ->
-                    openSslCodec.encryptBytes(bytes, config.requireEncryptionPassword())
                 S3EncryptionMode.RCLONE_CRYPT ->
-                    rcloneCodec.encryptBytes(bytes, config.requireEncryptionPassword())
+                    if (!config.rcloneCryptConfig.dataEncryptionEnabled) {
+                        bytes
+                    } else {
+                        rcloneCodec.encryptBytes(
+                            plaintext = bytes,
+                            password = config.requireEncryptionPassword(),
+                            password2 = config.encryptionPassword2.orEmpty(),
+                        )
+                    }
             }
 
         fun decodeContent(
@@ -54,10 +61,16 @@ class S3SyncEncodingSupport
         ): ByteArray =
             when (config.encryptionMode) {
                 S3EncryptionMode.NONE -> bytes
-                S3EncryptionMode.OPENSSL ->
-                    openSslCodec.decryptBytes(bytes, config.requireEncryptionPassword())
                 S3EncryptionMode.RCLONE_CRYPT ->
-                    rcloneCodec.decryptBytes(bytes, config.requireEncryptionPassword())
+                    if (!config.rcloneCryptConfig.dataEncryptionEnabled) {
+                        bytes
+                    } else {
+                        rcloneCodec.decryptBytes(
+                            encrypted = bytes,
+                            password = config.requireEncryptionPassword(),
+                            password2 = config.encryptionPassword2.orEmpty(),
+                        )
+                    }
             }
 
         fun objectMetadata(lastModified: Long?): Map<String, String> {
@@ -88,10 +101,13 @@ class S3SyncEncodingSupport
         ): String =
             when (config.encryptionMode) {
                 S3EncryptionMode.NONE -> relativePath
-                S3EncryptionMode.OPENSSL ->
-                    openSslCodec.encryptKey(relativePath, config.requireEncryptionPassword())
                 S3EncryptionMode.RCLONE_CRYPT ->
-                    rcloneCodec.encryptKey(relativePath, config.requireEncryptionPassword())
+                    rcloneCodec.encryptKey(
+                        key = relativePath,
+                        password = config.requireEncryptionPassword(),
+                        password2 = config.encryptionPassword2.orEmpty(),
+                        config = config.rcloneCryptConfig,
+                    )
             }
     }
 

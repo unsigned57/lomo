@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.HorizontalDivider
@@ -106,22 +105,12 @@ internal fun MarkdownRendererFallback(
             text = normalizedContent,
         ).copy(color = MaterialTheme.colorScheme.onSurface)
 
-    val fallbackContent: @Composable () -> Unit = {
-        MemoParagraphText(
-            text = normalizedContent,
-            style = textStyle,
-            modifier = modifier,
-            selectable = enableTextSelection,
-        )
-    }
-
-    if (enableTextSelection) {
-        SelectionContainer {
-            fallbackContent()
-        }
-    } else {
-        fallbackContent()
-    }
+    MemoParagraphText(
+        text = normalizedContent,
+        style = textStyle,
+        modifier = modifier,
+        selectable = enableTextSelection,
+    )
 }
 
 @Composable
@@ -135,10 +124,10 @@ internal fun MDBlock(
     enableTextSelection: Boolean = false,
 ) {
     when (val n = node.node) {
-        is Heading -> MDHeading(ImmutableNode(n), modifier)
+        is Heading -> MDHeading(ImmutableNode(n), modifier, enableTextSelection)
         is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick, enableTextSelection)
-        is FencedCodeBlock -> MDCodeBlock(ImmutableNode(n), modifier)
-        is IndentedCodeBlock -> MDIndentedCodeBlock(ImmutableNode(n), modifier)
+        is FencedCodeBlock -> MDCodeBlock(ImmutableNode(n), modifier, enableTextSelection)
+        is IndentedCodeBlock -> MDIndentedCodeBlock(ImmutableNode(n), modifier, enableTextSelection)
         is BlockQuote -> MDBlockQuote(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
         is BulletList -> MDBulletList(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
         is OrderedList -> MDOrderedList(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
@@ -150,6 +139,7 @@ internal fun MDBlock(
 private fun MDHeading(
     heading: ImmutableNode,
     modifier: Modifier = Modifier,
+    enableTextSelection: Boolean = false,
 ) {
     val node = heading.node as Heading
     val style =
@@ -190,11 +180,11 @@ private fun MDHeading(
     val text = remember(heading, colorScheme) { buildAnnotatedString { appendNode(node, colorScheme) } }
     val finalStyle = remember(style, text) { style.scriptAwareFor(text) }
 
-    Text(
+    MemoParagraphText(
         text = text,
         style = finalStyle,
-        textAlign = text.scriptAwareTextAlign(),
         modifier = modifier.padding(top = 12.dp, bottom = 4.dp),
+        selectable = enableTextSelection,
     )
 }
 
@@ -234,6 +224,7 @@ private fun MDParagraph(
 private fun MDCodeBlock(
     block: ImmutableNode,
     modifier: Modifier = Modifier,
+    enableTextSelection: Boolean = false,
 ) {
     val node = block.node as FencedCodeBlock
     Surface(
@@ -241,11 +232,11 @@ private fun MDCodeBlock(
         shape = RoundedCornerShape(4.dp),
         modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {
-        Text(
+        MemoParagraphText(
             text = node.literal ?: "",
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier.padding(8.dp),
+            selectable = enableTextSelection,
         )
     }
 }
@@ -254,16 +245,17 @@ private fun MDCodeBlock(
 private fun MDIndentedCodeBlock(
     block: ImmutableNode,
     modifier: Modifier = Modifier,
+    enableTextSelection: Boolean = false,
 ) {
     val node = block.node as IndentedCodeBlock
     // Render indented code blocks as regular text with indentation.
     // This correctly handles content like poems or lists that might have accidental 4-space indent
     // which Markdown interprets as code, but users usually intend as indentation.
-    Text(
+    MemoParagraphText(
         text = node.literal ?: "",
-        style = MaterialTheme.typography.bodyMedium,
-        fontFamily = FontFamily.Monospace,
+        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
         modifier = modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+        selectable = enableTextSelection,
     )
 }
 

@@ -70,6 +70,11 @@ class S3SyncStatusTesterTest {
         every { dataStore.s3Prefix } returns flowOf("prefix")
         every { dataStore.s3PathStyle } returns flowOf("path_style")
         every { dataStore.s3EncryptionMode } returns flowOf("rclone_crypt")
+        every { dataStore.s3RcloneFilenameEncryption } returns flowOf("standard")
+        every { dataStore.s3RcloneFilenameEncoding } returns flowOf("base64")
+        every { dataStore.s3RcloneDirectoryNameEncryption } returns flowOf(true)
+        every { dataStore.s3RcloneDataEncryptionEnabled } returns flowOf(true)
+        every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
         every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
         every { dataStore.rootDirectory } returns flowOf("/vault/memo")
         every { dataStore.rootUri } returns flowOf(null)
@@ -81,6 +86,7 @@ class S3SyncStatusTesterTest {
         every { credentialStore.getSecretAccessKey() } returns "secret"
         every { credentialStore.getSessionToken() } returns null
         every { credentialStore.getEncryptionPassword() } returns "secret-pass"
+        every { credentialStore.getEncryptionPassword2() } returns null
         every { clientFactory.create(any()) } returns client
 
         val runtime =
