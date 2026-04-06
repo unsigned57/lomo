@@ -1,5 +1,6 @@
 import org.gradle.api.GradleException
 import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
@@ -8,17 +9,28 @@ plugins {
     alias(libs.plugins.androidLibrary) apply false
     alias(libs.plugins.hilt) apply false
     alias(libs.plugins.jetbrainsKotlinJvm) apply false
+    alias(libs.plugins.dependencyAnalysis)
     alias(libs.plugins.kover)
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.kotlinSerialization) apply false
     alias(libs.plugins.androidxBaselineProfile) apply false
     alias(libs.plugins.detekt)
+    alias(libs.plugins.owaspDependencyCheck)
     alias(libs.plugins.versionCatalogUpdate)
+}
+
+versionCatalogUpdate {
+    keep {
+        versions.add("androidNdk")
+        versions.add("byteBuddy")
+    }
 }
 
 val kotlinVersion = libs.versions.kotlin.get()
 val detektVersion = libs.versions.detekt.get()
+val byteBuddyVersion = libs.versions.byteBuddy.get()
 val koverQualityVariant = "quality"
+val dependencyAnalysisProjects = setOf("app", "domain", "data", "ui-components")
 val defaultCoverageGateStage = "m3"
 val coverageGateStages =
     linkedMapOf(
@@ -47,6 +59,20 @@ val lintTasksByProject =
         "app" to "lintRelease",
         "data" to "lintDebug",
         "ui-components" to "lintDebug",
+    )
+val compileGateTasksByProject =
+    linkedMapOf(
+        "app" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
+        "data" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
+        "ui-components" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
+        "domain" to listOf("compileKotlin", "compileJava"),
+    )
+val unitTestTasksByProject =
+    linkedMapOf(
+        "app" to "testDebugUnitTest",
+        "data" to "testDebugUnitTest",
+        "domain" to "test",
+        "ui-components" to "testDebugUnitTest",
     )
 val koverProjects = setOf("app", "domain", "data", "ui-components")
 val coverageExcludedPackages =
@@ -174,6 +200,12 @@ dependencies {
     }
 }
 
+dependencyCheck {
+    failBuildOnCVSS = 7.0f
+    formats = listOf("HTML", "SARIF")
+    suppressionFile = rootProject.file("quality/owasp/dependency-check-suppressions.xml").absolutePath
+}
+
 extensions.configure(dev.detekt.gradle.extensions.DetektExtension::class.java) {
     toolVersion = detektVersion
     config.setFrom(formattingConfig)
@@ -228,12 +260,17 @@ tasks.register("detektFormatStaged", dev.detekt.gradle.Detekt::class.java) {
 
 subprojects {
     tasks.withType(KotlinCompilationTask::class.java).configureEach {
-        val isProductionCompileTask =
+        val isKotlinCompileTask =
             name.startsWith("compile") &&
-                name.endsWith("Kotlin") &&
-                !name.contains("Test", ignoreCase = true)
-        if (isProductionCompileTask) {
+                name.endsWith("Kotlin")
+        if (isKotlinCompileTask) {
             compilerOptions.allWarningsAsErrors.set(true)
+        }
+    }
+
+    tasks.withType(JavaCompile::class.java).configureEach {
+        if ("-Werror" !in options.compilerArgs) {
+            options.compilerArgs.add("-Werror")
         }
     }
 
@@ -242,7 +279,13 @@ subprojects {
             force("org.jetbrains.kotlin:kotlin-stdlib:$kotlinVersion")
             force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlinVersion")
             force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlinVersion")
+            force("net.bytebuddy:byte-buddy:$byteBuddyVersion")
+            force("net.bytebuddy:byte-buddy-agent:$byteBuddyVersion")
         }
+    }
+
+    if (name in dependencyAnalysisProjects) {
+        apply(plugin = "com.autonomousapps.dependency-analysis")
     }
 
     if (name in detektProjects) {
@@ -306,11 +349,40 @@ tasks.register("androidLintCheck") {
     dependsOn(lintTasksByProject.map { (projectName, taskName) -> ":$projectName:$taskName" })
 }
 
+tasks.register("compileGateCheck") {
+    group = "verification"
+    description = "Runs source compile gates first so Kotlin/Java warning-as-error failures surface before slower checks."
+    dependsOn(
+        compileGateTasksByProject.flatMap { (projectName, taskNames) ->
+            taskNames.map { taskName -> ":$projectName:$taskName" }
+        },
+    )
+}
+
+tasks.register("unitTestCheck") {
+    group = "verification"
+    description = "Runs JVM unit tests across all modules after compile gates have passed."
+    dependsOn(unitTestTasksByProject.map { (projectName, taskName) -> ":$projectName:$taskName" })
+    mustRunAfter("compileGateCheck")
+}
+
 tasks.register("meaningfulTestCheck", Exec::class.java) {
     group = "verification"
     description = "Checks that changed test files document their tested contract, red phase, and exclusions."
     workingDir = rootProject.projectDir
     commandLine("bash", meaningfulTestCheckScript.absolutePath)
+}
+
+tasks.register("dependencyAnalysisCheck") {
+    group = "verification"
+    description = "Runs dependency-analysis reports for undeclared, unused, and mis-scoped dependencies. Experimental under AGP 9.x."
+    dependsOn("buildHealth")
+}
+
+tasks.register("dependencyVulnerabilityCheck") {
+    group = "verification"
+    description = "Runs OWASP dependency scanning and fails on known vulnerabilities at CVSS 7.0 or higher."
+    dependsOn("dependencyCheckAnalyze")
 }
 
 tasks.register("coverageGatePlan") {
@@ -364,8 +436,39 @@ tasks.register("coverageCheck") {
     dependsOn("koverVerifyQuality")
 }
 
+tasks.register("staticQualityCheck") {
+    group = "verification"
+    description = "Runs compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage."
+    dependsOn("compileGateCheck", "architectureCheck", "androidLintCheck", "meaningfulTestCheck")
+    mustRunAfter("unitTestCheck")
+}
+
+tasks.register("fastQualityCheck") {
+    group = "verification"
+    description = "Runs the iterative quality gate: compile gates, meaningful-test metadata, and JVM unit tests."
+    dependsOn("compileGateCheck", "meaningfulTestCheck", "unitTestCheck")
+}
+
+tasks.register("fullQualityCheck") {
+    group = "verification"
+    description = "Runs the full staged quality gate: unit tests first, then static checks, then merged coverage."
+    dependsOn("staticQualityCheck", "unitTestCheck", "coverageCheck")
+}
+
+tasks.named("architectureCheck") {
+    mustRunAfter("unitTestCheck")
+}
+
+tasks.named("androidLintCheck") {
+    mustRunAfter("unitTestCheck")
+}
+
+tasks.named("coverageCheck") {
+    mustRunAfter("staticQualityCheck")
+}
+
 tasks.register("qualityCheck") {
     group = "verification"
-    description = "Runs the repository quality gate."
-    dependsOn("architectureCheck", "androidLintCheck", "meaningfulTestCheck", "coverageCheck")
+    description = "Runs the final repository quality gate via the staged full-quality pipeline."
+    dependsOn("fullQualityCheck")
 }

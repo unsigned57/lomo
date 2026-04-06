@@ -6,7 +6,9 @@ plugins {
 
 android {
     namespace = "com.lomo.benchmark"
-    compileSdk = 36
+    compileSdk {
+        version = release(37)
+    }
 
     defaultConfig {
         minSdk = 28

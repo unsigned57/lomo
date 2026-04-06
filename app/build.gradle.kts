@@ -119,15 +119,19 @@ abstract class VerifyReleaseSigningTask : DefaultTask() {
 
 android {
     namespace = "com.lomo.app"
-    compileSdk = 36
+    compileSdk {
+        version = release(37)
+    }
     ndkVersion = libs.versions.androidNdk.get()
 
     defaultConfig {
         applicationId = "com.lomo.app"
         minSdk = 26
-        targetSdk = 36
-        versionCode = 33
-        versionName = "0.9.1"
+        targetSdk {
+            version = release(37)
+        }
+        versionCode = 34
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

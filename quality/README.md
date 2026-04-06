@@ -1,32 +1,161 @@
 # Quality Tooling
 
-This directory is the single entrypoint for repository quality tooling.
+This directory is the repository entrypoint for quality tasks, scripts, and testing policy.
+
+## Read This For
+
+- choosing the right verification command
+- understanding the staged quality pipeline
+- triaging red `qualityCheck` runs
+- running dependency-update checks
+
+## Which Command Should I Run?
+
+| Situation | Command |
+| --- | --- |
+| Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
+| I want JVM tests only | `./gradlew unitTestCheck` |
+| I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
+| I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
+| I want dependency usage advice | `./gradlew dependencyAnalysisCheck` |
+| I want CVE scanning for dependencies | `./gradlew dependencyVulnerabilityCheck` |
+| Final handoff or pre-merge gate | `./gradlew qualityCheck` |
+
+AI agents inside the sandbox should normally use:
+
+- Iteration:
+  - `quality/scripts/ai_fast_quality_check.sh`
+- Final handoff:
+  - `quality/scripts/ai_quality_check.sh`
+
+Execution defaults:
+
+- Run quality commands from the repository root.
+- If a tool launches Gradle from another working directory, pass `--project-dir "$repo_root"` explicitly.
+- Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/task-inspect"` so wrapper downloads and caches are reused instead of being recreated under `/tmp` or another ephemeral directory.
+- The AI quality scripts already enforce repo-root execution and repo-local `GRADLE_USER_HOME`; use them when possible.
+- The AI quality scripts also set repo-local `HOME`, `ANDROID_USER_HOME`, and `XDG_*` paths so Kotlin daemon and Android tooling do not fall back to read-only global directories.
+
+## Staged Quality Pipeline
+
+The quality chain is intentionally staged so the first real failure appears earlier:
+
+1. `compileGateCheck`
+2. `unitTestCheck`
+3. `staticQualityCheck`
+4. `qualityCheck`
+
+Task roles:
+
+- `compileGateCheck`
+  - Runs source compile gates first so Kotlin/Java warning-as-error failures surface early.
+- `unitTestCheck`
+  - Runs JVM unit tests across modules after compile gates pass.
+- `fastQualityCheck`
+  - Default iterative gate: compile gates, meaningful-test metadata, and JVM unit tests.
+- `staticQualityCheck`
+  - Compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage.
+- `fullQualityCheck`
+  - Internal staged full gate that backs `qualityCheck`.
+- `qualityCheck`
+  - Final integrated repository gate.
+- `dependencyAnalysisCheck`
+  - Runs the dependency-analysis plugin to report unused, mis-scoped, and undeclared dependencies.
+  - Experimental under the current AGP 9.2 alpha toolchain; use it as an advisory task, not a merge gate.
+- `dependencyVulnerabilityCheck`
+  - Runs OWASP Dependency-Check and fails on known vulnerabilities at CVSS 7.0 or higher.
+- `architectureCheck`
+  - Detekt-based architecture guardrails.
+- `androidLintCheck`
+  - Android Lint for the configured app and library modules.
+- `meaningfulTestCheck`
+  - Test metadata contract enforcement.
+- `coverageGatePlan`
+  - Prints the staged merged coverage thresholds.
+
+## Failure Triage
+
+- Read the first compile, test, Detekt, or Lint failure before investigating later Gradle exceptions.
+- Treat `qualityCheck` as the final integrated gate, not the fastest edit-loop command.
+- Later file-system or test-results errors are often secondary symptoms after an earlier test failure.
+- Environment warnings such as read-only Android metrics or JDK `Unsafe` notices may appear in logs, but they are usually not the root cause of a red build.
 
 ## Layout
 
-- `detekt/config/`: shared and per-module Detekt configuration.
-- `detekt-rules/`: custom Detekt rule module backing architecture guardrails.
-- `scripts/`: repository-level quality scripts used by hooks and Gradle tasks.
-- `testing/`: meaningful-test policy and AI test authoring contracts.
+- `detekt/config/`
+  - Shared and per-module Detekt configuration.
+- `detekt-rules/`
+  - Custom Detekt rule module backing architecture guardrails.
+- `scripts/`
+  - Repository-level quality scripts used by hooks and AI verification.
+- `testing/`
+  - Meaningful-test policy and AI test authoring contracts.
 
-## Primary Tasks
+## Dependency Updates
 
-- `./gradlew detektFormat`
-- `./gradlew architectureCheck`
-- `./gradlew meaningfulTestCheck`
-- `./gradlew coverageGatePlan`
-- `./gradlew qualityCheck`
+- Dependency and plugin versions live in `gradle/libs.versions.toml`.
+- Automated version update PRs are managed by `.github/dependabot.yml`.
+- The root build uses `nl.littlerobots.version-catalog-update`.
+- Preferred workflow is command-driven:
+  - `./gradlew versionCatalogUpdate --check`
+  - `./gradlew versionCatalogUpdate`
+  - review the generated diff in `gradle/libs.versions.toml`
+  - rerun `./gradlew qualityCheck`
+- Avoid hand-editing the catalog except for intentional keeps, constraints, or overrides that the update plugin cannot infer.
+- Check for updates without modifying files:
+  - `./gradlew versionCatalogUpdate --check`
+- Review available updates before applying them:
+  - `./gradlew versionCatalogUpdate --interactive`
+  - inspect `gradle/libs.versions.updates.toml`
+  - `./gradlew versionCatalogApplyUpdates`
+- Apply updates directly to the catalog:
+  - `./gradlew versionCatalogUpdate`
+- Reformat the catalog without changing versions:
+  - `./gradlew versionCatalogFormat`
+- After dependency changes, run `./gradlew qualityCheck`.
 
-## AI Verification
+## Supply-Chain Guardrails
 
-- `quality/scripts/ai_quality_check.sh`
-  - Canonical AI post-edit verifier.
-  - Runs `./gradlew qualityCheck` with a repo-local `GRADLE_USER_HOME` that is writable inside the agent sandbox.
-  - Intended to be invoked by agents after each coherent code-edit batch, not only at the end of the task.
+- Gradle dependency verification is enforced by the checked-in `gradle/verification-metadata.xml`.
+- Verification metadata lives in `gradle/verification-metadata.xml`.
+- Refresh metadata intentionally after dependency or plugin changes:
+  - `./gradlew --write-verification-metadata sha256 help`
+- Weekly dependency hygiene runs live in `.github/workflows/dependency_hygiene.yml`.
+
+## Warning Escalation Matrix
+
+- `compileGateCheck`
+  - Yes for Kotlin and Java compiler warnings.
+  - Root build sets Kotlin `allWarningsAsErrors = true` for compile tasks and Java `-Werror`.
+- `unitTestCheck`
+  - No generic warning promotion.
+  - JVM stderr noise from test/runtime agents is not treated as a build warning channel.
+- `architectureCheck`
+  - Partially.
+  - Detekt findings fail the build because `ignoreFailures = false`, but generic runtime stderr warnings are outside Detekt.
+  - Detekt config validation is enabled, but the repo does not separately promote every Detekt warning string to an error.
+- `androidLintCheck`
+  - Yes for Android Lint issues.
+  - Module `lint { warningsAsErrors = true; abortOnError = true }` upgrades Lint warnings to failures.
+- `meaningfulTestCheck`
+  - No warning concept.
+  - This is a shell contract check that passes or fails by exit code only.
+- `coverageCheck`
+  - No warning promotion.
+  - Kover fails only when verification rules fail, such as `minBound` thresholds.
+- `qualityCheck`
+  - Inherits the behavior above.
+  - Compiler warnings and Lint warnings can already fail the build; runtime/JDK agent warnings cannot.
+
+Examples of warnings that are not promoted by the current pipeline:
+
+- JDK 26 reflective-final-field warnings from MockK/Byte Buddy agents
+- `sun.misc.Unsafe` deprecation warnings from runtime instrumentation
+- Android SDK metrics initialization warnings printed outside compiler/Lint/Detekt issue channels
 
 ## Dead-Code Guardrails
 
-- Production Kotlin compile tasks treat warnings as errors so compiler-detected unreachable code and constant conditions fail the build.
+- Production Kotlin compile tasks treat warnings as errors, so compiler-detected unreachable code and constant conditions fail the build.
 - `quality/detekt-rules` adds repo-specific dead-code checks for:
   - constant branch conditions in production source
   - unreachable statements after unconditional control transfer

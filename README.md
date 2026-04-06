@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 Lomo is a local-first, Markdown-based memo application for Android, built with Jetpack Compose and Material 3.
-It manages your notes as plain `.md` files on your device—no **digital walled gardens**. It supports Git backup, and you can still sync files however you want (Syncthing, Nextcloud, etc.).
+It manages your notes as plain `.md` files on your device—no **digital walled gardens**. It supports Git/S3 backup, and you can still sync files however you want (Syncthing, Nextcloud, etc.).
 
 <p align="center">
   <img src="docs/screenshots/01_menu.png" width="32%" />
@@ -36,6 +36,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 - **Search**: Full-text search with indexing.
 - **Voice Recording**: Support for voice memos.
 - **LAN Sharing**: Support sharing notes to other Lomo apps via local network.
+- **S3 Backup (Recommended)**: Support backing up notes to standard object storage via S3.
 - **Git Backup**: Support backing up notes to GitHub via Git.
 
 ## Tech Stack
@@ -53,7 +54,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 
 ### Prerequisites
 - JDK 25
-- Android SDK API 36
+- Android SDK API 37
 
 ### Common Commands
 
@@ -71,7 +72,7 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 2. Or, build manually:
    1. Open the project in Android Studio (Ladybug or newer recommended).
    2. Sync Gradle.
-   3. Build and Run on an Emulator or Device (Min SDK 28).
+   3. Build and Run on an Emulator or Device (Min SDK 26).
 4. On first launch, select a local folder to store your memos.
 
 ## License

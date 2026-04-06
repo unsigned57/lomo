@@ -10,7 +10,9 @@ val roomSchemaDir = layout.projectDirectory.dir("schemas")
 
 android {
     namespace = "com.lomo.data"
-    compileSdk = 36
+    compileSdk {
+        version = release(37)
+    }
 
     defaultConfig {
         minSdk = 26

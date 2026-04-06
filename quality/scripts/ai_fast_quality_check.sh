@@ -15,7 +15,7 @@ if [[ "$ai_gradle_opts" != *"-Duser.home="* ]]; then
 fi
 
 if [ ! -x "$gradlew" ]; then
-  echo "ai-quality-check: gradle wrapper not found or not executable: $gradlew" >&2
+  echo "ai-fast-quality-check: gradle wrapper not found or not executable: $gradlew" >&2
   exit 1
 fi
 
@@ -35,9 +35,9 @@ clear_stale_wrapper_locks() {
 
 clear_stale_wrapper_locks
 
-echo "ai-quality-check: running final ./gradlew qualityCheck"
-echo "ai-quality-check: using GRADLE_USER_HOME at $ai_gradle_user_home"
-echo "ai-quality-check: using HOME at $ai_home"
+echo "ai-fast-quality-check: running ./gradlew fastQualityCheck"
+echo "ai-fast-quality-check: using GRADLE_USER_HOME at $ai_gradle_user_home"
+echo "ai-fast-quality-check: using HOME at $ai_home"
 
 exec env HOME="$ai_home" \
   ANDROID_USER_HOME="$ai_android_user_home" \
@@ -50,5 +50,5 @@ exec env HOME="$ai_home" \
   --no-daemon \
   --no-configuration-cache \
   --console=plain \
-  qualityCheck \
+  fastQualityCheck \
   "$@"

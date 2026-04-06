@@ -1,15 +1,36 @@
 # Lomo Agent Guide
 
-This file gives AI agents the minimum project context needed to work effectively without re-discovering the same repository structure on every task.
+This file is the AI-first entrypoint for the repository. Read this first, then open deeper docs only when the task requires them.
 
-## 1. Project Summary
+## 1. Read Order
 
-- `Lomo` is an Android app built with Jetpack Compose and Material 3.
-- Product goal: local-first Markdown memo app with offline-first behavior, LAN sharing, and Git backup/sync.
-- `.md` files are the source of truth. Room exists for indexing, cache, and supporting state.
-- Architecture is MVVM + Clean Architecture with `app`, `domain`, `data`, and `ui-components`.
+1. `AGENTS.md`
+2. `quality/README.md` when choosing a verification command or debugging the quality chain
+3. `quality/testing/ai-meaningful-tests.md` before writing or editing any test
 
-## 2. Module Ownership
+## 2. Fast Path
+
+- Product: local-first Markdown memo app with offline-first behavior, LAN sharing, and Git backup/sync.
+- Source of truth: `.md` files. Room exists for indexing, cache, and supporting state.
+- Runtime flow: `UI -> Domain -> Data`
+- Compile-time dependencies: `app -> domain` and `data -> domain`
+- Default iteration verifier:
+  - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./quality/scripts/ai_fast_quality_check.sh`
+- Final verifier before handoff:
+  - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck`
+- Run repository commands from the repo root, or pass `--project-dir "$repo_root"` explicitly.
+- Do not run Gradle from `/tmp` or another throwaway working directory.
+- Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/task-inspect"` so wrapper distributions and caches are reused across runs.
+- Run the full `qualityCheck` immediately after any coherent edit batch that changes:
+  - Gradle/build logic
+  - quality tasks or scripts
+  - coverage wiring
+  - dependency or plugin wiring
+- Docs-only changes may skip verification, but the AI must say that it intentionally skipped it.
+- Never run multiple Gradle invocations in parallel in this repository.
+- Assume other people may be editing the tree. Do not overwrite, revert, or reformat their changes unless explicitly asked.
+
+## 3. Module Map
 
 - `:app`
   - UI orchestration only: screens, navigation, ViewModels, widgets, settings, app wiring.
@@ -25,120 +46,77 @@ This file gives AI agents the minimum project context needed to work effectively
 - `:benchmark`
   - Baseline profile generation and benchmark code.
 
-## 3. Critical Flows
+## 4. Hard Boundaries
 
-- Memo write path:
-  - `app` calls `MemoRepository` contracts.
-  - `data` handles writes through `MemoRepositoryImpl`, `MemoSynchronizer`, and `MemoMutationHandler`.
-  - Current behavior is DB-first with async outbox-based file flush.
-- File storage:
-  - `FileDataSourceImpl` switches between `SafStorageBackend` and `DirectStorageBackend`.
-- Git sync:
-  - `GitSyncRepositoryImpl` delegates to `GitSyncEngine` and related bridge/scheduler/worker code.
-- LAN share:
-  - `ShareServiceManager` implements `LanShareService`; sharing code lives under `data/share`.
-
-## 4. Working Defaults
-
-- Build and version source of truth lives in module Gradle files, especially `app/build.gradle.kts`.
-- `minSdk` is `26`.
-- If strings change, update at least `values` and `values-zh-rCN`.
-- Baseline profile is release-critical. If baseline generation or release startup behavior changes, inspect:
-  - `benchmark/src/main/java/com/lomo/benchmark/BaselineProfileGenerator.kt`
-  - `app/src/main/baseline-prof.txt`
-- Useful commands:
-  - `./gradlew testDebugUnitTest`
-  - `./gradlew architectureCheck`
-  - `./gradlew meaningfulTestCheck`
-  - `./gradlew qualityCheck`
-  - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck`
-  - `./gradlew :app:assembleRelease`
-- Pre-commit formats staged Kotlin and runs meaningful-test metadata checks.
-
-## 4.1 Verification Discipline
-
-- For any code, build-script, or test change, AI must immediately run `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck` after each coherent edit batch.
-- Do not wait for the user to remind you to verify changes.
-- Docs-only changes may skip this script, but the AI must say that it intentionally skipped verification.
-- If the tree is intentionally left broken mid-refactor, the AI must say so explicitly and run the quality command as soon as the code returns to a coherent state, before continuing with more substantial edits and before the final handoff.
-- Targeted tests are still encouraged while iterating, but they do not replace the mandatory quality command run after code-edit batches.
-
-## 5. Mandatory Architecture Rules
-
-- Runtime business flow must be `UI -> Domain -> Data`.
-- Compile-time dependency direction must be `app -> domain` and `data -> domain`.
 - `app` must not import `com.lomo.data.*`.
 - `ui-components` must not import `com.lomo.data.*`.
 - `domain` must not depend on Android, Compose, Lifecycle, Room, Hilt/Dagger, Ktor, JGit, or any `com.lomo.data.*` type.
 - ViewModels must not depend directly on DAO, DataSource, RoomDatabase, repository implementations, Git/WebDAV engines, `DocumentFile`, or direct file-system helpers.
-- New business behavior must be modeled in `domain` first, then consumed from `app`, then implemented in `data`.
+- New business behavior belongs in `domain` first, then is consumed from `app`, then implemented in `data`.
 - New repository implementations belong in `data/repository`.
 - New DAOs belong in `data/local/dao`.
 - New entities belong in `data/local/entity`.
-- Do not treat existing violations as precedent. Contain or refactor them instead of copying the pattern.
+- Do not treat an existing architecture violation as precedent.
 - If architecture-sensitive code changes, include an `Architecture Impact` note with:
   - owning layer
   - exposed domain use case or repository interface
   - any boundary exception introduced
 
-## 6. Test-First Rules
+## 5. Testing Defaults
 
-- Read `quality/testing/ai-meaningful-tests.md` before writing or editing any test.
-- Prefer meaningful behavior-bearing tests over line coverage.
-- For new features, bug fixes, and contract changes, write or modify the relevant test before related production code.
+- Read `quality/testing/ai-meaningful-tests.md` before editing any test.
 - For new features, bug fixes, and contract changes, establish red proof before touching production code.
-- If the task is truly test-only, state that explicitly and keep production files unchanged.
-- Changed test files must include the required contract metadata, including `Red phase`.
-- Existing tests are locked behavior contracts by default. Do not delete, weaken, or rewrite them just to match a new implementation.
-- When an existing test fails during behavior-changing work, treat that failure as evidence the production code may be wrong first. Do not assume the test should change.
+- Changed test files must include the required metadata, including `Red phase`.
+- Existing tests are locked behavior contracts by default. Do not delete, weaken, or rewrite them just to fit the implementation.
+- When an existing test fails during behavior-changing work, treat that as evidence the production code may be wrong first.
 - AI must not:
   - delete an existing failing test to unblock a change
-  - weaken assertions, remove edge or failure-path coverage, or replace observable outcome assertions with mock-call-only checks
-  - change test inputs purely to sidestep the original scenario under test
+  - weaken assertions or remove failure-path coverage
+  - change test inputs purely to sidestep the original scenario
   - rewrite `Red phase` to `Not applicable` when production behavior changed
-- AI may modify an existing test only when at least one of these is true:
-  - the product or domain contract explicitly changed
+- AI may modify an existing test only when:
+  - the product or domain contract changed
   - the old assertion is factually wrong
   - the old test is nondeterministic or environment-coupled
-  - a pure refactor preserved behavior but requires mechanical test reshaping
-- Before modifying an existing test, AI must provide a `Test Change Justification` that states:
+  - a pure refactor preserved behavior but requires mechanical reshaping
+- Before modifying an existing test, include a `Test Change Justification` covering:
   - reason category
   - exact behavior or assertion being replaced
   - why the previous assertion is no longer correct
-  - what retained or new test preserves the original risk coverage
-  - why this is not “changing the test to fit the implementation”
+  - what retained or new coverage preserves the original risk
+  - why this is not "changing the test to fit the implementation"
 
-## 6.1 Branch Reachability Policy
+## 6. Project Defaults And Hotspots
 
-- AI must not add a production branch unless it can name the runtime input or upstream boundary that reaches it.
-- AI must not keep speculative fallback code, placeholder `else` branches, or “future use” error paths in production source.
-- For `Boolean`, sealed-style, or enum-style dispatch, prefer explicit exhaustive branches; do not add `else` unless the branch is genuinely reachable and required by the current contract.
-- If removing a branch leaves observable behavior unchanged, remove it instead of preserving defensive dead code.
-- Any new production branch must be justified by at least one behavior test that proves either:
-  - the branch is reachable and produces a distinct observable outcome
-  - the branch was dead and was removed without changing reachable behavior
-- If AI cannot prove why a branch is reachable, it must stop short of adding the branch and instead surface the missing contract or boundary detail.
-
-## 7. Hotspots To Inspect First
-
-- Settings changes:
+- `minSdk` is `26`.
+- If strings change, update at least `values` and `values-zh-rCN`.
+- Baseline profile is release-critical. If startup or baseline generation changes, inspect:
+  - `benchmark/src/main/java/com/lomo/benchmark/BaselineProfileGenerator.kt`
+  - `app/src/main/baseline-prof.txt`
+- Settings work:
   - `PreferencesRepository`
   - `DirectorySettingsRepository`
   - `SettingsRepositoryImpl`
-- Sync changes:
+- Sync work:
   - `GitSyncRepositoryImpl`
   - `GitSyncEngine`
   - `GitSyncScheduler`
   - `GitSyncWorker`
+- High-value entry points:
+  - `app/src/main/java/com/lomo/app/LomoApplication.kt`
+  - `app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
+  - `app/src/main/java/com/lomo/app/feature/main/MainViewModel.kt`
+  - `data/src/main/java/com/lomo/data/di/DataModule.kt`
+  - `data/src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt`
+  - `data/src/main/java/com/lomo/data/git/GitSyncEngine.kt`
 
-## 8. High-Value Entry Points
+## 7. Common Commands
 
-- App entry: `app/src/main/java/com/lomo/app/LomoApplication.kt`
-- Navigation host: `app/src/main/java/com/lomo/app/navigation/LomoNavHost.kt`
-- Main ViewModel: `app/src/main/java/com/lomo/app/feature/main/MainViewModel.kt`
-- Data DI: `data/src/main/java/com/lomo/data/di/DataModule.kt`
-- Memo repository implementation: `data/src/main/java/com/lomo/data/repository/MemoRepositoryImpl.kt`
-- Git sync engine: `data/src/main/java/com/lomo/data/git/GitSyncEngine.kt`
-- Quality guide: `quality/README.md`
-- Meaningful test policy: `quality/testing/ai-meaningful-tests.md`
-- Meaningful test prompt: `quality/testing/ai-meaningful-test-prompt.md`
+- `./gradlew compileGateCheck`
+- `./gradlew unitTestCheck`
+- `./gradlew fastQualityCheck`
+- `./gradlew staticQualityCheck`
+- `./gradlew qualityCheck`
+- `./gradlew dependencyAnalysisCheck`
+- `./gradlew dependencyVulnerabilityCheck`
+- `./gradlew :app:assembleRelease`
