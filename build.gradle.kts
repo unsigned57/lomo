@@ -1,4 +1,3 @@
-import org.gradle.api.GradleException
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.compile.JavaCompile
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
@@ -30,29 +29,8 @@ val kotlinVersion = libs.versions.kotlin.get()
 val detektVersion = libs.versions.detekt.get()
 val byteBuddyVersion = libs.versions.byteBuddy.get()
 val koverQualityVariant = "quality"
+val coverageMinBound = 70
 val dependencyAnalysisProjects = setOf("app", "domain", "data", "ui-components")
-val defaultCoverageGateStage = "m3"
-val coverageGateStages =
-    linkedMapOf(
-        "baseline" to 21,
-        "m1" to 35,
-        "m2" to 50,
-        "m3" to 65,
-        "m4" to 80,
-    )
-val coverageGateStage =
-    (
-        (findProperty("coverageGateStage") as String?)
-            ?: System.getenv("COVERAGE_GATE_STAGE")
-            ?: defaultCoverageGateStage
-    ).trim().ifEmpty { defaultCoverageGateStage }
-val configuredCoverageMinBound = (findProperty("coverageMinBound") as String?)?.toIntOrNull()
-val coverageMinBound =
-    configuredCoverageMinBound
-        ?: coverageGateStages[coverageGateStage]
-        ?: throw GradleException(
-            "Unknown coverage gate stage '$coverageGateStage'. Valid stages: ${coverageGateStages.keys.joinToString(", ")}.",
-        )
 val detektProjects = setOf("app", "domain", "data", "ui-components")
 val lintTasksByProject =
     linkedMapOf(
@@ -385,25 +363,6 @@ tasks.register("dependencyVulnerabilityCheck") {
     dependsOn("dependencyCheckAnalyze")
 }
 
-tasks.register("coverageGatePlan") {
-    group = "help"
-    description = "Prints the staged merged coverage thresholds used by the quality gate."
-    val stageLines =
-        coverageGateStages.entries.joinToString(separator = System.lineSeparator()) { (stage, bound) ->
-            val suffix = if (stage == coverageGateStage) " (current)" else ""
-            " - $stage -> $bound%$suffix"
-        }
-    val overrideLine =
-        configuredCoverageMinBound?.let {
-            " - override -> $coverageMinBound% (from -PcoverageMinBound)"
-        }
-    doLast {
-        println("Coverage gate stages:")
-        println(stageLines)
-        overrideLine?.let(::println)
-    }
-}
-
 kover {
     currentProject {
         createVariant(koverQualityVariant) {}
@@ -418,7 +377,7 @@ kover {
                 }
             }
             log {
-                header = "Merged quality coverage [$coverageGateStage >= $coverageMinBound%]"
+                header = "Merged quality coverage [min $coverageMinBound%]"
                 format = "<entity>: <value>%"
             }
             verify {
@@ -432,7 +391,7 @@ kover {
 
 tasks.register("coverageCheck") {
     group = "verification"
-    description = "Runs merged JVM unit-test coverage checks for stage '$coverageGateStage' ($coverageMinBound%)."
+    description = "Runs merged JVM unit-test coverage checks with a $coverageMinBound% minimum."
     dependsOn("koverVerifyQuality")
 }
 

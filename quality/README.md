@@ -70,8 +70,8 @@ Task roles:
   - Android Lint for the configured app and library modules.
 - `meaningfulTestCheck`
   - Test metadata contract enforcement.
-- `coverageGatePlan`
-  - Prints the staged merged coverage thresholds.
+- `coverageCheck`
+  - Verifies merged JVM unit-test coverage against the fixed `70%` minimum.
 
 ## Failure Triage
 
@@ -94,7 +94,6 @@ Task roles:
 ## Dependency Updates
 
 - Dependency and plugin versions live in `gradle/libs.versions.toml`.
-- Automated version update PRs are managed by `.github/dependabot.yml`.
 - The root build uses `nl.littlerobots.version-catalog-update`.
 - Preferred workflow is command-driven:
   - `./gradlew versionCatalogUpdate --check`

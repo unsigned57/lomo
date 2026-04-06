@@ -33,6 +33,23 @@ private val requiredReleaseSigningEnvVars =
         "KEY_PASSWORD",
     )
 
+private object ReleaseSigningSupport {
+    fun resolveKeystoreFile(path: String, repoRoot: File): File {
+        val trimmed = path.trim()
+        if (trimmed.isEmpty()) return File(trimmed)
+
+        val expandedPath =
+            when {
+                trimmed == "~" -> System.getProperty("user.home")
+                trimmed.startsWith("~/") -> "${System.getProperty("user.home")}/${trimmed.removePrefix("~/")}"
+                else -> trimmed
+            }
+        return File(expandedPath).let { file ->
+            if (file.isAbsolute) file else File(repoRoot, expandedPath)
+        }
+    }
+}
+
 @DisableCachingByDefault(because = "Renames generated artifacts after packaging")
 abstract class RenameReleaseArtifactTask : DefaultTask() {
     @get:Input
@@ -93,6 +110,9 @@ abstract class VerifyReleaseSigningTask : DefaultTask() {
     @get:Input
     abstract val disallowedKeystoreName: Property<String>
 
+    @get:Input
+    abstract val repoRootPath: Property<String>
+
     @TaskAction
     fun verify() {
         val missingEnv =
@@ -104,12 +124,12 @@ abstract class VerifyReleaseSigningTask : DefaultTask() {
         }
 
         val keystorePath = checkNotNull(System.getenv("KEYSTORE_FILE")) { "KEYSTORE_FILE is required for release builds." }.trim()
-        val keystoreFile = File(keystorePath)
+        val keystoreFile = ReleaseSigningSupport.resolveKeystoreFile(keystorePath, File(repoRootPath.get()))
         check(keystoreFile.exists()) {
-            "Release signing keystore does not exist: $keystorePath"
+            "Release signing keystore does not exist: ${keystoreFile.path}"
         }
         check(keystoreFile.isFile) {
-            "Release signing keystore path is not a file: $keystorePath"
+            "Release signing keystore path is not a file: ${keystoreFile.path}"
         }
         check(!keystoreFile.name.equals(disallowedKeystoreName.get(), ignoreCase = true)) {
             "Release signing cannot use debug.keystore. Please provide a production keystore in KEYSTORE_FILE."
@@ -143,7 +163,7 @@ android {
         create("release") {
             val keystorePath = System.getenv("KEYSTORE_FILE")?.trim().orEmpty()
             if (keystorePath.isNotBlank()) {
-                storeFile = rootProject.file(keystorePath)
+                storeFile = ReleaseSigningSupport.resolveKeystoreFile(keystorePath, rootProject.rootDir)
             }
             storePassword = System.getenv("KEYSTORE_PASSWORD")?.trim().orEmpty()
             keyAlias = System.getenv("KEY_ALIAS")?.trim().orEmpty()
@@ -222,6 +242,7 @@ val verifyReleaseSigningEnv by tasks.registering(VerifyReleaseSigningTask::class
     description = "Validates required environment variables for release signing."
     requiredEnvVars.set(requiredReleaseSigningEnvVars)
     disallowedKeystoreName.set("debug.keystore")
+    repoRootPath.set(rootProject.rootDir.absolutePath)
 }
 
 tasks

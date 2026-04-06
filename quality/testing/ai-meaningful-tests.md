@@ -6,15 +6,7 @@ Default AI workflow is test-first. When a task adds a feature, changes productio
 
 ## Coverage Ratchet
 
-`qualityCheck` reads the merged Kover threshold from `COVERAGE_GATE_STAGE` or `-PcoverageGateStage=...`.
-
-- `baseline` -> `21%`
-- `m1` -> `35%`
-- `m2` -> `50%`
-- `m3` -> `65%`
-- `m4` -> `80%`
-
-Use `./gradlew coverageGatePlan` to print the current stage plan.
+`qualityCheck` enforces a fixed merged Kover minimum of `70%`.
 
 ## Target Order
 
