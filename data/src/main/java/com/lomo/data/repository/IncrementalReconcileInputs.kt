@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncConflictSet
 
@@ -96,6 +97,7 @@ internal suspend fun buildIncrementalReconcileLocalFiles(
 internal suspend fun prepareReconcileConflictState(
     plan: S3SyncPlan,
     runtime: S3SyncRepositoryContext,
+    pendingConflictStore: PendingSyncConflictStore,
     client: com.lomo.data.s3.LomoS3Client,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
     config: S3ResolvedConfig,
@@ -103,6 +105,7 @@ internal suspend fun prepareReconcileConflictState(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
+    metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
 ): Pair<Set<String>, SyncConflictSet?> {
     val conflictActions = plan.actions.filter { it.direction == S3SyncDirection.CONFLICT }
     val conflictPaths = conflictActions.map(S3SyncAction::path).toSet()
@@ -116,9 +119,11 @@ internal suspend fun prepareReconcileConflictState(
             fileBridgeScope = fileBridgeScope,
             mode = mode,
             encodingSupport = encodingSupport,
+            sessionKind = determineS3ConflictSessionKind(conflictActions, metadataByPath),
         )
     if (conflictSet != null) {
-        runtime.stateHolder.state.value = S3SyncState.ConflictDetected(conflictSet)
+        pendingConflictStore.write(conflictSet)
+        runtime.stateHolder.state.value = conflictSet.toS3ConflictState()
     }
     return conflictPaths to conflictSet
 }

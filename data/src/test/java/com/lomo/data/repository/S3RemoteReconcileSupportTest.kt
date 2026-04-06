@@ -5,6 +5,9 @@ import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
+import com.lomo.domain.model.S3RemoteVerificationLevel
+import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3SyncReason
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -150,6 +153,114 @@ class S3RemoteReconcileSupportTest {
         }
 
     @Test
+    fun `prepareRemoteReconcile reads root fallback candidates without full index scan`() =
+        runTest {
+            val rootPath = "Projects/note.md"
+            val remoteIndexStore =
+                object : S3RemoteIndexStore {
+                    private val delegate = InMemoryS3RemoteIndexStore()
+
+                    init {
+                        kotlinx.coroutines.runBlocking {
+                            delegate.upsert(
+                                listOf(
+                                    remoteIndexEntry(path = rootPath, scanBucket = "Projects", scanPriority = 30),
+                                    remoteIndexEntry(path = "journal/entry.md", scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 30),
+                                ),
+                            )
+                        }
+                    }
+
+                    override val remoteIndexEnabled: Boolean
+                        get() = delegate.remoteIndexEnabled
+
+                    suspend fun readAll(): List<S3RemoteIndexEntry> {
+                        error("root fallback reconcile should not read the full remote index")
+                    }
+
+                    override suspend fun readAllRelativePaths(): List<String> = delegate.readAllRelativePaths()
+
+                    override suspend fun readPresentCount(): Int = delegate.readPresentCount()
+
+                    override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
+                        delegate.readByRelativePaths(relativePaths)
+
+                    override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> =
+                        delegate.readByRelativePrefix(relativePrefix)
+
+                    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+                        delegate.readOutsideScanBuckets(excludedBuckets)
+
+                    override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
+                        delegate.readReconcileCandidates(limit)
+
+                    override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) = delegate.upsert(entries)
+
+                    override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) =
+                        delegate.deleteByRelativePaths(relativePaths)
+
+                    override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) =
+                        delegate.deleteOutsideScanEpoch(scanEpoch)
+
+                    override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) = delegate.replaceAll(entries)
+
+                    override suspend fun clear() = delegate.clear()
+                }
+            val rootShard =
+                buildRemoteScanPlan(
+                    layout = layout,
+                    mode =
+                        S3LocalSyncMode.FileVaultRoot(
+                            rootDir = File("/vault"),
+                            memoRelativeDir = "journal",
+                            imageRelativeDir = "asset",
+                            voiceRelativeDir = "voice",
+                            legacyRemoteCompatibility = false,
+                        ),
+                    indexedRelativePaths = listOf(rootPath),
+                ).first { it.bucketId == S3_SCAN_BUCKET_ROOT }
+            val client =
+                ReconcileProbeClient(
+                    onList = { throw AssertionError("reconcile should use paged listing") },
+                    onListPage = { prefix, continuationToken, _ ->
+                        assertEquals("", prefix)
+                        assertEquals(null, continuationToken)
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                    onGetObjectMetadata = { key ->
+                        assertTrue(key == rootPath || key == "journal/entry.md")
+                        null
+                    },
+                )
+
+            val prepared =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode =
+                        S3LocalSyncMode.FileVaultRoot(
+                            rootDir = File("/vault"),
+                            memoRelativeDir = "journal",
+                            imageRelativeDir = "asset",
+                            voiceRelativeDir = "voice",
+                            legacyRemoteCompatibility = false,
+                        ),
+                    protocolState =
+                        S3SyncProtocolState(
+                            lastSuccessfulSyncAt = System.currentTimeMillis(),
+                            lastFullRemoteScanAt = System.currentTimeMillis(),
+                            remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = rootShard.bucketId)),
+                        ),
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                )
+
+            assertTrue(rootPath in prepared.missingRemotePaths)
+            assertTrue(rootPath in client.headKeys)
+        }
+
+    @Test
     fun `prepareRemoteReconcile records shard scan stats after listing a page`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
@@ -263,6 +374,88 @@ class S3RemoteReconcileSupportTest {
             assertEquals(0, shardState.idleScanStreak)
             assertEquals(1, shardState.lastVerificationAttemptCount)
             assertEquals(1, shardState.lastVerificationFailureCount)
+        }
+
+    @Test
+    fun `prepareRemoteReconcile resolves ancestor shard telemetry without scanning the full shard-state table`() =
+        runTest {
+            val path = "lomo/memo/apple.md"
+            val remoteIndexStore = InMemoryS3RemoteIndexStore().apply {
+                upsert(listOf(remoteIndexEntry(path = path, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 30)))
+            }
+            val shardStateStore =
+                object : S3RemoteShardStateStore {
+                    override val remoteShardStateEnabled: Boolean = true
+
+                    override suspend fun readAll(): List<S3RemoteShardState> {
+                        error("reconcile should not scan the full shard-state table for ancestor telemetry")
+                    }
+
+                    override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? = null
+
+                    override suspend fun readByBucketIds(bucketIds: Collection<String>): List<S3RemoteShardState> =
+                        emptyList()
+
+                    override suspend fun readMostSpecificAncestor(relativePrefix: String?): S3RemoteShardState? =
+                        S3RemoteShardState(
+                            bucketId = S3_SCAN_BUCKET_MEMO,
+                            relativePrefix = "lomo/memo",
+                            lastScannedAt = 800L,
+                            lastObjectCount = 1,
+                            lastDurationMs = 25L,
+                            lastChangeCount = 0,
+                            idleScanStreak = 0,
+                            lastVerificationAttemptCount = 1,
+                            lastVerificationFailureCount = 0,
+                        )
+
+                    override suspend fun readScheduleTelemetry(
+                        now: Long,
+                        reconcileInterval: java.time.Duration,
+                    ): S3RemoteShardScheduleTelemetry =
+                        S3RemoteShardScheduleTelemetry(
+                            shardCount = 1,
+                            oldestScanAt = 800L,
+                            hasElevatedChangePressure = false,
+                            hasHighVerificationUncertainty = false,
+                        )
+
+                    override suspend fun upsert(states: Collection<S3RemoteShardState>) = Unit
+
+                    override suspend fun clear() = Unit
+                }
+            val hotShard =
+                buildRemoteScanPlan(
+                    layout = layout,
+                    mode = S3LocalSyncMode.Legacy(),
+                    indexedRelativePaths = listOf(path),
+                ).first { it.relativePrefix == "lomo/memo/a" }
+            val client =
+                ReconcileProbeClient(
+                    onListPage = { _, _, _ ->
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                    onGetObjectMetadata = { null },
+                )
+
+            val prepared =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = S3LocalSyncMode.Legacy(),
+                    protocolState =
+                        S3SyncProtocolState(
+                            lastSuccessfulSyncAt = 1L,
+                            lastFullRemoteScanAt = 1L,
+                            remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard.bucketId)),
+                        ),
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = shardStateStore,
+                )
+
+            assertEquals(setOf(path), prepared.missingRemotePaths)
         }
 
     @Test
@@ -423,6 +616,232 @@ class S3RemoteReconcileSupportTest {
             assertEquals(9L, byPath[refreshedPath]?.scanEpoch)
         }
 
+    @Test
+    fun `applyRemoteIndexUpdates replaces full snapshot without loading full entry rows`() =
+        runTest {
+            val keptPath = "lomo/memo/keep.md"
+            val removedPath = "lomo/memo/remove.md"
+            val remoteIndexStore =
+                NoFullEntryReadSnapshotRemoteIndexStore(
+                    initialEntries =
+                        listOf(
+                            remoteIndexEntry(path = keptPath, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 80),
+                            remoteIndexEntry(path = removedPath, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 80),
+                        ),
+                )
+
+            applyRemoteIndexUpdates(
+                remoteIndexStore = remoteIndexStore,
+                prepared =
+                    PreparedS3Sync(
+                        layout = layout,
+                        localFiles = emptyMap(),
+                        remoteFiles = emptyMap(),
+                        metadataByPath = emptyMap(),
+                        plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
+                        normalActions = emptyList(),
+                        conflictSet = null,
+                        completeSnapshot = true,
+                        protocolState = S3SyncProtocolState(indexedRemoteFileCount = 2, scanEpoch = 7L),
+                        remoteFileCountHint = 2,
+                        remoteReconcileState =
+                            PreparedRemoteReconcile(
+                                observedRemoteEntries = emptyMap(),
+                                missingRemotePaths = emptySet(),
+                                nextScanCursor = null,
+                                scanEpoch = 9L,
+                                completedScanCycle = true,
+                            ),
+                    ),
+                execution =
+                    S3ActionExecutionResult(
+                        actionOutcomes = emptyMap(),
+                        failedPaths = emptyList(),
+                        unresolvedPaths = emptySet(),
+                        localChanged = false,
+                        localFilesAfterSync = emptyMap(),
+                        remoteFilesAfterSync =
+                            mapOf(
+                                keptPath to
+                                    RemoteS3File(
+                                        path = keptPath,
+                                        etag = "etag-keep",
+                                        lastModified = 20L,
+                                        remotePath = keptPath,
+                                        verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
+                                    ),
+                            ),
+                        memoRefreshPlan = S3MemoRefreshPlan.None,
+                    ),
+                now = 300L,
+            )
+
+            assertEquals(setOf(removedPath), remoteIndexStore.deletedPaths)
+            assertEquals(0, remoteIndexStore.readAllCalls)
+        }
+
+    @Test
+    fun `applyRemoteIndexUpdates promotes successful action outcomes into recent activity candidates`() =
+        runTest {
+            val path = "lomo/memo/recent.md"
+            val remoteIndexStore =
+                InMemoryS3RemoteIndexStore().apply {
+                    upsert(listOf(remoteIndexEntry(path = path, scanBucket = S3_SCAN_BUCKET_MEMO, scanPriority = 100)))
+                }
+
+            applyRemoteIndexUpdates(
+                remoteIndexStore = remoteIndexStore,
+                prepared =
+                    PreparedS3Sync(
+                        layout = layout,
+                        localFiles = emptyMap(),
+                        remoteFiles = emptyMap(),
+                        metadataByPath = emptyMap(),
+                        plan = S3SyncPlan(actions = emptyList(), pendingChanges = 0),
+                        normalActions = emptyList(),
+                        conflictSet = null,
+                        completeSnapshot = false,
+                        protocolState = S3SyncProtocolState(indexedRemoteFileCount = 1, scanEpoch = 5L),
+                        remoteFileCountHint = 1,
+                        remoteReconcileState = null,
+                    ),
+                execution =
+                    S3ActionExecutionResult(
+                        actionOutcomes = mapOf(path to (S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER)),
+                        failedPaths = emptyList(),
+                        unresolvedPaths = emptySet(),
+                        localChanged = false,
+                        localFilesAfterSync = emptyMap(),
+                        remoteFilesAfterSync =
+                            mapOf(
+                                path to
+                                    RemoteS3File(
+                                        path = path,
+                                        etag = "etag-recent",
+                                        lastModified = 42L,
+                                        remotePath = path,
+                                        verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
+                                    ),
+                            ),
+                        memoRefreshPlan = S3MemoRefreshPlan.None,
+                    ),
+                now = 420L,
+            )
+
+            val recent = requireNotNull(remoteIndexStore.readByRelativePaths(listOf(path)).singleOrNull())
+            assertEquals(5L, recent.scanEpoch)
+            assertTrue("successful actions should stay warm for planner seeds", recent.scanPriority > 100)
+            assertTrue("successful actions should refresh planner recency", recent.lastSeenAt >= 420L)
+            assertTrue("successful actions should remain present, not tombstoned", !recent.missingOnLastScan)
+        }
+
+    @Test
+    fun `prepareRemoteReconcile expands list page budget for hot high-change shard`() =
+        runTest {
+            val shardStateStore = InMemoryS3RemoteShardStateStore().apply {
+                upsert(
+                    listOf(
+                        S3RemoteShardState(
+                            bucketId = S3_SCAN_BUCKET_MEMO,
+                            relativePrefix = "lomo/memo",
+                            lastScannedAt = 990L,
+                            lastObjectCount = 10,
+                            lastDurationMs = 20L,
+                            lastChangeCount = 8,
+                            idleScanStreak = 0,
+                            lastVerificationAttemptCount = 2,
+                            lastVerificationFailureCount = 0,
+                        ),
+                    ),
+                )
+            }
+            var observedMaxKeys = 0
+            val client =
+                ReconcileProbeClient(
+                    onListPage = { prefix, _, maxKeys ->
+                        assertEquals("lomo/memo/", prefix)
+                        observedMaxKeys = maxKeys
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                )
+
+            prepareRemoteReconcile(
+                client = client,
+                layout = layout,
+                config = config,
+                mode = S3LocalSyncMode.Legacy(),
+                protocolState =
+                    S3SyncProtocolState(
+                        lastSuccessfulSyncAt = 1L,
+                        lastFullRemoteScanAt = 1L,
+                    ),
+                encodingSupport = encodingSupport,
+                remoteIndexStore = InMemoryS3RemoteIndexStore(),
+                shardStateStore = shardStateStore,
+            )
+
+            assertTrue("hot changing shard should receive a larger list-page budget", observedMaxKeys > 256)
+        }
+
+    @Test
+    fun `prepareRemoteReconcile shrinks verification head budget when shard has high failure rate`() =
+        runTest {
+            val remoteIndexStore = InMemoryS3RemoteIndexStore()
+            val shardStateStore = InMemoryS3RemoteShardStateStore()
+            repeat(24) { index ->
+                remoteIndexStore.upsert(
+                    listOf(
+                        remoteIndexEntry(
+                            path = "lomo/memo/miss-$index.md",
+                            scanBucket = S3_SCAN_BUCKET_MEMO,
+                            scanPriority = 150 + index,
+                        ),
+                    ),
+                )
+            }
+            shardStateStore.upsert(
+                listOf(
+                    S3RemoteShardState(
+                        bucketId = S3_SCAN_BUCKET_MEMO,
+                        relativePrefix = "lomo/memo",
+                        lastScannedAt = 900L,
+                        lastObjectCount = 24,
+                        lastDurationMs = 500L,
+                        lastChangeCount = 2,
+                        idleScanStreak = 0,
+                        lastVerificationAttemptCount = 8,
+                        lastVerificationFailureCount = 7,
+                    ),
+                ),
+            )
+            val client =
+                ReconcileProbeClient(
+                    onListPage = { _, _, _ ->
+                        S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+                    },
+                    onGetObjectMetadata = { null },
+                )
+
+            val prepared =
+                prepareRemoteReconcile(
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    mode = S3LocalSyncMode.Legacy(),
+                    protocolState =
+                        S3SyncProtocolState(
+                            lastSuccessfulSyncAt = 1L,
+                            lastFullRemoteScanAt = 1L,
+                        ),
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = shardStateStore,
+                )
+
+            assertTrue("high-failure shards should verify fewer candidates per cycle", client.headKeys.size in 1..8)
+            assertEquals(client.headKeys.size, prepared.missingRemotePaths.size)
+        }
+
     private fun remoteIndexEntry(
         path: String,
         scanBucket: String,
@@ -506,15 +925,18 @@ private class RecordingSnapshotRemoteIndexStore(
     override val remoteIndexEnabled: Boolean
         get() = delegate.remoteIndexEnabled
 
-    override suspend fun readAll(): List<S3RemoteIndexEntry> = delegate.readAll()
-
     override suspend fun readPresentCount(): Int = delegate.readPresentCount()
+
+    override suspend fun readAllRelativePaths(): List<String> = delegate.readAllRelativePaths()
 
     override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
         delegate.readByRelativePaths(relativePaths)
 
     override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> =
         delegate.readByRelativePrefix(relativePrefix)
+
+    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+        delegate.readOutsideScanBuckets(excludedBuckets)
 
     override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
         delegate.readReconcileCandidates(limit)
@@ -535,6 +957,66 @@ private class RecordingSnapshotRemoteIndexStore(
 
     override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) {
         replaceAllCalls += 1
+        error("replaceAll should not be used for full snapshot updates")
+    }
+
+    override suspend fun clear() {
+        delegate.clear()
+    }
+}
+
+private class NoFullEntryReadSnapshotRemoteIndexStore(
+    initialEntries: List<S3RemoteIndexEntry>,
+) : S3RemoteIndexStore {
+    private val delegate = InMemoryS3RemoteIndexStore()
+    val deletedPaths = linkedSetOf<String>()
+    var readAllCalls: Int = 0
+        private set
+
+    init {
+        kotlinx.coroutines.runBlocking {
+            delegate.upsert(initialEntries)
+        }
+    }
+
+    override val remoteIndexEnabled: Boolean
+        get() = delegate.remoteIndexEnabled
+
+    suspend fun readAll(): List<S3RemoteIndexEntry> {
+        readAllCalls += 1
+        error("full snapshot replacement should not read every stored entry row")
+    }
+
+    override suspend fun readPresentCount(): Int = delegate.readPresentCount()
+
+    override suspend fun readAllRelativePaths(): List<String> = delegate.readAllRelativePaths()
+
+    override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
+        delegate.readByRelativePaths(relativePaths)
+
+    override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> =
+        delegate.readByRelativePrefix(relativePrefix)
+
+    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+        delegate.readOutsideScanBuckets(excludedBuckets)
+
+    override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
+        delegate.readReconcileCandidates(limit)
+
+    override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) {
+        delegate.upsert(entries)
+    }
+
+    override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) {
+        deletedPaths += relativePaths
+        delegate.deleteByRelativePaths(relativePaths)
+    }
+
+    override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) {
+        delegate.deleteOutsideScanEpoch(scanEpoch)
+    }
+
+    override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) {
         error("replaceAll should not be used for full snapshot updates")
     }
 

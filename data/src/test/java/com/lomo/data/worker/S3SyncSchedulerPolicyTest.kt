@@ -5,6 +5,7 @@ import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.domain.model.S3SyncScanPolicy
 import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /*
@@ -172,5 +173,81 @@ class S3SyncSchedulerPolicyTest {
             )
 
         assertEquals(S3SyncScanPolicy.FULL_RECONCILE, policy)
+    }
+
+    @Test
+    fun `refresh plan prefers fast foreground sync and full reconcile catch-up on first opening`() {
+        val plan =
+            buildS3RefreshSyncPlan(
+                protocolState = S3SyncProtocolState(lastSuccessfulSyncAt = 10L),
+                reconcileInterval = Duration.ofHours(6),
+                now = 1_000L,
+                incrementalEnabled = true,
+            )
+
+        assertEquals(S3SyncScanPolicy.FAST_ONLY, plan.foregroundPolicy)
+        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, plan.catchUpPolicy)
+    }
+
+    @Test
+    fun `refresh plan escalates foreground sync to full reconcile under high verification uncertainty`() {
+        val plan =
+            buildS3RefreshSyncPlan(
+                protocolState =
+                    S3SyncProtocolState(
+                        lastSuccessfulSyncAt = 10L,
+                        lastReconcileAt = Duration.ofHours(23).toMillis(),
+                        lastFullRemoteScanAt = Duration.ofHours(23).toMillis(),
+                    ),
+                reconcileInterval = Duration.ofHours(6),
+                now = Duration.ofHours(24).toMillis(),
+                incrementalEnabled = true,
+                shardStates =
+                    listOf(
+                        S3RemoteShardState(
+                            bucketId = "memo",
+                            relativePrefix = "lomo/memo",
+                            lastScannedAt = Duration.ofHours(23).toMillis(),
+                            lastObjectCount = 10,
+                            lastDurationMs = 50L,
+                            lastChangeCount = 1,
+                            idleScanStreak = 0,
+                            lastVerificationAttemptCount = 4,
+                            lastVerificationFailureCount = 3,
+                        ),
+                    ),
+            )
+
+        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, plan.foregroundPolicy)
+        assertNull(plan.catchUpPolicy)
+    }
+
+    @Test
+    fun `refresh plan keeps foreground fast and schedules rolling catch-up when cold shards need coverage`() {
+        val plan =
+            buildS3RefreshSyncPlan(
+                protocolState =
+                    S3SyncProtocolState(
+                        lastSuccessfulSyncAt = 10L,
+                        lastFullRemoteScanAt = Duration.ofHours(23).toMillis(),
+                    ),
+                reconcileInterval = Duration.ofHours(6),
+                now = Duration.ofHours(24).toMillis(),
+                incrementalEnabled = true,
+                shardStates =
+                    listOf(
+                        S3RemoteShardState(
+                            bucketId = "memo",
+                            relativePrefix = "lomo/memo",
+                            lastScannedAt = 1L,
+                            lastObjectCount = 10,
+                            lastDurationMs = 50L,
+                            lastChangeCount = 0,
+                        ),
+                    ),
+            )
+
+        assertEquals(S3SyncScanPolicy.FAST_ONLY, plan.foregroundPolicy)
+        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, plan.catchUpPolicy)
     }
 }

@@ -11,6 +11,9 @@ interface S3RemoteIndexDao {
     @Query("SELECT * FROM s3_remote_index")
     suspend fun getAll(): List<S3RemoteIndexEntity>
 
+    @Query("SELECT relative_path FROM s3_remote_index")
+    suspend fun getAllRelativePaths(): List<String>
+
     @Query("SELECT COUNT(*) FROM s3_remote_index WHERE missing_on_last_scan = 0")
     suspend fun getPresentCount(): Int
 
@@ -27,6 +30,9 @@ interface S3RemoteIndexDao {
         relativePrefix: String,
         descendantPattern: String,
     ): List<S3RemoteIndexEntity>
+
+    @Query("SELECT * FROM s3_remote_index WHERE scan_bucket NOT IN (:excludedBuckets)")
+    suspend fun getOutsideScanBuckets(excludedBuckets: List<String>): List<S3RemoteIndexEntity>
 
     @Query(
         """

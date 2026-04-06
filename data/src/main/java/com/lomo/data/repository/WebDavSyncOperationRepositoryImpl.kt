@@ -27,12 +27,19 @@ class WebDavSyncOperationRepositoryImpl
     constructor(
         private val syncExecutor: WebDavSyncExecutor,
         private val statusTester: WebDavSyncStatusTester,
+        private val stateHolder: WebDavSyncStateHolder,
+        private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) : WebDavSyncOperationRepository {
         private val syncGuard = AtomicBoolean(false)
 
         override suspend fun sync(): WebDavSyncResult =
             withSyncGuard(inProgressMessage = "WebDAV sync already in progress") {
-                syncExecutor.performSync()
+                restorePendingConflictIfPresent()?.let { pending ->
+                    return@withSyncGuard pending
+                }
+                val result = syncExecutor.performSync()
+                clearPendingConflictsOnSuccess(result)
+                result
             }
 
         override suspend fun getStatus(): WebDavSyncStatus = statusTester.getStatus()
@@ -50,6 +57,18 @@ class WebDavSyncOperationRepositoryImpl
                 block()
             } finally {
                 syncGuard.set(false)
+            }
+        }
+
+        private suspend fun restorePendingConflictIfPresent(): WebDavSyncResult? {
+            val pending = pendingConflictStore.read(SyncBackendType.WEBDAV) ?: return null
+            stateHolder.state.value = WebDavSyncState.ConflictDetected(pending)
+            return WebDavSyncResult.Conflict("Pending conflicts remain", pending)
+        }
+
+        private suspend fun clearPendingConflictsOnSuccess(result: WebDavSyncResult) {
+            if (result is WebDavSyncResult.Success) {
+                pendingConflictStore.clear(SyncBackendType.WEBDAV)
             }
         }
     }
@@ -101,6 +120,7 @@ class WebDavSyncExecutor
         private val support: WebDavSyncRepositorySupport,
         private val fileBridge: WebDavSyncFileBridge,
         private val actionApplier: WebDavSyncActionApplier,
+        private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) {
         suspend fun performSync(): WebDavSyncResult {
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
@@ -150,6 +170,7 @@ class WebDavSyncExecutor
             val conflictActions = plan.actions.filter { it.direction == WebDavSyncDirection.CONFLICT }
             val conflictSet = buildConflictSet(conflictActions, client, layout)
             if (conflictSet != null) {
+                pendingConflictStore.write(conflictSet)
                 runtime.stateHolder.state.value = WebDavSyncState.ConflictDetected(conflictSet)
             }
             return PreparedWebDavSync(

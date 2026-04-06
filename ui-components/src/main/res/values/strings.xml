@@ -65,6 +65,14 @@
     <string name="cd_stop_recording">Stop recording</string>
     <string name="cd_add_voice_memo">Voice Memo</string>
     <string name="action_history">History</string>
+    <string name="sync_conflict_title_standard">Resolve Sync Conflicts</string>
+    <string name="sync_conflict_title_initial_preview">Review First Sync Differences</string>
+    <string name="sync_conflict_choice_keep_all_local">Keep All Local</string>
+    <string name="sync_conflict_choice_keep_all_remote">Keep All Remote</string>
+    <string name="sync_conflict_choice_accept_suggestions">Accept Suggestions</string>
+    <string name="sync_conflict_choice_skip_all">Skip All For Now</string>
+    <string name="sync_conflict_choice_merge">Merge</string>
+    <string name="sync_conflict_choice_skip">Skip</string>
 
     <!-- Relative Time -->
     <string name="relative_time_just_now">Just now</string>

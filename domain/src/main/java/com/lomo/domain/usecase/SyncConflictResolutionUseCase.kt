@@ -20,55 +20,77 @@ class SyncConflictResolutionUseCase(
     suspend fun resolve(
         conflictSet: SyncConflictSet,
         resolution: SyncConflictResolution,
-    ) {
-        when (conflictSet.source) {
+    ): SyncConflictResolutionResult {
+        val result =
+            when (conflictSet.source) {
             SyncBackendType.GIT ->
                 gitSyncRepository
                     .resolveConflicts(resolution, conflictSet)
-                    .throwIfError()
+                    .toResolutionResult()
 
             SyncBackendType.WEBDAV ->
                 webDavSyncRepository
                     .resolveConflicts(resolution, conflictSet)
-                    .throwIfError()
+                    .toResolutionResult()
 
             SyncBackendType.S3 ->
                 s3SyncRepository
                     .resolveConflicts(resolution, conflictSet)
-                    .throwIfError()
+                    .toResolutionResult()
 
-            SyncBackendType.NONE -> {}
+            SyncBackendType.NONE -> SyncConflictResolutionResult.Resolved
+        }
+        if (result is SyncConflictResolutionResult.Pending) {
+            return result
         }
         memoRepository.refreshMemos()
+        return SyncConflictResolutionResult.Resolved
     }
 }
 
-private fun com.lomo.domain.model.GitSyncResult.throwIfError() {
-    if (this is com.lomo.domain.model.GitSyncResult.Error) {
-        throw GitSyncFailureException(
-            code = code,
-            message = message,
-            cause = exception,
-        )
-    }
+sealed interface SyncConflictResolutionResult {
+    data object Resolved : SyncConflictResolutionResult
+
+    data class Pending(
+        val conflictSet: SyncConflictSet,
+    ) : SyncConflictResolutionResult
 }
 
-private fun com.lomo.domain.model.WebDavSyncResult.throwIfError() {
-    if (this is com.lomo.domain.model.WebDavSyncResult.Error) {
-        throw WebDavSyncFailureException(
-            code = code,
-            message = message,
-            cause = exception,
-        )
+private fun com.lomo.domain.model.GitSyncResult.toResolutionResult(): SyncConflictResolutionResult =
+    when (this) {
+        is com.lomo.domain.model.GitSyncResult.Error ->
+            throw GitSyncFailureException(
+                code = code,
+                message = message,
+                cause = exception,
+            )
+        is com.lomo.domain.model.GitSyncResult.Conflict ->
+            SyncConflictResolutionResult.Pending(conflicts)
+        else -> SyncConflictResolutionResult.Resolved
     }
-}
 
-private fun com.lomo.domain.model.S3SyncResult.throwIfError() {
-    if (this is com.lomo.domain.model.S3SyncResult.Error) {
-        throw S3SyncFailureException(
-            code = code,
-            message = message,
-            cause = exception,
-        )
+private fun com.lomo.domain.model.WebDavSyncResult.toResolutionResult(): SyncConflictResolutionResult =
+    when (this) {
+        is com.lomo.domain.model.WebDavSyncResult.Error ->
+            throw WebDavSyncFailureException(
+                code = code,
+                message = message,
+                cause = exception,
+            )
+        is com.lomo.domain.model.WebDavSyncResult.Conflict ->
+            SyncConflictResolutionResult.Pending(conflicts)
+        else -> SyncConflictResolutionResult.Resolved
     }
-}
+
+private fun com.lomo.domain.model.S3SyncResult.toResolutionResult(): SyncConflictResolutionResult =
+    when (this) {
+        is com.lomo.domain.model.S3SyncResult.Error ->
+            throw S3SyncFailureException(
+                code = code,
+                message = message,
+                cause = exception,
+            )
+        is com.lomo.domain.model.S3SyncResult.Conflict ->
+            SyncConflictResolutionResult.Pending(conflicts)
+        else -> SyncConflictResolutionResult.Resolved
+    }

@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
+import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
@@ -94,6 +96,8 @@ class S3SyncExecutorPerformancePolicyTest {
         coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
         coEvery { metadataDao.getAll() } returns emptyList()
+        coEvery { metadataDao.getAllPlannerMetadataSnapshots() } returns emptyList()
+        coEvery { metadataDao.getAllRemoteMetadataSnapshots() } returns emptyList()
         coEvery { metadataDao.replaceAll(any()) } returns Unit
         coEvery { memoSynchronizer.refreshImportedSync(any()) } returns Unit
 
@@ -139,6 +143,28 @@ class S3SyncExecutorPerformancePolicyTest {
                         lastSyncedAt = 10L,
                         lastResolvedDirection = "NONE",
                         lastResolvedReason = "UNCHANGED",
+                    ),
+                )
+            coEvery { metadataDao.getAllPlannerMetadataSnapshots() } returns
+                listOf(
+                    S3SyncPlannerMetadataSnapshot(
+                        relativePath = managedPath,
+                        remotePath = managedPath,
+                        etag = "etag-1",
+                        remoteLastModified = 10L,
+                        localLastModified = 10L,
+                        lastSyncedAt = 10L,
+                        lastResolvedDirection = "NONE",
+                        lastResolvedReason = "UNCHANGED",
+                    ),
+                )
+            coEvery { metadataDao.getAllRemoteMetadataSnapshots() } returns
+                listOf(
+                    S3SyncRemoteMetadataSnapshot(
+                        relativePath = managedPath,
+                        remotePath = managedPath,
+                        etag = "etag-1",
+                        remoteLastModified = 10L,
                     ),
                 )
             coEvery { client.deleteObject(managedPath) } returns Unit

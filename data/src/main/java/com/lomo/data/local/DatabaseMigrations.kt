@@ -28,6 +28,7 @@ const val SCHEMA_VERSION_40 = 40
 const val SCHEMA_VERSION_41 = 41
 const val SCHEMA_VERSION_42 = 42
 const val SCHEMA_VERSION_43 = 43
+const val SCHEMA_VERSION_44 = 44
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -253,6 +254,13 @@ val MIGRATION_42_43: Migration =
         }
     }
 
+val MIGRATION_43_44: Migration =
+    object : Migration(SCHEMA_VERSION_43, SCHEMA_VERSION_44) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createPendingSyncConflictTable(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -301,6 +309,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_40_41,
             MIGRATION_41_42,
             MIGRATION_42_43,
+            MIGRATION_43_44,
         )
 
 /**
@@ -326,6 +335,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase O: Apply v39→v40 changes (S3 remote index and richer protocol state).
  * Phase P: Apply v41→v42 changes (S3 remote shard reconcile state).
  * Phase Q: Apply v42→v43 changes (richer shard scheduling telemetry).
+ * Phase R: Apply v43→v44 changes (pending sync conflict persistence).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -412,6 +422,9 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase Q: v42 → v43 (richer shard scheduling telemetry) ──────────
     addS3RemoteShardTelemetryColumns(db)
+
+    // ── Phase R: v43 → v44 (pending sync conflict persistence) ──────────
+    createPendingSyncConflictTable(db)
 }
 
 private fun normalizeS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {
@@ -487,4 +500,18 @@ private fun dropRetiredWorkspaceHistoryTables(db: SupportSQLiteDatabase) {
     db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot_entry`")
     db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot`")
     db.execSQL("DROP TABLE IF EXISTS `snapshot_blob`")
+}
+
+private fun createPendingSyncConflictTable(db: SupportSQLiteDatabase) {
+    db.execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `pending_sync_conflict` (
+            `backend` TEXT NOT NULL,
+            `session_kind` TEXT NOT NULL,
+            `timestamp` INTEGER NOT NULL,
+            `payload_json` TEXT NOT NULL,
+            PRIMARY KEY(`backend`)
+        )
+        """.trimIndent(),
+    )
 }

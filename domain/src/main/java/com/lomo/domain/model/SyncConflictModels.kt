@@ -1,8 +1,15 @@
 package com.lomo.domain.model
 
+enum class SyncConflictSessionKind {
+    STANDARD_CONFLICT,
+    INITIAL_SYNC_PREVIEW,
+}
+
 enum class SyncConflictResolutionChoice {
     KEEP_LOCAL,
     KEEP_REMOTE,
+    MERGE_TEXT,
+    SKIP_FOR_NOW,
 }
 
 data class SyncConflictFile(
@@ -16,6 +23,7 @@ data class SyncConflictSet(
     val source: SyncBackendType,
     val files: List<SyncConflictFile>,
     val timestamp: Long,
+    val sessionKind: SyncConflictSessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
 )
 
 data class SyncConflictResolution(

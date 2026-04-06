@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.entity.S3SyncMetadataEntity
+import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.data.sync.SyncDirectoryLayout
 
 internal data class S3IncrementalPreparation(

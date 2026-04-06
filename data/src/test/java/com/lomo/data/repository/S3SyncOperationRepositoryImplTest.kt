@@ -1,8 +1,12 @@
 package com.lomo.data.repository
 
+import com.lomo.data.worker.S3RefreshSyncPlan
 import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncStatus
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictSet
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -24,21 +28,46 @@ import org.junit.Test
  * - Excludes: AWS transport behavior, file-bridge planning, conflict modeling internals, and UI rendering.
  */
 class S3SyncOperationRepositoryImplTest {
+    /*
+     * Test Change Justification:
+     * - Reason category: mechanical reshaping after adding pending-conflict persistence.
+     * - Replaced assertion/setup: implicit relaxed mock behavior for PendingSyncConflictStore.
+     * - Previous setup is no longer correct because sync now always checks the store before invoking the executor.
+     * - Retained coverage: existing tests still prove executor delegation, sync-guard behavior, and explicit pending-conflict restoration.
+     * - This is not changing the test to fit the implementation; it makes the pre-existing "no pending conflicts" baseline explicit.
+     */
     @MockK(relaxed = true)
     private lateinit var syncExecutor: S3SyncExecutor
 
     @MockK(relaxed = true)
     private lateinit var statusTester: S3SyncStatusTester
 
+    @MockK(relaxed = true)
+    private lateinit var refreshPlanner: S3RefreshSyncPlanner
+
+    @MockK(relaxed = true)
+    private lateinit var refreshScheduler: S3RefreshCatchUpScheduler
+
+    @MockK(relaxed = true)
+    private lateinit var pendingConflictStore: PendingSyncConflictStore
+
+    private lateinit var stateHolder: S3SyncStateHolder
+
     private lateinit var repository: S3SyncOperationRepositoryImpl
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
+        stateHolder = S3SyncStateHolder()
+        coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns null
         repository =
             S3SyncOperationRepositoryImpl(
                 syncExecutor = syncExecutor,
                 statusTester = statusTester,
+                refreshPlanner = refreshPlanner,
+                refreshScheduler = refreshScheduler,
+                pendingConflictStore = pendingConflictStore,
+                stateHolder = stateHolder,
             )
     }
 
@@ -106,6 +135,31 @@ class S3SyncOperationRepositoryImplTest {
         }
 
     @Test
+    fun `sync restores pending s3 conflicts from store before invoking executor`() =
+        runTest {
+            val pending =
+                SyncConflictSet(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "lomo/memo/note.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 123L,
+                )
+            coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns pending
+
+            val result = repository.sync()
+
+            assertEquals(S3SyncResult.Conflict("Pending conflicts remain", pending), result)
+            coVerify(exactly = 0) { syncExecutor.performSync(any()) }
+        }
+
+    @Test
     fun `getStatus delegates to status tester`() =
         runTest {
             val expected =
@@ -133,5 +187,23 @@ class S3SyncOperationRepositoryImplTest {
 
             assertEquals(expected, result)
             coVerify(exactly = 1) { statusTester.testConnection() }
+        }
+
+    @Test
+    fun `syncForRefresh runs resolved fast policy and schedules catch-up`() =
+        runTest {
+            coEvery { refreshPlanner.planRefreshSync() } returns
+                S3RefreshSyncPlan(
+                    foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                    catchUpPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                )
+            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) } returns
+                S3SyncResult.Success("fast refresh")
+
+            val result = repository.syncForRefresh()
+
+            assertEquals(S3SyncResult.Success("fast refresh"), result)
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) }
+            coVerify(exactly = 1) { refreshScheduler.scheduleCatchUp(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
         }
 }

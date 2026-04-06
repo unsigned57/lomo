@@ -29,13 +29,15 @@ data class S3RemoteIndexEntry(
 interface S3RemoteIndexStore {
     val remoteIndexEnabled: Boolean
 
-    suspend fun readAll(): List<S3RemoteIndexEntry>
+    suspend fun readAllRelativePaths(): List<String>
 
     suspend fun readPresentCount(): Int
 
     suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry>
 
     suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry>
+
+    suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry>
 
     suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry>
 
@@ -53,13 +55,17 @@ interface S3RemoteIndexStore {
 object DisabledS3RemoteIndexStore : S3RemoteIndexStore {
     override val remoteIndexEnabled: Boolean = false
 
-    override suspend fun readAll(): List<S3RemoteIndexEntry> = emptyList()
+    override suspend fun readAllRelativePaths(): List<String> = emptyList()
 
     override suspend fun readPresentCount(): Int = 0
 
     override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> = emptyList()
 
     override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> = emptyList()
+
+    override suspend fun readOutsideScanBuckets(
+        excludedBuckets: Collection<String>,
+    ): List<S3RemoteIndexEntry> = emptyList()
 
     override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> = emptyList()
 
@@ -80,7 +86,7 @@ class InMemoryS3RemoteIndexStore(
     private val mutex = Mutex()
     private val entries = linkedMapOf<String, S3RemoteIndexEntry>()
 
-    override suspend fun readAll(): List<S3RemoteIndexEntry> = mutex.withLock { entries.values.toList() }
+    override suspend fun readAllRelativePaths(): List<String> = mutex.withLock { entries.keys.toList() }
 
     override suspend fun readPresentCount(): Int =
         mutex.withLock { entries.values.count { entry -> !entry.missingOnLastScan } }
@@ -96,6 +102,12 @@ class InMemoryS3RemoteIndexStore(
                     entry.relativePath == normalizedPrefix ||
                     entry.relativePath.startsWith("$normalizedPrefix/")
             }
+        }
+
+    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+        mutex.withLock {
+            val excluded = excludedBuckets.toSet()
+            entries.values.filterNot { entry -> entry.scanBucket in excluded }
         }
 
     override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
@@ -153,7 +165,7 @@ class RoomBackedS3RemoteIndexStore
     ) : S3RemoteIndexStore {
         override val remoteIndexEnabled: Boolean = true
 
-        override suspend fun readAll(): List<S3RemoteIndexEntry> = dao.getAll().map(S3RemoteIndexEntity::toModel)
+        override suspend fun readAllRelativePaths(): List<String> = dao.getAllRelativePaths()
 
         override suspend fun readPresentCount(): Int = dao.getPresentCount()
 
@@ -167,11 +179,18 @@ class RoomBackedS3RemoteIndexStore
         override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> {
             val normalizedPrefix = relativePrefix?.trim()?.trim('/')?.takeIf(String::isNotBlank)
             return if (normalizedPrefix == null) {
-                readAll()
+                dao.getAll().map(S3RemoteIndexEntity::toModel)
             } else {
                 dao.getByRelativePrefix(normalizedPrefix, "$normalizedPrefix/%").map(S3RemoteIndexEntity::toModel)
             }
         }
+
+        override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+            if (excludedBuckets.isEmpty()) {
+                dao.getAll().map(S3RemoteIndexEntity::toModel)
+            } else {
+                dao.getOutsideScanBuckets(excludedBuckets.toList()).map(S3RemoteIndexEntity::toModel)
+            }
 
         override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> =
             dao.getReconcileCandidates(limit).map(S3RemoteIndexEntity::toModel)
@@ -238,3 +257,6 @@ private fun S3RemoteIndexEntry.toEntity(): S3RemoteIndexEntity =
         missingOnLastScan = missingOnLastScan,
         scanEpoch = scanEpoch,
     )
+
+suspend fun S3RemoteIndexStore.readAll(): List<S3RemoteIndexEntry> =
+    readByRelativePaths(readAllRelativePaths())

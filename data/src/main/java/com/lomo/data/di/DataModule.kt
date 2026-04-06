@@ -19,6 +19,7 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3RemoteIndexDao
 import com.lomo.data.local.dao.S3RemoteShardStateDao
@@ -40,6 +41,8 @@ import com.lomo.data.repository.MemoRefreshPlanner
 import com.lomo.data.repository.MemoVersionBlobRoot
 import com.lomo.data.repository.MemoVersionJournal
 import com.lomo.data.repository.MemoRepositoryImpl
+import com.lomo.data.repository.PendingSyncConflictStore
+import com.lomo.data.repository.RoomPendingSyncConflictStore
 import com.lomo.data.repository.RoomMemoVersionStore
 import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
@@ -189,6 +192,17 @@ object DatabaseSupportModule {
     @Singleton
     fun provideS3LocalChangeJournalDao(database: MemoDatabase): S3LocalChangeJournalDao =
         database.s3LocalChangeJournalDao()
+
+    @Provides
+    @Singleton
+    fun providePendingSyncConflictDao(database: MemoDatabase): PendingSyncConflictDao =
+        database.pendingSyncConflictDao()
+
+    @Provides
+    @Singleton
+    fun providePendingSyncConflictStore(
+        store: RoomPendingSyncConflictStore,
+    ): PendingSyncConflictStore = store
 
     @Provides
     @Singleton

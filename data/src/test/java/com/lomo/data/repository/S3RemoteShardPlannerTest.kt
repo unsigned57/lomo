@@ -179,6 +179,43 @@ class S3RemoteShardPlannerTest {
             assertEquals(S3_SCAN_BUCKET_IMAGE, planned.activeShard?.bucketId)
         }
 
+    @Test
+    fun `plan derives hot shard seeds from prioritized candidates without reading full index`() =
+        runTest {
+            val remoteIndexStore =
+                PlannerSeedRemoteIndexStore(
+                    entries =
+                        listOf(
+                            S3RemoteIndexEntry(
+                                relativePath = "lomo/memo/zebra.md",
+                                remotePath = "lomo/memo/zebra.md",
+                                etag = "etag-zebra",
+                                remoteLastModified = 90L,
+                                size = 1L,
+                                lastSeenAt = 90L,
+                                lastVerifiedAt = 90L,
+                                scanBucket = S3_SCAN_BUCKET_MEMO,
+                                scanPriority = 360,
+                                dirtySuspect = true,
+                            ),
+                        ),
+                )
+
+            val planned =
+                planner.plan(
+                    layout = layout,
+                    mode = S3LocalSyncMode.Legacy(),
+                    protocolState = S3SyncProtocolState(),
+                    remoteIndexStore = remoteIndexStore,
+                    shardStateStore = InMemoryS3RemoteShardStateStore(),
+                    now = 1_000L,
+                )
+
+            assertEquals("lomo/memo/z", planned.scanPlan.firstOrNull()?.relativePrefix)
+            assertEquals("lomo/memo/z", planned.activeShard?.relativePrefix)
+            assertEquals(0, remoteIndexStore.readAllCalls)
+        }
+
     private fun shardState(
         bucketId: String,
         relativePrefix: String?,
@@ -198,4 +235,47 @@ class S3RemoteShardPlannerTest {
         lastVerificationAttemptCount = lastVerificationAttemptCount,
         lastVerificationFailureCount = lastVerificationFailureCount,
     )
+}
+
+private class PlannerSeedRemoteIndexStore(
+    private val entries: List<S3RemoteIndexEntry>,
+) : S3RemoteIndexStore {
+    var readAllCalls: Int = 0
+        private set
+
+    override val remoteIndexEnabled: Boolean = true
+
+    suspend fun readAll(): List<S3RemoteIndexEntry> {
+        readAllCalls += 1
+        error("planner should not need a full remote-index scan to derive hot shard seeds")
+    }
+
+    override suspend fun readPresentCount(): Int = entries.size
+
+    override suspend fun readAllRelativePaths(): List<String> = entries.map(S3RemoteIndexEntry::relativePath)
+
+    override suspend fun readByRelativePaths(relativePaths: Collection<String>): List<S3RemoteIndexEntry> =
+        entries.filter { entry -> entry.relativePath in relativePaths }
+
+    override suspend fun readByRelativePrefix(relativePrefix: String?): List<S3RemoteIndexEntry> =
+        entries.filter { entry ->
+            relativePrefix == null ||
+                entry.relativePath == relativePrefix ||
+                entry.relativePath.startsWith("$relativePrefix/")
+        }
+
+    override suspend fun readOutsideScanBuckets(excludedBuckets: Collection<String>): List<S3RemoteIndexEntry> =
+        entries.filterNot { entry -> entry.scanBucket in excludedBuckets }
+
+    override suspend fun readReconcileCandidates(limit: Int): List<S3RemoteIndexEntry> = entries.take(limit)
+
+    override suspend fun upsert(entries: Collection<S3RemoteIndexEntry>) = Unit
+
+    override suspend fun deleteByRelativePaths(relativePaths: Collection<String>) = Unit
+
+    override suspend fun deleteOutsideScanEpoch(scanEpoch: Long) = Unit
+
+    override suspend fun replaceAll(entries: Collection<S3RemoteIndexEntry>) = Unit
+
+    override suspend fun clear() = Unit
 }

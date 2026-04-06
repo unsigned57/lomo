@@ -4,6 +4,7 @@ import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 
 internal data class PreparedS3Sync(
@@ -160,7 +161,7 @@ internal fun S3SyncResult.stateAfterRefresh(timestamp: Long): S3SyncState =
     when (this) {
         is S3SyncResult.Success -> S3SyncState.Success(timestamp, message)
         is S3SyncResult.Error -> S3SyncState.Error(message, timestamp)
-        is S3SyncResult.Conflict -> S3SyncState.ConflictDetected(conflicts)
+        is S3SyncResult.Conflict -> conflicts.toS3ConflictState()
         S3SyncResult.NotConfigured -> S3SyncState.NotConfigured
     }
 
@@ -180,4 +181,24 @@ internal fun S3MemoRefreshPlan.merge(other: S3MemoRefreshPlan): S3MemoRefreshPla
         this is S3MemoRefreshPlan.Targets -> this
         other is S3MemoRefreshPlan.Targets -> other
         else -> S3MemoRefreshPlan.None
+    }
+
+internal fun determineS3ConflictSessionKind(
+    conflictActions: List<S3SyncAction>,
+    metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+): SyncConflictSessionKind {
+    if (conflictActions.isEmpty()) {
+        return SyncConflictSessionKind.STANDARD_CONFLICT
+    }
+    return if (conflictActions.all { action -> action.path !in metadataByPath }) {
+        SyncConflictSessionKind.INITIAL_SYNC_PREVIEW
+    } else {
+        SyncConflictSessionKind.STANDARD_CONFLICT
+    }
+}
+
+internal fun SyncConflictSet.toS3ConflictState(): S3SyncState =
+    when (sessionKind) {
+        SyncConflictSessionKind.INITIAL_SYNC_PREVIEW -> S3SyncState.PreviewingInitialSync(this)
+        SyncConflictSessionKind.STANDARD_CONFLICT -> S3SyncState.ConflictDetected(this)
     }

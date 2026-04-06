@@ -61,6 +61,14 @@
     <string name="cd_stop_recording">停止录音</string>
     <string name="cd_add_voice_memo">录制语音</string>
     <string name="action_history">历史版本</string>
+    <string name="sync_conflict_title_standard">解决同步冲突</string>
+    <string name="sync_conflict_title_initial_preview">检查首次同步差异</string>
+    <string name="sync_conflict_choice_keep_all_local">全部保留本地</string>
+    <string name="sync_conflict_choice_keep_all_remote">全部保留远端</string>
+    <string name="sync_conflict_choice_accept_suggestions">接受建议</string>
+    <string name="sync_conflict_choice_skip_all">全部暂后处理</string>
+    <string name="sync_conflict_choice_merge">合并</string>
+    <string name="sync_conflict_choice_skip">暂后处理</string>
 
     <!-- Relative Time -->
     <string name="relative_time_just_now">刚刚</string>

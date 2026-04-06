@@ -259,11 +259,19 @@ class SyncAndRebuildUseCaseTest {
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
         }
 
+    /*
+     * Test Change Justification:
+     * - Reason category: product/domain contract changed
+     * - Replaced assertion: force-refresh S3 branch previously verified `s3SyncRepository.sync()`
+     * - Previous assertion is no longer correct because refresh-triggered S3 sync now routes through `syncForRefresh()` to apply the foreground/catch-up policy split
+     * - Retained coverage: still verifies refresh ordering, mapped not-configured failure, and that memo refresh happens before the exception is rethrown
+     * - Why this is not changing the test to fit the implementation: the new assertion matches the intended refresh contract introduced for manual refresh behavior, not a convenience detail
+     */
     @Test
     fun `force sync s3 not configured refreshes then throws mapped failure`() =
         runTest {
             every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
-            coEvery { s3SyncRepository.sync() } returns S3SyncResult.NotConfigured
+            coEvery { s3SyncRepository.syncForRefresh() } returns S3SyncResult.NotConfigured
             coEvery { memoRepository.refreshMemos() } returns Unit
 
             val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
@@ -272,7 +280,7 @@ class SyncAndRebuildUseCaseTest {
             assertEquals(S3SyncErrorCode.NOT_CONFIGURED, (thrown as S3SyncFailureException).code)
             assertEquals("S3 sync is not configured", thrown.message)
             coVerifyOrder {
-                s3SyncRepository.sync()
+                s3SyncRepository.syncForRefresh()
                 memoRepository.refreshMemos()
             }
         }
@@ -297,13 +305,13 @@ class SyncAndRebuildUseCaseTest {
             every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
             every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
             every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(true)
-            coEvery { s3SyncRepository.sync() } returns S3SyncResult.Success("S3 sync completed")
+            coEvery { s3SyncRepository.syncForRefresh() } returns S3SyncResult.Success("S3 sync completed")
             coEvery { memoRepository.refreshMemos() } returns Unit
 
             useCase(forceSync = false)
 
             coVerifyOrder {
-                s3SyncRepository.sync()
+                s3SyncRepository.syncForRefresh()
                 memoRepository.refreshMemos()
             }
         }

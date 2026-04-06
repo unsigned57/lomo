@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
@@ -521,6 +522,20 @@ private class RecordingMetadataDao(
     }
 
     override suspend fun getAll(): List<S3SyncMetadataEntity> = entities.values.toList()
+
+    override suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot> =
+        entities.values.map { entity ->
+            S3SyncPlannerMetadataSnapshot(
+                relativePath = entity.relativePath,
+                remotePath = entity.remotePath,
+                etag = entity.etag,
+                remoteLastModified = entity.remoteLastModified,
+                localLastModified = entity.localLastModified,
+                lastSyncedAt = entity.lastSyncedAt,
+                lastResolvedDirection = entity.lastResolvedDirection,
+                lastResolvedReason = entity.lastResolvedReason,
+            )
+        }
 
     override suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot> =
         entities.values.map { entity ->

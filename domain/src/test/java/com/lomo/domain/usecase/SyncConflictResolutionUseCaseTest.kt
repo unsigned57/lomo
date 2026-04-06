@@ -140,6 +140,23 @@ class SyncConflictResolutionUseCaseTest {
         }
 
     @Test
+    fun `s3 source returns pending result without refreshing memos`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.S3)
+            val resolution = sampleResolution()
+            val pending = conflictSet.copy(files = emptyList())
+            coEvery {
+                s3SyncRepository.resolveConflicts(resolution, conflictSet)
+            } returns S3SyncResult.Conflict(message = "Pending conflicts remain", conflicts = pending)
+
+            val result = useCase.resolve(conflictSet, resolution)
+
+            assertEquals(SyncConflictResolutionResult.Pending(pending), result)
+            coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
+            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+        }
+
+    @Test
     fun `s3 source maps s3 error to failure exception and skips refresh`() =
         runTest {
             val conflictSet = conflictSet(SyncBackendType.S3)

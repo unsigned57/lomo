@@ -63,19 +63,21 @@ class WebDavSyncFileBridge
             return listed.associate(::toRemoteEntry)
         }
 
-        suspend fun persistMetadata(
-            client: WebDavClient,
-            layout: SyncDirectoryLayout,
-            localFiles: Map<String, LocalWebDavFile>,
-            remoteFiles: Map<String, RemoteWebDavFile>,
-            actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
-            localChanged: Boolean,
-            remoteChanged: Boolean,
-        ) {
-            val syncedLocalFiles = if (localChanged) localFiles(layout) else localFiles
-            val syncedRemoteFiles =
-                if (remoteChanged) {
-                    runNonFatalCatching {
+    suspend fun persistMetadata(
+        client: WebDavClient,
+        layout: SyncDirectoryLayout,
+        localFiles: Map<String, LocalWebDavFile>,
+        remoteFiles: Map<String, RemoteWebDavFile>,
+        actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
+        localChanged: Boolean,
+        remoteChanged: Boolean,
+        unresolvedPaths: Set<String> = emptySet(),
+        completeSnapshot: Boolean = true,
+    ) {
+        val syncedLocalFiles = if (localChanged) localFiles(layout) else localFiles
+        val syncedRemoteFiles =
+            if (remoteChanged) {
+                runNonFatalCatching {
                         remoteFiles(client, layout)
                     }.getOrElse { error ->
                         val message = error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE
@@ -87,28 +89,56 @@ class WebDavSyncFileBridge
                 } else {
                     remoteFiles
                 }
-            val now = System.currentTimeMillis()
-            val entities =
-                syncedLocalFiles.keys
-                    .intersect(syncedRemoteFiles.keys)
-                    .sorted()
-                    .mapNotNull { path ->
-                        val local = syncedLocalFiles[path] ?: return@mapNotNull null
-                        val remote = syncedRemoteFiles[path] ?: return@mapNotNull null
-                        val outcome = actionOutcomes[path]
-                        WebDavSyncMetadataEntity(
-                            relativePath = path,
-                            remotePath = path,
-                            etag = remote.etag,
-                            remoteLastModified = remote.lastModified,
-                            localLastModified = local.lastModified,
-                            lastSyncedAt = now,
-                            lastResolvedDirection = outcome?.first?.name ?: WebDavSyncMetadataEntity.NONE,
-                            lastResolvedReason = outcome?.second?.name ?: WebDavSyncMetadataEntity.UNCHANGED,
-                        )
-                    }
-            runtime.metadataDao.replaceAll(entities)
+        val now = System.currentTimeMillis()
+        val intersectionPaths = syncedLocalFiles.keys.intersect(syncedRemoteFiles.keys)
+        val candidatePaths =
+            if (completeSnapshot) {
+                intersectionPaths
+            } else {
+                actionOutcomes.keys.intersect(intersectionPaths)
+            }
+        val entities =
+            candidatePaths
+                .sorted()
+                .mapNotNull { path ->
+                    val local = syncedLocalFiles[path] ?: return@mapNotNull null
+                    val remote = syncedRemoteFiles[path] ?: return@mapNotNull null
+                    val outcome = actionOutcomes[path]
+                    WebDavSyncMetadataEntity(
+                        relativePath = path,
+                        remotePath = path,
+                        etag = remote.etag,
+                        remoteLastModified = remote.lastModified,
+                        localLastModified = local.lastModified,
+                        lastSyncedAt = now,
+                        lastResolvedDirection = outcome?.first?.name ?: WebDavSyncMetadataEntity.NONE,
+                        lastResolvedReason = outcome?.second?.name ?: WebDavSyncMetadataEntity.UNCHANGED,
+                    )
+                }
+        if (completeSnapshot) {
+            runtime.metadataDao.replaceAll(
+                entities.filterNot { entity -> entity.relativePath in unresolvedPaths },
+            )
+            return
         }
+        val existingPaths = runtime.metadataDao.getAll().map(WebDavSyncMetadataEntity::relativePath).toSet()
+        val deletePaths =
+            actionOutcomes.keys
+                .asSequence()
+                .filter { path ->
+                    path !in unresolvedPaths &&
+                        path !in intersectionPaths &&
+                        path in existingPaths
+                }.sorted()
+                .toList()
+        if (deletePaths.isNotEmpty()) {
+            runtime.metadataDao.deleteByRelativePaths(deletePaths)
+        }
+        val upserts = entities.filterNot { entity -> entity.relativePath in unresolvedPaths }
+        if (upserts.isNotEmpty()) {
+            runtime.metadataDao.upsertAll(upserts)
+        }
+    }
 
         fun isMemoPath(
             path: String,

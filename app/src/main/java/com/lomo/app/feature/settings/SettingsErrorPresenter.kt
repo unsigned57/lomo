@@ -100,6 +100,8 @@ object SettingsErrorPresenter {
                 )
             S3SyncState.NotConfigured ->
                 stringResource(R.string.settings_s3_sync_status_not_configured)
+            is S3SyncState.PreviewingInitialSync ->
+                stringResource(R.string.settings_s3_sync_status_initial_preview)
             is S3SyncState.ConflictDetected ->
                 stringResource(R.string.settings_s3_sync_status_conflict)
             else ->

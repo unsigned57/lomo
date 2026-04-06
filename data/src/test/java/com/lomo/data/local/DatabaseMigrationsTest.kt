@@ -23,9 +23,17 @@ import org.junit.Test
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
+    /*
+     * Test Change Justification:
+     * - Reason category: product/domain contract changed.
+     * - Replaced assertion/setup: schema target locked at version 43 without any coverage for pending sync conflict persistence.
+     * - The previous assertion is no longer correct because the Room schema now includes a new table and migration at version 44.
+     * - Retained/new coverage: version-target assertion still guards the current schema, and a new migration test locks the 43->44 table creation contract.
+     * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
+     */
     @Test
-    fun `database version advances to 43 for shard reconcile telemetry`() {
-        assertEquals(43, MEMO_DATABASE_VERSION)
+    fun `database version advances to 44 for pending sync conflict persistence`() {
+        assertEquals(44, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -225,6 +233,25 @@ class DatabaseMigrationsTest {
                 match {
                     it.contains("ALTER TABLE `s3_remote_shard_state`") &&
                         it.contains("`last_verification_failure_count` INTEGER NOT NULL DEFAULT 0")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 43 to 44 creates pending sync conflict table`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_43_44.migrate(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `pending_sync_conflict`") &&
+                        it.contains("`backend` TEXT NOT NULL") &&
+                        it.contains("`session_kind` TEXT NOT NULL") &&
+                        it.contains("`timestamp` INTEGER NOT NULL") &&
+                        it.contains("`payload_json` TEXT NOT NULL")
                 },
             )
         }

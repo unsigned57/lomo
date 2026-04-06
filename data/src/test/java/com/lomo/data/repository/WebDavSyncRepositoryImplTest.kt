@@ -134,6 +134,7 @@ class WebDavSyncRepositoryImplTest {
                                 support = support,
                                 fileBridge = fileBridge,
                             ),
+                        stateHolder = stateHolder,
                     ),
                 conflictRepository =
                     WebDavSyncConflictRepositoryImpl(

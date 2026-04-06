@@ -7,6 +7,7 @@ import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.async
@@ -24,6 +25,7 @@ internal suspend fun buildS3ConflictSet(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
+    sessionKind: SyncConflictSessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
 ): SyncConflictSet? {
     val concurrencyLimiter = Semaphore(S3_ACTION_CONCURRENCY)
     val conflictFiles =
@@ -63,6 +65,7 @@ internal suspend fun buildS3ConflictSet(
                 source = SyncBackendType.S3,
                 files = files,
                 timestamp = System.currentTimeMillis(),
+                sessionKind = sessionKind,
             )
         }
 }
@@ -103,6 +106,7 @@ internal suspend fun commitIncrementalS3StateIfNeeded(
     protocolStateStore: S3SyncProtocolStateStore,
     localChangeJournalStore: S3LocalChangeJournalStore,
     remoteIndexStore: S3RemoteIndexStore,
+    recentActivityTracker: S3RemoteRecentActivityTracker,
     prepared: PreparedS3Sync,
     execution: S3ActionExecutionResult,
     result: S3SyncResult,
@@ -111,7 +115,16 @@ internal suspend fun commitIncrementalS3StateIfNeeded(
     if (!protocolStateStore.incrementalSyncEnabled || !localChangeJournalStore.incrementalSyncEnabled) {
         return
     }
-    if (!result.shouldFinalizeAfterSync() || prepared.conflictSet != null) {
+    if (prepared.conflictSet != null) {
+        recordConflictRemoteCandidatesIfNeeded(
+            recentActivityTracker = recentActivityTracker,
+            remoteIndexStore = remoteIndexStore,
+            prepared = prepared,
+            now = now,
+        )
+        return
+    }
+    if (!result.shouldFinalizeAfterSync()) {
         return
     }
 
@@ -175,6 +188,47 @@ internal suspend fun commitIncrementalS3StateIfNeeded(
             path !in retainedJournalPaths
         }
     localChangeJournalStore.remove(clearableJournalIds)
+}
+
+private suspend fun recordConflictRemoteCandidatesIfNeeded(
+    recentActivityTracker: S3RemoteRecentActivityTracker,
+    remoteIndexStore: S3RemoteIndexStore,
+    prepared: PreparedS3Sync,
+    now: Long,
+) {
+    if (!remoteIndexStore.remoteIndexEnabled) {
+        return
+    }
+    val conflictPaths =
+        prepared.plan.actions
+            .asSequence()
+            .filter { action -> action.direction == S3SyncDirection.CONFLICT }
+            .map(S3SyncAction::path)
+            .toSet()
+    if (conflictPaths.isEmpty()) {
+        return
+    }
+    recentActivityTracker.recordRetryCandidates(
+        remoteIndexStore = remoteIndexStore,
+        relativePaths = conflictPaths,
+        now = now,
+        scanEpoch = prepared.protocolState?.scanEpoch ?: 0L,
+    )
+    val existingByPath =
+        remoteIndexStore.readByRelativePaths(conflictPaths).associateBy(S3RemoteIndexEntry::relativePath)
+    remoteIndexStore.upsert(
+        conflictPaths.mapNotNull { path ->
+            existingByPath[path]
+                ?.promoteForDirtyFollowUp(now, prepared.protocolState?.scanEpoch ?: 0L)
+                ?.promoteForRecentCandidate(now, prepared.protocolState?.scanEpoch ?: 0L)
+                ?: prepared.remoteFiles[path]?.toRemoteIndexEntry(
+                    now = now,
+                    scanEpoch = prepared.protocolState?.scanEpoch ?: 0L,
+                    scanPriority = defaultScanPriority(path),
+                )?.promoteForDirtyFollowUp(now, prepared.protocolState?.scanEpoch ?: 0L)
+                    ?.promoteForRecentCandidate(now, prepared.protocolState?.scanEpoch ?: 0L)
+        },
+    )
 }
 
 internal fun buildS3SyncResult(

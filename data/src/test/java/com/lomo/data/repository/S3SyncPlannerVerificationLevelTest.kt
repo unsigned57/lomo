@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
+import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import org.junit.Assert.assertEquals

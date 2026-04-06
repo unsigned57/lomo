@@ -18,6 +18,7 @@ fun SyncConflictDialogHost(conflictViewModel: SyncConflictViewModel) {
                 isResolving = s.isResolving,
                 onFileChoiceChanged = conflictViewModel::setFileChoice,
                 onAllChoicesChanged = conflictViewModel::setAllChoices,
+                onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
                 onToggleExpanded = conflictViewModel::toggleExpandedFile,
                 onApply = conflictViewModel::applyResolution,
                 onDismiss = conflictViewModel::dismiss,

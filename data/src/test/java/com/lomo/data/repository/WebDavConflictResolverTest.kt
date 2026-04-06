@@ -199,6 +199,53 @@ class WebDavConflictResolverTest {
         }
 
     @Test
+    fun `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() =
+        runTest {
+            val path = "lomo/memo/2026_03_24.md"
+            val merged = "start\nlocal\nmiddle\nremote\nend"
+            val file =
+                conflictFile(
+                    path = path,
+                    local = "start\nlocal\nmiddle\nend",
+                    remote = "start\nmiddle\nremote\nend",
+                )
+            every { fileBridge.isMemoPath(path, any()) } returns true
+            every { fileBridge.extractMemoFilename(path, any()) } returns "2026_03_24.md"
+            every { fileBridge.contentTypeForPath(path, any()) } returns "text/markdown"
+            coEvery {
+                markdownStorageDataSource.saveFileIn(
+                    directory = com.lomo.data.source.MemoDirectoryType.MAIN,
+                    filename = "2026_03_24.md",
+                    content = merged,
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.MERGE_TEXT))
+
+            val result = resolver.resolveConflicts(resolution, conflictSet(file))
+
+            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            verify(exactly = 1) {
+                client.put(
+                    path = path,
+                    bytes = merged.toByteArray(StandardCharsets.UTF_8),
+                    contentType = "text/markdown",
+                    lastModifiedHint = null,
+                )
+            }
+            coVerify(exactly = 1) {
+                markdownStorageDataSource.saveFileIn(
+                    directory = com.lomo.data.source.MemoDirectoryType.MAIN,
+                    filename = "2026_03_24.md",
+                    content = merged,
+                    append = false,
+                    uri = null,
+                )
+            }
+        }
+
+    @Test
     fun `resolveConflicts returns NotConfigured when config is missing`() =
         runTest {
             every { dataStore.webDavSyncEnabled } returns flowOf(false)
@@ -238,6 +285,57 @@ class WebDavConflictResolverTest {
             assertTrue(result.message.contains("client init failed"))
             assertTrue(result.exception is IllegalStateException)
             assertTrue(stateHolder.state.value is WebDavSyncState.Error)
+        }
+
+    @Test
+    fun `resolveConflicts keeps skipped webdav files pending and returns conflict result`() =
+        runTest {
+            val keptPath = "lomo/memo/2026_03_24.md"
+            val skippedPath = "lomo/memo/2026_03_25.md"
+            val pendingStore = InMemoryPendingSyncConflictStore()
+            every { fileBridge.contentTypeForPath(keptPath, any()) } returns "text/plain"
+            val resolver = WebDavConflictResolver(runtime, support, fileBridge, pendingStore)
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices =
+                                mapOf(
+                                    keptPath to SyncConflictResolutionChoice.KEEP_LOCAL,
+                                    skippedPath to SyncConflictResolutionChoice.SKIP_FOR_NOW,
+                                ),
+                        ),
+                    conflictSet =
+                        SyncConflictSet(
+                            source = SyncBackendType.WEBDAV,
+                            files =
+                                listOf(
+                                    conflictFile(path = keptPath, local = "LOCAL", remote = "REMOTE"),
+                                    conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT"),
+                                ),
+                            timestamp = 1L,
+                        ),
+                )
+
+            assertEquals(
+                WebDavSyncResult.Conflict(
+                    "Pending conflicts remain",
+                    SyncConflictSet(
+                        source = SyncBackendType.WEBDAV,
+                        files = listOf(conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT")),
+                        timestamp = 1L,
+                    ),
+                ),
+                result,
+            )
+            assertEquals(
+                SyncConflictSet(
+                    source = SyncBackendType.WEBDAV,
+                    files = listOf(conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT")),
+                    timestamp = 1L,
+                ),
+                pendingStore.read(SyncBackendType.WEBDAV),
+            )
         }
 
     private fun conflictSet(file: SyncConflictFile): SyncConflictSet =

@@ -106,6 +106,14 @@ fun SettingsScreen(
         dialogState = dialogState,
         conflictViewModel = conflictViewModel,
     )
+    HandleWebDavConflictState(
+        syncState = uiState.webDav.syncState,
+        conflictViewModel = conflictViewModel,
+    )
+    HandleS3ConflictState(
+        syncState = uiState.s3.syncState,
+        conflictViewModel = conflictViewModel,
+    )
     LaunchedEffect(manualUpdateState) {
         val updateState = manualUpdateState as? SettingsManualUpdateState.UpdateAvailable ?: return@LaunchedEffect
         val dialogKey = "${updateState.dialogState.url}#${updateState.dialogState.version}"

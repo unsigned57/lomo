@@ -34,17 +34,21 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.lomo.domain.model.SyncConflictTextMerge
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolutionChoice
+import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SimpleLineDiff
+import com.lomo.ui.R
 import com.lomo.ui.component.diff.DiffViewer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
@@ -57,6 +61,7 @@ fun SyncConflictResolutionDialog(
     isResolving: Boolean,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
     onAllChoicesChanged: (choice: SyncConflictResolutionChoice) -> Unit,
+    onAcceptSuggestions: () -> Unit,
     onToggleExpanded: (path: String) -> Unit,
     onApply: () -> Unit,
     onDismiss: () -> Unit,
@@ -80,6 +85,7 @@ fun SyncConflictResolutionDialog(
                     expandedFilePath = expandedFilePath,
                     allFilesChosen = allFilesChosen,
                     onAllChoicesChanged = onAllChoicesChanged,
+                    onAcceptSuggestions = onAcceptSuggestions,
                     onFileChoiceChanged = onFileChoiceChanged,
                     onToggleExpanded = onToggleExpanded,
                     onApply = onApply,
@@ -100,6 +106,7 @@ private fun ConflictDialogContent(
     expandedFilePath: String?,
     allFilesChosen: Boolean,
     onAllChoicesChanged: (SyncConflictResolutionChoice) -> Unit,
+    onAcceptSuggestions: () -> Unit,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: (path: String) -> Unit,
     onApply: () -> Unit,
@@ -107,15 +114,19 @@ private fun ConflictDialogContent(
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         TopBar(
+            sessionKind = conflictSet.sessionKind,
             fileCount = conflictSet.files.size,
             onDismiss = onDismiss,
         )
         GlobalActionRow(
+            conflictSet = conflictSet,
             onAllChoicesChanged = onAllChoicesChanged,
+            onAcceptSuggestions = onAcceptSuggestions,
             modifier = Modifier.padding(horizontal = AppSpacing.ScreenHorizontalPadding),
         )
         Spacer(modifier = Modifier.height(AppSpacing.Small))
         ConflictFileList(
+            source = conflictSet.source,
             files = conflictSet.files,
             perFileChoices = perFileChoices,
             expandedFilePath = expandedFilePath,
@@ -131,12 +142,16 @@ private fun ConflictDialogContent(
 
 @Composable
 private fun ColumnScope.ConflictFileList(
+    source: com.lomo.domain.model.SyncBackendType,
     files: List<SyncConflictFile>,
     perFileChoices: Map<String, SyncConflictResolutionChoice>,
     expandedFilePath: String?,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: (path: String) -> Unit,
 ) {
+    val supportsSkip =
+        source == com.lomo.domain.model.SyncBackendType.S3 ||
+            source == com.lomo.domain.model.SyncBackendType.WEBDAV
     LazyColumn(
         modifier =
             Modifier
@@ -152,6 +167,7 @@ private fun ColumnScope.ConflictFileList(
             ConflictFileCard(
                 file = file,
                 choice = perFileChoices[file.relativePath],
+                supportsSkip = supportsSkip,
                 isExpanded = expandedFilePath == file.relativePath,
                 onChoiceChanged = { choice ->
                     onFileChoiceChanged(file.relativePath, choice)
@@ -164,6 +180,7 @@ private fun ColumnScope.ConflictFileList(
 
 @Composable
 private fun TopBar(
+    sessionKind: SyncConflictSessionKind,
     fileCount: Int,
     onDismiss: () -> Unit,
 ) {
@@ -177,7 +194,14 @@ private fun TopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "Resolve Sync Conflicts",
+            text =
+                stringResource(
+                    if (sessionKind == SyncConflictSessionKind.INITIAL_SYNC_PREVIEW) {
+                        R.string.sync_conflict_title_initial_preview
+                    } else {
+                        R.string.sync_conflict_title_standard
+                    },
+                ),
             style = MaterialTheme.typography.titleLarge,
             modifier = Modifier.weight(1f),
         )
@@ -199,24 +223,50 @@ private fun TopBar(
 
 @Composable
 private fun GlobalActionRow(
+    conflictSet: SyncConflictSet,
     onAllChoicesChanged: (SyncConflictResolutionChoice) -> Unit,
+    onAcceptSuggestions: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val supportsSkip =
+        conflictSet.source == com.lomo.domain.model.SyncBackendType.S3 ||
+            conflictSet.source == com.lomo.domain.model.SyncBackendType.WEBDAV
+    Column(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
-        OutlinedButton(
-            onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_LOCAL) },
-            modifier = Modifier.weight(1f),
-        ) {
-            Text(text = "Keep All Local")
+        if (conflictSet.sessionKind == SyncConflictSessionKind.INITIAL_SYNC_PREVIEW) {
+            FilledTonalButton(
+                onClick = onAcceptSuggestions,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(text = stringResource(R.string.sync_conflict_choice_accept_suggestions))
+            }
         }
-        OutlinedButton(
-            onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_REMOTE) },
-            modifier = Modifier.weight(1f),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
         ) {
-            Text(text = "Keep All Remote")
+            OutlinedButton(
+                onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_LOCAL) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(text = stringResource(R.string.sync_conflict_choice_keep_all_local))
+            }
+            OutlinedButton(
+                onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_REMOTE) },
+                modifier = Modifier.weight(1f),
+            ) {
+                Text(text = stringResource(R.string.sync_conflict_choice_keep_all_remote))
+            }
+            if (supportsSkip) {
+                OutlinedButton(
+                    onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.SKIP_FOR_NOW) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = stringResource(R.string.sync_conflict_choice_skip_all))
+                }
+            }
         }
     }
 }
@@ -225,10 +275,20 @@ private fun GlobalActionRow(
 private fun ConflictFileCard(
     file: SyncConflictFile,
     choice: SyncConflictResolutionChoice?,
+    supportsSkip: Boolean,
     isExpanded: Boolean,
     onChoiceChanged: (SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: () -> Unit,
 ) {
+    val mergedText =
+        remember(file.localContent, file.remoteContent, file.isBinary) {
+            if (file.isBinary) {
+                null
+            } else {
+                SyncConflictTextMerge.merge(file.localContent, file.remoteContent)
+            }
+        }
+    val mergeAvailable = mergedText != null && mergedText != file.localContent && mergedText != file.remoteContent
     Card(
         shape = AppShapes.Medium,
         colors = CardDefaults.cardColors(
@@ -239,6 +299,8 @@ private fun ConflictFileCard(
             ConflictFileHeader(
                 file = file,
                 choice = choice,
+                mergeAvailable = mergeAvailable,
+                supportsSkip = supportsSkip,
                 isExpanded = isExpanded,
                 onChoiceChanged = onChoiceChanged,
                 onToggleExpanded = onToggleExpanded,
@@ -255,6 +317,8 @@ private fun ConflictFileCard(
 private fun ConflictFileHeader(
     file: SyncConflictFile,
     choice: SyncConflictResolutionChoice?,
+    mergeAvailable: Boolean,
+    supportsSkip: Boolean,
     isExpanded: Boolean,
     onChoiceChanged: (SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: () -> Unit,
@@ -299,8 +363,10 @@ private fun ConflictFileHeader(
 
         ChoiceToggle(
             choice = choice,
-            onChoiceChanged = onChoiceChanged,
-        )
+                mergeAvailable = mergeAvailable,
+                supportsSkip = supportsSkip,
+                onChoiceChanged = onChoiceChanged,
+            )
     }
 }
 
@@ -344,11 +410,15 @@ private fun ConflictDiffSection(
 @Composable
 private fun ChoiceToggle(
     choice: SyncConflictResolutionChoice?,
+    mergeAvailable: Boolean,
+    supportsSkip: Boolean,
     onChoiceChanged: (SyncConflictResolutionChoice) -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         val localSelected = choice == SyncConflictResolutionChoice.KEEP_LOCAL
         val remoteSelected = choice == SyncConflictResolutionChoice.KEEP_REMOTE
+        val mergeSelected = choice == SyncConflictResolutionChoice.MERGE_TEXT
+        val skipSelected = choice == SyncConflictResolutionChoice.SKIP_FOR_NOW
 
         OutlinedButton(
             onClick = { onChoiceChanged(SyncConflictResolutionChoice.KEEP_LOCAL) },
@@ -383,6 +453,44 @@ private fun ChoiceToggle(
                 text = "Remote",
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+        if (mergeAvailable) {
+            OutlinedButton(
+                onClick = { onChoiceChanged(SyncConflictResolutionChoice.MERGE_TEXT) },
+                shape = AppShapes.Small,
+                colors = if (mergeSelected) {
+                    androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                } else {
+                    androidx.compose.material3.ButtonDefaults.outlinedButtonColors()
+                },
+            ) {
+                Text(
+                    text = stringResource(R.string.sync_conflict_choice_merge),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        if (supportsSkip) {
+            OutlinedButton(
+                onClick = { onChoiceChanged(SyncConflictResolutionChoice.SKIP_FOR_NOW) },
+                shape = AppShapes.Small,
+                colors = if (skipSelected) {
+                    androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                } else {
+                    androidx.compose.material3.ButtonDefaults.outlinedButtonColors()
+                },
+            ) {
+                Text(
+                    text = stringResource(R.string.sync_conflict_choice_skip),
+                    style = MaterialTheme.typography.labelSmall,
+                )
+            }
         }
     }
 }

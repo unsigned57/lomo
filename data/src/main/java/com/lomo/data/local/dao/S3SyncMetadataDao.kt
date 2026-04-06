@@ -14,10 +14,37 @@ data class S3SyncRemoteMetadataSnapshot(
     val remoteLastModified: Long?,
 )
 
+data class S3SyncPlannerMetadataSnapshot(
+    val relativePath: String,
+    val remotePath: String,
+    val etag: String?,
+    val remoteLastModified: Long?,
+    val localLastModified: Long?,
+    val lastSyncedAt: Long,
+    val lastResolvedDirection: String,
+    val lastResolvedReason: String,
+)
+
 @Dao
 interface S3SyncMetadataDao {
     @Query("SELECT * FROM s3_sync_metadata")
     suspend fun getAll(): List<S3SyncMetadataEntity>
+
+    @Query(
+        """
+        SELECT
+            relative_path AS relativePath,
+            remote_path AS remotePath,
+            etag AS etag,
+            remote_last_modified AS remoteLastModified,
+            local_last_modified AS localLastModified,
+            last_synced_at AS lastSyncedAt,
+            last_resolved_direction AS lastResolvedDirection,
+            last_resolved_reason AS lastResolvedReason
+        FROM s3_sync_metadata
+        """,
+    )
+    suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot>
 
     @Query(
         """

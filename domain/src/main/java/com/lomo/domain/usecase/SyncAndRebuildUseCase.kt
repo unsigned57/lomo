@@ -73,7 +73,7 @@ class SyncAndRebuildUseCase
                 when (backendType) {
                     SyncBackendType.GIT -> gitResultToException(gitSyncRepository.sync())
                     SyncBackendType.WEBDAV -> webDavResultToException(webDavSyncRepository.sync())
-                    SyncBackendType.S3 -> s3ResultToException(s3SyncRepository.sync())
+                    SyncBackendType.S3 -> s3ResultToException(s3SyncRepository.syncForRefresh())
                     SyncBackendType.NONE -> null
                 }
             }

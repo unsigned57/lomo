@@ -2,18 +2,28 @@ package com.lomo.data.repository
 
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.data.worker.S3ReconcileScheduler
+import com.lomo.data.worker.S3RefreshSyncPlan
+import com.lomo.data.worker.parseS3AutoSyncInterval
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3RemoteIndexState
 import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.repository.S3SyncOperationRepository
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,18 +31,47 @@ import javax.inject.Singleton
 @Singleton
 class S3SyncOperationRepositoryImpl
     @Inject
-    constructor(
+    internal constructor(
         private val syncExecutor: S3SyncExecutor,
         private val statusTester: S3SyncStatusTester,
+        private val refreshPlanner: S3RefreshSyncPlanner,
+        private val refreshScheduler: S3RefreshCatchUpScheduler,
+        private val stateHolder: S3SyncStateHolder,
+        private val protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
+        private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) : S3SyncOperationRepository {
         private val syncGuard = AtomicBoolean(false)
 
         override suspend fun sync(policy: S3SyncScanPolicy): S3SyncResult =
             withSyncGuard(inProgressMessage = "S3 sync already in progress") {
-                syncExecutor.performSync(policy)
+                restorePendingConflictIfPresent()?.let { pending ->
+                    return@withSyncGuard pending
+                }
+                val result = syncExecutor.performSync(policy)
+                clearPendingConflictsOnSuccess(result)
+                result
+            }
+
+        override suspend fun syncForRefresh(): S3SyncResult =
+            withSyncGuard(inProgressMessage = "S3 sync already in progress") {
+                restorePendingConflictIfPresent()?.let { pending ->
+                    return@withSyncGuard pending
+                }
+                val plan = refreshPlanner.planRefreshSync()
+                val result = syncExecutor.performSync(plan.foregroundPolicy)
+                if (result is S3SyncResult.Success) {
+                    plan.catchUpPolicy?.let { policy ->
+                        refreshScheduler.scheduleCatchUp(policy)
+                    }
+                }
+                clearPendingConflictsOnSuccess(result)
+                result
             }
 
         override suspend fun getStatus(): S3SyncStatus = statusTester.getStatus()
+
+        override suspend fun getRemoteIndexState(): S3RemoteIndexState? =
+            protocolStateStore.read()?.toRemoteIndexState()
 
         override suspend fun testConnection(): S3SyncResult = statusTester.testConnection()
 
@@ -49,7 +88,72 @@ class S3SyncOperationRepositoryImpl
                 syncGuard.set(false)
             }
         }
+
+        private suspend fun restorePendingConflictIfPresent(): S3SyncResult? {
+            val pending = pendingConflictStore.read(SyncBackendType.S3) ?: return null
+            stateHolder.state.value = pending.toS3ConflictState()
+            return S3SyncResult.Conflict("Pending conflicts remain", pending)
+        }
+
+        private suspend fun clearPendingConflictsOnSuccess(result: S3SyncResult) {
+            if (result is S3SyncResult.Success) {
+                pendingConflictStore.clear(SyncBackendType.S3)
+            }
+        }
     }
+
+internal interface S3RefreshSyncPlanner {
+    suspend fun planRefreshSync(): S3RefreshSyncPlan
+}
+
+internal interface S3RefreshCatchUpScheduler {
+    suspend fun scheduleCatchUp(policy: S3SyncScanPolicy)
+}
+
+@Singleton
+internal class DefaultS3RefreshSyncPlanner
+    @Inject
+    constructor(
+        private val runtime: S3SyncRepositoryContext,
+        private val reconcileScheduler: S3ReconcileScheduler,
+    ) : S3RefreshSyncPlanner {
+        override suspend fun planRefreshSync(): S3RefreshSyncPlan {
+            val interval = runtime.dataStore.s3AutoSyncInterval.first()
+            return reconcileScheduler.buildRefreshPlan(
+                reconcileInterval =
+                    parseS3AutoSyncInterval(interval).coerceAtLeast(
+                        MIN_S3_REFRESH_RECONCILE_INTERVAL,
+                    ),
+            )
+        }
+    }
+
+@Module
+@InstallIn(SingletonComponent::class)
+internal interface S3RefreshSyncBindingsModule {
+    @Binds
+    fun bindS3RefreshSyncPlanner(impl: DefaultS3RefreshSyncPlanner): S3RefreshSyncPlanner
+
+    @Binds
+    fun bindS3RefreshCatchUpScheduler(impl: com.lomo.data.worker.S3SyncScheduler): S3RefreshCatchUpScheduler
+}
+
+private fun S3SyncProtocolState.toRemoteIndexState(): S3RemoteIndexState =
+    S3RemoteIndexState(
+        lastFullRemoteScanAt = lastFullRemoteScanAt,
+        lastFastSyncAt = lastFastSyncAt,
+        lastReconcileAt = lastReconcileAt,
+        indexedRemoteFileCount = indexedRemoteFileCount,
+        indexedLocalFileCount = indexedLocalFileCount,
+        remoteScanCursor = remoteScanCursor,
+        scanEpoch = scanEpoch,
+        localModeFingerprint = localModeFingerprint,
+    )
+
+private val MIN_S3_REFRESH_RECONCILE_INTERVAL: Duration =
+    Duration.ofHours(S3_MIN_REFRESH_RECONCILE_HOURS)
+
+private const val S3_MIN_REFRESH_RECONCILE_HOURS = 6L
 
 @Singleton
 class S3SyncStatusTester
@@ -83,7 +187,7 @@ class S3SyncStatusTester
                         val remoteFilesDeferred = async { fileBridgeScope.remoteFiles(client, layout, config) }
                         val metadataDeferred =
                             async {
-                                runtime.metadataDao.getAll().associateBy { it.relativePath }
+                                runtime.metadataDao.readAllPlannerMetadataByPath()
                             }
                         Triple(
                             localFilesDeferred.await(),

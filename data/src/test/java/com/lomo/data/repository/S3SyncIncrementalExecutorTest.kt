@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
@@ -473,7 +474,73 @@ class S3SyncIncrementalExecutorTest {
             assertEquals(path, conflict.conflicts.files.single().relativePath)
             assertEquals(listOf(path), client.headKeys)
             assertEquals(emptyList<String>(), client.putKeys)
+            val retainedIndexEntry = remoteIndexStore.readByRelativePaths(listOf(path)).single()
+            assertTrue(
+                "conflict paths should stay hot for follow-up reconcile",
+                retainedIndexEntry.scanPriority > defaultScanPriority(path),
+            )
             assertTrue("journal should be retained while conflict is unresolved", journalStore.read().isNotEmpty())
+        }
+
+    @Test
+    fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 30L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 30L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# local"
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(path = path, eTag = "etag-1", lastModified = 10L),
+                        ),
+                )
+            val client =
+                ProbeS3Client(
+                    onList = { emptyList() },
+                    onGetObjectMetadata = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "etag-1",
+                            lastModified = 10L,
+                            metadata = emptyMap(),
+                        )
+                    },
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
+
+            val success = result as S3SyncResult.Success
+            assertEquals("S3 sync completed", success.message)
+            assertEquals(
+                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
+                success.outcomes.map { it.direction to it.reason },
+            )
+            assertEquals(listOf(path), client.headKeys)
+            assertEquals(listOf(path), client.putKeys)
         }
 
     @Test
@@ -502,7 +569,7 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
+            assertEquals("S3 already up to date", success.message)
             assertEquals(listOf(path), client.headKeys)
             coVerify(exactly = 0) { markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, "note.md") }
         }
@@ -845,6 +912,7 @@ class S3SyncIncrementalExecutorTest {
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
             )
+        val stateHolder = runtime.stateHolder
         val encodingSupport = S3SyncEncodingSupport()
         return S3SyncOperationRepositoryImpl(
             syncExecutor = executor,
@@ -857,6 +925,19 @@ class S3SyncIncrementalExecutorTest {
                     protocolStateStore = protocolStateStore,
                     localChangeJournalStore = journalStore,
                 ),
+            refreshPlanner =
+                object : S3RefreshSyncPlanner {
+                    override suspend fun planRefreshSync() =
+                        com.lomo.data.worker.S3RefreshSyncPlan(
+                            foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                            catchUpPolicy = null,
+                        )
+                },
+            refreshScheduler =
+                object : S3RefreshCatchUpScheduler {
+                    override suspend fun scheduleCatchUp(policy: S3SyncScanPolicy) = Unit
+                },
+            stateHolder = stateHolder,
         )
     }
 
@@ -886,6 +967,20 @@ private class ExecutorRecordingMetadataDao(
     }
 
     override suspend fun getAll(): List<S3SyncMetadataEntity> = entries.values.toList()
+
+    override suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot> =
+        entries.values.map { entity ->
+            S3SyncPlannerMetadataSnapshot(
+                relativePath = entity.relativePath,
+                remotePath = entity.remotePath,
+                etag = entity.etag,
+                remoteLastModified = entity.remoteLastModified,
+                localLastModified = entity.localLastModified,
+                lastSyncedAt = entity.lastSyncedAt,
+                lastResolvedDirection = entity.lastResolvedDirection,
+                lastResolvedReason = entity.lastResolvedReason,
+            )
+        }
 
     override suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot> =
         entries.values.map { entity ->

@@ -457,6 +457,7 @@
     <string name="settings_s3_sync_status_deleting">Deleting…</string>
     <string name="settings_s3_sync_status_error">Error: %1$s</string>
     <string name="settings_s3_sync_status_not_configured">Not configured</string>
+    <string name="settings_s3_sync_status_initial_preview">Review first sync differences</string>
     <string name="settings_s3_sync_status_conflict">Conflict detected</string>
     <string name="settings_s3_not_configured_message">S3 sync is not configured.</string>
     <string name="settings_s3_auth_failed_message">S3 credentials are invalid or missing.</string>

@@ -11,7 +11,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.lomo.app.feature.conflict.SyncConflictViewModel
+import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.WebDavSyncState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -135,6 +137,33 @@ internal fun HandleGitConflictState(
             return@LaunchedEffect
         }
         val conflictState = syncState as? SyncEngineState.ConflictDetected ?: return@LaunchedEffect
+        conflictViewModel.showConflictDialog(conflictState.conflicts)
+    }
+}
+
+@Composable
+internal fun HandleWebDavConflictState(
+    syncState: WebDavSyncState,
+    conflictViewModel: SyncConflictViewModel,
+) {
+    LaunchedEffect(syncState) {
+        val conflictState = syncState as? WebDavSyncState.ConflictDetected ?: return@LaunchedEffect
+        conflictViewModel.showConflictDialog(conflictState.conflicts)
+    }
+}
+
+@Composable
+internal fun HandleS3ConflictState(
+    syncState: S3SyncState,
+    conflictViewModel: SyncConflictViewModel,
+) {
+    LaunchedEffect(syncState) {
+        val previewState = syncState as? S3SyncState.PreviewingInitialSync
+        if (previewState != null) {
+            conflictViewModel.showConflictDialog(previewState.conflicts)
+            return@LaunchedEffect
+        }
+        val conflictState = syncState as? S3SyncState.ConflictDetected ?: return@LaunchedEffect
         conflictViewModel.showConflictDialog(conflictState.conflicts)
     }
 }

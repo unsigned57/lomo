@@ -451,6 +451,7 @@
     <string name="settings_s3_sync_status_deleting">删除中…</string>
     <string name="settings_s3_sync_status_error">错误：%1$s</string>
     <string name="settings_s3_sync_status_not_configured">未配置</string>
+    <string name="settings_s3_sync_status_initial_preview">请先检查首次同步差异</string>
     <string name="settings_s3_sync_status_conflict">检测到冲突</string>
     <string name="settings_s3_not_configured_message">S3 同步尚未配置。</string>
     <string name="settings_s3_auth_failed_message">S3 凭证无效或缺失。</string>

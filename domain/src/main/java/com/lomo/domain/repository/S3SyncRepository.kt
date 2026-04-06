@@ -4,6 +4,7 @@ import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.S3RemoteIndexState
 import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
@@ -131,7 +132,11 @@ interface S3SyncOperationRepository {
         policy: S3SyncScanPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
     ): S3SyncResult
 
+    suspend fun syncForRefresh(): S3SyncResult = sync(S3SyncScanPolicy.FAST_ONLY)
+
     suspend fun getStatus(): S3SyncStatus
+
+    suspend fun getRemoteIndexState(): S3RemoteIndexState? = null
 
     suspend fun testConnection(): S3SyncResult
 }

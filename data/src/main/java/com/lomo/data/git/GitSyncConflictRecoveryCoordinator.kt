@@ -6,6 +6,7 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncConflictTextMerge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.eclipse.jgit.api.Git
@@ -192,6 +193,13 @@ internal class GitSyncConflictRecoveryCoordinator
                             val content = when (choice) {
                                 SyncConflictResolutionChoice.KEEP_LOCAL -> file.localContent
                                 SyncConflictResolutionChoice.KEEP_REMOTE -> file.remoteContent
+                                SyncConflictResolutionChoice.MERGE_TEXT ->
+                                    SyncConflictTextMerge.merge(file.localContent, file.remoteContent)
+                                        ?: error("Unable to merge conflict for ${file.relativePath}")
+                                SyncConflictResolutionChoice.SKIP_FOR_NOW ->
+                                    return@withContext GitSyncResult.Error(
+                                        "Git conflicts do not support deferring files for later resolution",
+                                    )
                             } ?: continue
 
                             val target = File(rootDir, file.relativePath)

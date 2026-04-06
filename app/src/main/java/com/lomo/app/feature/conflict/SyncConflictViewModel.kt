@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictTextMerge
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
+import com.lomo.domain.usecase.SyncConflictResolutionResult
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -30,7 +33,7 @@ class SyncConflictViewModel
             _state.value =
                 SyncConflictDialogState.Showing(
                     conflictSet = conflictSet,
-                    perFileChoices = emptyMap(),
+                    perFileChoices = buildSuggestedChoices(conflictSet),
                     expandedFilePath = null,
                     isResolving = false,
                 )
@@ -64,6 +67,18 @@ class SyncConflictViewModel
             }
         }
 
+        fun acceptSuggestedChoices() {
+            _state.update { current ->
+                if (current is SyncConflictDialogState.Showing) {
+                    current.copy(
+                        perFileChoices = current.perFileChoices + buildSuggestedChoices(current.conflictSet),
+                    )
+                } else {
+                    current
+                }
+            }
+        }
+
         fun toggleExpandedFile(path: String) {
             _state.update { current ->
                 if (current is SyncConflictDialogState.Showing) {
@@ -84,15 +99,40 @@ class SyncConflictViewModel
 
             viewModelScope.launch {
                 runCatching {
+                    val filesToBackup =
+                        current.conflictSet.files.filter { file ->
+                            current.perFileChoices[file.relativePath] != SyncConflictResolutionChoice.SKIP_FOR_NOW
+                        }
                     backupSyncConflictFilesUseCase(
-                        files = current.conflictSet.files,
+                        files = filesToBackup,
                         localFileReader = { null },
                     )
-                    syncConflictResolutionUseCase.resolve(
+                    when (
+                        val result =
+                            syncConflictResolutionUseCase.resolve(
                         conflictSet = current.conflictSet,
                         resolution = SyncConflictResolution(current.perFileChoices),
                     )
-                    _state.value = SyncConflictDialogState.Hidden
+                    ) {
+                        SyncConflictResolutionResult.Resolved -> {
+                            _state.value = SyncConflictDialogState.Hidden
+                        }
+
+                        is SyncConflictResolutionResult.Pending -> {
+                            val remainingChoices =
+                                current.perFileChoices.filterKeys { path ->
+                                    result.conflictSet.files.any { file -> file.relativePath == path }
+                                }
+                            _state.value =
+                                SyncConflictDialogState.Showing(
+                                    conflictSet = result.conflictSet,
+                                    perFileChoices =
+                                        buildSuggestedChoices(result.conflictSet) + remainingChoices,
+                                    expandedFilePath = null,
+                                    isResolving = false,
+                                )
+                        }
+                    }
                 }.onFailure { throwable ->
                     if (throwable is CancellationException) {
                         throw throwable
@@ -105,6 +145,32 @@ class SyncConflictViewModel
                         }
                     }
                 }
+            }
+        }
+
+        private fun buildSuggestedChoices(conflictSet: SyncConflictSet): Map<String, SyncConflictResolutionChoice> {
+            if (conflictSet.source != SyncBackendType.S3 && conflictSet.source != SyncBackendType.WEBDAV) {
+                return emptyMap()
+            }
+            return conflictSet.files.mapNotNull { file ->
+                suggestedChoiceFor(file)?.let { choice -> file.relativePath to choice }
+            }.toMap()
+        }
+
+        private fun suggestedChoiceFor(
+            file: com.lomo.domain.model.SyncConflictFile,
+        ): SyncConflictResolutionChoice? {
+            if (file.isBinary) return null
+            val localContent = file.localContent?.trim().orEmpty()
+            val remoteContent = file.remoteContent?.trim().orEmpty()
+            if (localContent.isBlank() || remoteContent.isBlank()) return null
+            return when {
+                remoteContent == localContent -> SyncConflictResolutionChoice.KEEP_REMOTE
+                remoteContent.contains(localContent) -> SyncConflictResolutionChoice.KEEP_REMOTE
+                localContent.contains(remoteContent) -> SyncConflictResolutionChoice.KEEP_LOCAL
+                SyncConflictTextMerge.merge(localContent, remoteContent) != null ->
+                    SyncConflictResolutionChoice.MERGE_TEXT
+                else -> null
             }
         }
     }

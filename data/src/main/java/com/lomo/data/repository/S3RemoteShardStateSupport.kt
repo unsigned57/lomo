@@ -1,11 +1,13 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3RemoteShardStateDao
+import com.lomo.data.local.dao.S3RemoteShardScheduleTelemetrySnapshot
 import com.lomo.data.local.entity.S3RemoteShardStateEntity
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.sync.Mutex
@@ -23,12 +25,28 @@ data class S3RemoteShardState(
     val lastVerificationFailureCount: Int = 0,
 )
 
+data class S3RemoteShardScheduleTelemetry(
+    val shardCount: Int,
+    val oldestScanAt: Long?,
+    val hasElevatedChangePressure: Boolean,
+    val hasHighVerificationUncertainty: Boolean,
+)
+
 interface S3RemoteShardStateStore {
     val remoteShardStateEnabled: Boolean
 
     suspend fun readAll(): List<S3RemoteShardState>
 
     suspend fun readByBucketId(bucketId: String): S3RemoteShardState?
+
+    suspend fun readByBucketIds(bucketIds: Collection<String>): List<S3RemoteShardState>
+
+    suspend fun readMostSpecificAncestor(relativePrefix: String?): S3RemoteShardState?
+
+    suspend fun readScheduleTelemetry(
+        now: Long,
+        reconcileInterval: Duration,
+    ): S3RemoteShardScheduleTelemetry
 
     suspend fun upsert(states: Collection<S3RemoteShardState>)
 
@@ -41,6 +59,21 @@ object DisabledS3RemoteShardStateStore : S3RemoteShardStateStore {
     override suspend fun readAll(): List<S3RemoteShardState> = emptyList()
 
     override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? = null
+
+    override suspend fun readByBucketIds(bucketIds: Collection<String>): List<S3RemoteShardState> = emptyList()
+
+    override suspend fun readMostSpecificAncestor(relativePrefix: String?): S3RemoteShardState? = null
+
+    override suspend fun readScheduleTelemetry(
+        now: Long,
+        reconcileInterval: Duration,
+    ): S3RemoteShardScheduleTelemetry =
+        S3RemoteShardScheduleTelemetry(
+            shardCount = 0,
+            oldestScanAt = null,
+            hasElevatedChangePressure = false,
+            hasHighVerificationUncertainty = false,
+        )
 
     override suspend fun upsert(states: Collection<S3RemoteShardState>) = Unit
 
@@ -56,6 +89,28 @@ class InMemoryS3RemoteShardStateStore(
     override suspend fun readAll(): List<S3RemoteShardState> = mutex.withLock { states.values.toList() }
 
     override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? = mutex.withLock { states[bucketId] }
+
+    override suspend fun readByBucketIds(bucketIds: Collection<String>): List<S3RemoteShardState> =
+        mutex.withLock { bucketIds.mapNotNull(states::get) }
+
+    override suspend fun readMostSpecificAncestor(relativePrefix: String?): S3RemoteShardState? =
+        mutex.withLock {
+            val normalizedPrefix = relativePrefix?.trim()?.trim('/')?.takeIf(String::isNotBlank) ?: return@withLock null
+            states.values
+                .filter { state ->
+                    val candidatePrefix = state.relativePrefix?.trim()?.trim('/')
+                    candidatePrefix != null &&
+                        (normalizedPrefix == candidatePrefix || normalizedPrefix.startsWith("$candidatePrefix/"))
+                }.maxByOrNull { state ->
+                    state.relativePrefix?.length ?: 0
+                }
+        }
+
+    override suspend fun readScheduleTelemetry(
+        now: Long,
+        reconcileInterval: Duration,
+    ): S3RemoteShardScheduleTelemetry =
+        mutex.withLock { states.values.toList().toScheduleTelemetry(now, reconcileInterval) }
 
     override suspend fun upsert(states: Collection<S3RemoteShardState>) {
         if (states.isEmpty()) return
@@ -84,6 +139,32 @@ class RoomBackedS3RemoteShardStateStore
 
         override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? =
             dao.getByBucketId(bucketId)?.toModel()
+
+        override suspend fun readByBucketIds(bucketIds: Collection<String>): List<S3RemoteShardState> =
+            if (bucketIds.isEmpty()) {
+                emptyList()
+            } else {
+                dao.getByBucketIds(bucketIds.toList()).map(S3RemoteShardStateEntity::toModel)
+            }
+
+        override suspend fun readMostSpecificAncestor(relativePrefix: String?): S3RemoteShardState? {
+            val normalizedPrefix = relativePrefix?.trim()?.trim('/')?.takeIf(String::isNotBlank) ?: return null
+            return dao.getMostSpecificAncestor(normalizedPrefix)?.toModel()
+        }
+
+        override suspend fun readScheduleTelemetry(
+            now: Long,
+            reconcileInterval: Duration,
+        ): S3RemoteShardScheduleTelemetry =
+            dao.getScheduleTelemetry(
+                now = now,
+                recentChangeWindowMs = reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR,
+                uncertaintyWindowMs = reconcileInterval.toMillis(),
+                changePressureThreshold = S3_CHANGE_PRESSURE_THRESHOLD,
+                verificationFailureThreshold = S3_VERIFICATION_FAILURE_THRESHOLD,
+                minUncertaintyAttempts = S3_MIN_UNCERTAINTY_ATTEMPTS,
+                minUncertaintyFailures = S3_MIN_UNCERTAINTY_FAILURES,
+            ).toModel()
 
         override suspend fun upsert(states: Collection<S3RemoteShardState>) {
             if (states.isEmpty()) return
@@ -127,3 +208,50 @@ private fun S3RemoteShardState.toEntity(): S3RemoteShardStateEntity =
         lastVerificationAttemptCount = lastVerificationAttemptCount,
         lastVerificationFailureCount = lastVerificationFailureCount,
     )
+
+private fun List<S3RemoteShardState>.toScheduleTelemetry(
+    now: Long,
+    reconcileInterval: Duration,
+): S3RemoteShardScheduleTelemetry {
+    val recentChangeWindowMillis = reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR
+    val uncertaintyWindowMillis = reconcileInterval.toMillis()
+    return S3RemoteShardScheduleTelemetry(
+        shardCount = size,
+        oldestScanAt = minOfOrNull(S3RemoteShardState::lastScannedAt),
+        hasElevatedChangePressure =
+            any { state ->
+                state.idleScanStreak == 0 &&
+                    state.scanAgeMillis(now) <= recentChangeWindowMillis &&
+                    state.changeRate() >= S3_CHANGE_PRESSURE_THRESHOLD
+            },
+        hasHighVerificationUncertainty =
+            any { state ->
+                state.scanAgeMillis(now) <= uncertaintyWindowMillis &&
+                    state.lastVerificationAttemptCount >= S3_MIN_UNCERTAINTY_ATTEMPTS &&
+                    state.lastVerificationFailureCount >= S3_MIN_UNCERTAINTY_FAILURES &&
+                    state.verificationFailureRate() >= S3_VERIFICATION_FAILURE_THRESHOLD
+            },
+    )
+}
+
+private fun S3RemoteShardScheduleTelemetrySnapshot.toModel(): S3RemoteShardScheduleTelemetry =
+    S3RemoteShardScheduleTelemetry(
+        shardCount = shardCount,
+        oldestScanAt = oldestScanAt,
+        hasElevatedChangePressure = hasElevatedChangePressure != 0,
+        hasHighVerificationUncertainty = hasHighVerificationUncertainty != 0,
+    )
+
+private fun S3RemoteShardState.scanAgeMillis(now: Long): Long = (now - lastScannedAt).coerceAtLeast(0L)
+
+private fun S3RemoteShardState.changeRate(): Double =
+    lastChangeCount.toDouble() / lastObjectCount.coerceAtLeast(1).toDouble()
+
+private fun S3RemoteShardState.verificationFailureRate(): Double =
+    lastVerificationFailureCount.toDouble() / lastVerificationAttemptCount.coerceAtLeast(1).toDouble()
+
+internal const val S3_RECENT_CHANGE_WINDOW_DIVISOR = 2L
+internal const val S3_CHANGE_PRESSURE_THRESHOLD = 0.5
+internal const val S3_VERIFICATION_FAILURE_THRESHOLD = 0.5
+internal const val S3_MIN_UNCERTAINTY_ATTEMPTS = 2
+internal const val S3_MIN_UNCERTAINTY_FAILURES = 2

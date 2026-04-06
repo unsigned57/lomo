@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
@@ -260,6 +261,69 @@ class S3ConflictResolverTest {
         }
 
     @Test
+    fun `resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val remotePath = "prefix/opaque-note"
+            val merged = "start\nlocal\nmiddle\nremote\nend"
+            val client =
+                ConflictProbeS3Client(
+                    onPutObject = { key, bytes ->
+                        assertEquals(remotePath, key)
+                        assertEquals(merged, bytes.toString(Charsets.UTF_8))
+                        S3PutObjectResult(eTag = "etag-merged")
+                    },
+                )
+            val metadataDao =
+                ConflictMetadataDao(
+                    initial = listOf(stableMetadata(path = path, remotePath = remotePath)),
+                )
+            coEvery {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = "note.md",
+                    content = merged,
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            val resolver = createResolver(client = client, metadataDao = metadataDao)
+            val conflictSet =
+                conflictSet(
+                    path = path,
+                    localContent = "start\nlocal\nmiddle\nend",
+                    remoteContent = "start\nmiddle\nremote\nend",
+                )
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices = mapOf(path to SyncConflictResolutionChoice.MERGE_TEXT),
+                        ),
+                    conflictSet = conflictSet,
+                )
+
+            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
+            assertEquals(listOf(remotePath), client.putKeys)
+            assertEquals(0, client.listCalls)
+            coVerify(exactly = 1) {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = "note.md",
+                    content = merged,
+                    append = false,
+                    uri = null,
+                )
+            }
+            assertEquals(remotePath, metadataDao.require(path).remotePath)
+            assertTrue(stateHolder.state.value is S3SyncState.Success)
+        }
+
+    @Test
     fun `resolveConflicts maps remote read failure without bucket scan`() =
         runTest {
             val path = "lomo/memo/note.md"
@@ -296,10 +360,91 @@ class S3ConflictResolverTest {
             assertTrue(stateHolder.state.value is S3SyncState.Error)
         }
 
+    @Test
+    fun `resolveConflicts keeps skipped files pending and returns conflict state`() =
+        runTest {
+            val keptPath = "lomo/memo/kept.md"
+            val skippedPath = "lomo/memo/skipped.md"
+            val remotePath = "prefix/opaque-kept"
+            val client =
+                ConflictProbeS3Client(
+                    onPutObject = { key, _ ->
+                        assertEquals(remotePath, key)
+                        S3PutObjectResult(eTag = "etag-uploaded")
+                    },
+                )
+            val metadataDao =
+                ConflictMetadataDao(
+                    initial = listOf(stableMetadata(path = keptPath, remotePath = remotePath)),
+                )
+            val pendingStore = InMemoryPendingSyncConflictStore()
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "kept.md")
+            } returns "# local"
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "kept.md")
+            } returns FileMetadata(filename = "kept.md", lastModified = 50L)
+            val resolver = createResolver(client = client, metadataDao = metadataDao, pendingStore = pendingStore)
+            val conflictSet =
+                SyncConflictSet(
+                    source = SyncBackendType.S3,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = keptPath,
+                                localContent = "# local",
+                                remoteContent = "# remote",
+                                isBinary = false,
+                            ),
+                            SyncConflictFile(
+                                relativePath = skippedPath,
+                                localContent = "left",
+                                remoteContent = "right",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 1L,
+                )
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices =
+                                mapOf(
+                                    keptPath to SyncConflictResolutionChoice.KEEP_LOCAL,
+                                    skippedPath to SyncConflictResolutionChoice.SKIP_FOR_NOW,
+                                ),
+                        ),
+                    conflictSet = conflictSet,
+                )
+
+            assertEquals(
+                S3SyncResult.Conflict(
+                    message = "Pending conflicts remain",
+                    conflicts =
+                        conflictSet.copy(
+                            files = listOf(conflictSet.files[1]),
+                        ),
+                ),
+                result,
+            )
+            assertEquals(listOf(remotePath), client.putKeys)
+            assertEquals(
+                conflictSet.copy(files = listOf(conflictSet.files[1])),
+                pendingStore.read(SyncBackendType.S3),
+            )
+            assertEquals(
+                S3SyncState.ConflictDetected(conflictSet.copy(files = listOf(conflictSet.files[1]))),
+                stateHolder.state.value,
+            )
+        }
+
     private fun createResolver(
         client: ConflictProbeS3Client,
         metadataDao: ConflictMetadataDao,
         remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
+        pendingStore: PendingSyncConflictStore = InMemoryPendingSyncConflictStore(),
     ): S3ConflictResolver {
         every { clientFactory.create(any()) } returns client
         val runtime =
@@ -325,6 +470,7 @@ class S3ConflictResolverTest {
             protocolStateStore = InMemoryS3SyncProtocolStateStore(),
             localChangeJournalStore = InMemoryS3LocalChangeJournalStore(),
             remoteIndexStore = remoteIndexStore,
+            pendingConflictStore = pendingStore,
         )
     }
 
@@ -342,15 +488,19 @@ class S3ConflictResolverTest {
         lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
     )
 
-    private fun conflictSet(path: String): SyncConflictSet =
+    private fun conflictSet(
+        path: String,
+        localContent: String = "# local",
+        remoteContent: String = "# remote",
+    ): SyncConflictSet =
         SyncConflictSet(
             source = SyncBackendType.S3,
             files =
                 listOf(
                     SyncConflictFile(
                         relativePath = path,
-                        localContent = "# local",
-                        remoteContent = "# remote",
+                        localContent = localContent,
+                        remoteContent = remoteContent,
                         isBinary = false,
                     ),
                 ),
@@ -368,6 +518,20 @@ private class ConflictMetadataDao(
     }
 
     override suspend fun getAll(): List<S3SyncMetadataEntity> = entries.values.toList()
+
+    override suspend fun getAllPlannerMetadataSnapshots(): List<S3SyncPlannerMetadataSnapshot> =
+        entries.values.map { entity ->
+            S3SyncPlannerMetadataSnapshot(
+                relativePath = entity.relativePath,
+                remotePath = entity.remotePath,
+                etag = entity.etag,
+                remoteLastModified = entity.remoteLastModified,
+                localLastModified = entity.localLastModified,
+                lastSyncedAt = entity.lastSyncedAt,
+                lastResolvedDirection = entity.lastResolvedDirection,
+                lastResolvedReason = entity.lastResolvedReason,
+            )
+        }
 
     override suspend fun getAllRemoteMetadataSnapshots(): List<S3SyncRemoteMetadataSnapshot> =
         entries.values.map { entity ->

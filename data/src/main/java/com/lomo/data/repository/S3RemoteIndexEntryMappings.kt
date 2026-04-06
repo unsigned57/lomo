@@ -1,5 +1,7 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.model.S3RemoteVerificationLevel
+
 internal fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(
     relativePath: String,
     encodingSupport: S3SyncEncodingSupport,

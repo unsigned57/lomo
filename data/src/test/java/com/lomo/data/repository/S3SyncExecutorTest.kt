@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
+import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
+import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
@@ -99,6 +101,8 @@ class S3SyncExecutorTest {
         every { credentialStore.getEncryptionPassword2() } returns null
         every { clientFactory.create(any()) } returns client
         coEvery { memoSynchronizer.refresh() } returns Unit
+        coEvery { metadataDao.getAllPlannerMetadataSnapshots() } returns emptyList()
+        coEvery { metadataDao.getAllRemoteMetadataSnapshots() } returns emptyList()
 
         val runtime =
             S3SyncRepositoryContext(
@@ -142,6 +146,28 @@ class S3SyncExecutorTest {
                         lastSyncedAt = 10L,
                         lastResolvedDirection = "NONE",
                         lastResolvedReason = "UNCHANGED",
+                    ),
+                )
+            coEvery { metadataDao.getAllPlannerMetadataSnapshots() } returns
+                listOf(
+                    S3SyncPlannerMetadataSnapshot(
+                        relativePath = managedPath,
+                        remotePath = managedPath,
+                        etag = "etag",
+                        remoteLastModified = 10L,
+                        localLastModified = 10L,
+                        lastSyncedAt = 10L,
+                        lastResolvedDirection = "NONE",
+                        lastResolvedReason = "UNCHANGED",
+                    ),
+                )
+            coEvery { metadataDao.getAllRemoteMetadataSnapshots() } returns
+                listOf(
+                    S3SyncRemoteMetadataSnapshot(
+                        relativePath = managedPath,
+                        remotePath = managedPath,
+                        etag = "etag",
+                        remoteLastModified = 10L,
                     ),
                 )
             coEvery { client.deleteObject(managedPath) } returns Unit

@@ -15,6 +15,7 @@ internal suspend fun prepareRemoteReconcile(
     shardPlanner: S3RemoteShardPlanner = S3RemoteShardPlanner(),
     shardScanner: S3RemoteShardScanner = S3RemoteShardScanner(),
     verificationGate: S3RemoteVerificationGate = S3RemoteVerificationGate(),
+    reconcileTuner: S3RemoteReconcileTuner = S3RemoteReconcileTuner(),
 ): PreparedRemoteReconcile {
     val now = System.currentTimeMillis()
     val plannedScan =
@@ -36,6 +37,8 @@ internal suspend fun prepareRemoteReconcile(
             completedScanCycle = true,
         )
     }
+    val activeShardState = resolveActiveShardState(shardStateStore, activeShard)
+    val tuning = reconcileTuner.tune(protocolState = protocolState, activeShardState = activeShardState)
     val pageStartedAt = System.currentTimeMillis()
     val listedPage =
         shardScanner.listObservedRemoteEntries(
@@ -48,10 +51,14 @@ internal suspend fun prepareRemoteReconcile(
             continuationToken = plannedScan.continuationToken,
             now = now,
             scanEpoch = plannedScan.scanEpoch,
+            tuning = tuning,
         )
     val indexedEntriesForShard =
         if (listedPage.nextContinuationToken == null) {
-            remoteIndexStore.readByRelativePrefix(activeShard.relativePrefix)
+            remoteIndexEntriesForShard(
+                remoteIndexStore = remoteIndexStore,
+                activeShard = activeShard,
+            )
                 .filterNot { entry -> entry.relativePath in listedPage.remoteFiles }
         } else {
             emptyList()
@@ -64,6 +71,7 @@ internal suspend fun prepareRemoteReconcile(
             listedRemoteFiles = listedPage.remoteFiles,
             now = now,
             scanEpoch = plannedScan.scanEpoch,
+            tuning = tuning,
         )
     recordShardScanState(
         shardStateStore = shardStateStore,
@@ -116,6 +124,15 @@ internal suspend fun applyRemoteIndexUpdates(
         )
         return
     }
+    val existingByPath =
+        remoteIndexStore.readByRelativePaths(
+            prepared.remoteFiles.keys +
+                prepared.metadataByPath.keys +
+                execution.remoteFilesAfterSync.keys +
+                execution.unresolvedPaths +
+                execution.failedPaths +
+                prepared.remoteReconcileState?.missingRemotePaths.orEmpty(),
+        ).associateBy(S3RemoteIndexEntry::relativePath)
     val observedEntries = linkedMapOf<String, S3RemoteIndexEntry>()
     prepared.remoteReconcileState?.observedRemoteEntries?.values?.forEach { entry ->
         observedEntries[entry.relativePath] = entry
@@ -126,18 +143,13 @@ internal suspend fun applyRemoteIndexUpdates(
                 remoteFile.toRemoteIndexEntry(
                     now = now,
                     scanEpoch = currentScanEpoch,
+                    scanPriority = existingByPath[path]?.scanPriority ?: defaultScanPriority(path),
+                ).promoteForRecentActivity(
+                    now = now,
+                    scanEpoch = currentScanEpoch,
                 )
         }
     }
-    val existingByPath =
-        remoteIndexStore.readByRelativePaths(
-            prepared.remoteFiles.keys +
-                prepared.metadataByPath.keys +
-                execution.remoteFilesAfterSync.keys +
-                execution.unresolvedPaths +
-                execution.failedPaths +
-                prepared.remoteReconcileState?.missingRemotePaths.orEmpty(),
-        ).associateBy(S3RemoteIndexEntry::relativePath)
     val dirtyEntries =
         (execution.unresolvedPaths + execution.failedPaths).associateWith { path ->
             val existing =
@@ -150,7 +162,9 @@ internal suspend fun applyRemoteIndexUpdates(
                         now = now,
                         scanEpoch = currentScanEpoch,
                     )
-            existing?.promoteForDirtyFollowUp(now, currentScanEpoch)
+            existing
+                ?.promoteForDirtyFollowUp(now, currentScanEpoch)
+                ?.promoteForRecentCandidate(now, currentScanEpoch)
         }.mapNotNull { (path, entry) -> entry?.let { path to it } }.toMap()
     val missingEntries =
         buildMap {
@@ -174,13 +188,16 @@ private suspend fun replaceRemoteIndexSnapshot(
     snapshotEntries: Collection<S3RemoteIndexEntry>,
 ) {
     val snapshotEntriesByPath = snapshotEntries.associateBy(S3RemoteIndexEntry::relativePath)
-    val existingEntriesByPath = remoteIndexStore.readAll().associateBy(S3RemoteIndexEntry::relativePath)
+    val existingEntriesByPath =
+        remoteIndexStore
+            .readByRelativePaths(snapshotEntriesByPath.keys)
+            .associateBy(S3RemoteIndexEntry::relativePath)
     val changedEntries =
         snapshotEntriesByPath
             .mapNotNull { (path, entry) ->
                 entry.takeIf { existingEntriesByPath[path] != entry }
             }
-    val removedPaths = existingEntriesByPath.keys - snapshotEntriesByPath.keys
+    val removedPaths = remoteIndexStore.readAllRelativePaths().toSet() - snapshotEntriesByPath.keys
     remoteIndexStore.upsert(changedEntries)
     remoteIndexStore.deleteByRelativePaths(removedPaths)
 }
@@ -232,8 +249,35 @@ internal suspend fun promoteDirtyRemoteCandidates(
     if (existingEntries.isEmpty()) {
         return
     }
-    remoteIndexStore.upsert(existingEntries.map { entry -> entry.promoteForDirtyFollowUp(now) })
+    remoteIndexStore.upsert(existingEntries.map { entry -> entry.promoteForRecentCandidate(now) })
 }
+
+private suspend fun resolveActiveShardState(
+    shardStateStore: S3RemoteShardStateStore,
+    activeShard: S3RemoteScanShard,
+): S3RemoteShardState? {
+    if (!shardStateStore.remoteShardStateEnabled) {
+        return null
+    }
+    shardStateStore.readByBucketId(activeShard.bucketId)?.let { return it }
+    return shardStateStore.readMostSpecificAncestor(activeShard.relativePrefix)
+}
+
+private suspend fun remoteIndexEntriesForShard(
+    remoteIndexStore: S3RemoteIndexStore,
+    activeShard: S3RemoteScanShard,
+): List<S3RemoteIndexEntry> =
+    when {
+        activeShard.relativePrefix != null ->
+            remoteIndexStore.readByRelativePrefix(activeShard.relativePrefix)
+
+        activeShard.bucketId == S3_SCAN_BUCKET_ROOT ->
+            remoteIndexStore.readOutsideScanBuckets(
+                excludedBuckets = listOf(S3_SCAN_BUCKET_MEMO, S3_SCAN_BUCKET_IMAGE, S3_SCAN_BUCKET_VOICE),
+            )
+
+        else -> remoteIndexStore.readAll()
+    }
 
 private fun resolveNextScanCursor(
     scanPlan: List<S3RemoteScanShard>,

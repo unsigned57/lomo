@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
+import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncOutcome
 import com.lomo.domain.model.S3SyncReason
@@ -10,13 +11,6 @@ data class LocalS3File(
     val path: String,
     val lastModified: Long,
 )
-
-enum class S3RemoteVerificationLevel {
-    VERIFIED_REMOTE,
-    INDEX_CACHED_REMOTE,
-    SUSPECT_REMOTE_MISSING,
-    UNKNOWN_REMOTE,
-}
 
 data class RemoteS3File(
     val path: String,
