@@ -78,12 +78,7 @@ class MemoSynchronizerTest {
         val refreshEngine =
             MemoRefreshEngine(
                 markdownStorageDataSource = fileDataSource,
-                memoWriteDao = memoDao,
-                memoTagDao = memoDao,
-                memoFtsDao = memoDao,
-                memoTrashDao = memoDao,
                 localFileStateDao = localFileStateDao,
-                parser = parser,
                 refreshPlanner = MemoRefreshPlanner,
                 refreshParserWorker = MemoRefreshParserWorker(markdownStorageDataSource = fileDataSource, dao = memoDao, parser = parser),
                 refreshDbApplier =

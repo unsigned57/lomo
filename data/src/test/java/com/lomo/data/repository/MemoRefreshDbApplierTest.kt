@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.MemoEntity
+import com.lomo.domain.model.MemoRevisionOrigin
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -145,6 +146,39 @@ class MemoRefreshDbApplierTest {
             )
 
             assertEquals(1, transactionCalls)
+        }
+
+    @Test
+    fun `apply forwards explicit import sync origin to memo version journal`() =
+        runTest {
+            val parseResult =
+                MemoRefreshParseResult(
+                    mainMemos =
+                        listOf(
+                            memoEntity(
+                                id = "memo-imported",
+                                date = "2024_01_18",
+                                content = "imported-content",
+                            ),
+                        ),
+                    trashMemos = emptyList(),
+                    metadataToUpdate = emptyList(),
+                    mainDatesToReplace = setOf("2024_01_18"),
+                    trashDatesToReplace = emptySet(),
+                )
+
+            applier.apply(
+                parseResult = parseResult,
+                filesToDeleteInDb = emptySet(),
+                origin = MemoRevisionOrigin.IMPORT_SYNC,
+            )
+
+            coVerify(exactly = 1) {
+                memoVersionJournal.appendImportedRefreshRevisions(
+                    any(),
+                    MemoRevisionOrigin.IMPORT_SYNC,
+                )
+            }
         }
 
     private fun createApplier(

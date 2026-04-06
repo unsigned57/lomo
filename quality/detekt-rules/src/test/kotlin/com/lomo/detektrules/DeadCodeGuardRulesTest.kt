@@ -3,6 +3,7 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
+import dev.detekt.test.TestConfig
 import dev.detekt.test.lint
 import dev.detekt.test.utils.compileForTest
 import org.junit.Assert.assertEquals
@@ -125,10 +126,57 @@ class DeadCodeGuardRulesTest {
         assertTrue(findings.isEmpty())
     }
 
-    private fun rule(name: String): Rule =
+    @Test
+    fun `allows configured no-source-suppressions path exceptions`() {
+        val findings =
+            rule(
+                name = "NoSourceSuppressions",
+                config =
+                    TestConfig(
+                        "excludes" to listOf("ui/component/input/InputSheetFocusEffects.kt"),
+                    ),
+            ).findingsForSource(
+                relativePath = "src/main/java/com/lomo/ui/component/input/InputSheetFocusEffects.kt",
+                code =
+                    """
+                    package com.lomo.ui.component.input
+
+                    @Suppress("DEPRECATION")
+                    private const val sample = 1
+                    """,
+            )
+
+        assertTrue(findings.isEmpty())
+    }
+
+    @Test
+    fun `still reports no-source-suppressions outside configured exceptions`() {
+        val findings =
+            rule(
+                name = "NoSourceSuppressions",
+                config =
+                    TestConfig(
+                        "excludes" to listOf("ui/component/input/InputSheetFocusEffects.kt"),
+                    ),
+            ).findingsForMainSource(
+                """
+                package com.lomo.sample
+
+                @Suppress("DEPRECATION")
+                private const val sample = 1
+                """,
+            )
+
+        assertEquals(1, findings.size)
+    }
+
+    private fun rule(
+        name: String,
+        config: Config = Config.empty,
+    ): Rule =
         checkNotNull(LomoArchitectureRuleSetProvider().instance().rules[RuleName(name)]) {
             "Expected rule '$name' to be registered."
-        }.invoke(Config.empty)
+        }.invoke(config)
 
     private fun Rule.findingsForMainSource(code: String) = findingsForSource("src/main/java/com/lomo/sample/Fixture.kt", code)
 

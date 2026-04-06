@@ -10,6 +10,7 @@ import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -27,6 +28,7 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the coordinator only supports one-shot loads and has no restore-in-progress guard.
  * - Excludes: Compose rendering, ViewModel wiring, and repository persistence internals.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class MainVersionHistoryCoordinatorTest {
     @Test
     fun `load and loadMore append pages until history is exhausted`() =

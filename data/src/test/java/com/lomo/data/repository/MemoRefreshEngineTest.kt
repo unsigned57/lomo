@@ -1,12 +1,9 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoFtsDao
-import com.lomo.data.local.dao.MemoTagDao
-import com.lomo.data.local.dao.MemoTrashDao
-import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.entity.LocalFileStateEntity
-import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.local.entity.MemoEntity
+import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -36,22 +33,7 @@ class MemoRefreshEngineTest {
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
-    private lateinit var memoWriteDao: MemoWriteDao
-
-    @MockK(relaxed = true)
-    private lateinit var memoTagDao: MemoTagDao
-
-    @MockK(relaxed = true)
-    private lateinit var memoFtsDao: MemoFtsDao
-
-    @MockK(relaxed = true)
-    private lateinit var memoTrashDao: MemoTrashDao
-
-    @MockK(relaxed = true)
     private lateinit var localFileStateDao: LocalFileStateDao
-
-    @MockK(relaxed = true)
-    private lateinit var parser: MarkdownParser
 
     @MockK
     private lateinit var refreshParserWorker: MemoRefreshParserWorker
@@ -67,12 +49,7 @@ class MemoRefreshEngineTest {
         engine =
             MemoRefreshEngine(
                 markdownStorageDataSource = markdownStorageDataSource,
-                memoWriteDao = memoWriteDao,
-                memoTagDao = memoTagDao,
-                memoFtsDao = memoFtsDao,
-                memoTrashDao = memoTrashDao,
                 localFileStateDao = localFileStateDao,
-                parser = parser,
                 refreshPlanner = MemoRefreshPlanner,
                 refreshParserWorker = refreshParserWorker,
                 refreshDbApplier = refreshDbApplier,
@@ -204,6 +181,82 @@ class MemoRefreshEngineTest {
             assertEquals(1, capturedStateUpdates.captured.size)
             assertEquals(0, capturedStateUpdates.captured.single().missingCount)
             assertEquals(null, capturedStateUpdates.captured.single().missingSince)
+        }
+
+    @Test
+    fun `refresh target routes imported file updates through shared applier instead of direct inserts`() =
+        runTest {
+            val targetFilename = "2026_03_25.md"
+            val refreshedFile =
+                FileContent(
+                    filename = targetFilename,
+                    content = "- 09:00 imported from s3",
+                    lastModified = 2_000L,
+                )
+            val parsedParseResult =
+                MemoRefreshParseResult(
+                    mainMemos =
+                        listOf(
+                            MemoEntity(
+                                id = "memo-imported",
+                                timestamp = 1_700_000_000_000,
+                                updatedAt = refreshedFile.lastModified,
+                                content = "imported from s3",
+                                rawContent = refreshedFile.content,
+                                date = "2026_03_25",
+                                tags = "",
+                                imageUrls = "",
+                            ),
+                        ),
+                    trashMemos = emptyList(),
+                    metadataToUpdate =
+                        listOf(
+                            LocalFileStateEntity(
+                                filename = targetFilename,
+                                isTrash = false,
+                                lastKnownModifiedTime = refreshedFile.lastModified,
+                            ),
+                        ),
+                    mainDatesToReplace = setOf("2026_03_25"),
+                    trashDatesToReplace = emptySet(),
+                )
+            val capturedParseResult = slot<MemoRefreshParseResult>()
+
+            coEvery {
+                markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
+            } returns listOf(refreshedFile)
+            coEvery { refreshParserWorker.parseMainFileContents(listOf(refreshedFile)) } returns parsedParseResult
+
+            engine.refresh(targetFilename)
+
+            coVerify(exactly = 1) { refreshDbApplier.apply(capture(capturedParseResult), emptySet()) }
+            coVerify(exactly = 0) { localFileStateDao.upsert(any()) }
+            assertEquals(setOf("2026_03_25"), capturedParseResult.captured.mainDatesToReplace)
+            assertEquals(listOf("memo-imported"), capturedParseResult.captured.mainMemos.map { it.id })
+            assertEquals(
+                listOf(refreshedFile.lastModified),
+                capturedParseResult.captured.metadataToUpdate.map { it.lastKnownModifiedTime },
+            )
+        }
+
+    @Test
+    fun `refresh target routes missing imported file through shared applier delete set`() =
+        runTest {
+            val targetFilename = "2026_03_25.md"
+            val capturedParseResult = slot<MemoRefreshParseResult>()
+            val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
+
+            coEvery {
+                markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
+            } returns emptyList()
+
+            engine.refresh(targetFilename)
+
+            coVerify(exactly = 1) {
+                refreshDbApplier.apply(capture(capturedParseResult), capture(capturedDeleteSet))
+            }
+            assertEquals(emptyList<MemoEntity>(), capturedParseResult.captured.mainMemos)
+            assertEquals(setOf(targetFilename to false), capturedDeleteSet.captured)
         }
 
     private fun emptyParseResult() =

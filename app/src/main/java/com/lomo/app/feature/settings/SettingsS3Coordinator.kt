@@ -34,7 +34,7 @@ sealed interface SettingsS3ConnectionTestState {
 class SettingsS3Coordinator(
     private val s3SyncSettingsUseCase: S3SyncSettingsUseCase,
     scope: CoroutineScope,
-) {
+) : SettingsS3FeatureSupport {
     val s3SyncEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeS3SyncEnabled()
@@ -357,11 +357,11 @@ class SettingsS3Coordinator(
             }
         }
 
-    fun resetConnectionTestState() {
+    override fun resetConnectionTestState() {
         _connectionTestState.value = SettingsS3ConnectionTestState.Idle
     }
 
-    fun isValidEndpointUrl(url: String): Boolean {
+    override fun isValidEndpointUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return false
         return trimmed.startsWith("https://") || trimmed.startsWith("http://")

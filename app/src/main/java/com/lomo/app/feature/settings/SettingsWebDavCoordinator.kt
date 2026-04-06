@@ -34,7 +34,7 @@ sealed interface SettingsWebDavConnectionTestState {
 class SettingsWebDavCoordinator(
     private val webDavSyncSettingsUseCase: WebDavSyncSettingsUseCase,
     scope: CoroutineScope,
-) {
+) : SettingsWebDavFeatureSupport {
     val webDavSyncEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeWebDavSyncEnabled()
@@ -240,11 +240,11 @@ class SettingsWebDavCoordinator(
             }
         }
 
-    fun resetConnectionTestState() {
+    override fun resetConnectionTestState() {
         _connectionTestState.value = SettingsWebDavConnectionTestState.Idle
     }
 
-    fun isValidWebDavUrl(url: String): Boolean {
+    override fun isValidWebDavUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return false
         return trimmed.startsWith("https://") || trimmed.startsWith("http://") || !trimmed.contains("://")

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.media.AudioPlayerManager
 import com.lomo.domain.model.Memo
@@ -104,11 +105,10 @@ class MainViewModelTest {
         memoVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
         memoUiMapper = MemoUiMapper()
-        imageMapProvider = mockk(relaxed = true)
+        imageMapProvider = emptyImageMapProvider()
         audioPlayerManager = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
 
-        every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.isSyncing() } returns flowOf(false)
         every { repository.getAllMemosList() } returns flowOf(emptyList<Memo>())
         every { repository.searchMemosList(any()) } returns flowOf(emptyList<Memo>())

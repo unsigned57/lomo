@@ -44,8 +44,8 @@ class MemoVersionHistoryUiMapperRenderPlanTest {
 
         val renderPlan = models.single().precomputedRenderPlan
         assertNotNull(renderPlan)
-        assertEquals("# Title\n\nbody line", renderPlan?.content)
-        assertEquals(2, renderPlan?.totalBlocks)
+        assertEquals("# Title\n\nbody line", renderPlan.content)
+        assertEquals(2, renderPlan.totalBlocks)
     }
 }
 

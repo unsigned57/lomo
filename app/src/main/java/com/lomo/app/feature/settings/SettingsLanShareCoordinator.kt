@@ -13,7 +13,7 @@ import kotlinx.coroutines.flow.stateIn
 class SettingsLanShareCoordinator(
     private val shareServiceManager: LanShareService,
     scope: CoroutineScope,
-) {
+) : SettingsLanShareFeatureSupport {
     val lanShareE2eEnabled: StateFlow<Boolean> =
         shareServiceManager
             .lanShareE2eEnabled
@@ -69,7 +69,7 @@ class SettingsLanShareCoordinator(
         shareServiceManager.setLanShareDeviceName(deviceName)
     }
 
-    fun clearPairingCodeError() {
+    override fun clearPairingCodeError() {
         _pairingCodeError.value = null
     }
 }

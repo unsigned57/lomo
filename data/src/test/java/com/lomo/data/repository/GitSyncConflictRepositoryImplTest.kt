@@ -1,9 +1,14 @@
 package com.lomo.data.repository
 
+import android.content.Context
 import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.git.GitMediaSyncBridge
 import com.lomo.data.git.GitSyncEngine
+import com.lomo.data.git.GitSyncQueryTestCoordinator
 import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
@@ -23,6 +28,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 /*
  * Test Contract:
@@ -34,7 +40,7 @@ import java.io.File
  */
 class GitSyncConflictRepositoryImplTest {
     @MockK(relaxed = true)
-    private lateinit var runtime: GitSyncRepositoryContext
+    private lateinit var context: Context
 
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
@@ -46,10 +52,25 @@ class GitSyncConflictRepositoryImplTest {
     private lateinit var gitSyncEngine: GitSyncEngine
 
     @MockK(relaxed = true)
-    private lateinit var memoSynchronizer: MemoSynchronizer
+    private lateinit var refreshEngine: MemoRefreshEngine
+
+    @MockK(relaxed = true)
+    private lateinit var mutationHandler: MemoMutationHandler
 
     @MockK(relaxed = true)
     private lateinit var safGitMirrorBridge: SafGitMirrorBridge
+
+    @MockK(relaxed = true)
+    private lateinit var gitMediaSyncBridge: GitMediaSyncBridge
+
+    @MockK(relaxed = true)
+    private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
+
+    @MockK(relaxed = true)
+    private lateinit var markdownParser: MarkdownParser
+
+    @MockK(relaxed = true)
+    private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
     private lateinit var support: GitSyncRepositorySupport
@@ -57,6 +78,8 @@ class GitSyncConflictRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var memoMirror: GitSyncMemoMirror
 
+    private lateinit var memoSynchronizer: MemoSynchronizer
+    private lateinit var runtime: GitSyncRepositoryContext
     private lateinit var repository: GitSyncConflictRepositoryImpl
 
     private val remoteUrl = "https://example.com/org/repo.git"
@@ -82,12 +105,26 @@ class GitSyncConflictRepositoryImplTest {
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-
-        every { runtime.dataStore } returns dataStore
-        every { runtime.credentialStore } returns credentialStore
-        every { runtime.gitSyncEngine } returns gitSyncEngine
-        every { runtime.memoSynchronizer } returns memoSynchronizer
-        every { runtime.safGitMirrorBridge } returns safGitMirrorBridge
+        every { context.filesDir } returns Files.createTempDirectory("git-sync-conflict").toFile()
+        memoSynchronizer =
+            MemoSynchronizer(
+                refreshEngine = refreshEngine,
+                mutationHandler = mutationHandler,
+                startOutboxCoordinator = false,
+            )
+        runtime =
+            GitSyncRepositoryContext(
+                context = context,
+                gitSyncEngine = gitSyncEngine,
+                credentialStore = credentialStore,
+                dataStore = dataStore,
+                memoSynchronizer = memoSynchronizer,
+                safGitMirrorBridge = safGitMirrorBridge,
+                gitMediaSyncBridge = gitMediaSyncBridge,
+                gitSyncQueryCoordinator = gitSyncQueryCoordinator,
+                markdownParser = markdownParser,
+                markdownStorageDataSource = markdownStorageDataSource,
+            )
 
         every { dataStore.gitRemoteUrl } returns flowOf(remoteUrl)
         every { dataStore.rootDirectory } returns flowOf("/memo")
@@ -97,6 +134,8 @@ class GitSyncConflictRepositoryImplTest {
         every { dataStore.voiceDirectory } returns flowOf("/voice")
         every { dataStore.voiceUri } returns flowOf(null)
         every { credentialStore.getToken() } returns "token"
+        coEvery { mutationHandler.nextMemoFileOutbox() } returns null
+        coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
 
         coEvery { support.runGitIo<GitSyncResult>(any()) } coAnswers {
             firstArg<suspend () -> GitSyncResult>().invoke()
@@ -130,7 +169,7 @@ class GitSyncConflictRepositoryImplTest {
 
             assertEquals(GitSyncErrorCode.PAT_REQUIRED, (result as GitSyncResult.Error).code)
             coVerify(exactly = 0) { gitSyncEngine.resolveConflicts(any(), any(), any(), any()) }
-            coVerify(exactly = 0) { memoSynchronizer.refresh() }
+            coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
 
     @Test
@@ -168,7 +207,7 @@ class GitSyncConflictRepositoryImplTest {
                     match { layout -> layout.memoFolder == "memo" && !layout.allSameDirectory },
                 )
             }
-            coVerify(exactly = 1) { memoSynchronizer.refresh() }
+            coVerify(exactly = 1) { refreshEngine.refresh(null) }
         }
 
     @Test
@@ -186,7 +225,7 @@ class GitSyncConflictRepositoryImplTest {
 
             assertEquals("boom", (result as GitSyncResult.Error).message)
             coVerify(exactly = 0) { memoMirror.mirrorMemoFromRepo(any(), any()) }
-            coVerify(exactly = 0) { memoSynchronizer.refresh() }
+            coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
 
     @Test

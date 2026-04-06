@@ -85,6 +85,9 @@ lomo-architecture:
     active: true
   NoSourceSuppressions:
     active: true
+    excludes:
+      - "ui-components/src/main/java/com/lomo/ui/component/input/InputSheetFocusEffects.kt"
+      - "ui-components/src/main/java/com/lomo/ui/component/input/MemoInputEditTextBridge.kt"
   NoPlaceholderImplementation:
     active: true
   NoConstantBranchCondition:

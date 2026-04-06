@@ -62,6 +62,21 @@ class MemoSynchronizer
                 }
             }
 
+        suspend fun refreshImportedSync(targetFilename: String? = null) =
+            mutex.withLock {
+                _isSyncing.value = true
+                try {
+                    outboxCoordinator.drainOutboxLocked()
+                    if (mutationHandler.hasPendingMemoFileOutbox()) {
+                        Timber.w("Skip refresh because memo outbox is still pending")
+                        return@withLock
+                    }
+                    refreshEngine.refreshImportedSync(targetFilename)
+                } finally {
+                    _isSyncing.value = false
+                }
+            }
+
         suspend fun saveMemo(
             content: String,
             timestamp: Long,

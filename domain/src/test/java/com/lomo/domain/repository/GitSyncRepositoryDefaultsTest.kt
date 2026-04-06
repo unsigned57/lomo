@@ -2,7 +2,6 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
-import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.model.SyncEngineState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -13,6 +12,14 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
 
+/*
+ * Test Contract:
+ * - Unit under test: GitSyncRepository default helpers
+ * - Behavior focus: observeLastSyncInstant/observeLastSyncTimeMillis default mapping remains stable after repository surface cleanup.
+ * - Observable outcomes: null-vs-instant mapping from the last-sync flow.
+ * - Red phase: Fails to compile before the cleanup because the old Git memo-history method is still required by GitSyncRepository.
+ * - Excludes: sync execution, conflict handling, and any removed Git memo-history capability.
+ */
 class GitSyncRepositoryDefaultsTest {
     @Test
     fun `observeLastSyncTimeMillis maps zero sentinel to null`() =
@@ -91,11 +98,6 @@ class GitSyncRepositoryDefaultsTest {
         override suspend fun resetLocalBranchToRemote(): GitSyncResult = GitSyncResult.NotConfigured
 
         override suspend fun forcePushLocalToRemote(): GitSyncResult = GitSyncResult.NotConfigured
-
-        override suspend fun getMemoVersionHistory(
-            dateKey: String,
-            memoTimestamp: Long,
-        ): List<MemoVersion> = emptyList()
 
         override fun syncState(): Flow<SyncEngineState> = flowOf(SyncEngineState.Idle)
 

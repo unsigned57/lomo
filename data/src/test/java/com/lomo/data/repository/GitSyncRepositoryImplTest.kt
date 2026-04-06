@@ -29,6 +29,14 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
+/*
+ * Test Contract:
+ * - Unit under test: GitSyncRepositoryImpl
+ * - Behavior focus: sync still reports refresh failures and cancellation correctly after removing unused Git memo-history wiring.
+ * - Observable outcomes: returned GitSyncResult error details, cancellation propagation, and collaborator call ordering.
+ * - Red phase: Fails to compile before the cleanup because GitSyncRepositoryImpl still requires the deleted version-history collaborator.
+ * - Excludes: version-history queries, git engine internals, and memo refresh parsing details.
+ */
 class GitSyncRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var context: Context
@@ -111,11 +119,6 @@ class GitSyncRepositoryImplTest {
                                 support = support,
                                 memoMirror = memoMirror,
                             ),
-                    ),
-                versionHistoryRepository =
-                    GitSyncVersionHistoryRepositoryImpl(
-                        runtime = runtime,
-                        support = support,
                     ),
                 conflictRepository =
                     GitSyncConflictRepositoryImpl(

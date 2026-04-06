@@ -4,6 +4,7 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -22,7 +23,6 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -67,7 +67,7 @@ class SearchViewModelTest {
 
         memoRepository = mockk(relaxed = true)
         appConfigRepository = mockk(relaxed = true)
-        imageMapProvider = mockk(relaxed = true)
+        imageMapProvider = emptyImageMapProvider()
         deleteMemoUseCase = mockk(relaxed = true)
         updateMemoContentUseCase = mockk(relaxed = true)
         saveImageUseCase = mockk(relaxed = true)
@@ -89,8 +89,6 @@ class SearchViewModelTest {
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-
-        every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
 
         coEvery { deleteMemoUseCase(any()) } returns Unit
         coEvery { updateMemoContentUseCase(any(), any()) } returns Unit

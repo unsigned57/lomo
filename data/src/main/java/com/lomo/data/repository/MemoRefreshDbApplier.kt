@@ -11,6 +11,7 @@ import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.util.SearchTokenizer
+import com.lomo.domain.model.MemoRevisionOrigin
 import com.lomo.domain.model.MemoRevisionLifecycleState
 
 class MemoRefreshDbApplier(
@@ -26,6 +27,7 @@ class MemoRefreshDbApplier(
     internal suspend fun apply(
         parseResult: MemoRefreshParseResult,
         filesToDeleteInDb: Set<Pair<String, Boolean>>,
+        origin: MemoRevisionOrigin = MemoRevisionOrigin.IMPORT_REFRESH,
     ) {
         if (affectedDateKeys(parseResult, filesToDeleteInDb).isEmpty()) {
             return
@@ -43,6 +45,7 @@ class MemoRefreshDbApplier(
                 parseResult = parseResult,
                 filesToDeleteInDb = filesToDeleteInDb,
                 previousStates = previousStates,
+                origin = origin,
             )
         }
     }
@@ -51,6 +54,7 @@ class MemoRefreshDbApplier(
         parseResult: MemoRefreshParseResult,
         filesToDeleteInDb: Set<Pair<String, Boolean>>,
         previousStates: Map<String, RefreshMemoState>,
+        origin: MemoRevisionOrigin,
     ) {
         replaceDates(parseResult)
 
@@ -71,6 +75,7 @@ class MemoRefreshDbApplier(
                     previousStates = previousStates,
                     currentStates = buildCurrentStates(deduplicatedMainMemos, filteredTrashMemos),
                 ),
+            origin = origin,
         )
     }
 

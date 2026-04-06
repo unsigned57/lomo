@@ -5,6 +5,7 @@ import com.lomo.app.BuildConfig
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.media.AudioPlayerManager
 import com.lomo.domain.model.Memo
@@ -110,13 +111,12 @@ class MainViewModelInitialImportStateTest {
         appVersionRepository = mockk(relaxed = true)
         memoVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
-        imageMapProvider = mockk(relaxed = true)
+        imageMapProvider = emptyImageMapProvider()
         audioPlayerManager = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
         rootLocationFlow = MutableStateFlow(null)
         allMemosFlow = MutableStateFlow(emptyList())
 
-        every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.isSyncing() } returns flowOf(false)
         every { repository.getAllMemosList() } returns allMemosFlow
         every { repository.searchMemosList(any()) } returns allMemosFlow
@@ -166,6 +166,7 @@ class MainViewModelInitialImportStateTest {
 
     @After
     fun tearDown() {
+        settleMainDispatcher()
         Dispatchers.resetMain()
     }
 
@@ -421,6 +422,13 @@ class MainViewModelInitialImportStateTest {
 
     private fun clearViewModel(viewModel: MainViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)
-        testDispatcher.scheduler.advanceUntilIdle()
+        settleMainDispatcher()
+    }
+
+    private fun settleMainDispatcher() {
+        repeat(5) {
+            testDispatcher.scheduler.advanceUntilIdle()
+            Thread.sleep(10)
+        }
     }
 }

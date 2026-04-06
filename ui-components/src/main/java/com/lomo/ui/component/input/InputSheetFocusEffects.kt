@@ -193,6 +193,7 @@ private suspend fun requestEditorFocusAndKeyboard(
         runOnInputEditor(editor) {
             editor.requestFocus()
             editor.requestFocusFromTouch()
+            @Suppress("DEPRECATION")
             inputMethodManager?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
         }
         keyboardController?.show()

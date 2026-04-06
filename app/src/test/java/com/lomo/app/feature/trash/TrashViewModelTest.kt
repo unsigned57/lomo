@@ -5,6 +5,7 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.ThemeMode
@@ -69,10 +70,9 @@ class TrashViewModelTest {
 
         repository = mockk(relaxed = true)
         appConfigRepository = mockk(relaxed = true)
-        imageMapProvider = mockk(relaxed = true)
+        imageMapProvider = emptyImageMapProvider()
         memoUiMapper = MemoUiMapper()
 
-        every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
         every { repository.getDeletedMemosList() } returns MutableStateFlow(emptyList())
         every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
         every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)

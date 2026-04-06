@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -15,6 +16,90 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+
+interface SettingsLanShareFeatureActions {
+    val updateLanShareE2eEnabled: (Boolean) -> Unit
+    val updateLanSharePairingCode: (String) -> Unit
+    val clearLanSharePairingCode: () -> Unit
+    val updateLanShareDeviceName: (String) -> Unit
+}
+
+interface SettingsLanShareFeatureSupport {
+    fun clearPairingCodeError()
+}
+
+interface SettingsGitFeatureActions {
+    val updateGitSyncEnabled: (Boolean) -> Unit
+    val updateGitRemoteUrl: (String) -> Unit
+    val updateGitPat: (String) -> Unit
+    val updateGitAuthorName: (String) -> Unit
+    val updateGitAuthorEmail: (String) -> Unit
+    val updateGitAutoSyncEnabled: (Boolean) -> Unit
+    val updateGitAutoSyncInterval: (String) -> Unit
+    val updateGitSyncOnRefresh: (Boolean) -> Unit
+    val triggerGitSyncNow: () -> Unit
+    val resolveGitConflictUsingRemote: () -> Unit
+    val resolveGitConflictUsingLocal: () -> Unit
+    val testGitConnection: () -> Unit
+    val resetGitRepository: () -> Unit
+}
+
+interface SettingsGitFeatureSupport {
+    val isValidGitRemoteUrl: (String) -> Boolean
+    val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean
+    val resetConnectionTestState: () -> Unit
+}
+
+interface SettingsWebDavFeatureActions {
+    val updateWebDavSyncEnabled: (Boolean) -> Unit
+    val updateWebDavProvider: (WebDavProvider) -> Unit
+    val updateWebDavBaseUrl: (String) -> Unit
+    val updateWebDavEndpointUrl: (String) -> Unit
+    val updateWebDavUsername: (String) -> Unit
+    val updateWebDavPassword: (String) -> Unit
+    val updateWebDavAutoSyncEnabled: (Boolean) -> Unit
+    val updateWebDavAutoSyncInterval: (String) -> Unit
+    val updateWebDavSyncOnRefresh: (Boolean) -> Unit
+    val triggerWebDavSyncNow: () -> Unit
+    val testWebDavConnection: () -> Unit
+}
+
+interface SettingsWebDavFeatureSupport {
+    fun resetConnectionTestState()
+    fun isValidWebDavUrl(url: String): Boolean
+}
+
+interface SettingsS3FeatureActions {
+    val updateS3SyncEnabled: (Boolean) -> Unit
+    val updateS3EndpointUrl: (String) -> Unit
+    val updateS3Region: (String) -> Unit
+    val updateS3Bucket: (String) -> Unit
+    val updateS3Prefix: (String) -> Unit
+    val updateS3LocalSyncDirectory: (String) -> Unit
+    val clearS3LocalSyncDirectory: () -> Unit
+    val updateS3AccessKeyId: (String) -> Unit
+    val updateS3SecretAccessKey: (String) -> Unit
+    val updateS3SessionToken: (String) -> Unit
+    val updateS3PathStyle: (S3PathStyle) -> Unit
+    val updateS3EncryptionMode: (S3EncryptionMode) -> Unit
+    val updateS3EncryptionPassword: (String) -> Unit
+    val updateS3EncryptionPassword2: (String) -> Unit
+    val updateS3RcloneFilenameEncryption: (S3RcloneFilenameEncryption) -> Unit
+    val updateS3RcloneFilenameEncoding: (S3RcloneFilenameEncoding) -> Unit
+    val updateS3RcloneDirectoryNameEncryption: (Boolean) -> Unit
+    val updateS3RcloneDataEncryptionEnabled: (Boolean) -> Unit
+    val updateS3RcloneEncryptedSuffix: (String) -> Unit
+    val updateS3AutoSyncEnabled: (Boolean) -> Unit
+    val updateS3AutoSyncInterval: (String) -> Unit
+    val updateS3SyncOnRefresh: (Boolean) -> Unit
+    val triggerS3SyncNow: () -> Unit
+    val testS3Connection: () -> Unit
+}
+
+interface SettingsS3FeatureSupport {
+    fun resetConnectionTestState()
+    fun isValidEndpointUrl(url: String): Boolean
+}
 
 class SettingsStorageFeatureViewModel(
     private val scope: CoroutineScope,
@@ -203,8 +288,8 @@ sealed interface SettingsManualUpdateState {
 }
 
 class SettingsLanShareFeatureViewModel(
-    private val actionCoordinator: SettingsActionCoordinator,
-    private val lanShareCoordinator: SettingsLanShareCoordinator,
+    private val actionCoordinator: SettingsLanShareFeatureActions,
+    private val lanShareCoordinator: SettingsLanShareFeatureSupport,
 ) {
     fun updateLanShareE2eEnabled(enabled: Boolean) {
         actionCoordinator.updateLanShareE2eEnabled(enabled)
@@ -228,8 +313,8 @@ class SettingsLanShareFeatureViewModel(
 }
 
 class SettingsGitFeatureViewModel(
-    actionCoordinator: SettingsActionCoordinator,
-    gitCoordinator: SettingsGitCoordinator,
+    actionCoordinator: SettingsGitFeatureActions,
+    gitCoordinator: SettingsGitFeatureSupport,
 ) {
     val updateGitSyncEnabled = actionCoordinator.updateGitSyncEnabled
     val updateGitRemoteUrl = actionCoordinator.updateGitRemoteUrl
@@ -250,8 +335,8 @@ class SettingsGitFeatureViewModel(
 }
 
 class SettingsWebDavFeatureViewModel(
-    actionCoordinator: SettingsActionCoordinator,
-    webDavCoordinator: SettingsWebDavCoordinator,
+    actionCoordinator: SettingsWebDavFeatureActions,
+    webDavCoordinator: SettingsWebDavFeatureSupport,
 ) {
     val updateWebDavSyncEnabled = actionCoordinator.updateWebDavSyncEnabled
     val updateProvider = actionCoordinator.updateWebDavProvider
@@ -270,8 +355,8 @@ class SettingsWebDavFeatureViewModel(
 }
 
 class SettingsS3FeatureViewModel(
-    actionCoordinator: SettingsActionCoordinator,
-    s3Coordinator: SettingsS3Coordinator,
+    actionCoordinator: SettingsS3FeatureActions,
+    s3Coordinator: SettingsS3FeatureSupport,
 ) {
     val updateS3SyncEnabled = actionCoordinator.updateS3SyncEnabled
     val updateEndpointUrl = actionCoordinator.updateS3EndpointUrl

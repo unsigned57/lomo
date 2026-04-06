@@ -1,6 +1,14 @@
 package com.lomo.data.repository
 
+import android.content.Context
+import com.lomo.data.git.GitCredentialStore
+import com.lomo.data.git.GitMediaSyncBridge
+import com.lomo.data.git.GitSyncEngine
+import com.lomo.data.git.GitSyncQueryTestCoordinator
+import com.lomo.data.git.SafGitMirrorBridge
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import io.mockk.MockKAnnotations
@@ -10,13 +18,13 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.nio.file.Files
 
 /*
  * Test Contract:
@@ -27,13 +35,37 @@ import org.junit.Test
  */
 class GitSyncOperationRepositoryImplTest {
     @MockK(relaxed = true)
-    private lateinit var runtime: GitSyncRepositoryContext
+    private lateinit var context: Context
 
     @MockK(relaxed = true)
-    private lateinit var memoSynchronizer: MemoSynchronizer
+    private lateinit var refreshEngine: MemoRefreshEngine
+
+    @MockK(relaxed = true)
+    private lateinit var mutationHandler: MemoMutationHandler
 
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
+
+    @MockK(relaxed = true)
+    private lateinit var gitSyncEngine: GitSyncEngine
+
+    @MockK(relaxed = true)
+    private lateinit var credentialStore: GitCredentialStore
+
+    @MockK(relaxed = true)
+    private lateinit var safGitMirrorBridge: SafGitMirrorBridge
+
+    @MockK(relaxed = true)
+    private lateinit var gitMediaSyncBridge: GitMediaSyncBridge
+
+    @MockK(relaxed = true)
+    private lateinit var gitSyncQueryCoordinator: GitSyncQueryTestCoordinator
+
+    @MockK(relaxed = true)
+    private lateinit var markdownParser: MarkdownParser
+
+    @MockK(relaxed = true)
+    private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
     private lateinit var initAndSyncExecutor: GitSyncInitAndSyncExecutor
@@ -44,15 +76,34 @@ class GitSyncOperationRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var maintenanceExecutor: GitSyncMaintenanceExecutor
 
+    private lateinit var memoSynchronizer: MemoSynchronizer
+    private lateinit var runtime: GitSyncRepositoryContext
     private lateinit var repository: GitSyncOperationRepositoryImpl
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
-        every { runtime.memoSynchronizer } returns memoSynchronizer
-        every { runtime.dataStore } returns dataStore
-        every { memoSynchronizer.outboxDrainCompleted } returns MutableSharedFlow()
+        every { context.filesDir } returns Files.createTempDirectory("git-sync-operation").toFile()
         every { dataStore.gitSyncEnabled } returns flowOf(false)
+        memoSynchronizer =
+            MemoSynchronizer(
+                refreshEngine = refreshEngine,
+                mutationHandler = mutationHandler,
+                startOutboxCoordinator = false,
+            )
+        runtime =
+            GitSyncRepositoryContext(
+                context = context,
+                gitSyncEngine = gitSyncEngine,
+                credentialStore = credentialStore,
+                dataStore = dataStore,
+                memoSynchronizer = memoSynchronizer,
+                safGitMirrorBridge = safGitMirrorBridge,
+                gitMediaSyncBridge = gitMediaSyncBridge,
+                gitSyncQueryCoordinator = gitSyncQueryCoordinator,
+                markdownParser = markdownParser,
+                markdownStorageDataSource = markdownStorageDataSource,
+            )
 
         repository =
             GitSyncOperationRepositoryImpl(

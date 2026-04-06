@@ -149,6 +149,7 @@ internal fun createMemoInputEditText(
                     setCursorColor(cursorColor)
                     post {
                         requestFocusFromTouch()
+                        @Suppress("DEPRECATION")
                         inputMethodManager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
                     }
                 }

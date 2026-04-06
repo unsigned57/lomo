@@ -5,6 +5,7 @@ import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.parser.MarkdownParser
+import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileMetadataWithId
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -34,6 +35,54 @@ class MemoRefreshParserWorker(
     private val dao: MemoDao,
     private val parser: MarkdownParser,
 ) {
+    internal suspend fun parseMainFileContents(
+        files: List<FileContent>,
+    ): MemoRefreshParseResult {
+        val mainMemos = mutableListOf<MemoEntity>()
+        val metadata = mutableListOf<LocalFileStateEntity>()
+        val datesToReplace = mutableSetOf<String>()
+
+        files.forEach { file ->
+            val filename = file.filename.removeSuffix(".md")
+            val domainMemos =
+                parser.parseContent(
+                    content = file.content,
+                    filename = filename,
+                    fallbackTimestampMillis = file.lastModified,
+                )
+            val existingMemosByTimestamp =
+                dao
+                    .getMemosByDate(filename)
+                    .groupBy(MemoEntity::timestamp)
+            mainMemos.addAll(
+                domainMemos.map { memo ->
+                    MemoEntity
+                        .fromDomain(
+                            memo.withStableRefreshId(
+                                existingMemosByTimestamp = existingMemosByTimestamp,
+                            ),
+                        ).copy(updatedAt = file.lastModified)
+                },
+            )
+            metadata.add(
+                LocalFileStateEntity(
+                    filename = file.filename,
+                    isTrash = false,
+                    lastKnownModifiedTime = file.lastModified,
+                ),
+            )
+            datesToReplace += filename
+        }
+
+        return MemoRefreshParseResult(
+            mainMemos = mainMemos,
+            trashMemos = emptyList(),
+            metadataToUpdate = metadata,
+            mainDatesToReplace = datesToReplace,
+            trashDatesToReplace = emptySet(),
+        )
+    }
+
     internal suspend fun parse(
         mainFilesToUpdate: List<FileMetadataWithId>,
         trashFilesToUpdate: List<FileMetadataWithId>,
@@ -200,7 +249,7 @@ class MemoRefreshParserWorker(
 private const val FILE_PARSE_BATCH_SIZE = 10
 private const val MEMO_LOOKUP_BATCH_SIZE = 500
 
-private fun Memo.withStableRefreshId(
+internal fun Memo.withStableRefreshId(
     existingMemosByTimestamp: Map<Long, List<MemoEntity>>,
 ): Memo {
     val existingMatches = existingMemosByTimestamp[timestamp].orEmpty()

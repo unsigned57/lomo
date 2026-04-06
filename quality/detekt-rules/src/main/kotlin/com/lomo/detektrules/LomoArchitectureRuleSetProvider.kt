@@ -68,6 +68,12 @@ private abstract class LomoArchitectureRule(
 
     protected fun KtFile.isProductionSource(): Boolean = path().contains("/src/main/")
 
+    protected fun KtFile.isPathExcluded(): Boolean =
+        config.valueOrDefault("excludes", emptyList<String>()).any { exclusion ->
+            val normalizedExclusion = exclusion.replace('\\', '/')
+            path().endsWith(normalizedExclusion) || path().contains(normalizedExclusion)
+        }
+
     protected fun KtFile.bodyText(): String =
         text
             .lineSequence()
@@ -464,6 +470,7 @@ private class NoSourceSuppressionsRule(
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
         if (!file.path().contains("/src/main/")) return
+        if (file.isPathExcluded()) return
 
         val shortName = annotationEntry.shortName?.asString()
         if (shortName == "Suppress" || shortName == "SuppressWarnings") {

@@ -1,19 +1,11 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
-import com.lomo.data.local.dao.MemoFtsDao
-import com.lomo.data.local.dao.MemoTagDao
-import com.lomo.data.local.dao.MemoTrashDao
-import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.entity.LocalFileStateEntity
-import com.lomo.data.local.entity.MemoEntity
-import com.lomo.data.local.entity.MemoFtsEntity
-import com.lomo.data.local.entity.TrashMemoEntity
-import com.lomo.data.parser.MarkdownParser
-import com.lomo.data.source.FileContent
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.domain.model.MemoRevisionOrigin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import timber.log.Timber
@@ -21,22 +13,26 @@ import timber.log.Timber
 class MemoRefreshEngine
 (
         private val markdownStorageDataSource: MarkdownStorageDataSource,
-        private val memoWriteDao: MemoWriteDao,
-        private val memoTagDao: MemoTagDao,
-        private val memoFtsDao: MemoFtsDao,
-        private val memoTrashDao: MemoTrashDao,
         private val localFileStateDao: LocalFileStateDao,
-        private val parser: MarkdownParser,
         private val refreshPlanner: MemoRefreshPlanner,
         private val refreshParserWorker: MemoRefreshParserWorker,
         private val refreshDbApplier: MemoRefreshDbApplier,
         private val now: () -> Long = { System.currentTimeMillis() },
     ) {
         suspend fun refresh(targetFilename: String? = null) =
+            refreshWithOrigin(targetFilename = targetFilename, origin = MemoRevisionOrigin.IMPORT_REFRESH)
+
+        suspend fun refreshImportedSync(targetFilename: String? = null) =
+            refreshWithOrigin(targetFilename = targetFilename, origin = MemoRevisionOrigin.IMPORT_SYNC)
+
+        private suspend fun refreshWithOrigin(
+            targetFilename: String?,
+            origin: MemoRevisionOrigin,
+        ) =
             withContext(Dispatchers.IO) {
                 runNonFatalCatching {
                     if (targetFilename != null) {
-                        refreshTargetFile(targetFilename)
+                        refreshTargetFile(targetFilename, origin)
                     } else {
                         val refreshStartedAt = now()
                         val syncMetadataMap =
@@ -90,6 +86,7 @@ class MemoRefreshEngine
                         refreshDbApplier.apply(
                             parseResult = normalizedParseResult,
                             filesToDeleteInDb = missingResolution.filesToDeleteInDb,
+                            origin = origin,
                         )
                     }
                 }.getOrElse { error ->
@@ -199,74 +196,39 @@ class MemoRefreshEngine
             )
         }
 
-        private suspend fun refreshTargetFile(targetFilename: String) {
-            val files = markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
-            if (files.isEmpty()) return
-
-            syncFiles(files, isTrash = false)
-            localFileStateDao.upsert(
-                LocalFileStateEntity(
-                    filename = targetFilename,
-                    isTrash = false,
-                    lastKnownModifiedTime = files[0].lastModified,
-                    safUri = localFileStateDao.getByFilename(targetFilename, false)?.safUri,
-                    lastSeenAt = now(),
-                ),
-            )
-        }
-
-        private suspend fun syncFiles(
-            files: List<FileContent>,
-            isTrash: Boolean,
+        private suspend fun refreshTargetFile(
+            targetFilename: String,
+            origin: MemoRevisionOrigin,
         ) {
-            if (isTrash) {
-                val allTrashMemos = mutableListOf<TrashMemoEntity>()
-                files.forEach { file ->
-                    val filename = file.filename.removeSuffix(".md")
-                    val domainMemos =
-                        parser.parseContent(
-                            content = file.content,
-                            filename = filename,
-                            fallbackTimestampMillis = file.lastModified,
-                        )
-                    allTrashMemos.addAll(
-                        domainMemos.map {
-                            TrashMemoEntity.fromDomain(
-                                it.copy(isDeleted = true),
-                            )
-                        },
-                    )
-                }
-                if (allTrashMemos.isNotEmpty()) {
-                    memoTrashDao.insertTrashMemos(allTrashMemos)
-                }
-            } else {
-                val allMemos = mutableListOf<MemoEntity>()
-                files.forEach { file ->
-                    val filename = file.filename.removeSuffix(".md")
-                    val domainMemos =
-                        parser.parseContent(
-                            content = file.content,
-                            filename = filename,
-                            fallbackTimestampMillis = file.lastModified,
-                        )
-                    allMemos.addAll(domainMemos.map { MemoEntity.fromDomain(it) })
-                }
-                if (allMemos.isNotEmpty()) {
-                    memoWriteDao.insertMemos(allMemos)
-                    memoTagDao.replaceTagRefsForMemos(allMemos)
-                    memoFtsDao.replaceMemoFtsBatch(
-                        allMemos.map {
-                            MemoFtsEntity(
-                                memoId = it.id,
-                                content =
-                                    com.lomo.data.util.SearchTokenizer
-                                        .tokenize(it.content),
-                            )
-                        },
-                    )
-                }
+            val files = markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
+            if (files.isEmpty()) {
+                refreshDbApplier.apply(
+                    parseResult = emptyParseResult(),
+                    filesToDeleteInDb = setOf(targetFilename to false),
+                    origin = origin,
+                )
+                return
             }
+
+            val refreshStartedAt = now()
+            val syncMetadataMap =
+                files
+                    .mapNotNull { file ->
+                        localFileStateDao.getByFilename(file.filename, false)?.let { metadata ->
+                            (file.filename to false) to metadata
+                        }
+                    }.toMap()
+            val normalizedParseResult =
+                normalizeMetadata(
+                    parseResult = refreshParserWorker.parseMainFileContents(files),
+                    syncMetadataMap = syncMetadataMap,
+                    refreshStartedAt = refreshStartedAt,
+                )
+            refreshDbApplier.apply(
+                parseResult = normalizedParseResult,
+                filesToDeleteInDb = emptySet(),
+                origin = origin,
+            )
         }
     }
 
@@ -274,6 +236,15 @@ private data class MissingFileResolution(
     val pendingMissingStates: List<LocalFileStateEntity>,
     val filesToDeleteInDb: Set<Pair<String, Boolean>>,
 )
+
+private fun emptyParseResult() =
+    MemoRefreshParseResult(
+        mainMemos = emptyList(),
+        trashMemos = emptyList(),
+        metadataToUpdate = emptyList(),
+        mainDatesToReplace = emptySet(),
+        trashDatesToReplace = emptySet(),
+    )
 
 private const val MISSING_DELETE_CONFIRMATION_COUNT = 2
 private const val MISSING_DELETE_CONFIRMATION_WINDOW_MS = 5 * 60_000L

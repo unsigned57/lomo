@@ -2,7 +2,6 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
-import com.lomo.domain.model.MemoVersion
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncEngineState
@@ -75,13 +74,6 @@ interface GitSyncOperationRepository {
     suspend fun forcePushLocalToRemote(): GitSyncResult
 }
 
-interface GitSyncVersionHistoryRepository {
-    suspend fun getMemoVersionHistory(
-        dateKey: String,
-        memoTimestamp: Long,
-    ): List<MemoVersion>
-}
-
 interface GitSyncConflictRepository {
     suspend fun resolveConflicts(
         resolution: SyncConflictResolution,
@@ -97,6 +89,5 @@ interface GitSyncRepository :
     GitSyncConfigurationRepository,
     GitSyncConfigurationMutationRepository,
     GitSyncOperationRepository,
-    GitSyncVersionHistoryRepository,
     GitSyncConflictRepository,
     GitSyncStateRepository

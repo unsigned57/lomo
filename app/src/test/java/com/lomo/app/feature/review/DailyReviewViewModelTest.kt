@@ -5,6 +5,7 @@ import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
@@ -21,7 +22,6 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -61,7 +61,7 @@ class DailyReviewViewModelTest {
 
         memoRepository = mockk(relaxed = true)
         appConfigRepository = mockk(relaxed = true)
-        imageMapProvider = mockk(relaxed = true)
+        imageMapProvider = emptyImageMapProvider()
         deleteMemoUseCase = mockk(relaxed = true)
         updateMemoContentUseCase = mockk(relaxed = true)
         saveImageUseCase = mockk(relaxed = true)
@@ -83,8 +83,6 @@ class DailyReviewViewModelTest {
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-
-        every { imageMapProvider.imageMap } returns MutableStateFlow(emptyMap())
 
         coEvery { dailyReviewQueryUseCase() } returns emptyList()
         coEvery { deleteMemoUseCase(any()) } returns Unit

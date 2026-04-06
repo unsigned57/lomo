@@ -33,7 +33,7 @@ sealed interface SettingsGitConnectionTestState {
 class SettingsGitCoordinator(
     private val gitSyncSettingsUseCase: GitSyncSettingsUseCase,
     scope: CoroutineScope,
-) {
+) : SettingsGitFeatureSupport {
     val gitSyncEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeGitSyncEnabled()
@@ -140,10 +140,10 @@ class SettingsGitCoordinator(
             }
         }
 
-    val isValidGitRemoteUrl: (String) -> Boolean =
+    override val isValidGitRemoteUrl: (String) -> Boolean =
         { url -> gitSyncSettingsUseCase.isValidRemoteUrl(url) }
 
-    val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean =
+    override val shouldShowGitConflictDialog: (GitSyncErrorCode) -> Boolean =
         { code -> code == GitSyncErrorCode.CONFLICT }
 
     val updateGitPat: suspend (String) -> SettingsOperationError? =
@@ -280,7 +280,7 @@ class SettingsGitCoordinator(
             }
         }
 
-    val resetConnectionTestState: () -> Unit =
+    override val resetConnectionTestState: () -> Unit =
         { _connectionTestState.value = SettingsGitConnectionTestState.Idle }
 
     private suspend fun runWithError(
