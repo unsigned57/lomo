@@ -7,6 +7,7 @@ import aws.sdk.kotlin.services.s3.model.GetObjectRequest
 import aws.sdk.kotlin.services.s3.model.HeadObjectRequest
 import aws.sdk.kotlin.services.s3.model.ListObjectsV2Request
 import aws.sdk.kotlin.services.s3.model.PutObjectRequest
+import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.content.ByteStream
 import aws.smithy.kotlin.runtime.content.toByteArray
 import aws.smithy.kotlin.runtime.net.url.Url
@@ -19,6 +20,7 @@ data class S3RemoteObject(
     val key: String,
     val eTag: String?,
     val lastModified: Long?,
+    val size: Long? = null,
     val metadata: Map<String, String>,
 )
 
@@ -34,6 +36,11 @@ data class S3PutObjectResult(
     val eTag: String?,
 )
 
+data class S3RemoteListPage(
+    val objects: List<S3RemoteObject>,
+    val nextContinuationToken: String?,
+)
+
 fun interface LomoS3ClientFactory {
     fun create(config: S3ResolvedConfig): LomoS3Client
 }
@@ -42,6 +49,20 @@ interface LomoS3Client : AutoCloseable {
     suspend fun verifyAccess(prefix: String)
 
     suspend fun getObjectMetadata(key: String): S3RemoteObject? = null
+
+    suspend fun listPage(
+        prefix: String,
+        continuationToken: String?,
+        maxKeys: Int,
+    ): S3RemoteListPage =
+        if (continuationToken == null) {
+            S3RemoteListPage(
+                objects = list(prefix = prefix, maxKeys = maxKeys),
+                nextContinuationToken = null,
+            )
+        } else {
+            S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+        }
 
     suspend fun listKeys(
         prefix: String,
@@ -91,7 +112,7 @@ internal class AwsSdkS3Client(
     ): List<String> {
         val requestPrefix = prefix.takeIf(String::isNotBlank)
         val keys = mutableListOf<String>()
-        listObjects(requestPrefix, maxKeys) { key, _, _ ->
+        listObjects(requestPrefix, maxKeys) { key, _, _, _ ->
             keys += key
         }
         return keys
@@ -103,12 +124,13 @@ internal class AwsSdkS3Client(
     ): List<S3RemoteObject> {
         val requestPrefix = prefix.takeIf(String::isNotBlank)
         val objects = mutableListOf<S3RemoteObject>()
-        listObjects(requestPrefix, maxKeys) { key, eTag, lastModified ->
+        listObjects(requestPrefix, maxKeys) { key, eTag, lastModified, size ->
             objects +=
                 S3RemoteObject(
                     key = key,
                     eTag = eTag,
                     lastModified = lastModified,
+                    size = size,
                     metadata = emptyMap(),
                 )
         }
@@ -134,17 +156,58 @@ internal class AwsSdkS3Client(
 
     override suspend fun getObjectMetadata(key: String): S3RemoteObject? {
         val response =
-            client.headObject(
-                HeadObjectRequest {
-                    bucket = config.bucket
-                    this.key = key
-                },
-            )
+            try {
+                client.headObject(
+                    HeadObjectRequest {
+                        bucket = config.bucket
+                        this.key = key
+                    },
+                )
+            } catch (error: ServiceException) {
+                if (error.isMissingObjectError()) {
+                    return null
+                }
+                throw error
+            }
         return S3RemoteObject(
             key = key,
             eTag = response.eTag,
             lastModified = response.lastModified?.epochMilliseconds,
+            size = response.contentLength,
             metadata = response.metadata.orEmpty(),
+        )
+    }
+
+    override suspend fun listPage(
+        prefix: String,
+        continuationToken: String?,
+        maxKeys: Int,
+    ): S3RemoteListPage {
+        val requestPrefix = prefix.takeIf(String::isNotBlank)
+        val page =
+            client.listObjectsV2(
+                ListObjectsV2Request {
+                    bucket = config.bucket
+                    this.prefix = requestPrefix
+                    this.continuationToken = continuationToken
+                    this.maxKeys = maxKeys
+                },
+            )
+        return S3RemoteListPage(
+            objects =
+                page.contents.orEmpty()
+                    .mapNotNull { summary ->
+                        val key = summary.key ?: return@mapNotNull null
+                        if (key.endsWith('/')) return@mapNotNull null
+                        S3RemoteObject(
+                            key = key,
+                            eTag = summary.eTag,
+                            lastModified = summary.lastModified?.epochMilliseconds,
+                            size = summary.size,
+                            metadata = emptyMap(),
+                        )
+                    },
+            nextContinuationToken = page.nextContinuationToken,
         )
     }
 
@@ -183,7 +246,7 @@ internal class AwsSdkS3Client(
     private suspend fun listObjects(
         requestPrefix: String?,
         maxKeys: Int?,
-        onObject: (key: String, eTag: String?, lastModified: Long?) -> Unit,
+        onObject: (key: String, eTag: String?, lastModified: Long?, size: Long?) -> Unit,
     ) {
         var continuationToken: String? = null
         var remaining = maxKeys
@@ -200,7 +263,7 @@ internal class AwsSdkS3Client(
             page.contents.orEmpty().forEach { summary ->
                 val key = summary.key ?: return@forEach
                 if (key.endsWith('/')) return@forEach
-                onObject(key, summary.eTag, summary.lastModified?.epochMilliseconds)
+                onObject(key, summary.eTag, summary.lastModified?.epochMilliseconds, summary.size)
             }
             continuationToken = page.nextContinuationToken
             remaining =
@@ -212,6 +275,21 @@ internal class AwsSdkS3Client(
                 }
         } while (continuationToken != null && (remaining == null || remaining > 0))
     }
+}
+
+private fun Throwable.isMissingObjectError(): Boolean {
+    val diagnostic =
+        buildString {
+            message?.let(::appendLine)
+            (this@isMissingObjectError as? ServiceException)?.sdkErrorMetadata?.let { metadata ->
+                metadata.errorCode?.let(::appendLine)
+                metadata.errorMessage?.let(::appendLine)
+                appendLine(metadata.protocolResponse.summary)
+            }
+        }
+    return diagnostic.contains("404") ||
+        diagnostic.contains("NoSuchKey", ignoreCase = true) ||
+        diagnostic.contains("NotFound", ignoreCase = true)
 }
 
 private fun createSdkClient(config: S3ResolvedConfig): S3Client {

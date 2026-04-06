@@ -34,7 +34,7 @@ class S3ConflictResolver
         private val fileBridge: S3SyncFileBridge,
         private val protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
         private val localChangeJournalStore: S3LocalChangeJournalStore = DisabledS3LocalChangeJournalStore,
-        private val remoteManifestStore: S3RemoteManifestStore = DefaultS3RemoteManifestStore(encodingSupport),
+        private val remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
     ) {
         suspend fun resolveConflicts(
             resolution: SyncConflictResolution,
@@ -47,16 +47,30 @@ class S3ConflictResolver
             return runNonFatalCatching {
                 support.withClient(config) { client ->
                     val protocolState = protocolStateStore.read()
-                    val manifest = loadManifestOrNull(client, config)
-                    val remoteFiles =
-                        manifest?.remoteFilesByPath()
-                            ?: fileBridgeScope.remoteFiles(client, layout, config)
                     val conflictPaths = conflictSet.files.map { it.relativePath }.distinct().sorted()
                     val metadataByPath =
                         if (conflictPaths.isEmpty()) {
                             emptyMap()
                         } else {
                             runtime.metadataDao.getByRelativePaths(conflictPaths).associateBy { it.relativePath }
+                        }
+                    val remoteFiles =
+                        if (remoteIndexStore.remoteIndexEnabled) {
+                            remoteIndexStore.readByRelativePaths(conflictPaths)
+                                .asSequence()
+                                .filterNot(S3RemoteIndexEntry::missingOnLastScan)
+                                .associate { entry -> entry.relativePath to entry.toCachedRemoteFile() }
+                        } else {
+                            metadataByPath.values.associate { metadata ->
+                                metadata.relativePath to
+                                    RemoteS3File(
+                                        path = metadata.relativePath,
+                                        etag = metadata.etag,
+                                        lastModified = metadata.remoteLastModified,
+                                        remotePath = metadata.remotePath,
+                                        verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                    )
+                            }
                         }
                     val resolvedLocalFiles = mutableMapOf<String, LocalS3File>()
                     val resolvedRemoteFiles = remoteFiles.toMutableMap()
@@ -98,13 +112,10 @@ class S3ConflictResolver
                         completeSnapshot = false,
                     )
                     commitIncrementalConflictResolutionState(
-                        config = config,
-                        client = client,
                         layout = layout,
                         mode = mode,
                         protocolState = protocolState,
-                        manifest = manifest,
-                        remoteFiles = resolvedRemoteFiles,
+                        resolvedRemoteFiles = resolvedRemoteFiles,
                         resolvedPaths = actionOutcomes.keys,
                     )
                     refreshAfterResolution()
@@ -234,41 +245,50 @@ class S3ConflictResolver
 
         private suspend fun refreshAfterResolution() {
             runNonFatalCatching {
-                runtime.memoSynchronizer.refresh()
+                runtime.memoSynchronizer.refreshImportedSync()
             }.onFailure { error ->
                 Timber.w(error, "Memo refresh after S3 conflict resolution failed")
             }
         }
 
         private suspend fun commitIncrementalConflictResolutionState(
-            config: S3ResolvedConfig,
-            client: com.lomo.data.s3.LomoS3Client,
             layout: SyncDirectoryLayout,
             mode: S3LocalSyncMode,
             protocolState: S3SyncProtocolState?,
-            manifest: S3RemoteManifest?,
-            remoteFiles: Map<String, RemoteS3File>,
+            resolvedRemoteFiles: Map<String, RemoteS3File>,
             resolvedPaths: Set<String>,
         ) {
             if (!protocolStateStore.incrementalSyncEnabled || !localChangeJournalStore.incrementalSyncEnabled) {
                 return
             }
             val now = System.currentTimeMillis()
-            val updatedManifest =
-                remoteManifestStore.build(
-                    remoteFiles = remoteFiles,
-                    previousRevision = manifest?.revision ?: protocolState?.lastManifestRevision,
-                    now = now,
+            if (remoteIndexStore.remoteIndexEnabled) {
+                remoteIndexStore.upsert(
+                    resolvedPaths.mapNotNull { path ->
+                        resolvedRemoteFiles[path]?.toRemoteIndexEntry(
+                            now = now,
+                            scanEpoch = protocolState?.scanEpoch ?: 0L,
+                        )
+                    },
                 )
-            remoteManifestStore.write(client, config, updatedManifest)
+            }
             protocolStateStore.write(
                 S3SyncProtocolState(
                     protocolVersion = S3_INCREMENTAL_PROTOCOL_VERSION,
-                    lastManifestRevision = updatedManifest.revision,
                     lastSuccessfulSyncAt = now,
+                    lastFastSyncAt = now,
+                    lastReconcileAt = protocolState?.lastReconcileAt,
+                    lastFullRemoteScanAt = protocolState?.lastFullRemoteScanAt,
                     indexedLocalFileCount = protocolState?.indexedLocalFileCount ?: 0,
-                    indexedRemoteFileCount = updatedManifest.entries.size,
+                    indexedRemoteFileCount =
+                        if (remoteIndexStore.remoteIndexEnabled) {
+                            remoteIndexStore.readPresentCount()
+                        } else {
+                            protocolState?.indexedRemoteFileCount ?: 0
+                        },
                     localModeFingerprint = mode.fingerprint(),
+                    remoteScanCursor = protocolState?.remoteScanCursor,
+                    scanEpoch = protocolState?.scanEpoch ?: 0L,
                 ),
             )
             val removableJournalIds =
@@ -276,16 +296,6 @@ class S3ConflictResolver
                     .filter { entry -> entry.relativePath(layout, mode)?.let(resolvedPaths::contains) == true }
                     .map(S3LocalChangeJournalEntry::id)
             localChangeJournalStore.remove(removableJournalIds)
-        }
-
-        private suspend fun loadManifestOrNull(
-            client: com.lomo.data.s3.LomoS3Client,
-            config: S3ResolvedConfig,
-        ): S3RemoteManifest? {
-            if (!protocolStateStore.incrementalSyncEnabled) {
-                return null
-            }
-            return remoteManifestStore.read(client, config)
         }
     }
 

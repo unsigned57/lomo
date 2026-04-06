@@ -2,9 +2,12 @@ package com.lomo.data.worker
 
 import android.content.Context
 import androidx.work.ListenableWorker
+import androidx.work.workDataOf
 import androidx.work.WorkerParameters
 import com.lomo.domain.model.S3SyncResult
+import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.repository.S3SyncRepository
+import io.mockk.every
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -28,21 +31,24 @@ class S3SyncWorkerTest {
     @Test
     fun `doWork delegates periodic sync to shared s3 repository`() =
         runTest {
-            coEvery { s3SyncRepository.sync() } returns S3SyncResult.Success("S3 sync completed")
+            every { workerParams.inputData } returns workDataOf()
+            coEvery { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) } returns
+                S3SyncResult.Success("S3 sync completed")
 
             val worker = S3SyncWorker(context, workerParams, s3SyncRepository)
 
             val result = worker.doWork()
 
             assertEquals(ListenableWorker.Result.success(), result)
-            coVerify(exactly = 1) { s3SyncRepository.sync() }
+            coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) }
         }
 
     @Test
     fun `doWork treats s3 conflict as successful periodic run`() =
         runTest {
+            every { workerParams.inputData } returns workDataOf()
             coEvery {
-                s3SyncRepository.sync()
+                s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY)
             } returns S3SyncResult.Conflict(message = "conflict", conflicts = conflictSet())
 
             val worker = S3SyncWorker(context, workerParams, s3SyncRepository)
@@ -50,7 +56,22 @@ class S3SyncWorkerTest {
             val result = worker.doWork()
 
             assertEquals(ListenableWorker.Result.success(), result)
-            coVerify(exactly = 1) { s3SyncRepository.sync() }
+            coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) }
+        }
+
+    @Test
+    fun `doWork honors explicit full reconcile policy input`() =
+        runTest {
+            every { workerParams.inputData } returns S3SyncWorker.inputData(S3SyncScanPolicy.FULL_RECONCILE)
+            coEvery { s3SyncRepository.sync(S3SyncScanPolicy.FULL_RECONCILE) } returns
+                S3SyncResult.Success("reconciled")
+
+            val worker = S3SyncWorker(context, workerParams, s3SyncRepository)
+
+            val result = worker.doWork()
+
+            assertEquals(ListenableWorker.Result.success(), result)
+            coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FULL_RECONCILE) }
         }
 }
 

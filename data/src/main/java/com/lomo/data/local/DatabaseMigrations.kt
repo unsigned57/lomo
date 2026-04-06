@@ -2,6 +2,7 @@ package com.lomo.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 
 const val SCHEMA_VERSION_18 = 18
 const val SCHEMA_VERSION_19 = 19
@@ -23,6 +24,10 @@ const val SCHEMA_VERSION_36 = 36
 const val SCHEMA_VERSION_37 = 37
 const val SCHEMA_VERSION_38 = 38
 const val SCHEMA_VERSION_39 = 39
+const val SCHEMA_VERSION_40 = 40
+const val SCHEMA_VERSION_41 = 41
+const val SCHEMA_VERSION_42 = 42
+const val SCHEMA_VERSION_43 = 43
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -213,6 +218,41 @@ val MIGRATION_38_39: Migration =
         }
     }
 
+val MIGRATION_39_40: Migration =
+    object : Migration(SCHEMA_VERSION_39, SCHEMA_VERSION_40) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createS3RemoteIndexTable(db)
+            db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `last_fast_sync_at` INTEGER")
+            db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `last_reconcile_at` INTEGER")
+            db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `last_full_remote_scan_at` INTEGER")
+            db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `remote_scan_cursor` TEXT")
+            db.execSQL(
+                "ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `scan_epoch` INTEGER NOT NULL DEFAULT 0",
+            )
+        }
+    }
+
+val MIGRATION_40_41: Migration =
+    object : Migration(SCHEMA_VERSION_40, SCHEMA_VERSION_41) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            normalizeS3SyncProtocolStateTable(db)
+        }
+    }
+
+val MIGRATION_41_42: Migration =
+    object : Migration(SCHEMA_VERSION_41, SCHEMA_VERSION_42) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            createS3RemoteShardStateTable(db)
+        }
+    }
+
+val MIGRATION_42_43: Migration =
+    object : Migration(SCHEMA_VERSION_42, SCHEMA_VERSION_43) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addS3RemoteShardTelemetryColumns(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -257,6 +297,10 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_36_37,
             MIGRATION_37_38,
             MIGRATION_38_39,
+            MIGRATION_39_40,
+            MIGRATION_40_41,
+            MIGRATION_41_42,
+            MIGRATION_42_43,
         )
 
 /**
@@ -279,6 +323,9 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase L: Apply v36→v37 changes (external refresh protection state).
  * Phase M: Apply v37→v38 changes (S3 incremental protocol/journal tables).
  * Phase N: Apply v38→v39 changes (memo revision asset fingerprints).
+ * Phase O: Apply v39→v40 changes (S3 remote index and richer protocol state).
+ * Phase P: Apply v41→v42 changes (S3 remote shard reconcile state).
+ * Phase Q: Apply v42→v43 changes (richer shard scheduling telemetry).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -355,6 +402,76 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase N: v38 → v39 (memo revision asset fingerprints) ─────
     migrateMemoRevisionAssetFingerprintColumn(db)
+
+    // ── Phase O: v39 → v40 (S3 remote index and richer protocol state) ──
+    createS3RemoteIndexTable(db)
+    normalizeS3SyncProtocolStateTable(db)
+
+    // ── Phase P: v41 → v42 (S3 remote shard reconcile state) ────────────
+    createS3RemoteShardStateTable(db)
+
+    // ── Phase Q: v42 → v43 (richer shard scheduling telemetry) ──────────
+    addS3RemoteShardTelemetryColumns(db)
+}
+
+private fun normalizeS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {
+    if (!db.tableExists(S3_SYNC_PROTOCOL_STATE_TABLE)) {
+        createS3SyncProtocolStateTable(db)
+        return
+    }
+    val columns = db.tableColumns(S3_SYNC_PROTOCOL_STATE_TABLE)
+    if (hasNormalizedS3SyncProtocolStateColumns(columns)) {
+        return
+    }
+
+    val legacyTable = "${S3_SYNC_PROTOCOL_STATE_TABLE}_legacy_v41"
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
+    db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` RENAME TO `$legacyTable`")
+    createS3SyncProtocolStateTable(db)
+    val legacyColumns = db.tableColumns(legacyTable)
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO `$S3_SYNC_PROTOCOL_STATE_TABLE` (
+            `id`,
+            `protocol_version`,
+            `last_successful_sync_at`,
+            `last_fast_sync_at`,
+            `last_reconcile_at`,
+            `last_full_remote_scan_at`,
+            `indexed_local_file_count`,
+            `indexed_remote_file_count`,
+            `local_mode_fingerprint`,
+            `remote_scan_cursor`,
+            `scan_epoch`
+        )
+        SELECT
+            ${pickIntExpr(legacyColumns, "id", defaultExpr = S3SyncProtocolStateEntity.SINGLETON_ID.toString())},
+            ${pickIntExpr(legacyColumns, "protocol_version", "protocolVersion")},
+            ${pickNullableIntExpr(legacyColumns, "last_successful_sync_at", "lastSuccessfulSyncAt")},
+            ${pickNullableIntExpr(legacyColumns, "last_fast_sync_at", "lastFastSyncAt")},
+            ${pickNullableIntExpr(legacyColumns, "last_reconcile_at", "lastReconcileAt")},
+            ${pickNullableIntExpr(legacyColumns, "last_full_remote_scan_at", "lastFullRemoteScanAt")},
+            ${pickIntExpr(legacyColumns, "indexed_local_file_count", "indexedLocalFileCount")},
+            ${pickIntExpr(legacyColumns, "indexed_remote_file_count", "indexedRemoteFileCount")},
+            ${pickNullableTextExpr(legacyColumns, "local_mode_fingerprint", "localModeFingerprint")},
+            ${pickNullableTextExpr(legacyColumns, "remote_scan_cursor", "remoteScanCursor")},
+            ${pickIntExpr(legacyColumns, "scan_epoch", defaultExpr = "0")}
+        FROM `$legacyTable`
+        """.trimIndent(),
+    )
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
+}
+
+private fun hasNormalizedS3SyncProtocolStateColumns(columns: Set<String>): Boolean {
+    val hasLegacyManifestColumn = "last_manifest_revision" in columns
+    val hasIncrementalColumns =
+        "last_fast_sync_at" in columns &&
+            "last_reconcile_at" in columns &&
+            "last_full_remote_scan_at" in columns
+    val hasScanCursorColumns =
+        "remote_scan_cursor" in columns &&
+            "scan_epoch" in columns
+    return !hasLegacyManifestColumn && hasIncrementalColumns && hasScanCursorColumns
 }
 
 private fun createMemoVersionTables(db: SupportSQLiteDatabase) {

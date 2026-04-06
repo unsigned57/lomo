@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncStatus
 import io.mockk.MockKAnnotations
@@ -44,19 +45,20 @@ class S3SyncOperationRepositoryImplTest {
     @Test
     fun `sync propagates not-configured result from executor`() =
         runTest {
-            coEvery { syncExecutor.performSync() } returns S3SyncResult.NotConfigured
+            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } returns
+                S3SyncResult.NotConfigured
 
             val result = repository.sync()
 
             assertEquals(S3SyncResult.NotConfigured, result)
-            coVerify(exactly = 1) { syncExecutor.performSync() }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
         }
 
     @Test
     fun `sync short-circuits when another s3 sync is in progress`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
-            coEvery { syncExecutor.performSync() } coAnswers {
+            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } coAnswers {
                 gate.await()
                 S3SyncResult.Success("sync done")
             }
@@ -69,13 +71,14 @@ class S3SyncOperationRepositoryImplTest {
 
             gate.complete(Unit)
             assertEquals(S3SyncResult.Success("sync done"), firstCall.await())
-            coVerify(exactly = 1) { syncExecutor.performSync() }
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
         }
 
     @Test
     fun `sync releases guard after failure so a later sync can run`() =
         runTest {
-            coEvery { syncExecutor.performSync() } throws IllegalStateException("sync failed") andThen
+            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) } throws
+                IllegalStateException("sync failed") andThen
                 S3SyncResult.Success("recovered")
 
             val firstFailure =
@@ -87,7 +90,19 @@ class S3SyncOperationRepositoryImplTest {
             assertTrue(firstFailure is IllegalStateException)
             assertEquals("sync failed", firstFailure?.message)
             assertEquals(S3SyncResult.Success("recovered"), secondResult)
-            coVerify(exactly = 2) { syncExecutor.performSync() }
+            coVerify(exactly = 2) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
+        }
+
+    @Test
+    fun `sync forwards explicit scan policy to executor`() =
+        runTest {
+            coEvery { syncExecutor.performSync(S3SyncScanPolicy.FULL_RECONCILE) } returns
+                S3SyncResult.Success("deep reconcile")
+
+            val result = repository.sync(S3SyncScanPolicy.FULL_RECONCILE)
+
+            assertEquals(S3SyncResult.Success("deep reconcile"), result)
+            coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FULL_RECONCILE) }
         }
 
     @Test

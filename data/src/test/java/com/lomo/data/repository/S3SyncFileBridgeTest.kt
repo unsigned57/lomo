@@ -4,6 +4,8 @@ import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.s3.S3RemoteListPage
+import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.FileMetadata
@@ -199,13 +201,12 @@ class S3SyncFileBridgeTest {
             every { dataStore.imageUri } returns flowOf(null)
             every { dataStore.voiceDirectory } returns flowOf(File(vaultRoot, "voice").absolutePath)
             every { dataStore.voiceUri } returns flowOf(null)
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(
-                    remoteObject("journal/today.md"),
-                    remoteObject("asset/cover.png"),
-                    remoteObject("pages.kanban/board.md"),
-                    remoteObject("archives/2024.md"),
-                )
+            stubSinglePageRemoteScan(
+                remoteObject("journal/today.md"),
+                remoteObject("asset/cover.png"),
+                remoteObject("pages.kanban/board.md"),
+                remoteObject("archives/2024.md"),
+            )
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
@@ -228,15 +229,14 @@ class S3SyncFileBridgeTest {
                 imageRoot = tempFolder.newFolder("image-root"),
                 voiceRoot = tempFolder.newFolder("voice-root"),
             )
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(
-                    remoteObject(".obsidian/workspace.json"),
-                    remoteObject(".hidden/secret.md"),
-                    remoteObject("plugins/plugin.json"),
-                    remoteObject("Projects/project.md"),
-                    remoteObject("attachments/images/cover.png"),
-                    remoteObject("attachments/voice/clip.m4a"),
-                )
+            stubSinglePageRemoteScan(
+                remoteObject(".obsidian/workspace.json"),
+                remoteObject(".hidden/secret.md"),
+                remoteObject("plugins/plugin.json"),
+                remoteObject("Projects/project.md"),
+                remoteObject("attachments/images/cover.png"),
+                remoteObject("attachments/voice/clip.m4a"),
+            )
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
@@ -260,12 +260,11 @@ class S3SyncFileBridgeTest {
             every { dataStore.imageUri } returns flowOf(null)
             every { dataStore.voiceDirectory } returns flowOf("/voice")
             every { dataStore.voiceUri } returns flowOf(null)
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(
-                    remoteObject("lomo/memo/today.md"),
-                    remoteObject("lomo/images/cover.png"),
-                    remoteObject("lomo/voice/clip.m4a"),
-                )
+            stubSinglePageRemoteScan(
+                remoteObject("lomo/memo/today.md"),
+                remoteObject("lomo/images/cover.png"),
+                remoteObject("lomo/voice/clip.m4a"),
+            )
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
@@ -301,10 +300,26 @@ class S3SyncFileBridgeTest {
         )
 
     private fun remoteObject(key: String) =
-        com.lomo.data.s3.S3RemoteObject(
+        S3RemoteObject(
             key = key,
             eTag = "etag",
             lastModified = 1L,
             metadata = emptyMap(),
         )
+
+    private fun stubSinglePageRemoteScan(vararg objects: S3RemoteObject) {
+        coEvery { client.listPage(prefix = any(), continuationToken = any(), maxKeys = any()) } answers {
+            val prefix = firstArg<String>()
+            val continuationToken = secondArg<String?>()
+            S3RemoteListPage(
+                objects =
+                    if (continuationToken == null) {
+                        objects.filter { remoteObject -> remoteObject.key.startsWith(prefix) }
+                    } else {
+                        emptyList()
+                    },
+                nextContinuationToken = null,
+            )
+        }
+    }
 }

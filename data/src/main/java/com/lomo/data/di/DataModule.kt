@@ -20,6 +20,8 @@ import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.dao.S3LocalChangeJournalDao
+import com.lomo.data.local.dao.S3RemoteIndexDao
+import com.lomo.data.local.dao.S3RemoteShardStateDao
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
@@ -171,6 +173,15 @@ object DatabaseSupportModule {
 
     @Provides
     @Singleton
+    fun provideS3RemoteIndexDao(database: MemoDatabase): S3RemoteIndexDao = database.s3RemoteIndexDao()
+
+    @Provides
+    @Singleton
+    fun provideS3RemoteShardStateDao(database: MemoDatabase): S3RemoteShardStateDao =
+        database.s3RemoteShardStateDao()
+
+    @Provides
+    @Singleton
     fun provideS3SyncProtocolStateDao(database: MemoDatabase): S3SyncProtocolStateDao =
         database.s3SyncProtocolStateDao()
 
@@ -313,24 +324,14 @@ object MemoRefreshModule {
     @Singleton
     fun provideMemoRefreshEngine(
         markdownStorageDataSource: com.lomo.data.source.MarkdownStorageDataSource,
-        memoWriteDao: MemoWriteDao,
-        memoTagDao: MemoTagDao,
-        memoFtsDao: MemoFtsDao,
-        memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
-        parser: com.lomo.data.parser.MarkdownParser,
         planner: MemoRefreshPlanner,
         parserWorker: MemoRefreshParserWorker,
         dbApplier: MemoRefreshDbApplier,
         ): MemoRefreshEngine =
         MemoRefreshEngine(
             markdownStorageDataSource = markdownStorageDataSource,
-            memoWriteDao = memoWriteDao,
-            memoTagDao = memoTagDao,
-            memoFtsDao = memoFtsDao,
-            memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
-            parser = parser,
             refreshPlanner = planner,
             refreshParserWorker = parserWorker,
             refreshDbApplier = dbApplier,

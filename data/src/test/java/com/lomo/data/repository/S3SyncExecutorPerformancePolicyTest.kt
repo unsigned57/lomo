@@ -5,6 +5,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.s3.S3RemoteListPage
+import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -93,7 +95,7 @@ class S3SyncExecutorPerformancePolicyTest {
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
         coEvery { metadataDao.getAll() } returns emptyList()
         coEvery { metadataDao.replaceAll(any()) } returns Unit
-        coEvery { memoSynchronizer.refresh(any()) } returns Unit
+        coEvery { memoSynchronizer.refreshImportedSync(any()) } returns Unit
 
         val runtime =
             S3SyncRepositoryContext(
@@ -123,8 +125,9 @@ class S3SyncExecutorPerformancePolicyTest {
     fun `performSync does not re-list remote files after delete remote action`() =
         runTest {
             val managedPath = "lomo/memo/note.md"
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(remoteObject(managedPath, eTag = "etag-1", lastModified = 10L))
+            stubSinglePageRemoteScan(
+                remoteObject(managedPath, eTag = "etag-1", lastModified = 10L),
+            )
             coEvery { metadataDao.getAll() } returns
                 listOf(
                     S3SyncMetadataEntity(
@@ -148,15 +151,16 @@ class S3SyncExecutorPerformancePolicyTest {
                 listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED),
                 success.outcomes.map { it.direction to it.reason },
             )
-            coVerify(exactly = 1) { client.list(prefix = "", maxKeys = null) }
+            coVerify(exactly = 3) { client.listPage(prefix = any(), continuationToken = null, maxKeys = any()) }
         }
 
     @Test
     fun `performSync skips memo refresh for attachment only download`() =
         runTest {
             val imagePath = "lomo/images/cover.png"
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(remoteObject(imagePath, eTag = "etag-image", lastModified = 20L))
+            stubSinglePageRemoteScan(
+                remoteObject(imagePath, eTag = "etag-image", lastModified = 20L),
+            )
             coEvery { client.getObject(imagePath) } returns
                 remotePayload(
                     key = imagePath,
@@ -174,7 +178,7 @@ class S3SyncExecutorPerformancePolicyTest {
                 listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
                 success.outcomes.map { it.direction to it.reason },
             )
-            coVerify(exactly = 0) { memoSynchronizer.refresh(any()) }
+            coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync(any()) }
         }
 
     @Test
@@ -182,8 +186,9 @@ class S3SyncExecutorPerformancePolicyTest {
         runTest {
             val memoRemotePath = "lomo/memo/note.md"
             val memoBytes = "# note".toByteArray()
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(remoteObject(memoRemotePath, eTag = "etag-note", lastModified = 30L))
+            stubSinglePageRemoteScan(
+                remoteObject(memoRemotePath, eTag = "etag-note", lastModified = 30L),
+            )
             coEvery { client.getObject(memoRemotePath) } returns
                 remotePayload(
                     key = memoRemotePath,
@@ -209,8 +214,8 @@ class S3SyncExecutorPerformancePolicyTest {
                 listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
                 success.outcomes.map { it.direction to it.reason },
             )
-            coVerify(exactly = 1) { memoSynchronizer.refresh("note.md") }
-            coVerify(exactly = 0) { memoSynchronizer.refresh() }
+            coVerify(exactly = 1) { memoSynchronizer.refreshImportedSync("note.md") }
+            coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync() }
         }
 
     @Test
@@ -226,8 +231,9 @@ class S3SyncExecutorPerformancePolicyTest {
             every { dataStore.voiceDirectory } returns flowOf(voiceRoot.absolutePath)
             val boardRemotePath = "pages.kanban/board.md"
             val boardBytes = "# board".toByteArray()
-            coEvery { client.list(prefix = "", maxKeys = null) } returns
-                listOf(remoteObject(boardRemotePath, eTag = "etag-board", lastModified = 40L))
+            stubSinglePageRemoteScan(
+                remoteObject(boardRemotePath, eTag = "etag-board", lastModified = 40L),
+            )
             coEvery { client.getObject(boardRemotePath) } returns
                 remotePayload(
                     key = boardRemotePath,
@@ -244,19 +250,35 @@ class S3SyncExecutorPerformancePolicyTest {
                 listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
                 success.outcomes.map { it.direction to it.reason },
             )
-            coVerify(exactly = 0) { memoSynchronizer.refresh(any()) }
+            coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync(any()) }
         }
 
     private fun remoteObject(
         key: String,
         eTag: String,
         lastModified: Long,
-    ) = com.lomo.data.s3.S3RemoteObject(
+    ) = S3RemoteObject(
         key = key,
         eTag = eTag,
         lastModified = lastModified,
         metadata = emptyMap(),
     )
+
+    private fun stubSinglePageRemoteScan(vararg objects: S3RemoteObject) {
+        coEvery { client.listPage(prefix = any(), continuationToken = any(), maxKeys = any()) } answers {
+            val prefix = firstArg<String>()
+            val continuationToken = secondArg<String?>()
+            S3RemoteListPage(
+                objects =
+                    if (continuationToken == null) {
+                        objects.filter { remoteObject -> remoteObject.key.startsWith(prefix) }
+                    } else {
+                        emptyList()
+                    },
+                nextContinuationToken = null,
+            )
+        }
+    }
 
     private fun remotePayload(
         key: String,

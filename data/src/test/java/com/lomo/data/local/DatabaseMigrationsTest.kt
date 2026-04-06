@@ -13,19 +13,19 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
- *   revision dedupe and paging, retires the removed legacy workspace-history schema, and compacts
- *   memo-revision rows down to lightweight previews while creating sync metadata, incremental-state tables,
- *   and asset-fingerprint indexing for supported remotes.
+ *   revision dedupe and paging, retires the removed legacy workspace-history schema, compacts
+ *   memo-revision rows down to lightweight previews, normalizes sync metadata / protocol-state tables
+ *   for supported remotes, and persists shard-level remote reconcile state plus telemetry for S3.
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
  *   plus direct-migration coverage to the current target version.
- * - Red phase: Fails before the fix because the schema target stops before the asset-fingerprint upgrade and
- *   still asserts the retired memo-revision dedupe index name.
+ * - Red phase: Fails before the fix because the schema target assertion still stops before the shard-state
+ *   telemetry schema and no test locks the 42->43 addition of idle-streak / verification columns.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
     @Test
-    fun `database version advances to 39 for memo revision asset fingerprints`() {
-        assertEquals(39, MEMO_DATABASE_VERSION)
+    fun `database version advances to 43 for shard reconcile telemetry`() {
+        assertEquals(43, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -108,6 +108,123 @@ class DatabaseMigrationsTest {
                         it.contains(
                             "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
                         )
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 40 to 41 rebuilds s3 protocol state without manifest column`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val legacyColumns =
+            setOf(
+                "id",
+                "protocol_version",
+                "last_successful_sync_at",
+                "last_manifest_revision",
+                "last_fast_sync_at",
+                "last_reconcile_at",
+                "last_full_remote_scan_at",
+                "indexed_local_file_count",
+                "indexed_remote_file_count",
+                "local_mode_fingerprint",
+                "remote_scan_cursor",
+                "scan_epoch",
+            )
+
+        every { db.query(any<String>()) } answers {
+            val sql = args[0] as String
+            when {
+                sql.contains("sqlite_master") -> {
+                    val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
+                    mockCursor(name == "s3_sync_protocol_state")
+                }
+
+                sql.contains("PRAGMA table_info(`s3_sync_protocol_state_legacy_v41`)") -> {
+                    mockColumnsCursor(legacyColumns)
+                }
+
+                sql.contains("PRAGMA table_info(`s3_sync_protocol_state`)") -> {
+                    mockColumnsCursor(legacyColumns)
+                }
+
+                else -> {
+                    mockCursor(false)
+                }
+            }
+        }
+
+        MIGRATION_40_41.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `s3_sync_protocol_state` RENAME TO `s3_sync_protocol_state_legacy_v41`")
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_protocol_state`") &&
+                        !it.contains("last_manifest_revision") &&
+                        it.contains("`remote_scan_cursor` TEXT") &&
+                        it.contains("`scan_epoch` INTEGER NOT NULL DEFAULT 0")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR REPLACE INTO `s3_sync_protocol_state`") &&
+                        !it.contains("last_manifest_revision") &&
+                        it.contains("`remote_scan_cursor`") &&
+                        it.contains("`scan_epoch`") &&
+                        it.contains("FROM `s3_sync_protocol_state_legacy_v41`")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 41 to 42 creates s3 remote shard state table`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_41_42.migrate(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `s3_remote_shard_state`") &&
+                        it.contains("`bucket_id` TEXT NOT NULL") &&
+                        it.contains("`relative_prefix` TEXT") &&
+                        it.contains("`last_scanned_at` INTEGER NOT NULL") &&
+                        it.contains("`last_object_count` INTEGER NOT NULL") &&
+                        it.contains("`last_duration_ms` INTEGER NOT NULL") &&
+                        it.contains("`last_change_count` INTEGER NOT NULL")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 42 to 43 adds s3 remote shard telemetry columns`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_42_43.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `s3_remote_shard_state` ADD COLUMN `idle_scan_streak` INTEGER NOT NULL DEFAULT 0")
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("ALTER TABLE `s3_remote_shard_state`") &&
+                        it.contains("`last_verification_attempt_count` INTEGER NOT NULL DEFAULT 0")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("ALTER TABLE `s3_remote_shard_state`") &&
+                        it.contains("`last_verification_failure_count` INTEGER NOT NULL DEFAULT 0")
                 },
             )
         }

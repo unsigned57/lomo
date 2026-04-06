@@ -9,6 +9,11 @@ import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class S3SyncFileBridge
@@ -138,19 +143,57 @@ internal class S3SyncFileBridgeScope(
         client: LomoS3Client,
         layout: SyncDirectoryLayout,
         config: S3ResolvedConfig,
+        scanEpoch: Long = 0L,
+        onPageListed: suspend (Collection<S3RemoteIndexEntry>) -> Unit = {},
     ): Map<String, RemoteS3File> =
-        client
-            .list(prefix = encodingSupport.remoteKeyPrefix(config))
-            .mapNotNull { remote ->
-                if (remote.key == encodingSupport.remoteKeyPrefix(config) + S3_MANIFEST_FILENAME) {
-                    return@mapNotNull null
-                }
+        coroutineScope {
+            val limiter = Semaphore(S3_FULL_SCAN_LIST_CONCURRENCY)
+            buildRemoteScanPlan(layout, mode)
+                .map { shard ->
+                    async {
+                        limiter.withPermit {
+                            listAllRemoteFilesForShard(
+                                client = client,
+                                layout = layout,
+                                config = config,
+                                shard = shard,
+                                scanEpoch = scanEpoch,
+                                onPageListed = onPageListed,
+                            )
+                        }
+                    }
+                }.awaitAll()
+                .flatten()
+                .associate { remoteFile -> remoteFile.path to remoteFile }
+        }
+
+    private suspend fun listAllRemoteFilesForShard(
+        client: LomoS3Client,
+        layout: SyncDirectoryLayout,
+        config: S3ResolvedConfig,
+        shard: S3RemoteScanShard,
+        scanEpoch: Long,
+        onPageListed: suspend (Collection<S3RemoteIndexEntry>) -> Unit,
+    ): List<RemoteS3File> {
+        val remoteFiles = mutableListOf<RemoteS3File>()
+        var continuationToken: String? = null
+        do {
+            val now = System.currentTimeMillis()
+            val page =
+                client.listPage(
+                    prefix = shard.remotePrefix(config, encodingSupport),
+                    continuationToken = continuationToken,
+                    maxKeys = S3_FULL_SCAN_PAGE_SIZE,
+                )
+            val pageEntries = mutableListOf<S3RemoteIndexEntry>()
+            page.objects.forEach { remote ->
                 val decoded =
                     runNonFatalCatching {
                         encodingSupport.decodeRelativePath(remote.key, config)
-                    }.getOrNull() ?: return@mapNotNull null
-                val relativePath = normalizeRemoteRelativePath(decoded, layout, mode) ?: return@mapNotNull null
-                relativePath to
+                    }.getOrNull() ?: return@forEach
+                val relativePath = normalizeRemoteRelativePath(decoded, layout, mode) ?: return@forEach
+                pageEntries += remote.toRemoteIndexEntry(relativePath, now, scanEpoch)
+                remoteFiles +=
                     RemoteS3File(
                         path = relativePath,
                         etag = remote.eTag,
@@ -158,7 +201,14 @@ internal class S3SyncFileBridgeScope(
                             encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified),
                         remotePath = remote.key,
                     )
-            }.toMap()
+            }
+            if (pageEntries.isNotEmpty()) {
+                onPageListed(pageEntries)
+            }
+            continuationToken = page.nextContinuationToken
+        } while (continuationToken != null)
+        return remoteFiles
+    }
 
     suspend fun localFile(
         path: String,
@@ -252,3 +302,6 @@ internal class S3SyncFileBridgeScope(
         }
     }
 }
+
+private const val S3_FULL_SCAN_LIST_CONCURRENCY = 3
+private const val S3_FULL_SCAN_PAGE_SIZE = 500

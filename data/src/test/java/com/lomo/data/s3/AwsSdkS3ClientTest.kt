@@ -22,9 +22,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: AwsSdkS3Client
- * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface the returned eTag for metadata caching, and manifest probing should expose HEAD metadata without downloading the object body.
+ * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface the returned eTag for metadata caching, and object metadata reads should use HEAD without downloading object bodies.
  * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, returned S3PutObjectResult contents, and getObjectMetadata results from headObject.
- * - Red phase: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, putObject does not return the uploaded object's eTag, and manifest revision probing has no headObject-backed metadata path.
+ * - Red phase: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, putObject does not return the uploaded object's eTag, and generic object metadata reads have no headObject-backed path.
  * - Excludes: live AWS transport behavior, sync planner logic, and repository orchestration.
  */
 class AwsSdkS3ClientTest {
@@ -120,32 +120,32 @@ class AwsSdkS3ClientTest {
         }
 
     @Test
-    fun `getObjectMetadata returns head metadata for manifest revision probing`() =
+    fun `getObjectMetadata returns head metadata for a regular object`() =
         runTest {
             coEvery { sdkClient.headObject(any()) } returns
                 HeadObjectResponse {
-                    eTag = "etag-manifest"
+                    eTag = "etag-note"
                     metadata =
                         mapOf(
-                            "lomo-sync-revision" to "12",
-                            "lomo-sync-generated-at" to "120",
+                            "mtime" to "120",
+                            "author" to "lomo",
                         )
                     lastModified = Instant.fromEpochSeconds(120)
                 }
 
             val client = AwsSdkS3Client(config = config, client = sdkClient)
 
-            val metadata = client.getObjectMetadata("vault/.lomo-sync-manifest-v2.json")
+            val metadata = client.getObjectMetadata("vault/note.md")
 
             assertEquals(
                 S3RemoteObject(
-                    key = "vault/.lomo-sync-manifest-v2.json",
-                    eTag = "etag-manifest",
+                    key = "vault/note.md",
+                    eTag = "etag-note",
                     lastModified = 120_000L,
                     metadata =
                         mapOf(
-                            "lomo-sync-revision" to "12",
-                            "lomo-sync-generated-at" to "120",
+                            "mtime" to "120",
+                            "author" to "lomo",
                         ),
                 ),
                 metadata,

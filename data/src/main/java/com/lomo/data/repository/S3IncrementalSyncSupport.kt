@@ -11,7 +11,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import java.io.File
-import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
@@ -21,21 +20,23 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-internal const val S3_INCREMENTAL_PROTOCOL_VERSION = 2
-internal const val S3_MANIFEST_FILENAME = ".lomo-sync-manifest-v2.json"
-internal const val S3_MANIFEST_CONTENT_TYPE = "application/json; charset=utf-8"
-internal const val S3_MANIFEST_REVISION_METADATA_KEY = "lomo-sync-revision"
-internal const val S3_MANIFEST_GENERATED_AT_METADATA_KEY = "lomo-sync-generated-at"
+internal const val S3_INCREMENTAL_PROTOCOL_VERSION = 4
+internal const val S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS = 15 * 60_000L
+internal const val S3_INCREMENTAL_RECONCILE_INTERVAL_MS = 2 * 60_000L
 internal const val S3_VAULT_ROOT_AUDIT_INTERVAL_MS = 15 * 60_000L
 
 @Serializable
 data class S3SyncProtocolState(
     val protocolVersion: Int = S3_INCREMENTAL_PROTOCOL_VERSION,
-    val lastManifestRevision: Long? = null,
     val lastSuccessfulSyncAt: Long? = null,
+    val lastFastSyncAt: Long? = null,
+    val lastReconcileAt: Long? = null,
+    val lastFullRemoteScanAt: Long? = null,
     val indexedLocalFileCount: Int = 0,
     val indexedRemoteFileCount: Int = 0,
     val localModeFingerprint: String? = null,
+    val remoteScanCursor: String? = null,
+    val scanEpoch: Long = 0L,
 )
 
 interface S3SyncProtocolStateStore {
@@ -392,126 +393,6 @@ class DefaultS3LocalChangeRecorder
         }
     }
 
-@Serializable
-data class S3RemoteManifestEntry(
-    val relativePath: String,
-    val remotePath: String,
-    val etag: String? = null,
-    val remoteLastModified: Long? = null,
-)
-
-@Serializable
-data class S3RemoteManifest(
-    val protocolVersion: Int = S3_INCREMENTAL_PROTOCOL_VERSION,
-    val revision: Long,
-    val generatedAt: Long,
-    val entries: List<S3RemoteManifestEntry>,
-)
-
-data class S3RemoteManifestMetadata(
-    val revision: Long,
-    val generatedAt: Long?,
-)
-
-interface S3RemoteManifestStore {
-    suspend fun readMetadata(
-        client: com.lomo.data.s3.LomoS3Client,
-        config: S3ResolvedConfig,
-    ): S3RemoteManifestMetadata?
-
-    suspend fun read(
-        client: com.lomo.data.s3.LomoS3Client,
-        config: S3ResolvedConfig,
-    ): S3RemoteManifest?
-
-    suspend fun write(
-        client: com.lomo.data.s3.LomoS3Client,
-        config: S3ResolvedConfig,
-        manifest: S3RemoteManifest,
-    )
-
-    fun build(
-        remoteFiles: Map<String, RemoteS3File>,
-        previousRevision: Long?,
-        now: Long = System.currentTimeMillis(),
-    ): S3RemoteManifest
-
-    fun manifestKey(config: S3ResolvedConfig): String
-}
-
-@Singleton
-class DefaultS3RemoteManifestStore
-    @Inject
-    constructor(
-        private val encodingSupport: S3SyncEncodingSupport,
-    ) : S3RemoteManifestStore {
-        private val json = Json { ignoreUnknownKeys = true }
-
-        override suspend fun readMetadata(
-            client: com.lomo.data.s3.LomoS3Client,
-            config: S3ResolvedConfig,
-        ): S3RemoteManifestMetadata? =
-            runCatching {
-                val metadata = client.getObjectMetadata(manifestKey(config)) ?: return null
-                metadata.toManifestMetadata()
-            }.getOrNull()
-
-        override suspend fun read(
-            client: com.lomo.data.s3.LomoS3Client,
-            config: S3ResolvedConfig,
-        ): S3RemoteManifest? =
-            runCatching {
-                val payload = client.getObject(manifestKey(config))
-                val decoded = encodingSupport.decodeContent(payload.bytes, config)
-                json.decodeFromString(S3RemoteManifest.serializer(), String(decoded, StandardCharsets.UTF_8))
-            }.getOrNull()
-
-        override suspend fun write(
-            client: com.lomo.data.s3.LomoS3Client,
-            config: S3ResolvedConfig,
-            manifest: S3RemoteManifest,
-        ) {
-            val payload =
-                json
-                    .encodeToString(S3RemoteManifest.serializer(), manifest)
-                    .toByteArray(StandardCharsets.UTF_8)
-            client.putObject(
-                key = manifestKey(config),
-                bytes = encodingSupport.encodeContent(payload, config),
-                contentType = S3_MANIFEST_CONTENT_TYPE,
-                metadata =
-                    mapOf(
-                        S3_MANIFEST_REVISION_METADATA_KEY to manifest.revision.toString(),
-                        S3_MANIFEST_GENERATED_AT_METADATA_KEY to manifest.generatedAt.toString(),
-                    ),
-            )
-        }
-
-        override fun build(
-            remoteFiles: Map<String, RemoteS3File>,
-            previousRevision: Long?,
-            now: Long,
-        ): S3RemoteManifest =
-            S3RemoteManifest(
-                revision = (previousRevision ?: 0L) + 1L,
-                generatedAt = now,
-                entries =
-                    remoteFiles.values
-                        .sortedBy(RemoteS3File::path)
-                        .map { remote ->
-                            S3RemoteManifestEntry(
-                                relativePath = remote.path,
-                                remotePath = remote.remotePath,
-                                etag = remote.etag,
-                                remoteLastModified = remote.lastModified,
-                            )
-                        },
-            )
-
-        override fun manifestKey(config: S3ResolvedConfig): String =
-            encodingSupport.remoteKeyPrefix(config) + S3_MANIFEST_FILENAME
-    }
-
 @Module
 @InstallIn(SingletonComponent::class)
 internal interface S3IncrementalSyncBindingsModule {
@@ -523,29 +404,34 @@ internal interface S3IncrementalSyncBindingsModule {
 
     @Binds
     fun bindS3LocalChangeRecorder(impl: DefaultS3LocalChangeRecorder): S3LocalChangeRecorder
-
-    @Binds
-    fun bindS3RemoteManifestStore(impl: DefaultS3RemoteManifestStore): S3RemoteManifestStore
 }
 
 private fun S3SyncProtocolState.toEntity(): S3SyncProtocolStateEntity =
     S3SyncProtocolStateEntity(
         protocolVersion = protocolVersion,
-        lastManifestRevision = lastManifestRevision,
         lastSuccessfulSyncAt = lastSuccessfulSyncAt,
+        lastFastSyncAt = lastFastSyncAt,
+        lastReconcileAt = lastReconcileAt,
+        lastFullRemoteScanAt = lastFullRemoteScanAt,
         indexedLocalFileCount = indexedLocalFileCount,
         indexedRemoteFileCount = indexedRemoteFileCount,
         localModeFingerprint = localModeFingerprint,
+        remoteScanCursor = remoteScanCursor,
+        scanEpoch = scanEpoch,
     )
 
 private fun S3SyncProtocolStateEntity.toModel(): S3SyncProtocolState =
     S3SyncProtocolState(
         protocolVersion = protocolVersion,
-        lastManifestRevision = lastManifestRevision,
         lastSuccessfulSyncAt = lastSuccessfulSyncAt,
+        lastFastSyncAt = lastFastSyncAt,
+        lastReconcileAt = lastReconcileAt,
+        lastFullRemoteScanAt = lastFullRemoteScanAt,
         indexedLocalFileCount = indexedLocalFileCount,
         indexedRemoteFileCount = indexedRemoteFileCount,
         localModeFingerprint = localModeFingerprint,
+        remoteScanCursor = remoteScanCursor,
+        scanEpoch = scanEpoch,
     )
 
 private fun S3LocalChangeJournalEntry.toEntity(): S3LocalChangeJournalEntity =
@@ -566,10 +452,8 @@ private fun S3LocalChangeJournalEntity.toModel(): S3LocalChangeJournalEntry =
         updatedAt = updatedAt,
     )
 
-private fun com.lomo.data.s3.S3RemoteObject.toManifestMetadata(): S3RemoteManifestMetadata? {
-    val revision = metadata[S3_MANIFEST_REVISION_METADATA_KEY]?.toLongOrNull() ?: return null
-    return S3RemoteManifestMetadata(
-        revision = revision,
-        generatedAt = metadata[S3_MANIFEST_GENERATED_AT_METADATA_KEY]?.toLongOrNull() ?: lastModified,
-    )
-}
+internal fun S3SyncProtocolState.hasFreshRemoteIndex(
+    now: Long = System.currentTimeMillis(),
+): Boolean =
+    lastFullRemoteScanAt != null &&
+        now - lastFullRemoteScanAt <= S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS

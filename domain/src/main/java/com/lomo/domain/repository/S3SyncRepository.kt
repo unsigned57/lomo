@@ -4,6 +4,7 @@ import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3SyncStatus
@@ -126,7 +127,9 @@ interface S3SyncConfigurationMutationRepository :
     S3SyncBehaviorMutationRepository
 
 interface S3SyncOperationRepository {
-    suspend fun sync(): S3SyncResult
+    suspend fun sync(
+        policy: S3SyncScanPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+    ): S3SyncResult
 
     suspend fun getStatus(): S3SyncStatus
 

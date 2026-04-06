@@ -53,7 +53,17 @@ class S3SyncActionApplier
                             mode,
                         )
 
-                    S3SyncDirection.DELETE_LOCAL -> deleteLocalAction(action, layout, fileBridgeScope, mode)
+                    S3SyncDirection.DELETE_LOCAL ->
+                        deleteLocalAction(
+                            action = action,
+                            client = client,
+                            layout = layout,
+                            config = config,
+                            remoteFiles = remoteFiles,
+                            metadataByPath = metadataByPath,
+                            fileBridgeScope = fileBridgeScope,
+                            mode = mode,
+                        )
                     S3SyncDirection.DELETE_REMOTE ->
                         deleteRemoteAction(action, client, config, remoteFiles, metadataByPath)
                     S3SyncDirection.NONE,
@@ -78,15 +88,16 @@ class S3SyncActionApplier
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Uploading
             val bytes = loadUploadBytes(action, layout, fileBridgeScope) ?: return S3ActionExecutionState.Skipped
-            val remotePath =
-                encodingSupport.remotePathFor(
-                    relativePath = action.path,
+            val uploadTarget =
+                verifyUploadTarget(
+                    action = action,
+                    client = client,
                     config = config,
-                    existingRemotePath =
-                        remoteFiles[action.path]?.remotePath ?: metadataByPath[action.path]?.remotePath,
-                )
+                    remoteFiles = remoteFiles,
+                    metadataByPath = metadataByPath,
+                ) ?: return S3ActionExecutionState.Skipped
             val uploaded = client.putObject(
-                key = remotePath,
+                key = uploadTarget.remotePath,
                 bytes = encodingSupport.encodeContent(bytes, config),
                 contentType = contentTypeForPath(action.path, layout, runtime, mode),
                 metadata = encodingSupport.objectMetadata(localFiles[action.path]?.lastModified),
@@ -99,7 +110,7 @@ class S3SyncActionApplier
                         path = action.path,
                         etag = uploaded.eTag,
                         lastModified = localFiles[action.path]?.lastModified,
-                        remotePath = remotePath,
+                        remotePath = uploadTarget.remotePath,
                     ),
             )
         }
@@ -142,11 +153,19 @@ class S3SyncActionApplier
 
         private suspend fun deleteLocalAction(
             action: S3SyncAction,
+            client: com.lomo.data.s3.LomoS3Client,
             layout: com.lomo.data.sync.SyncDirectoryLayout,
+            config: S3ResolvedConfig,
+            remoteFiles: Map<String, RemoteS3File>,
+            metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Deleting
+            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            if (client.getObjectMetadata(remotePath) != null) {
+                return S3ActionExecutionState.Skipped
+            }
             fileBridgeScope.deleteLocalFile(action.path, layout)
             return S3ActionExecutionState.Applied(
                 localChanged = true,
@@ -164,7 +183,26 @@ class S3SyncActionApplier
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Deleting
-            client.deleteObject(resolveRemotePath(action.path, remoteFiles, metadataByPath, config))
+            val verification =
+                verifyDeleteRemoteTarget(
+                    action = action,
+                    client = client,
+                    config = config,
+                    remoteFiles = remoteFiles,
+                    metadataByPath = metadataByPath,
+                )
+            when (verification) {
+                RemoteVerificationConflict -> return S3ActionExecutionState.Skipped
+                is RemoteVerificationMissing ->
+                    return S3ActionExecutionState.Applied(
+                        localChanged = false,
+                        remoteChanged = true,
+                        deletedRemotePath = action.path,
+                    )
+
+                is RemoteVerificationSuccess ->
+                    client.deleteObject(verification.remotePath)
+            }
             return S3ActionExecutionState.Applied(
                 localChanged = false,
                 remoteChanged = true,
@@ -182,6 +220,65 @@ class S3SyncActionApplier
                 ?: metadataByPath[relativePath]?.remotePath
                 ?: encodingSupport.remotePathFor(relativePath, config)
 
+        private suspend fun verifyUploadTarget(
+            action: S3SyncAction,
+            client: com.lomo.data.s3.LomoS3Client,
+            config: S3ResolvedConfig,
+            remoteFiles: Map<String, RemoteS3File>,
+            metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+        ): RemoteVerificationSuccess? {
+            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val cachedRemote = remoteFiles[action.path]
+            if (cachedRemote == null) {
+                return RemoteVerificationSuccess(
+                    remotePath = remotePath,
+                    remoteFile = null,
+                )
+            }
+            if (cachedRemote.verified) {
+                return RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+            }
+            val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(action.path)
+            return when {
+                verifiedRemote == null ->
+                    RemoteVerificationSuccess(
+                        remotePath = remotePath,
+                        remoteFile = null,
+                    )
+
+                verifiedRemote.matchesCached(cachedRemote) ->
+                    RemoteVerificationSuccess(
+                        remotePath = remotePath,
+                        remoteFile = verifiedRemote,
+                    )
+
+                else -> null
+            }
+        }
+
+        private suspend fun verifyDeleteRemoteTarget(
+            action: S3SyncAction,
+            client: com.lomo.data.s3.LomoS3Client,
+            config: S3ResolvedConfig,
+            remoteFiles: Map<String, RemoteS3File>,
+            metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+        ): RemoteVerificationResult {
+            val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
+            val cachedRemote = remoteFiles[action.path]
+            if (cachedRemote?.verified == true) {
+                return RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
+            }
+            val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(action.path)
+            return when {
+                verifiedRemote == null -> RemoteVerificationMissing(remotePath)
+                cachedRemote == null -> RemoteVerificationSuccess(remotePath = remotePath, remoteFile = verifiedRemote)
+                verifiedRemote.matchesCached(cachedRemote) ->
+                    RemoteVerificationSuccess(remotePath = remotePath, remoteFile = verifiedRemote)
+
+                else -> RemoteVerificationConflict
+            }
+        }
+
         private suspend fun buildMemoRefreshPlan(
             path: String,
             layout: com.lomo.data.sync.SyncDirectoryLayout,
@@ -196,11 +293,8 @@ class S3SyncActionApplier
             layout: com.lomo.data.sync.SyncDirectoryLayout,
             mode: S3LocalSyncMode,
         ): S3MemoRefreshPlan =
-            if (resolveMemoRefreshTarget(path, layout, mode) != null) {
-                S3MemoRefreshPlan.Full
-            } else {
-                S3MemoRefreshPlan.None
-            }
+            resolveMemoRefreshTarget(path, layout, mode)?.let(S3MemoRefreshPlan::Targets)
+                ?: S3MemoRefreshPlan.None
     }
 
 internal sealed interface S3ActionExecutionState {
@@ -242,3 +336,30 @@ private fun S3SyncAction.operationName(): String =
         S3SyncDirection.NONE -> "sync"
         S3SyncDirection.CONFLICT -> "conflict"
     }
+
+private sealed interface RemoteVerificationResult
+
+private data class RemoteVerificationSuccess(
+    val remotePath: String,
+    val remoteFile: RemoteS3File?,
+) : RemoteVerificationResult
+
+private data class RemoteVerificationMissing(
+    val remotePath: String,
+) : RemoteVerificationResult
+
+private data object RemoteVerificationConflict : RemoteVerificationResult
+
+private fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(path: String): RemoteS3File =
+    RemoteS3File(
+        path = path,
+        etag = eTag,
+        lastModified = lastModified,
+        remotePath = key,
+        verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
+    )
+
+private fun RemoteS3File.matchesCached(cached: RemoteS3File): Boolean =
+    remotePath == cached.remotePath &&
+        etag == cached.etag &&
+        lastModified == cached.lastModified

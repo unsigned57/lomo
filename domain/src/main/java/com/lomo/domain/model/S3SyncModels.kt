@@ -63,6 +63,12 @@ enum class S3SyncReason {
     CONFLICT,
 }
 
+enum class S3SyncScanPolicy {
+    FAST_ONLY,
+    FAST_THEN_RECONCILE,
+    FULL_RECONCILE,
+}
+
 data class S3SyncOutcome(
     val path: String,
     val direction: S3SyncDirection,

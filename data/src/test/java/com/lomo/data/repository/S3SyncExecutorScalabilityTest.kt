@@ -33,6 +33,7 @@ import org.junit.Before
 import org.junit.Test
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.Collections
 import kotlin.math.max
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -173,6 +174,27 @@ class S3SyncExecutorScalabilityTest {
                 "Expected local scan, remote listing, and metadata load to overlap but saw ${probe.maxConcurrent}",
                 probe.maxConcurrent >= 3,
             )
+        }
+
+    @Test
+    fun `performSync overlaps full remote shard listings during manifest-free snapshot build`() =
+        runBlocking {
+            val probe = ConcurrentScanProbe()
+            val client = ParallelPagedListingProbeClient(probe)
+            val metadataDao = RecordingMetadataDao()
+            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync()
+
+            val success = result as S3SyncResult.Success
+            assertEquals("S3 already up to date", success.message)
+            assertTrue(
+                "Expected full remote shard listing to overlap but saw ${client.maxConcurrentPages}",
+                client.maxConcurrentPages >= 2,
+            )
+            assertEquals(setOf("lomo/memo/", "lomo/images/", "lomo/voice/"), client.listedPrefixes.toSet())
         }
 
     @Test
@@ -629,6 +651,61 @@ private class ParallelListingProbeClient(
         metadata: Map<String, String>,
     ): S3PutObjectResult {
         error("putObject should not be used in parallel listing test")
+    }
+
+    override suspend fun deleteObject(key: String) = Unit
+
+    override fun close() = Unit
+}
+
+private class ParallelPagedListingProbeClient(
+    private val probe: ConcurrentScanProbe,
+) : LomoS3Client {
+    private val inFlightPages = AtomicInteger(0)
+    private val maxConcurrentPagesValue = AtomicInteger(0)
+
+    val listedPrefixes = Collections.synchronizedList(mutableListOf<String>())
+    var maxConcurrentPages: Int = 0
+        private set
+
+    override suspend fun verifyAccess(prefix: String) = Unit
+
+    override suspend fun list(
+        prefix: String,
+        maxKeys: Int?,
+    ): List<S3RemoteObject> {
+        error("full remote scan should use paged shard listing")
+    }
+
+    override suspend fun listPage(
+        prefix: String,
+        continuationToken: String?,
+        maxKeys: Int,
+    ): com.lomo.data.s3.S3RemoteListPage {
+        check(continuationToken == null)
+        listedPrefixes += prefix
+        val concurrent = inFlightPages.incrementAndGet()
+        maxConcurrentPagesValue.updateAndGet { previous -> max(previous, concurrent) }
+        maxConcurrentPages = maxConcurrentPagesValue.get()
+        try {
+            probe.track()
+            return com.lomo.data.s3.S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
+        } finally {
+            inFlightPages.decrementAndGet()
+        }
+    }
+
+    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+        error("getObject should not be used in paged listing test")
+    }
+
+    override suspend fun putObject(
+        key: String,
+        bytes: ByteArray,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): S3PutObjectResult {
+        error("putObject should not be used in paged listing test")
     }
 
     override suspend fun deleteObject(key: String) = Unit

@@ -5,6 +5,8 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.LomoS3Client
 import com.lomo.data.s3.LomoS3ClientFactory
+import com.lomo.data.s3.S3RemoteListPage
+import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
@@ -125,11 +127,10 @@ class S3SyncExecutorTest {
         runTest {
             val managedPath = "Projects/note.md"
             val externalPath = ".obsidian/workspace.json"
-            coEvery { client.list(prefix = "", maxKeys = null) } returnsMany
-                listOf(
-                    listOf(remoteObject(managedPath), remoteObject(externalPath)),
-                    listOf(remoteObject(externalPath)),
-                )
+            stubSinglePageRemoteScan(
+                remoteObject(managedPath),
+                remoteObject(externalPath),
+            )
             coEvery { metadataDao.getAll() } returns
                 listOf(
                     S3SyncMetadataEntity(
@@ -159,10 +160,26 @@ class S3SyncExecutorTest {
         }
 
     private fun remoteObject(key: String) =
-        com.lomo.data.s3.S3RemoteObject(
+        S3RemoteObject(
             key = key,
             eTag = "etag",
             lastModified = 10L,
             metadata = emptyMap(),
         )
+
+    private fun stubSinglePageRemoteScan(vararg objects: S3RemoteObject) {
+        coEvery { client.listPage(prefix = any(), continuationToken = any(), maxKeys = any()) } answers {
+            val prefix = firstArg<String>()
+            val continuationToken = secondArg<String?>()
+            S3RemoteListPage(
+                objects =
+                    if (continuationToken == null) {
+                        objects.filter { remoteObject -> remoteObject.key.startsWith(prefix) }
+                    } else {
+                        emptyList()
+                    },
+                nextContinuationToken = null,
+            )
+        }
+    }
 }
