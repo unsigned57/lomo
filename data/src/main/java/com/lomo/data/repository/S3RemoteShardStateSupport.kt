@@ -79,9 +79,11 @@ class RoomBackedS3RemoteShardStateStore
     ) : S3RemoteShardStateStore {
         override val remoteShardStateEnabled: Boolean = true
 
-        override suspend fun readAll(): List<S3RemoteShardState> = dao.getAll().map(S3RemoteShardStateEntity::toModel)
+        override suspend fun readAll(): List<S3RemoteShardState> =
+            dao.getAll().map(S3RemoteShardStateEntity::toModel)
 
-        override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? = dao.getByBucketId(bucketId)?.toModel()
+        override suspend fun readByBucketId(bucketId: String): S3RemoteShardState? =
+            dao.getByBucketId(bucketId)?.toModel()
 
         override suspend fun upsert(states: Collection<S3RemoteShardState>) {
             if (states.isEmpty()) return

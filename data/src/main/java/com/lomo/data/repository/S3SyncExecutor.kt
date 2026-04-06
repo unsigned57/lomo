@@ -380,88 +380,46 @@ class S3SyncExecutor
             remoteReconcileState: PreparedRemoteReconcile,
         ): PreparedS3Sync {
             val candidatePaths =
-                (journalEntriesByPath.keys + remoteReconcileState.candidatePaths)
-                    .toSortedSet()
-            val metadataByPath =
-                if (candidatePaths.isEmpty()) {
-                    emptyMap()
-                } else {
-                    runtime.metadataDao.getByRelativePaths(candidatePaths.toList()).associateBy { it.relativePath }
-                }
-            val indexedEntriesByPath =
-                if (remoteIndexStore.remoteIndexEnabled) {
-                    remoteIndexStore.readByRelativePaths(candidatePaths).associateBy(S3RemoteIndexEntry::relativePath)
-                } else {
-                    emptyMap()
-                }
-            val plannerMetadataByPath =
-                mergePlannerMetadata(
-                    metadataByPath = metadataByPath,
+                (journalEntriesByPath.keys + remoteReconcileState.candidatePaths).toSortedSet()
+            val reconcileInputs =
+                loadIncrementalReconcileInputs(
+                    runtime = runtime,
+                    candidatePaths = candidatePaths,
                     journalEntriesByPath = journalEntriesByPath,
-                    indexedEntriesByPath = indexedEntriesByPath,
+                    remoteReconcileState = remoteReconcileState,
+                    remoteIndexStore = remoteIndexStore,
+                    fileBridgeScope = fileBridgeScope,
+                    layout = layout,
                 )
-            val remoteFiles =
-                if (remoteIndexStore.remoteIndexEnabled) {
-                    indexedEntriesByPath.values
-                        .asSequence()
-                        .filterNot(S3RemoteIndexEntry::missingOnLastScan)
-                        .associate { entry -> entry.relativePath to entry.toCachedRemoteFile() }
-                        .toMutableMap()
-                } else {
-                    plannerMetadataByPath.values
-                        .associate { metadata ->
-                            metadata.relativePath to
-                                RemoteS3File(
-                                    path = metadata.relativePath,
-                                    etag = metadata.etag,
-                                    lastModified = metadata.remoteLastModified,
-                                    remotePath = metadata.remotePath,
-                                    verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
-                                )
-                        }.toMutableMap()
-                }
-            remoteReconcileState.remoteFiles.forEach { (path, remoteFile) ->
-                remoteFiles[path] = remoteFile
-            }
-            remoteReconcileState.missingRemotePaths.forEach(remoteFiles::remove)
-            val localFiles =
-                candidatePaths
-                    .associateWith { path -> fileBridgeScope.localFile(path, layout) }
-                    .mapNotNull { (path, file) -> file?.let { path to it } }
-                    .toMap()
             val plan =
                 runtime.planner.planPaths(
                     paths = candidatePaths,
-                    localFiles = localFiles,
-                    remoteFiles = remoteFiles,
-                    metadata = plannerMetadataByPath,
+                    localFiles = reconcileInputs.localFiles,
+                    remoteFiles = reconcileInputs.remoteFiles,
+                    metadata = reconcileInputs.plannerMetadataByPath,
                     missingRemoteVerificationByPath =
                         remoteReconcileState.missingRemotePaths.associateWith {
                             S3RemoteVerificationLevel.VERIFIED_REMOTE
                         },
                     defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
                 )
-            val conflictActions = plan.actions.filter { it.direction == S3SyncDirection.CONFLICT }
-            val conflictPaths = conflictActions.map(S3SyncAction::path).toSet()
-            val conflictSet =
-                buildS3ConflictSet(
-                    actions = conflictActions,
+            val (conflictPaths, conflictSet) =
+                prepareReconcileConflictState(
+                    plan = plan,
+                    runtime = runtime,
                     client = client,
                     layout = layout,
                     config = config,
-                    remoteFiles = remoteFiles,
+                    remoteFiles = reconcileInputs.remoteFiles,
                     fileBridgeScope = fileBridgeScope,
                     mode = mode,
                     encodingSupport = encodingSupport,
                 )
-            if (conflictSet != null) {
-                runtime.stateHolder.state.value = S3SyncState.ConflictDetected(conflictSet)
-            }
             return PreparedS3Sync(
                 layout = layout,
-                localFiles = localFiles,
-                remoteFiles = remoteFiles,
-                metadataByPath = plannerMetadataByPath,
+                localFiles = reconcileInputs.localFiles,
+                remoteFiles = reconcileInputs.remoteFiles,
+                metadataByPath = reconcileInputs.plannerMetadataByPath,
                 plan = plan,
                 normalActions = plan.actions.filter { it.direction != S3SyncDirection.CONFLICT },
                 conflictSet = conflictSet,
