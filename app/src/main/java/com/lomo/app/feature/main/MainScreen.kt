@@ -93,7 +93,7 @@ fun MainScreen(
     MainScreenTransientEffects(
         viewModel = viewModel,
         editorViewModel = editorViewModel,
-        uiMemos = screenState.uiMemos,
+        visibleUiMemos = screenState.visibleUiMemos,
         listState = hostState.listState,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
@@ -318,7 +318,7 @@ private fun rememberInputHints(showInputHints: Boolean): List<String> {
 private fun MainScreenTransientEffects(
     viewModel: MainViewModel,
     editorViewModel: MemoEditorViewModel,
-    uiMemos: List<MemoUiModel>,
+    visibleUiMemos: List<MemoUiModel>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
@@ -353,7 +353,7 @@ private fun MainScreenTransientEffects(
         },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
-            val index = uiMemos.indexOfFirst { it.memo.id == memoId }
+            val index = visibleUiMemos.indexOfFirst { it.memo.id == memoId }
             if (index >= 0) {
                 listState.animateScrollToItem(index)
                 true

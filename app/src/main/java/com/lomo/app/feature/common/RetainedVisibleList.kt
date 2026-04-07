@@ -76,65 +76,47 @@ internal fun <T> mergeVisibleItemsWithRetainedItems(
     retainedIds: Set<String>,
     itemId: (T) -> String,
 ): List<T> {
-    if (previousVisibleItems.isEmpty()) {
+    if (previousVisibleItems.isEmpty() || retainedIds.isEmpty()) {
         return sourceItems
     }
 
-    val sourceItemsById = sourceItems.associateBy(itemId)
-    val mergedItems = mutableListOf<T>()
-    val mergedIds = LinkedHashSet<String>()
+    val sourceIds = sourceItems.asSequence().map(itemId).toSet()
+    val mergedItems = sourceItems.toMutableList()
 
-    previousVisibleItems.forEach { previousItem ->
+    previousVisibleItems.forEachIndexed { previousIndex, previousItem ->
         val id = itemId(previousItem)
-        val sourceItem = sourceItemsById[id]
-        when {
-            sourceItem != null -> {
-                mergedItems += sourceItem
-                mergedIds += id
-            }
-
-            id in retainedIds -> {
-                mergedItems += previousItem
-                mergedIds += id
-            }
-        }
-    }
-
-    sourceItems.forEachIndexed { index, sourceItem ->
-        val id = itemId(sourceItem)
-        if (id in mergedIds) {
+        if (id !in retainedIds || id in sourceIds) {
             return@forEachIndexed
         }
         val insertionIndex =
-            resolveMergedInsertionIndex(
-                sourceItems = sourceItems,
-                sourceIndex = index,
+            resolveRetainedInsertionIndex(
+                previousVisibleItems = previousVisibleItems,
+                previousIndex = previousIndex,
                 mergedItems = mergedItems,
                 itemId = itemId,
             )
-        mergedItems.add(insertionIndex, sourceItem)
-        mergedIds += id
+        mergedItems.add(insertionIndex, previousItem)
     }
 
     return mergedItems
 }
 
-private fun <T> resolveMergedInsertionIndex(
-    sourceItems: List<T>,
-    sourceIndex: Int,
+private fun <T> resolveRetainedInsertionIndex(
+    previousVisibleItems: List<T>,
+    previousIndex: Int,
     mergedItems: List<T>,
     itemId: (T) -> String,
 ): Int {
-    for (precedingIndex in sourceIndex - 1 downTo 0) {
-        val precedingId = itemId(sourceItems[precedingIndex])
+    for (precedingIndex in previousIndex - 1 downTo 0) {
+        val precedingId = itemId(previousVisibleItems[precedingIndex])
         val mergedIndex = mergedItems.indexOfFirst { item -> itemId(item) == precedingId }
         if (mergedIndex >= 0) {
             return mergedIndex + 1
         }
     }
 
-    for (followingIndex in sourceIndex + 1 until sourceItems.size) {
-        val followingId = itemId(sourceItems[followingIndex])
+    for (followingIndex in previousIndex + 1 until previousVisibleItems.size) {
+        val followingId = itemId(previousVisibleItems[followingIndex])
         val mergedIndex = mergedItems.indexOfFirst { item -> itemId(item) == followingId }
         if (mergedIndex >= 0) {
             return mergedIndex

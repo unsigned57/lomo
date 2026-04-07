@@ -200,6 +200,7 @@ internal fun MainMemoFilterSectionCard(
 internal fun MainMemoSortButton(
     modifier: Modifier = Modifier,
     text: String,
+    directionLabel: String?,
     icon: ImageVector,
     selected: Boolean,
     benchmarkTag: String? = null,
@@ -241,7 +242,7 @@ internal fun MainMemoSortButton(
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(12.dp).height(56.dp),
+            modifier = Modifier.padding(12.dp).height(64.dp),
         ) {
             Icon(
                 imageVector = icon,
@@ -255,6 +256,15 @@ internal fun MainMemoSortButton(
                 style = MaterialTheme.typography.labelMedium,
                 color = contentColor,
             )
+            if (directionLabel != null) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = directionLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = contentColor,
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 }

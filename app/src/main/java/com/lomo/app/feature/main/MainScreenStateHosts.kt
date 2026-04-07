@@ -297,7 +297,7 @@ private fun MainScreenFilterScrollEffect(
     LaunchedEffect(searchQuery, memoListFilter) {
         val filterChanged =
             previousQuery != searchQuery || previousMemoFilter != memoListFilter
-        val hasPreviousUserFilters = previousQuery.isNotEmpty() || previousMemoFilter.isActive
+        val hasPreviousUserFilters = previousQuery.isNotEmpty() || previousMemoFilter.hasDateRange
         if (filterChanged && hasPreviousUserFilters) {
             listState.scrollToItem(0)
         }

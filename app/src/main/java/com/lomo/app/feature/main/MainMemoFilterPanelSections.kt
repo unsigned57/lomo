@@ -41,6 +41,7 @@ internal fun MainMemoFilterSheetContent(
     MainMemoFilterHeader()
     MainMemoSortOptionsRow(
         selectedOption = filter.sortOption,
+        selectedAscending = filter.sortAscending,
         onSortOptionSelected = onSortOptionSelected,
     )
     MainMemoDateRangeSection(
@@ -93,6 +94,7 @@ internal fun MainMemoDatePickerHost(
 @Composable
 internal fun MainMemoSortOptionsRow(
     selectedOption: MemoSortOption,
+    selectedAscending: Boolean,
     onSortOptionSelected: (MemoSortOption) -> Unit,
 ) {
     Row(
@@ -103,6 +105,7 @@ internal fun MainMemoSortOptionsRow(
             MainMemoSortButton(
                 modifier = Modifier.weight(1f),
                 text = sortOptionLabel(option),
+                directionLabel = if (selectedOption == option) sortDirectionLabel(selectedAscending) else null,
                 icon = sortOptionIcon(option),
                 selected = selectedOption == option,
                 benchmarkTag =
@@ -212,4 +215,12 @@ private fun sortOptionIcon(option: MemoSortOption): ImageVector =
     when (option) {
         MemoSortOption.CREATED_TIME -> Icons.Rounded.EditCalendar
         MemoSortOption.UPDATED_TIME -> Icons.Rounded.Update
+    }
+
+@Composable
+private fun sortDirectionLabel(sortAscending: Boolean): String =
+    if (sortAscending) {
+        stringResource(R.string.main_filter_sort_direction_ascending)
+    } else {
+        stringResource(R.string.main_filter_sort_direction_descending)
     }

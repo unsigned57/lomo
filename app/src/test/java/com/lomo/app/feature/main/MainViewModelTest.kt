@@ -367,6 +367,7 @@ class MainViewModelTest {
             assertNull(viewModel.memoListFilter.value.endDate)
         }
 
+    @Test
     fun `sort option toggles ascending and descending on repeated taps`() =
         runTest {
             val viewModel = createViewModel()

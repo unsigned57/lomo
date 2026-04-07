@@ -186,6 +186,8 @@
     <string name="main_filter_title">Filter &amp; Sort</string>
     <string name="main_filter_sort_created_time">Creation time</string>
     <string name="main_filter_sort_updated_time">Update time</string>
+    <string name="main_filter_sort_direction_ascending">Ascending</string>
+    <string name="main_filter_sort_direction_descending">Descending</string>
     <string name="main_filter_section_time_range">Date range</string>
     <string name="main_filter_start_date">Start date</string>
     <string name="main_filter_end_date">End date</string>
