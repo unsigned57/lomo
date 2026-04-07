@@ -92,3 +92,5 @@ Thumbs.db
 # Local AI tooling artifacts
 .codex-skill-build/
 .codex
+.local
+.config
