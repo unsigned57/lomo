@@ -9,6 +9,13 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      HOME: ${{ github.workspace }}/.home
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android
+      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/ci
+      GRADLE_OPTS: -Duser.home=${{ github.workspace }}/.home
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -29,4 +36,6 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run repository quality gate
-        run: ./gradlew qualityCheck
+        run: |
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain qualityCheck

@@ -11,6 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NDK_VERSION: 29.0.14206865
+      HOME: ${{ github.workspace }}/.home
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android
+      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/ci
+      GRADLE_OPTS: -Duser.home=${{ github.workspace }}/.home
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,7 +51,9 @@ jobs:
         run: chmod +x gradlew
 
       - name: Run Architecture Checks
-        run: ./gradlew architectureCheck
+        run: |
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain architectureCheck
 
       - name: Build Release APK
         env:
@@ -53,7 +61,9 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain assembleRelease
 
       - name: Verify Baseline Embedded In APK
         run: |

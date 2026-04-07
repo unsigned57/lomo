@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.appWhileSubscribed
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +50,7 @@ class RecordingViewModel
                 .voiceDirectory()
                 .stateIn(viewModelScope, appWhileSubscribed(), null)
 
+        internal var recordingTimerDispatcher: CoroutineDispatcher = Dispatchers.Default
         private var recordingJob: kotlinx.coroutines.Job? = null
         private var currentRecordingTarget: String? = null
         private var currentRecordingFilename: String? = null
@@ -79,12 +81,11 @@ class RecordingViewModel
         private fun startRecordingTimer() {
             recordingJob?.cancel()
             recordingJob =
-                viewModelScope.launch(Dispatchers.IO) {
-                    val startTime = System.currentTimeMillis()
+                viewModelScope.launch(recordingTimerDispatcher) {
                     while (isActive) {
-                        _recordingDuration.value = System.currentTimeMillis() - startTime
-                        _recordingAmplitude.value = recordingCoordinator.currentAmplitude()
                         kotlinx.coroutines.delay(RECORDING_VISUALIZER_UPDATE_INTERVAL_MILLIS)
+                        _recordingDuration.value += RECORDING_VISUALIZER_UPDATE_INTERVAL_MILLIS
+                        _recordingAmplitude.value = recordingCoordinator.currentAmplitude()
                     }
                 }
         }
