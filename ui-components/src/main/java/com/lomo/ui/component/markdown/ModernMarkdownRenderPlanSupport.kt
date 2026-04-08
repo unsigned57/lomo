@@ -73,6 +73,7 @@ internal fun buildModernMarkdownRenderItems(
 private fun ASTNode.hasModernRenderableContent(content: String): Boolean =
     when {
         type == MarkdownElementTypes.IMAGE -> true
+        children.isEmpty() -> extractNodeText(content).any { !it.isWhitespace() }
         type == MarkdownTokenTypes.TEXT || type == MarkdownTokenTypes.WHITE_SPACE ->
             extractNodeText(content).any { !it.isWhitespace() }
         type == MarkdownTokenTypes.EOL || type == MarkdownTokenTypes.HARD_LINE_BREAK -> false

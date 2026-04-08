@@ -36,6 +36,9 @@ internal class MemoInputEditText(
     var isUpdatingFromModel: Boolean = false
     var onSelectionChangedListener: (() -> Unit)? = null
     var lastAppliedParagraphSpacingPx: Int? = null
+    var lastAppliedStyle: TextStyle? = null
+    var lastAppliedDensity: Density? = null
+    var lastAppliedCursorColor: Int? = null
 
     override fun onSelectionChanged(
         selStart: Int,
@@ -130,7 +133,6 @@ internal fun createMemoInputEditText(
         background = null
         includeFontPadding = false
         setPadding(0, 0, 0, 0)
-        setTextIsSelectable(true)
         isCursorVisible = true
         isSingleLine = false
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
@@ -203,6 +205,8 @@ internal fun updateMemoInputEditText(
             lastAppliedParagraphSpacingPx = editText.lastAppliedParagraphSpacingPx,
             desiredParagraphSpacingPx = paragraphSpacingPx,
         )
+    val styleChanged = editText.lastAppliedStyle != displayStyle || editText.lastAppliedDensity != density
+
     if (shouldReplacePresentation) {
         editText.applyMemoInputParagraphTextStyle(
             text = buildRawMemoEditorPresentationText(inputValue.text, paragraphSpacingPx),
@@ -212,7 +216,9 @@ internal fun updateMemoInputEditText(
             overflow = TextOverflow.Clip,
         )
         editText.lastAppliedParagraphSpacingPx = paragraphSpacingPx
-    } else {
+        editText.lastAppliedStyle = displayStyle
+        editText.lastAppliedDensity = density
+    } else if (styleChanged) {
         editText.applyMemoInputParagraphAppearance(
             text = editText.text ?: "",
             style = displayStyle,
@@ -220,14 +226,20 @@ internal fun updateMemoInputEditText(
             maxLines = INPUT_EDITOR_MAX_LINES,
             overflow = TextOverflow.Clip,
         )
+        editText.lastAppliedStyle = displayStyle
+        editText.lastAppliedDensity = density
     }
     editText.hint = null
     editText.syncWith(inputValue)
-    editText.setCursorColor(cursorColor)
-    editText.isUpdatingFromModel = false
-    if (editText.hasFocus()) {
-        editText.post { editText.setCursorColor(cursorColor) }
+    
+    if (editText.lastAppliedCursorColor != cursorColor) {
+        editText.setCursorColor(cursorColor)
+        editText.lastAppliedCursorColor = cursorColor
+        if (editText.hasFocus()) {
+            editText.post { editText.setCursorColor(cursorColor) }
+        }
     }
+    editText.isUpdatingFromModel = false
 }
 
 private fun MemoInputEditText.restoreSelection(
@@ -285,7 +297,6 @@ private fun EditText.applyMemoInputParagraphAppearance(
     textAlignment = layoutPolicy.textAlignment
     this.maxLines = maxLines
     ellipsize = overflow.toEllipsize()
-    setTextIsSelectable(true)
     breakStrategy = layoutPolicy.breakStrategy
     hyphenationFrequency = layoutPolicy.hyphenationFrequency
     justificationMode = layoutPolicy.justificationMode

@@ -70,6 +70,7 @@ import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.memoEditorTextStyle
 import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
 
 private val InputEditorContainerPaddingHorizontal = 16.dp
 private val InputEditorContainerPaddingVertical = 12.dp
@@ -171,7 +172,7 @@ private fun InputSheetDragHandle(modifier: Modifier = Modifier) {
 internal fun InputEditorPanel(
     inputValue: TextFieldValue,
     hintText: String,
-    availableTags: List<String>,
+    availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
     onEditorReady: (MemoInputEditText) -> Unit,
@@ -257,9 +258,8 @@ private fun InputEditorTextField(
             Modifier
                 .fillMaxWidth()
                 .heightIn(min = minimumContainerHeight)
-                .clip(AppShapes.Large)
                 .benchmarkAnchor(benchmarkEditorTag)
-                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh, AppShapes.Large)
                 .padding(
                     horizontal = InputEditorContainerPaddingHorizontal,
                     vertical = InputEditorContainerPaddingVertical,
@@ -320,7 +320,7 @@ private fun InputEditorPlaceholder(
 
 @Composable
 private fun InputEditorTagSelector(
-    availableTags: List<String>,
+    availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
     slots: InputSheetSlots,
     onTagSelected: (String) -> Unit,

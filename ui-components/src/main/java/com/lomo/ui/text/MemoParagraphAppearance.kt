@@ -22,6 +22,7 @@ internal fun TextView.applyMemoParagraphAppearance(
     val layoutPolicy = resolveMemoParagraphLayoutPolicy(text)
     val hasLinks = text.hasPlatformLinks()
     setTextColor(style.color.toArgb())
+    setLinkTextColor(currentTextColor)
     gravity = layoutPolicy.gravity
     textAlignment = layoutPolicy.textAlignment
     this.maxLines = maxLines
