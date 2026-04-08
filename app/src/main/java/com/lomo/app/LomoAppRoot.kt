@@ -1,5 +1,10 @@
 package com.lomo.app
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import androidx.core.net.toUri
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -11,17 +16,19 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.rememberNavController
-import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.feature.update.LomoAppUpdateDialog
 import com.lomo.app.feature.update.AppUpdateViewModel
+import com.lomo.app.feature.update.LomoAppUpdateDialog
+import com.lomo.app.feature.update.LomoAppUpdateProgressDialog
 import com.lomo.app.navigation.LomoNavHost
+import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.domain.model.IncomingShareState
 import com.lomo.domain.repository.LanShareService
@@ -29,31 +36,60 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 
 @Composable
 fun LomoAppRoot(
-    viewModel: MainViewModel,
     shareServiceManager: LanShareService,
-    appUpdateViewModel: AppUpdateViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
+    appUpdateViewModel: AppUpdateViewModel = injectedHiltViewModel(),
 ) {
     val updateDialogState by appUpdateViewModel.dialogState.collectAsStateWithLifecycle()
+    val progressDialogState by appUpdateViewModel.progressDialogState.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
     LomoAppUpdateDialog(
         dialogState = updateDialogState,
         onDismiss = appUpdateViewModel::dismissUpdateDialog,
+        onStartInAppUpdate = appUpdateViewModel::startInAppUpdate,
+        onOpenReleasePage = uriHandler::openUri,
+    )
+    LomoAppUpdateProgressDialog(
+        state = progressDialogState,
+        onCancel = appUpdateViewModel::cancelInAppUpdate,
+        onRetry = appUpdateViewModel::retryInAppUpdate,
+        onOpenInstallPermissionSettings = { context.openInstallPermissionSettings() },
+        onOpenReleasePage = uriHandler::openUri,
+        onDismiss = appUpdateViewModel::dismissProgressDialog,
     )
 
     Surface(
-        modifier = Modifier.fillMaxSize().benchmarkAnchorRoot(BenchmarkAnchorContract.APP_ROOT),
+        modifier = modifier.fillMaxSize().benchmarkAnchorRoot(BenchmarkAnchorContract.APP_ROOT),
         color = MaterialTheme.colorScheme.background,
     ) {
         val navController = rememberNavController()
-        LomoNavHost(
-            navController = navController,
-            viewModel = viewModel,
-        )
+        LomoNavHost(navController = navController)
 
         val incomingShare by shareServiceManager.incomingShare.collectAsStateWithLifecycle()
         IncomingShareDialog(
             incomingShare = incomingShare,
             onAccept = shareServiceManager::acceptIncoming,
             onReject = shareServiceManager::rejectIncoming,
+        )
+    }
+}
+
+private fun Context.openInstallPermissionSettings() {
+    val intent =
+        Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+            data = "package:$packageName".toUri()
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+
+    try {
+        startActivity(intent)
+    } catch (_: ActivityNotFoundException) {
+        startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = "package:$packageName".toUri()
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
         )
     }
 }

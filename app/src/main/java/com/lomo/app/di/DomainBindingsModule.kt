@@ -1,6 +1,7 @@
 package com.lomo.app.di
 
 import com.lomo.domain.repository.AppRuntimeInfoRepository
+import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
@@ -17,17 +18,20 @@ import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
+import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
+import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import com.lomo.domain.usecase.GitRemoteUrlUseCase
 import com.lomo.domain.usecase.GitSyncErrorUseCase
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
@@ -242,6 +246,20 @@ object DomainWorkspaceBindingsModule {
 object DomainShareBindingsModule {
     @Provides
     @Singleton
+    fun provideDownloadAndInstallAppUpdateUseCase(
+        appUpdateDownloadRepository: AppUpdateDownloadRepository,
+    ): DownloadAndInstallAppUpdateUseCase =
+        DownloadAndInstallAppUpdateUseCase(appUpdateDownloadRepository)
+
+    @Provides
+    @Singleton
+    fun provideCancelAppUpdateDownloadUseCase(
+        appUpdateDownloadRepository: AppUpdateDownloadRepository,
+    ): CancelAppUpdateDownloadUseCase =
+        CancelAppUpdateDownloadUseCase(appUpdateDownloadRepository)
+
+    @Provides
+    @Singleton
     fun providePrepareShareCardContentUseCase(): PrepareShareCardContentUseCase = PrepareShareCardContentUseCase()
 
     @Provides
@@ -276,6 +294,15 @@ object DomainShareBindingsModule {
         CheckAppUpdateUseCase(
             appUpdateRepository = appUpdateRepository,
             appRuntimeInfoRepository = appRuntimeInfoRepository,
+        )
+
+    @Provides
+    @Singleton
+    fun provideGetLatestAppReleaseUseCase(
+        appUpdateRepository: AppUpdateRepository,
+    ): GetLatestAppReleaseUseCase =
+        GetLatestAppReleaseUseCase(
+            appUpdateRepository = appUpdateRepository,
         )
 }
 

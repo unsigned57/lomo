@@ -3,6 +3,7 @@ package com.lomo.app.feature.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -17,6 +18,7 @@ class SettingsViewModel
         coordinatorFactory: SettingsCoordinatorFactory,
         appUpdateChecker: AppUpdateChecker? = null,
         getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
+        appUpdateDownloadManager: AppUpdateDownloadManager? = null,
     ) : ViewModel() {
         private val appConfigCoordinator =
             coordinatorFactory.createAppConfigCoordinator(viewModelScope)
@@ -95,6 +97,7 @@ class SettingsViewModel
                 appConfigCoordinator = appConfigCoordinator,
                 appUpdateChecker = appUpdateChecker,
                 getCurrentAppVersionUseCase = getCurrentAppVersionUseCase,
+                appUpdateDownloadManager = appUpdateDownloadManager,
             )
         val lanShareFeature =
             SettingsLanShareFeatureViewModel(

@@ -130,6 +130,7 @@ data class SystemSectionState(
 data class AboutSectionState(
     val currentVersion: String,
     val manualUpdateState: SettingsManualUpdateState,
+    val showDebugUpdateTools: Boolean,
 )
 
 data class SettingsScreenUiState(

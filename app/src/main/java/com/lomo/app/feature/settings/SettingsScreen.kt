@@ -9,14 +9,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.core.os.LocaleListCompat
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.app.BuildConfig
 import com.lomo.app.R
 import com.lomo.app.feature.conflict.SyncConflictDialogHost
+import com.lomo.app.feature.conflict.SyncConflictDialogController
 import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.app.feature.update.LomoAppUpdateDialog
+import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -72,8 +75,8 @@ data class StoragePickerActions(
 @Composable
 fun SettingsScreen(
     onBackClick: () -> Unit,
-    viewModel: SettingsViewModel = hiltViewModel(),
-    conflictViewModel: SyncConflictViewModel = hiltViewModel(),
+    viewModel: SettingsViewModel = injectedHiltViewModel(),
+    conflictViewModel: SyncConflictViewModel = injectedHiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -84,6 +87,21 @@ fun SettingsScreen(
     val features = settingsFeatures(viewModel)
     val currentVersion by features.system.currentVersion.collectAsStateWithLifecycle()
     val manualUpdateState by features.system.manualUpdateState.collectAsStateWithLifecycle()
+    val debugPreviewDialogState by features.system.debugPreviewDialogState.collectAsStateWithLifecycle()
+    val uriHandler = LocalUriHandler.current
+    val conflictController =
+        remember(conflictViewModel) {
+            SyncConflictDialogController(
+                state = conflictViewModel.state,
+                onFileChoiceChanged = conflictViewModel::setFileChoice,
+                onAllChoicesChanged = conflictViewModel::setAllChoices,
+                onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
+                onToggleExpanded = conflictViewModel::toggleExpandedFile,
+                onApply = conflictViewModel::applyResolution,
+                onDismiss = conflictViewModel::dismiss,
+                onShowConflictDialog = conflictViewModel::showConflictDialog,
+            )
+        }
     val storagePickers =
         rememberStoragePickerActions(
             storageFeature = features.storage,
@@ -104,30 +122,31 @@ fun SettingsScreen(
         syncState = uiState.git.syncState,
         gitFeature = features.git,
         dialogState = dialogState,
-        conflictViewModel = conflictViewModel,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
     HandleWebDavConflictState(
         syncState = uiState.webDav.syncState,
-        conflictViewModel = conflictViewModel,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
     HandleS3ConflictState(
         syncState = uiState.s3.syncState,
-        conflictViewModel = conflictViewModel,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
-    LaunchedEffect(manualUpdateState) {
-        val updateState = manualUpdateState as? SettingsManualUpdateState.UpdateAvailable ?: return@LaunchedEffect
-        val dialogKey = "${updateState.dialogState.url}#${updateState.dialogState.version}"
-        if (dialogKey != lastShownUpdateDialogKey) {
-            lastShownUpdateDialogKey = dialogKey
-            activeUpdateDialogState = updateState.dialogState
-        }
-    }
+    HandleSettingsUpdateDialogs(
+        manualUpdateState = manualUpdateState,
+        debugPreviewDialogState = debugPreviewDialogState,
+        lastShownUpdateDialogKey = lastShownUpdateDialogKey,
+        onLastShownUpdateDialogKeyChange = { lastShownUpdateDialogKey = it },
+        onActiveUpdateDialogStateChange = { activeUpdateDialogState = it },
+        onConsumeDebugPreviewDialog = features.system::consumeDebugPreviewDialog,
+    )
     SettingsScreenScaffold(
         uiState = uiState,
         aboutState =
             AboutSectionState(
                 currentVersion = currentVersion,
                 manualUpdateState = manualUpdateState,
+                showDebugUpdateTools = BuildConfig.DEBUG,
             ),
         onBackClick = onBackClick,
         snackbarHostState = snackbarHostState,
@@ -136,25 +155,49 @@ fun SettingsScreen(
         resources = resources,
         storagePickers = storagePickers,
         onOpenAvailableUpdateDialog = { activeUpdateDialogState = it },
+        onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
     )
     LomoAppUpdateDialog(
         dialogState = activeUpdateDialogState,
         onDismiss = { activeUpdateDialogState = null },
+        onStartInAppUpdate = { dialogState ->
+            activeUpdateDialogState = null
+            features.system.startInAppUpdate(dialogState)
+        },
+        onOpenReleasePage = uriHandler::openUri,
     )
-    SyncConflictDialogHost(conflictViewModel = conflictViewModel)
+    SyncConflictDialogHost(controller = conflictController)
     SettingsDialogHost(
         uiState = uiState,
-        storageFeature = features.storage,
-        displayFeature = features.display,
-        snapshotFeature = features.snapshot,
-        lanShareFeature = features.lanShare,
-        gitFeature = features.git,
-        webDavFeature = features.webDav,
-        s3Feature = features.s3,
+        features = features,
         dialogState = dialogState,
         options = resources.dialogOptions,
         onApplyLanguageTag = ::applyLanguageTag,
     )
+}
+
+@Composable
+private fun HandleSettingsUpdateDialogs(
+    manualUpdateState: SettingsManualUpdateState,
+    debugPreviewDialogState: AppUpdateDialogState?,
+    lastShownUpdateDialogKey: String?,
+    onLastShownUpdateDialogKeyChange: (String) -> Unit,
+    onActiveUpdateDialogStateChange: (AppUpdateDialogState?) -> Unit,
+    onConsumeDebugPreviewDialog: () -> Unit,
+) {
+    LaunchedEffect(manualUpdateState) {
+        val updateState = manualUpdateState as? SettingsManualUpdateState.UpdateAvailable ?: return@LaunchedEffect
+        val dialogKey = "${updateState.dialogState.url}#${updateState.dialogState.version}"
+        if (dialogKey != lastShownUpdateDialogKey) {
+            onLastShownUpdateDialogKeyChange(dialogKey)
+            onActiveUpdateDialogStateChange(updateState.dialogState)
+        }
+    }
+    LaunchedEffect(debugPreviewDialogState) {
+        val previewDialog = debugPreviewDialogState ?: return@LaunchedEffect
+        onActiveUpdateDialogStateChange(previewDialog)
+        onConsumeDebugPreviewDialog()
+    }
 }
 
 @Composable

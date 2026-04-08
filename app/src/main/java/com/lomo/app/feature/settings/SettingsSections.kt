@@ -28,6 +28,7 @@ import com.lomo.ui.component.settings.PreferenceItem
 import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableMap
 
 @Composable
 fun StorageSettingsSection(
@@ -269,6 +270,7 @@ fun SystemSettingsSection(
 fun AboutSettingsSection(
     state: AboutSectionState,
     onCheckUpdates: () -> Unit,
+    onPreviewDebugUpdate: () -> Unit,
     onOpenGithub: () -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_about)) {
@@ -290,6 +292,15 @@ fun AboutSettingsSection(
             onClick = onCheckUpdates,
         )
         SettingsDivider()
+        if (state.showDebugUpdateTools) {
+            PreferenceItem(
+                title = stringResource(R.string.settings_debug_update_preview),
+                subtitle = stringResource(R.string.settings_debug_update_preview_subtitle),
+                icon = Icons.Outlined.Download,
+                onClick = onPreviewDebugUpdate,
+            )
+            SettingsDivider()
+        }
         PreferenceItem(
             title = stringResource(R.string.settings_github),
             subtitle = stringResource(R.string.settings_github_subtitle),
@@ -315,7 +326,7 @@ fun connectionTestSubtitle(state: SettingsGitConnectionTestState): String =
 @Composable
 fun themeModeLabel(
     mode: ThemeMode,
-    labels: Map<ThemeMode, String>,
+    labels: ImmutableMap<ThemeMode, String>,
 ): String = labels[mode] ?: mode.value
 
 @Composable

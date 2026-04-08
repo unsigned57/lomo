@@ -1,0 +1,50 @@
+uniform float2 resolution;
+uniform float time;
+uniform float distortionStrength;
+uniform float swirlStrength;
+uniform half4 colorA;
+uniform half4 colorB;
+uniform half4 colorC;
+uniform half4 colorD;
+
+float hash(float2 p) {
+  return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453123);
+}
+
+float noise(float2 p) {
+  float2 i = floor(p);
+  float2 f = fract(p);
+  float a = hash(i);
+  float b = hash(i + float2(1.0, 0.0));
+  float c = hash(i + float2(0.0, 1.0));
+  float d = hash(i + float2(1.0, 1.0));
+  float2 u = f * f * (3.0 - 2.0 * f);
+  return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+}
+
+half4 main(float2 fragCoord) {
+  float2 uv = fragCoord / resolution;
+  float aspect = resolution.x / max(resolution.y, 1.0);
+  float2 p = float2((uv.x - 0.5) * aspect, uv.y - 0.5);
+
+  float field = noise(p * 2.2 + time * 0.08);
+  float swirl = noise(p.yx * 2.7 - time * 0.06);
+  p += float2(
+    sin((p.y + field) * 4.2 + time * 0.18),
+    cos((p.x + swirl) * 4.0 - time * 0.14)
+  ) * distortionStrength;
+
+  float wA = smoothstep(0.95, 0.10, distance(p, float2(-0.55 + sin(time * 0.20) * 0.10, -0.42 + cos(time * 0.15) * 0.08)));
+  float wB = smoothstep(1.00, 0.12, distance(p, float2(0.58 + cos(time * 0.17) * 0.08, -0.28 + sin(time * 0.19) * 0.10)));
+  float wC = smoothstep(1.05, 0.18, distance(p, float2(-0.22 + cos(time * 0.11) * 0.08, 0.52 + sin(time * 0.16) * 0.08)));
+  float wD = smoothstep(1.00, 0.14, distance(p, float2(0.48 + sin(time * 0.13) * 0.06, 0.42 + cos(time * 0.14) * 0.06)));
+
+  float totalW = wA + wB + wC + wD;
+  float blend = noise(p * 4.0 + time * swirlStrength);
+  half4 color = colorA * half(wA) + colorB * half(wB) + colorC * half(wC) + colorD * half(wD);
+  color /= half(max(totalW, 0.0001));
+  color.rgb += half3(blend * 0.06);
+  
+  half alpha = half(clamp(totalW * 1.5, 0.0, 1.0));
+  return half4(color.rgb * alpha, alpha);
+}

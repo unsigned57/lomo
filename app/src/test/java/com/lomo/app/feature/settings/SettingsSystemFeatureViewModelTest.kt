@@ -11,6 +11,7 @@ import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
+import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import io.mockk.coEvery
 import io.mockk.every
@@ -29,8 +30,8 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: SettingsSystemFeatureViewModel
- * - Behavior focus: current-version loading, inline manual update state transitions, error classification, and in-flight re-entry protection.
- * - Observable outcomes: exposed currentVersion and manualUpdateState values.
+ * - Behavior focus: current-version loading, inline manual update state transitions, debug latest-release preview routing, error classification, and in-flight re-entry protection.
+ * - Observable outcomes: exposed currentVersion, manualUpdateState, and debugPreviewDialogState values.
  * - Red phase: Fails in test-only scope setup when SettingsAppConfigCoordinator sharing jobs stay attached to the main runTest scope and trigger UncompletedCoroutinesError before the locked behavior assertions can complete.
  * - Excludes: Compose rendering, snackbar presentation, and repository transport details.
  */
@@ -161,6 +162,48 @@ class SettingsSystemFeatureViewModelTest {
             )
         }
 
+    @Test
+    fun `debug latest release preview exposes a real release dialog even when normal version filtering would hide it`() =
+        runTest {
+            val fixture =
+                systemFeatureFixture(
+                    currentVersion = "1.0.0-DEBUG",
+                    checkUpdatesOnStartupEnabled = true,
+                )
+            coEvery { fixture.appUpdateRepository.fetchLatestRelease() } returns
+                LatestAppRelease(
+                    tagName = "v1.0.0",
+                    htmlUrl = "https://example.com/releases/1.0.0",
+                    body = "[FORCE_UPDATE]\npreview notes",
+                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
+                    apkFileName = "lomo-1.0.0.apk",
+                    apkSizeBytes = 8_192L,
+                )
+
+            val feature =
+                SettingsSystemFeatureViewModel(
+                    scope = this,
+                    appConfigCoordinator = fixture.appConfigCoordinator,
+                    appUpdateChecker = fixture.appUpdateChecker,
+                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                )
+
+            feature.openDebugLatestReleasePreview()
+            advanceUntilIdle()
+
+            assertEquals(
+                AppUpdateDialogState(
+                    url = "https://example.com/releases/1.0.0",
+                    version = "1.0.0",
+                    releaseNotes = "preview notes",
+                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
+                    apkFileName = "lomo-1.0.0.apk",
+                    apkSizeBytes = 8_192L,
+                ),
+                feature.debugPreviewDialogState.value,
+            )
+        }
+
     private data class SystemFeatureFixture(
         val appConfigCoordinator: SettingsAppConfigCoordinator,
         val appUpdateChecker: AppUpdateChecker,
@@ -217,6 +260,10 @@ class SettingsSystemFeatureViewModelTest {
                             preferencesRepository = appConfigRepository,
                             appUpdateRepository = appUpdateRepository,
                             appRuntimeInfoRepository = appRuntimeInfoRepository,
+                        ),
+                    getLatestAppReleaseUseCase =
+                        GetLatestAppReleaseUseCase(
+                            appUpdateRepository = appUpdateRepository,
                         ),
                 ),
             getCurrentAppVersionUseCase =

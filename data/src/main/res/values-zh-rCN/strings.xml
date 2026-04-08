@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_update_missing_apk">这个版本没有提供 APK 下载包。</string>
+    <string name="app_update_enable_installs">请允许从此应用安装更新。</string>
+    <string name="app_update_http_failed">更新下载失败：HTTP %1$d</string>
+    <string name="app_update_empty_file">下载到的 APK 文件为空。</string>
+    <string name="app_update_no_installer">当前设备没有可用的安装程序。</string>
+</resources>

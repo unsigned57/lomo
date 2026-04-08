@@ -1,7 +1,8 @@
 package com.lomo.app.feature.update
 
-import android.content.Intent
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,10 +15,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import com.lomo.app.R
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -26,10 +25,11 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 fun LomoAppUpdateDialog(
     dialogState: AppUpdateDialogState?,
     onDismiss: () -> Unit,
+    onStartInAppUpdate: (AppUpdateDialogState) -> Unit,
+    onOpenReleasePage: (String) -> Unit,
 ) {
     dialogState ?: return
 
-    val context = LocalContext.current
     val haptic = LocalAppHapticFeedback.current
     val updateMessage =
         if (dialogState.version.isBlank()) {
@@ -48,15 +48,37 @@ fun LomoAppUpdateDialog(
             )
         },
         confirmButton = {
-            TextButton(
-                onClick = {
-                    haptic.medium()
-                    val intent = Intent(Intent.ACTION_VIEW, dialogState.url.toUri())
-                    context.startActivity(intent)
-                    onDismiss()
-                },
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text(stringResource(R.string.action_download))
+                TextButton(
+                    onClick = {
+                        haptic.medium()
+                        onOpenReleasePage(dialogState.url)
+                        onDismiss()
+                    },
+                ) {
+                    Text(stringResource(R.string.action_github_download))
+                }
+                TextButton(
+                    onClick = {
+                        haptic.medium()
+                        if (dialogState.canDownloadInApp) {
+                            onStartInAppUpdate(dialogState)
+                        } else {
+                            onOpenReleasePage(dialogState.url)
+                        }
+                        onDismiss()
+                    },
+                ) {
+                    Text(
+                        if (dialogState.canDownloadInApp) {
+                            stringResource(R.string.action_download)
+                        } else {
+                            stringResource(R.string.action_open_download_page)
+                        },
+                    )
+                }
             }
         },
         dismissButton = {
@@ -71,6 +93,9 @@ fun LomoAppUpdateDialog(
         },
     )
 }
+
+private val AppUpdateDialogState.canDownloadInApp: Boolean
+    get() = debugSimulationScenario != null || !apkDownloadUrl.isNullOrBlank()
 
 @Composable
 private fun UpdateDialogTextContent(

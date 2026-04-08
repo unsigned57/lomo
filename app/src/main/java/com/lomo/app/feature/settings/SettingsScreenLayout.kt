@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalUriHandler
@@ -41,6 +42,7 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.collections.immutable.toImmutableMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,6 +56,7 @@ internal fun SettingsScreenScaffold(
     resources: SettingsResources,
     storagePickers: StoragePickerActions,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
+    onPreviewDebugUpdate: () -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     AnimatedContent(
@@ -84,6 +87,7 @@ internal fun SettingsScreenScaffold(
                 dialogOptions = resources.dialogOptions,
                 storagePickers = storagePickers,
                 onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                onPreviewDebugUpdate = onPreviewDebugUpdate,
             )
         }
     }
@@ -161,7 +165,27 @@ private fun SettingsBody(
     dialogOptions: SettingsDialogOptions,
     storagePickers: StoragePickerActions,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
+    onPreviewDebugUpdate: () -> Unit,
 ) {
+    val gitSyncIntervalLabels = remember(dialogOptions.gitSyncIntervalLabels) {
+        dialogOptions.gitSyncIntervalLabels.toImmutableMap()
+    }
+    val webDavProviderLabels = remember(dialogOptions.webDavProviderLabels) {
+        dialogOptions.webDavProviderLabels.toImmutableMap()
+    }
+    val s3PathStyleLabels = remember(dialogOptions.s3PathStyleLabels) {
+        dialogOptions.s3PathStyleLabels.toImmutableMap()
+    }
+    val s3EncryptionModeLabels =
+        remember(dialogOptions.s3EncryptionModeLabels) { dialogOptions.s3EncryptionModeLabels.toImmutableMap() }
+    val s3RcloneFilenameEncryptionLabels =
+        remember(dialogOptions.s3RcloneFilenameEncryptionLabels) {
+            dialogOptions.s3RcloneFilenameEncryptionLabels.toImmutableMap()
+        }
+    val s3RcloneFilenameEncodingLabels =
+        remember(dialogOptions.s3RcloneFilenameEncodingLabels) {
+            dialogOptions.s3RcloneFilenameEncodingLabels.toImmutableMap()
+        }
     Column(
         modifier =
             Modifier
@@ -186,25 +210,25 @@ private fun SettingsBody(
             state = uiState.git,
             dialogState = dialogState,
             gitFeature = features.git,
-            gitSyncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
+            gitSyncIntervalLabels = gitSyncIntervalLabels,
         )
         WebDavSyncSettingsSectionContainer(
             state = uiState.webDav,
             dialogState = dialogState,
             webDavFeature = features.webDav,
-            gitSyncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
-            webDavProviderLabels = dialogOptions.webDavProviderLabels,
+            gitSyncIntervalLabels = gitSyncIntervalLabels,
+            webDavProviderLabels = webDavProviderLabels,
         )
         S3SyncSettingsSectionContainer(
             state = uiState.s3,
             dialogState = dialogState,
             s3Feature = features.s3,
             onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
-            syncIntervalLabels = dialogOptions.gitSyncIntervalLabels,
-            pathStyleLabels = dialogOptions.s3PathStyleLabels,
-            encryptionModeLabels = dialogOptions.s3EncryptionModeLabels,
-            rcloneFilenameEncryptionLabels = dialogOptions.s3RcloneFilenameEncryptionLabels,
-            rcloneFilenameEncodingLabels = dialogOptions.s3RcloneFilenameEncodingLabels,
+            syncIntervalLabels = gitSyncIntervalLabels,
+            pathStyleLabels = s3PathStyleLabels,
+            encryptionModeLabels = s3EncryptionModeLabels,
+            rcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
+            rcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
         )
         FooterSettingsSections(
             uiState = uiState,
@@ -213,6 +237,7 @@ private fun SettingsBody(
             interactionFeature = features.interaction,
             systemFeature = features.system,
             onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+            onPreviewDebugUpdate = onPreviewDebugUpdate,
         )
     }
 }
@@ -276,6 +301,7 @@ private fun FooterSettingsSections(
     interactionFeature: SettingsInteractionFeatureViewModel,
     systemFeature: SettingsSystemFeatureViewModel,
     onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
+    onPreviewDebugUpdate: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
     InteractionSettingsSection(
@@ -302,6 +328,7 @@ private fun FooterSettingsSections(
                 systemFeature.checkForUpdatesManually()
             }
         },
+        onPreviewDebugUpdate = onPreviewDebugUpdate,
         onOpenGithub = { uriHandler.openUri(GITHUB_URL) },
     )
 }

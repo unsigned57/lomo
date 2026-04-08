@@ -3,4 +3,7 @@
     <cache-path
         name="memo_share_images"
         path="shared_memos/" />
+    <cache-path
+        name="app_updates"
+        path="updates/" />
 </paths>

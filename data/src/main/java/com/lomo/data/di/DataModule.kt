@@ -29,6 +29,7 @@ import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.s3.AwsSdkS3ClientFactory
 import com.lomo.data.s3.LomoS3ClientFactory
 import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
+import com.lomo.data.repository.AppUpdateDownloadRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
 import com.lomo.data.repository.DefaultWorkspaceMediaAccess
@@ -58,6 +59,7 @@ import com.lomo.data.source.FileDataSourceImpl
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
+import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
@@ -375,6 +377,12 @@ object CoreRepositoryModule {
     @Provides
     @Singleton
     fun provideAppUpdateRepository(impl: AppUpdateRepositoryImpl): AppUpdateRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideAppUpdateDownloadRepository(
+        impl: AppUpdateDownloadRepositoryImpl,
+    ): AppUpdateDownloadRepository = impl
 
     @Provides
     @Singleton

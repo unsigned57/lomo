@@ -1,6 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.update.AppUpdateChecker
+import com.lomo.app.feature.update.AppUpdateDownloadManager
 import com.lomo.app.feature.update.AppUpdateDialogState
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3EncryptionMode
@@ -12,6 +13,7 @@ import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -223,12 +225,16 @@ class SettingsSystemFeatureViewModel(
     private val appConfigCoordinator: SettingsAppConfigCoordinator,
     private val appUpdateChecker: AppUpdateChecker? = null,
     private val getCurrentAppVersionUseCase: GetCurrentAppVersionUseCase? = null,
+    private val appUpdateDownloadManager: AppUpdateDownloadManager? = null,
 ) {
     private val _currentVersion = MutableStateFlow("")
     val currentVersion: StateFlow<String> = _currentVersion.asStateFlow()
 
     private val _manualUpdateState = MutableStateFlow<SettingsManualUpdateState>(SettingsManualUpdateState.Idle)
     val manualUpdateState: StateFlow<SettingsManualUpdateState> = _manualUpdateState.asStateFlow()
+    private val _debugPreviewDialogState = MutableStateFlow<AppUpdateDialogState?>(null)
+    val debugPreviewDialogState: StateFlow<AppUpdateDialogState?> = _debugPreviewDialogState.asStateFlow()
+    private var debugPreviewJob: Job? = null
 
     init {
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -259,6 +265,9 @@ class SettingsSystemFeatureViewModel(
                                                 url = info.url,
                                                 version = info.version,
                                                 releaseNotes = info.releaseNotes,
+                                                apkDownloadUrl = info.apkDownloadUrl,
+                                                apkFileName = info.apkFileName,
+                                                apkSizeBytes = info.apkSizeBytes,
                                             ),
                                     )
                             }
@@ -268,6 +277,48 @@ class SettingsSystemFeatureViewModel(
                         },
                     )
         }
+    }
+
+    fun startInAppUpdate(dialogState: AppUpdateDialogState) {
+        appUpdateDownloadManager?.startInAppUpdate(dialogState)
+    }
+
+    fun openDebugLatestReleasePreview() {
+        if (debugPreviewJob?.isActive == true) {
+            return
+        }
+        debugPreviewJob =
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { appUpdateChecker?.getLatestReleaseForDebugPreview() }
+                    .fold(
+                        onSuccess = { info ->
+                            when {
+                                info == null -> _manualUpdateState.value = SettingsManualUpdateState.UpToDate
+                                else ->
+                                    _debugPreviewDialogState.value =
+                                        AppUpdateDialogState(
+                                            url = info.url,
+                                            version = info.version,
+                                            releaseNotes = info.releaseNotes,
+                                            apkDownloadUrl = info.apkDownloadUrl,
+                                            apkFileName = info.apkFileName,
+                                            apkSizeBytes = info.apkSizeBytes,
+                                        )
+                            }
+                        },
+                        onFailure = { throwable ->
+                            _manualUpdateState.value = SettingsManualUpdateState.Error(throwable.message)
+                        },
+                    )
+            }.also { launchedJob ->
+                launchedJob.invokeOnCompletion {
+                    debugPreviewJob = null
+                }
+            }
+    }
+
+    fun consumeDebugPreviewDialog() {
+        _debugPreviewDialogState.value = null
     }
 }
 

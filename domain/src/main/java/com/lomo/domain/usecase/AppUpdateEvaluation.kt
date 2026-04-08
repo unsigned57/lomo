@@ -7,7 +7,7 @@ internal fun evaluateAppUpdate(
     release: LatestAppRelease,
     currentVersionName: String,
 ): AppUpdateInfo? {
-    val remoteVersion = release.tagName.removePrefix("v")
+    val remoteVersion = release.toAppUpdateInfo().version
     val localVersion = currentVersionName.substringBefore("-")
     val forceUpdate = release.body.contains(FORCE_UPDATE_MARKER)
     val updateAvailable =
@@ -19,12 +19,18 @@ internal fun evaluateAppUpdate(
     if (!updateAvailable) {
         return null
     }
-    return AppUpdateInfo(
-        url = release.htmlUrl,
-        version = remoteVersion,
-        releaseNotes = release.body,
-    )
+    return release.toAppUpdateInfo()
 }
+
+internal fun LatestAppRelease.toAppUpdateInfo(): AppUpdateInfo =
+    AppUpdateInfo(
+        url = htmlUrl,
+        version = tagName.removePrefix("v"),
+        releaseNotes = body,
+        apkDownloadUrl = apkDownloadUrl,
+        apkFileName = apkFileName,
+        apkSizeBytes = apkSizeBytes,
+    )
 
 private fun isRemoteVersionNewer(
     localVersion: String,

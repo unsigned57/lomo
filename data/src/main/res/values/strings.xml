@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_update_missing_apk">This release does not include an APK download.</string>
+    <string name="app_update_enable_installs">Allow installs from this app to continue.</string>
+    <string name="app_update_http_failed">Update download failed: HTTP %1$d</string>
+    <string name="app_update_empty_file">Downloaded APK file is empty.</string>
+    <string name="app_update_no_installer">No package installer is available on this device.</string>
+</resources>
