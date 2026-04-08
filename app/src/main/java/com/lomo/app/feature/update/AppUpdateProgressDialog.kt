@@ -16,6 +16,7 @@ import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.InstallMobile
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -37,7 +38,7 @@ import androidx.compose.ui.window.Dialog
 import com.lomo.app.R
 import com.lomo.domain.model.AppUpdateInstallState
 
-@androidx.compose.material3.ExperimentalMaterial3Api
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LomoAppUpdateProgressDialog(
     state: AppUpdateProgressDialogState?,
