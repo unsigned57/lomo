@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.ProvideExpressiveMotion
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -26,21 +28,23 @@ fun MemoMenuBottomSheet(
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
     onLanShare: () -> Unit,
-    onTogglePin: (() -> Unit)? = null,
-    onJump: (() -> Unit)? = null,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    onTogglePin: (() -> Unit)? = null,
+    onJump: (() -> Unit)? = null,
     onHistory: (() -> Unit)? = null,
     showHistory: Boolean = false,
     showJump: Boolean = false,
     memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: List<String> = emptyList(),
+    memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
     benchmarkRootTag: String? = null,
     actionAnchorForId: (MemoActionId) -> String? = { null },
 ) {
     ProvideExpressiveMotion {
         ModalBottomSheet(
+            modifier = modifier,
             onDismissRequest = onDismissRequest,
             sheetState = sheetState,
             dragHandle = {

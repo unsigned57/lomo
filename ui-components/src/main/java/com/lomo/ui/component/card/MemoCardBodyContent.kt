@@ -16,6 +16,9 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
 
 @Composable
 internal fun MemoCardBodyContent(
@@ -27,7 +30,7 @@ internal fun MemoCardBodyContent(
     tags: ImmutableList<String>,
     isCollapsedPreview: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
 ) {
@@ -109,7 +112,7 @@ private fun MemoCardBodyBranch(
     tags: ImmutableList<String>,
     isCollapsedPreview: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
     if (useCollapsedSummary) {
@@ -139,13 +142,13 @@ private fun MemoCardMarkdownContent(
     isCollapsedPreview: Boolean,
     allowFreeTextCopy: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
     MarkdownRenderer(
         content = processedContent,
         precomputedRenderPlan = precomputedRenderPlan,
-        knownTagsToStrip = if (precomputedRenderPlan == null) tags else emptyList(),
+        knownTagsToStrip = if (precomputedRenderPlan == null) tags else persistentListOf(),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         maxVisibleBlocks = if (isCollapsedPreview) COLLAPSED_MAX_VISIBLE_BLOCKS else Int.MAX_VALUE,
         onTodoClick = onTodoClick,

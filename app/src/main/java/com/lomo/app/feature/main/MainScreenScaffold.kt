@@ -29,6 +29,8 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,10 +42,10 @@ internal fun MainScreenScaffoldContent(
     searchQuery: String,
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
-    uiMemos: List<MemoUiModel>,
-    visibleUiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    uiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -182,10 +184,10 @@ private fun MainScreenScaffoldBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
     hasRawItems: Boolean,
-    uiMemos: List<MemoUiModel>,
-    visibleUiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    uiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,

@@ -21,6 +21,8 @@ import com.lomo.app.feature.settings.SettingsScreen
 import com.lomo.app.feature.share.ShareScreen
 import com.lomo.app.feature.tag.TagFilterScreen
 import com.lomo.app.feature.trash.TrashScreen
+import com.lomo.app.util.activityHiltViewModel
+import kotlinx.collections.immutable.toImmutableList
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -34,7 +36,6 @@ private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
 @Composable
 fun LomoNavHost(
     navController: NavHostController,
-    viewModel: MainViewModel,
 ) {
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
     val navigateToShare = rememberShareNavigationAction(navController = navController)
@@ -47,7 +48,6 @@ fun LomoNavHost(
         ) {
             LomoNavigationGraph(
                 navController = navController,
-                viewModel = viewModel,
                 popBackStackSafely = popBackStackSafely,
                 navigateToShare = navigateToShare,
                 navigateToImage = navigateToImage,
@@ -112,7 +112,6 @@ private fun rememberImageNavigationAction(navController: NavHostController): (Im
 @Composable
 private fun LomoNavigationGraph(
     navController: NavHostController,
-    viewModel: MainViewModel,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
@@ -127,14 +126,12 @@ private fun LomoNavigationGraph(
     ) {
         addPrimaryDestinations(
             navController = navController,
-            viewModel = viewModel,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
             navigateToImage = navigateToImage,
         )
         addSecondaryDestinations(
             navController = navController,
-            viewModel = viewModel,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
             navigateToImage = navigateToImage,
@@ -147,7 +144,6 @@ private fun LomoNavigationGraph(
 
 private fun NavGraphBuilder.addPrimaryDestinations(
     navController: NavHostController,
-    viewModel: MainViewModel,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
@@ -157,7 +153,6 @@ private fun NavGraphBuilder.addPrimaryDestinations(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
             MainScreen(
-                viewModel = viewModel,
                 onNavigateToSettings = { navController.navigate(NavRoute.Settings) },
                 onNavigateToTrash = { navController.navigate(NavRoute.Trash) },
                 onNavigateToSearch = { navController.navigate(NavRoute.Search) },
@@ -188,7 +183,6 @@ private fun NavGraphBuilder.addPrimaryDestinations(
 
 private fun NavGraphBuilder.addSecondaryDestinations(
     navController: NavHostController,
-    viewModel: MainViewModel,
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
@@ -208,6 +202,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
     }
 
     composable<NavRoute.DailyReview> {
+        val mainViewModel: MainViewModel = activityHiltViewModel()
         androidx.compose.runtime.CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
@@ -216,7 +211,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
                 onNavigateToImage = navigateToImage,
                 onNavigateToShare = navigateToShare,
                 onNavigateToMemo = { memoId ->
-                    viewModel.requestFocusMemo(memoId)
+                    mainViewModel.requestFocusMemo(memoId)
                     navController.popBackStackOrNavigateMain()
                 },
             )
@@ -225,7 +220,6 @@ private fun NavGraphBuilder.addSecondaryDestinations(
 
     composable<NavRoute.Gallery> {
         GalleryScreen(
-            viewModel = viewModel,
             onBackClick = popBackStackSafely,
             onNavigateToImage = navigateToImage,
             onNavigateToShare = navigateToShare,
@@ -257,7 +251,7 @@ private fun NavGraphBuilder.addImageViewerDestination(popBackStackSafely: () -> 
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
             ImageViewerScreen(
-                imageUrls = imageUrls,
+                imageUrls = imageUrls.toImmutableList(),
                 initialIndex = route.initialIndex,
                 onBackClick = popBackStackSafely,
             )

@@ -6,6 +6,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import com.lomo.ui.util.AppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
 
 @Composable
 internal fun InputSheetContent(
@@ -84,7 +85,7 @@ private fun InputSheetBody(
     recordingAmplitude: Int,
     inputValue: TextFieldValue,
     hintText: String,
-    availableTags: List<String>,
+    availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,

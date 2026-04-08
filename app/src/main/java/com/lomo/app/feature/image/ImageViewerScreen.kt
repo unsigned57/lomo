@@ -25,6 +25,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
@@ -40,18 +42,18 @@ private val IMAGE_VIEWER_PAGE_INDICATOR_BOTTOM_PADDING = 20.dp
 private val IMAGE_VIEWER_CLOSE_BUTTON_PADDING = 16.dp
 
 private data class ImageViewerContentState(
-    val urls: List<String>,
+    val urls: ImmutableList<String>,
     val initialIndex: Int,
 )
 
 @Composable
 fun ImageViewerScreen(
-    imageUrls: List<String>,
+    imageUrls: ImmutableList<String>,
     initialIndex: Int,
     onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val contentState = rememberImageViewerContentState(imageUrls, initialIndex)
-    val zoomFractions = remember(contentState.urls) { mutableStateMapOf<Int, Float>() }
     val sharedModifier =
         Modifier.rememberImageViewerSharedModifier(
             urls = contentState.urls,
@@ -60,14 +62,13 @@ fun ImageViewerScreen(
 
     Box(
         modifier =
-            Modifier
+            modifier
                 .fillMaxSize()
                 .background(Color.Black),
     ) {
         if (contentState.urls.isNotEmpty()) {
             ImageViewerPager(
                 contentState = contentState,
-                zoomFractions = zoomFractions,
                 modifier = sharedModifier,
                 onBackClick = onBackClick,
             )
@@ -78,7 +79,7 @@ fun ImageViewerScreen(
 
 @Composable
 private fun rememberImageViewerContentState(
-    imageUrls: List<String>,
+    imageUrls: ImmutableList<String>,
     initialIndex: Int,
 ): ImageViewerContentState {
     val normalizedUrls =
@@ -88,6 +89,7 @@ private fun rememberImageViewerContentState(
                 .map(String::trim)
                 .filter(String::isNotEmpty)
                 .toList()
+                .toImmutableList()
         }
     val effectiveInitialIndex =
         if (normalizedUrls.isEmpty()) {
@@ -104,7 +106,7 @@ private fun rememberImageViewerContentState(
 
 @Composable
 private fun Modifier.rememberImageViewerSharedModifier(
-    urls: List<String>,
+    urls: ImmutableList<String>,
     initialIndex: Int,
 ): Modifier {
     val sharedTransitionScope = com.lomo.ui.util.LocalSharedTransitionScope.current
@@ -126,10 +128,10 @@ private fun Modifier.rememberImageViewerSharedModifier(
 @Composable
 private fun BoxScope.ImageViewerPager(
     contentState: ImageViewerContentState,
-    zoomFractions: MutableMap<Int, Float>,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
     onBackClick: () -> Unit,
 ) {
+    val zoomFractions = remember(contentState.urls) { mutableStateMapOf<Int, Float>() }
     val pagerState =
         rememberPagerState(
             initialPage = contentState.initialIndex,
@@ -150,7 +152,7 @@ private fun BoxScope.ImageViewerPager(
             imageUrl = contentState.urls[page],
             isInitiallyShared = page == contentState.initialIndex,
             modifier = modifier,
-            zoomFractions = zoomFractions,
+            onZoomFractionChanged = { zoomFractions[page] = it },
             onBackClick = onBackClick,
         )
     }
@@ -174,8 +176,8 @@ private fun ImageViewerPage(
     page: Int,
     imageUrl: String,
     isInitiallyShared: Boolean,
-    modifier: Modifier,
-    zoomFractions: MutableMap<Int, Float>,
+    onZoomFractionChanged: (Float) -> Unit,
+    modifier: Modifier = Modifier,
     onBackClick: () -> Unit,
 ) {
     val zoomableState = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = IMAGE_VIEWER_MAX_ZOOM_FACTOR))
@@ -184,7 +186,7 @@ private fun ImageViewerPage(
     val canPanImage = zoomFraction > IMAGE_VIEWER_SCROLL_LOCK_THRESHOLD
 
     LaunchedEffect(page, zoomFraction) {
-        zoomFractions[page] = zoomFraction
+        onZoomFractionChanged(zoomFraction)
     }
 
     ZoomableAsyncImage(

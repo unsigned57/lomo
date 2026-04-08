@@ -16,9 +16,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 
 data class TagSelectorBarState(
-    val availableTags: List<String> = emptyList(),
+    val availableTags: ImmutableList<String> = persistentListOf(),
 )
 
 data class TagSelectorBarCallbacks(
@@ -29,8 +31,9 @@ data class TagSelectorBarCallbacks(
 fun TagSelectorBar(
     state: TagSelectorBarState,
     callbacks: TagSelectorBarCallbacks,
+    modifier: Modifier = Modifier,
 ) {
-    Column {
+    Column(modifier = modifier) {
         Text(
             androidx.compose.ui.res.stringResource(
                 com.lomo.ui.R.string.input_select_tag,

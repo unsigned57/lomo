@@ -54,6 +54,7 @@ data class VoiceRecordingPanelCallbacks(
 fun VoiceRecordingPanel(
     state: VoiceRecordingPanelState,
     callbacks: VoiceRecordingPanelCallbacks,
+    modifier: Modifier = Modifier,
 ) {
     val totalSeconds = state.recordingDuration / MILLIS_PER_SECOND
     val minutes = totalSeconds / SECONDS_PER_MINUTE
@@ -63,7 +64,7 @@ fun VoiceRecordingPanel(
 
     Column(
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(bottom = AppSpacing.Small),

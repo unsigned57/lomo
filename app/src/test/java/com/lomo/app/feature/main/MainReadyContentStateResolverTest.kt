@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.time.LocalDate
@@ -23,7 +24,7 @@ class MainReadyContentStateResolverTest {
             MainReadyContentState.Loading,
             resolveMainReadyContentState(
                 hasRawItems = true,
-                uiMemos = emptyList(),
+                uiMemos = emptyList<MemoUiModel>().toImmutableList(),
             ),
         )
     }
@@ -34,7 +35,7 @@ class MainReadyContentStateResolverTest {
             MainReadyContentState.Empty,
             resolveMainReadyContentState(
                 hasRawItems = false,
-                uiMemos = emptyList(),
+                uiMemos = emptyList<MemoUiModel>().toImmutableList(),
             ),
         )
     }
@@ -45,7 +46,7 @@ class MainReadyContentStateResolverTest {
             MainReadyContentState.List,
             resolveMainReadyContentState(
                 hasRawItems = true,
-                uiMemos = listOf(memoUiModel("memo-1")),
+                uiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
             ),
         )
     }

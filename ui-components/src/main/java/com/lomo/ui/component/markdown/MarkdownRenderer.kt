@@ -44,6 +44,10 @@ import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.text.scriptAwareTextAlign
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.BlockQuote
@@ -71,11 +75,11 @@ fun MarkdownRenderer(
     modifier: Modifier = Modifier,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: Map<Int, Boolean> = emptyMap(), // State overlay for checkboxes
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(), // State overlay for checkboxes
     onImageClick: ((String) -> Unit)? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
-    knownTagsToStrip: List<String> = emptyList(),
+    knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
 ) {
     ModernMarkdownRenderer(
@@ -119,7 +123,7 @@ internal fun MDBlock(
     modifier: Modifier = Modifier,
     baseStyle: TextStyle? = null,
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
     enableTextSelection: Boolean = false,
 ) {
@@ -128,9 +132,30 @@ internal fun MDBlock(
         is Paragraph -> MDParagraph(ImmutableNode(n), modifier, baseStyle, onImageClick, enableTextSelection)
         is FencedCodeBlock -> MDCodeBlock(ImmutableNode(n), modifier, enableTextSelection)
         is IndentedCodeBlock -> MDIndentedCodeBlock(ImmutableNode(n), modifier, enableTextSelection)
-        is BlockQuote -> MDBlockQuote(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
-        is BulletList -> MDBulletList(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
-        is OrderedList -> MDOrderedList(ImmutableNode(n), modifier, onTodoClick, todoOverrides, enableTextSelection)
+        is BlockQuote ->
+            MDBlockQuote(
+                blockQuoteNode = ImmutableNode(n),
+                onTodoClick = onTodoClick,
+                modifier = modifier,
+                todoOverrides = todoOverrides,
+                enableTextSelection = enableTextSelection,
+            )
+        is BulletList ->
+            MDBulletList(
+                bulletListNode = ImmutableNode(n),
+                onTodoClick = onTodoClick,
+                modifier = modifier,
+                todoOverrides = todoOverrides,
+                enableTextSelection = enableTextSelection,
+            )
+        is OrderedList ->
+            MDOrderedList(
+                orderedListNode = ImmutableNode(n),
+                onTodoClick = onTodoClick,
+                modifier = modifier,
+                todoOverrides = todoOverrides,
+                enableTextSelection = enableTextSelection,
+            )
         is ThematicBreak -> HorizontalDivider(modifier = modifier.padding(vertical = 8.dp))
     }
 }
@@ -262,9 +287,9 @@ private fun MDIndentedCodeBlock(
 @Composable
 private fun MDBlockQuote(
     blockQuoteNode: ImmutableNode,
-    modifier: Modifier = Modifier,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    modifier: Modifier = Modifier,
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     enableTextSelection: Boolean = false,
 ) {
     val quote = blockQuoteNode.node as BlockQuote
@@ -300,9 +325,9 @@ private fun MDBlockQuote(
 @Composable
 private fun MDBulletList(
     bulletListNode: ImmutableNode,
-    modifier: Modifier = Modifier,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    modifier: Modifier = Modifier,
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     enableTextSelection: Boolean = false,
 ) {
     val list = bulletListNode.node as BulletList
@@ -329,9 +354,9 @@ private fun MDBulletList(
 @Composable
 private fun MDOrderedList(
     orderedListNode: ImmutableNode,
-    modifier: Modifier = Modifier,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    modifier: Modifier = Modifier,
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     enableTextSelection: Boolean = false,
 ) {
     val list = orderedListNode.node as OrderedList
@@ -362,9 +387,9 @@ private fun MDOrderedList(
 private fun MDListItem(
     listItemNode: ImmutableNode,
     bullet: String,
-    modifier: Modifier = Modifier,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    modifier: Modifier = Modifier,
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     enableTextSelection: Boolean = false,
 ) {
     val listItem = listItemNode.node as ListItem
@@ -377,12 +402,12 @@ private fun MDListItem(
             onTodoClick = onTodoClick,
         )
         MDListItemContent(
-            modifier = Modifier.weight(1f),
             listItem = listItem,
             itemStyle = presentation.itemStyle,
             onTodoClick = onTodoClick,
             todoOverrides = todoOverrides,
             enableTextSelection = enableTextSelection,
+            modifier = Modifier.weight(1f),
         )
     }
 }

@@ -13,14 +13,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun GitDialogs(
     uiState: SettingsScreenUiState,
-    gitFeature: SettingsGitFeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
 ) {
+    val gitFeature = features.git
     GitRemoteUrlDialog(
         gitFeature = gitFeature,
         dialogState = dialogState,
@@ -40,7 +42,7 @@ internal fun GitDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showGitSyncIntervalDialog,
         title = stringResource(R.string.settings_git_select_sync_interval),
-        options = options.gitSyncIntervals,
+        options = options.gitSyncIntervals.toImmutableList(),
         currentSelection = uiState.git.autoSyncInterval,
         onDismiss = { dialogState.showGitSyncIntervalDialog = false },
         onSelect = {

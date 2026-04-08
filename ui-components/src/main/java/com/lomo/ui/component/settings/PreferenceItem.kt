@@ -26,6 +26,7 @@ private const val DISABLED_PREFERENCE_ALPHA = 0.56f
 @Composable
 fun PreferenceItem(
     title: String,
+    modifier: Modifier = Modifier,
     subtitle: String? = null,
     subtitleMinLines: Int = 1,
     icon: ImageVector? = null,
@@ -72,7 +73,7 @@ fun PreferenceItem(
                 null
             },
         modifier =
-            Modifier
+            modifier
                 .alpha(if (enabled) 1f else DISABLED_PREFERENCE_ALPHA)
                 .then(
                     if (clickable) {

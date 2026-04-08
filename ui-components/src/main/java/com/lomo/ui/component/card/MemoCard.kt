@@ -51,6 +51,8 @@ import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.memoSummaryTextStyle
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -63,19 +65,19 @@ fun MemoCard(
     timestamp: Long,
     tags: ImmutableList<String>,
     modifier: Modifier = Modifier,
+    menuButtonModifier: Modifier = Modifier,
+    onClick: () -> Unit = {},
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan? = null,
     dateFormat: String = "yyyy-MM-dd",
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
     allowFreeTextCopy: Boolean = false,
-    onClick: () -> Unit = {},
     onDoubleClick: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: Map<Int, Boolean> = emptyMap(), // State overlay for checkboxes
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(), // State overlay for checkboxes
     onImageClick: ((String) -> Unit)? = null,
-    menuButtonModifier: Modifier = Modifier,
     shouldShowExpand: Boolean = shouldShowMemoCardExpand(content),
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
     menuContent: (@Composable () -> Unit)? = null,
@@ -175,7 +177,7 @@ private fun MemoCardHeader(
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
     menuContent: (@Composable () -> Unit)?,
 ) {
     val timeStr =
@@ -208,7 +210,7 @@ private fun MemoCardHeaderActions(
     isPinned: Boolean,
     onMenuClick: (() -> Unit)?,
     haptic: com.lomo.ui.util.AppHapticFeedback,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
     menuContent: (@Composable () -> Unit)?,
 ) {
     Row(
@@ -274,7 +276,7 @@ private fun MemoCardBody(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)

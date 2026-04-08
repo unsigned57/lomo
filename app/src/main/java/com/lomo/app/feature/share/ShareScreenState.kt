@@ -9,9 +9,11 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 data class ShareScreenUiState(
-    val discoveredDevices: List<DiscoveredDevice>,
+    val discoveredDevices: ImmutableList<DiscoveredDevice>,
     val transferState: ShareTransferState,
     val e2eEnabled: Boolean,
     val pairingConfigured: Boolean,
@@ -41,18 +43,18 @@ class ShareScreenLocalState {
 fun rememberShareScreenLocalState(): ShareScreenLocalState = remember { ShareScreenLocalState() }
 
 @Composable
-fun ShareViewModel.collectShareScreenUiState(): ShareScreenUiState {
-    val devices = discoveredDevices.collectAsStateWithLifecycle().value
-    val transfer = transferState.collectAsStateWithLifecycle().value
-    val e2e = lanShareE2eEnabled.collectAsStateWithLifecycle().value
-    val pairingConfiguredValue = lanSharePairingConfigured.collectAsStateWithLifecycle().value
-    val savedPairingCodeValue = lanSharePairingCode.collectAsStateWithLifecycle().value
-    val pairingCodeErrorValue = pairingCodeError.collectAsStateWithLifecycle().value
-    val pairingRequiredValue = pairingRequiredEvent.collectAsStateWithLifecycle().value
-    val deviceNameValue = lanShareDeviceName.collectAsStateWithLifecycle().value
+fun collectShareScreenUiState(viewModel: ShareViewModel): ShareScreenUiState {
+    val devices = viewModel.discoveredDevices.collectAsStateWithLifecycle().value
+    val transfer = viewModel.transferState.collectAsStateWithLifecycle().value
+    val e2e = viewModel.lanShareE2eEnabled.collectAsStateWithLifecycle().value
+    val pairingConfiguredValue = viewModel.lanSharePairingConfigured.collectAsStateWithLifecycle().value
+    val savedPairingCodeValue = viewModel.lanSharePairingCode.collectAsStateWithLifecycle().value
+    val pairingCodeErrorValue = viewModel.pairingCodeError.collectAsStateWithLifecycle().value
+    val pairingRequiredValue = viewModel.pairingRequiredEvent.collectAsStateWithLifecycle().value
+    val deviceNameValue = viewModel.lanShareDeviceName.collectAsStateWithLifecycle().value
 
     return ShareScreenUiState(
-        discoveredDevices = devices,
+        discoveredDevices = devices.toImmutableList(),
         transferState = transfer,
         e2eEnabled = e2e,
         pairingConfigured = pairingConfiguredValue,
@@ -60,6 +62,6 @@ fun ShareViewModel.collectShareScreenUiState(): ShareScreenUiState {
         pairingCodeError = pairingCodeErrorValue,
         pairingRequiredEvent = pairingRequiredValue,
         deviceName = deviceNameValue,
-        memoContent = memoContent,
+        memoContent = viewModel.memoContent,
     )
 }

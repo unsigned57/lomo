@@ -24,6 +24,7 @@ import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
+import kotlinx.collections.immutable.ImmutableList
 
 enum class MemoCardListAnimation {
     None,
@@ -34,7 +35,7 @@ enum class MemoCardListAnimation {
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun MemoCardList(
-    memos: List<MemoUiModel>,
+    memos: ImmutableList<MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,

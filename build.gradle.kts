@@ -38,6 +38,11 @@ val lintTasksByProject =
         "data" to "lintDebug",
         "ui-components" to "lintDebug",
     )
+val composeCompilerReportTasksByProject =
+    linkedMapOf(
+        "app" to listOf("compileDebugKotlin"),
+        "ui-components" to listOf("compileDebugKotlin"),
+    )
 val compileGateTasksByProject =
     linkedMapOf(
         "app" to listOf("compileDebugKotlin", "compileDebugJavaWithJavac"),
@@ -325,6 +330,22 @@ tasks.register("androidLintCheck") {
     group = "verification"
     description = "Runs Android Lint for release app wiring and debug Android library modules."
     dependsOn(lintTasksByProject.map { (projectName, taskName) -> ":$projectName:$taskName" })
+}
+
+tasks.register("composeCompilerAnalysisCheck") {
+    group = "verification"
+    description = "Generates Compose compiler metrics and reports for AI-readable static hotspot analysis."
+    dependsOn(
+        composeCompilerReportTasksByProject.flatMap { (projectName, taskNames) ->
+            taskNames.map { taskName -> ":$projectName:$taskName" }
+        },
+    )
+}
+
+tasks.register("composeStaticAnalysisCheck") {
+    group = "verification"
+    description = "Runs Compose-focused static analysis via Android Lint plus compiler metrics and reports."
+    dependsOn("composeCompilerAnalysisCheck", "androidLintCheck")
 }
 
 tasks.register("compileGateCheck") {

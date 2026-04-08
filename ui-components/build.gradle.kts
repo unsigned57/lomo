@@ -24,6 +24,11 @@ android {
         targetCompatibility = JavaVersion.toVersion(25)
     }
 
+    composeCompiler {
+        metricsDestination = rootProject.layout.buildDirectory.dir("reports/compose-compiler/ui-components/metrics")
+        reportsDestination = rootProject.layout.buildDirectory.dir("reports/compose-compiler/ui-components/reports")
+    }
+
     lint {
         abortOnError = true
         warningsAsErrors = true
@@ -34,6 +39,7 @@ android {
 
 dependencies {
     implementation(project(":domain"))
+    lintChecks(libs.slack.compose.lint.checks)
 
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.androidx.compose.bom)) {

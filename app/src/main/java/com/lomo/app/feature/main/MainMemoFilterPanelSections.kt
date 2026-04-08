@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
@@ -38,20 +39,22 @@ internal fun MainMemoFilterSheetContent(
     onClearStartDate: () -> Unit,
     onClearEndDate: () -> Unit,
 ) {
-    MainMemoFilterHeader()
-    MainMemoSortOptionsRow(
-        selectedOption = filter.sortOption,
-        selectedAscending = filter.sortAscending,
-        onSortOptionSelected = onSortOptionSelected,
-    )
-    MainMemoDateRangeSection(
-        filter = filter,
-        hasDateFilter = hasDateFilter,
-        onOpenStartDatePicker = onOpenStartDatePicker,
-        onOpenEndDatePicker = onOpenEndDatePicker,
-        onClearStartDate = onClearStartDate,
-        onClearEndDate = onClearEndDate,
-    )
+    Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium)) {
+        MainMemoFilterHeader()
+        MainMemoSortOptionsRow(
+            selectedOption = filter.sortOption,
+            selectedAscending = filter.sortAscending,
+            onSortOptionSelected = onSortOptionSelected,
+        )
+        MainMemoDateRangeSection(
+            filter = filter,
+            hasDateFilter = hasDateFilter,
+            onOpenStartDatePicker = onOpenStartDatePicker,
+            onOpenEndDatePicker = onOpenEndDatePicker,
+            onClearStartDate = onClearStartDate,
+            onClearEndDate = onClearEndDate,
+        )
+    }
 }
 
 @Composable
@@ -168,29 +171,34 @@ internal fun MainMemoDateFieldContent(
     value: String,
     hasValue: Boolean,
 ) {
-    Icon(
-        imageVector = Icons.Rounded.CalendarMonth,
-        contentDescription = null,
-        tint =
-            if (hasValue) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        modifier = Modifier.size(20.dp),
-    )
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-    )
-    Text(
-        text = value,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center,
-    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.ExtraSmall),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.CalendarMonth,
+            contentDescription = null,
+            tint =
+                if (hasValue) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            modifier = Modifier.size(20.dp),
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+    }
 }
 
 @Composable

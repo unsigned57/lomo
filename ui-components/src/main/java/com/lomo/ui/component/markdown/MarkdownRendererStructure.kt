@@ -26,6 +26,9 @@ import com.lomo.ui.text.MemoDisplayTextState
 import com.lomo.ui.text.appendBoundarySpaceIfNeeded
 import com.lomo.ui.theme.memoListTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableList
 import org.commonmark.ext.task.list.items.TaskListItemMarker
 import org.commonmark.node.HardLineBreak
 import org.commonmark.node.Image
@@ -41,7 +44,7 @@ internal sealed interface MarkdownRenderItem {
     ) : MarkdownRenderItem
 
     data class Gallery(
-        val images: List<Image>,
+        val images: ImmutableList<Image>,
     ) : MarkdownRenderItem
 }
 
@@ -84,7 +87,7 @@ internal fun buildMarkdownRenderItems(
 }
 
 private data class ImageGallerySequence(
-    val images: List<Image>,
+    val images: ImmutableList<Image>,
     val nextNode: Node?,
 )
 
@@ -99,7 +102,11 @@ private fun consumeImageGallery(node: Node): ImageGallerySequence? {
         cursor = cursor.next
     }
 
-    return if (galleryImages.size > 1) ImageGallerySequence(galleryImages, cursor) else null
+    return if (galleryImages.size > 1) {
+        ImageGallerySequence(galleryImages.toImmutableList(), cursor)
+    } else {
+        null
+    }
 }
 
 internal sealed interface ParagraphItem
@@ -113,7 +120,7 @@ private data class ParagraphImage(
 ) : ParagraphItem
 
 private data class ParagraphGallery(
-    val images: List<Image>,
+    val images: ImmutableList<Image>,
 ) : ParagraphItem
 
 private data class ParagraphVoiceMemo(
@@ -197,7 +204,7 @@ private class ParagraphAccumulator(
         when (galleryImages.size) {
             0 -> Unit
             1 -> items += ParagraphImage(galleryImages.first())
-            else -> items += ParagraphGallery(galleryImages.toList())
+            else -> items += ParagraphGallery(galleryImages.toImmutableList())
         }
         galleryImages.clear()
     }
@@ -236,7 +243,7 @@ internal data class ListItemPresentation(
 @Composable
 internal fun rememberListItemPresentation(
     listItem: ListItem,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
 ): ListItemPresentation {
     val checkedItemStyle =
         MaterialTheme.typography.memoListTextStyle().copy(
@@ -326,12 +333,12 @@ private fun MDBulletLeading(bullet: String) {
 
 @Composable
 internal fun MDListItemContent(
-    modifier: Modifier = Modifier,
     listItem: ListItem,
     itemStyle: TextStyle,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     enableTextSelection: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier,

@@ -54,6 +54,8 @@ import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableMap
 import kotlin.math.roundToInt
 
 private val HEATMAP_CELL_SIZE = 10.dp
@@ -85,7 +87,7 @@ private const val PREVIEW_LEVEL_ONE_COUNT = 1
 
 @Composable
 fun CalendarHeatmap(
-    memoCountByDate: Map<LocalDate, Int>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
     modifier: Modifier = Modifier,
     onDateLongPress: (LocalDate) -> Unit = {},
 ) {
@@ -179,7 +181,7 @@ internal data class HeatmapPopupData(
 private fun rememberHeatmapLayout(
     density: androidx.compose.ui.unit.Density,
     today: LocalDate,
-    memoCountByDate: Map<LocalDate, Int>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
 ): HeatmapLayout {
     val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
     val spacingPx = with(density) { HEATMAP_CELL_SPACING.toPx() }
@@ -427,7 +429,7 @@ private fun CalendarHeatmapPreview() {
     LomoTheme {
         Surface(modifier = Modifier.padding(16.dp)) {
             CalendarHeatmap(
-                memoCountByDate = sampleMemoCountByDate,
+                memoCountByDate = sampleMemoCountByDate.toImmutableMap(),
                 modifier = Modifier.width(320.dp),
             )
         }

@@ -51,6 +51,8 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.R
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -99,17 +101,18 @@ fun MemoActionSheet(
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
     onLanShare: () -> Unit,
-    onTogglePin: (() -> Unit)? = null,
-    onJump: (() -> Unit)? = null,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    onTogglePin: (() -> Unit)? = null,
+    onJump: (() -> Unit)? = null,
     onHistory: (() -> Unit)? = null,
     showHistory: Boolean = false,
     showJump: Boolean = false,
-    actions: List<MemoActionSheetAction>? = null,
+    actions: ImmutableList<MemoActionSheetAction>? = null,
     memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: List<String> = emptyList(),
+    memoActionOrder: ImmutableList<String> = persistentListOf(),
     onActionInvoked: (MemoActionId) -> Unit = {},
     benchmarkRootTag: String? = null,
     actionAnchorForId: (MemoActionId) -> String? = { null },
@@ -151,7 +154,7 @@ fun MemoActionSheet(
 
     Column(
         modifier =
-            Modifier
+            modifier
                 .benchmarkAnchorRoot(benchmarkRootTag)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
@@ -224,11 +227,11 @@ private fun rememberResolvedMemoActionSheetActions(
     onHistory: (() -> Unit)?,
     showHistory: Boolean,
     showJump: Boolean,
-    actions: List<MemoActionSheetAction>?,
+    actions: ImmutableList<MemoActionSheetAction>?,
     memoActionAutoReorderEnabled: Boolean,
-    memoActionOrder: List<String>,
+    memoActionOrder: ImmutableList<String>,
     actionAnchorForId: (MemoActionId) -> String?,
-): List<MemoActionSheetAction> {
+): ImmutableList<MemoActionSheetAction> {
     val rankedActionOrder =
         remember(memoActionOrder) {
             memoActionOrder.mapNotNull(MemoActionId::fromStorageKey)
@@ -258,7 +261,7 @@ private fun rememberResolvedMemoActionSheetActions(
 
 @Composable
 private fun MemoActionRow(
-    actions: List<MemoActionSheetAction>,
+    actions: ImmutableList<MemoActionSheetAction>,
     actionsScrollState: androidx.compose.foundation.ScrollState,
     useHorizontalScroll: Boolean,
     equalWidthActions: Boolean,
@@ -495,8 +498,8 @@ internal fun calculateMenuEdgePreviewFlingOffset(
 private fun ActionChip(
     icon: ImageVector,
     label: String,
-    modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     isDestructive: Boolean = false,
     isHighlighted: Boolean = false,
 ) {

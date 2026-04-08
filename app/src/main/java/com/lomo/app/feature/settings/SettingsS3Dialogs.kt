@@ -15,10 +15,11 @@ import com.lomo.app.R
 @Composable
 internal fun S3Dialogs(
     uiState: SettingsScreenUiState,
-    s3Feature: SettingsS3FeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
 ) {
+    val s3Feature = features.s3
     S3EndpointUrlDialog(
         s3Feature = s3Feature,
         dialogState = dialogState,
@@ -53,7 +54,7 @@ internal fun S3Dialogs(
     )
     S3SelectionDialogs(
         uiState = uiState,
-        s3Feature = s3Feature,
+        features = features,
         dialogState = dialogState,
         options = options,
     )

@@ -44,6 +44,7 @@ import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
+import kotlinx.collections.immutable.ImmutableList
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -101,7 +102,7 @@ internal fun resolveVersionHistoryCardPresentation(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MemoVersionHistorySheet(
-    versions: List<MemoVersionHistoryUiModel>,
+    versions: ImmutableList<MemoVersionHistoryUiModel>,
     isLoading: Boolean,
     canLoadMore: Boolean,
     isLoadingMore: Boolean,
@@ -171,7 +172,7 @@ private fun MemoVersionHistoryHeader() {
 
 @Composable
 private fun MemoVersionHistoryBody(
-    versions: List<MemoVersionHistoryUiModel>,
+    versions: ImmutableList<MemoVersionHistoryUiModel>,
     isLoading: Boolean,
     canLoadMore: Boolean,
     isLoadingMore: Boolean,

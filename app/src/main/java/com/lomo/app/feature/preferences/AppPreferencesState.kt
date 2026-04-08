@@ -5,6 +5,9 @@ import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +26,7 @@ data class AppPreferencesState(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
-    val memoActionOrder: List<String>,
+    val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
@@ -39,7 +42,7 @@ data class AppPreferencesState(
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
                 memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
-                memoActionOrder = emptyList(),
+                memoActionOrder = persistentListOf(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
@@ -80,7 +83,7 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
                     memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-                    memoActionOrder = memoActionOrder,
+                    memoActionOrder = memoActionOrder.toImmutableList(),
                 )
             },
             isQuickSaveOnBackEnabled(),
@@ -133,14 +136,14 @@ private data class MemoActionPreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
-    val memoActionOrder: List<String>,
+    val memoActionOrder: ImmutableList<String>,
 )
 
 private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
-    val memoActionOrder: List<String>,
+    val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
 )

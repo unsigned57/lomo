@@ -4,6 +4,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.PreferencesRepository
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -34,7 +35,9 @@ class AppPreferencesStateTest {
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-            every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
+            every {
+                preferencesRepository.getMemoActionOrder()
+            } returns flowOf(listOf("history", "copy").toImmutableList())
 
             val state = preferencesRepository.observeAppPreferences().first()
 
@@ -48,7 +51,7 @@ class AppPreferencesStateTest {
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
                     memoActionAutoReorderEnabled = true,
-                    memoActionOrder = listOf("history", "copy"),
+                    memoActionOrder = listOf("history", "copy").toImmutableList(),
                     quickSaveOnBackEnabled = false,
                     shareCardShowTime = true,
                     shareCardShowBrand = false,

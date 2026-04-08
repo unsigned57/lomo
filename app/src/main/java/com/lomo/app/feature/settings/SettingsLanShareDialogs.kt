@@ -18,9 +18,10 @@ import com.lomo.domain.usecase.LanSharePairingCodePolicy
 @Composable
 internal fun LanShareDialogs(
     uiState: SettingsScreenUiState,
-    lanShareFeature: SettingsLanShareFeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
 ) {
+    val lanShareFeature = features.lanShare
     LanPairingDialog(
         uiState = uiState,
         lanShareFeature = lanShareFeature,

@@ -4,9 +4,16 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.widget.Toast
-import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import androidx.core.content.FileProvider
 import com.lomo.app.R
 import com.lomo.domain.usecase.PersistShareImageUseCase
@@ -186,7 +193,24 @@ class ShareUtils
         }
     }
 
-val LocalShareUtils =
-    staticCompositionLocalOf<ShareUtils> {
-        error("ShareUtils not provided")
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ShareUtilsEntryPoint {
+    fun shareUtils(): ShareUtils
+}
+
+@Composable
+fun rememberShareUtils(): ShareUtils {
+    val context = LocalContext.current
+    return remember(context) {
+        EntryPointAccessors
+            .fromApplication(context.applicationContext.resolveApplicationContext(), ShareUtilsEntryPoint::class.java)
+            .shareUtils()
+    }
+}
+
+private tailrec fun Context.resolveApplicationContext(): Context =
+    when (this) {
+        is ContextWrapper -> baseContext.resolveApplicationContext()
+        else -> applicationContext ?: this
     }

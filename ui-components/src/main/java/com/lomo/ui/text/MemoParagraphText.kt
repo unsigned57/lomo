@@ -78,10 +78,10 @@ internal fun MemoParagraphText(
 private fun PlatformMemoParagraphText(
     text: CharSequence,
     style: TextStyle,
-    modifier: Modifier,
     maxLines: Int,
     overflow: TextOverflow,
     selectable: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
 

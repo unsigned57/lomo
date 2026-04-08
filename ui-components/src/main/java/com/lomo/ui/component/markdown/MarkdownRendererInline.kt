@@ -19,6 +19,7 @@ import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.appendBoundarySpaceIfNeeded
 import com.lomo.ui.text.appendNormalizedDisplayLiteral
 import com.lomo.ui.theme.memoBodyTextStyle
+import kotlinx.collections.immutable.ImmutableList
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.node.Code
 import org.commonmark.node.Emphasis
@@ -69,7 +70,7 @@ internal fun MDImage(
 
 @Composable
 internal fun MDImageGallery(
-    images: List<Image>,
+    images: ImmutableList<Image>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     MarkdownImagePager(

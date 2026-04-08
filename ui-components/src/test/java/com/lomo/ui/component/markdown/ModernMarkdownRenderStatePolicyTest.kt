@@ -3,6 +3,7 @@ package com.lomo.ui.component.markdown
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.collections.immutable.toImmutableList
 
 /*
  * Test Contract:
@@ -20,7 +21,7 @@ class ModernMarkdownRenderStatePolicyTest {
                 basePlan = null,
                 content = "body #todo line",
                 maxVisibleBlocks = 3,
-                knownTagsToStrip = listOf("todo"),
+                knownTagsToStrip = listOf("todo").toImmutableList(),
             )
 
         assertTrue(state is ModernMarkdownRenderState.Pending)
@@ -40,7 +41,7 @@ class ModernMarkdownRenderStatePolicyTest {
 
                     three
                     """.trimIndent(),
-                knownTagsToStrip = emptyList(),
+                knownTagsToStrip = emptyList<String>().toImmutableList(),
             )
 
         val state =
@@ -48,7 +49,7 @@ class ModernMarkdownRenderStatePolicyTest {
                 basePlan = plan,
                 content = plan.content,
                 maxVisibleBlocks = 2,
-                knownTagsToStrip = emptyList(),
+                knownTagsToStrip = emptyList<String>().toImmutableList(),
             )
 
         assertTrue(state is ModernMarkdownRenderState.Ready)

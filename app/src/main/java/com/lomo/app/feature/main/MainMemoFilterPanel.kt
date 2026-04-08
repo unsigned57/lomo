@@ -198,11 +198,11 @@ internal fun MainMemoFilterSectionCard(
 
 @Composable
 internal fun MainMemoSortButton(
-    modifier: Modifier = Modifier,
     text: String,
     directionLabel: String?,
     icon: ImageVector,
     selected: Boolean,
+    modifier: Modifier = Modifier,
     benchmarkTag: String? = null,
     benchmarkSelectedTag: String? = null,
     onClick: () -> Unit,
@@ -271,11 +271,11 @@ internal fun MainMemoSortButton(
 
 @Composable
 internal fun MainMemoDateField(
-    modifier: Modifier = Modifier,
     label: String,
     value: String,
     hasValue: Boolean,
     onPick: () -> Unit,
+    modifier: Modifier = Modifier,
     onClear: () -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current

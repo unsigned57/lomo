@@ -3,6 +3,7 @@ package com.lomo.ui.text
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoEditorTextStyle
 import org.junit.Assert.assertEquals
@@ -61,7 +62,7 @@ class MemoPlainTextPresentationTest {
 
         assertEquals(typography.memoBodyTextStyle().fontSize, resolved.fontSize)
         assertEquals(typography.memoBodyTextStyle().lineHeight, resolved.lineHeight)
-        assertEquals(typography.memoBodyTextStyle().letterSpacing, resolved.letterSpacing)
+        assertEquals(0.sp, resolved.letterSpacing)
         assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
         assertEquals(typography.memoEditorTextStyle().scriptAwareFor(text), resolved)
     }

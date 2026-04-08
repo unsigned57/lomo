@@ -21,6 +21,8 @@ import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
@@ -91,7 +93,6 @@ fun rememberMemoEditorController(): MemoEditorController = remember { MemoEditor
 fun MemoEditorSheetHost(
     controller: MemoEditorController,
     imageDirectory: String?,
-    quickSaveOnBackEnabled: Boolean = false,
     onSaveImage: (
         uri: Uri,
         onResult: (String) -> Unit,
@@ -101,10 +102,11 @@ fun MemoEditorSheetHost(
         memo: Memo?,
         content: String,
     ) -> Unit,
+    quickSaveOnBackEnabled: Boolean = false,
     onDismiss: () -> Unit = {},
     onImageDirectoryMissing: (() -> Unit)? = null,
     onCameraCaptureError: ((Throwable) -> Unit)? = null,
-    availableTags: List<String> = emptyList(),
+    availableTags: ImmutableList<String> = persistentListOf(),
     isRecording: Boolean = false,
     recordingDuration: Long = 0L,
     recordingAmplitude: Int = 0,
@@ -114,7 +116,7 @@ fun MemoEditorSheetHost(
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
-    hints: List<String> = emptyList(),
+    hints: ImmutableList<String> = persistentListOf(),
 ) {
     if (!controller.isVisible) return
 

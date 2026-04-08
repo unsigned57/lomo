@@ -13,6 +13,7 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -63,7 +64,7 @@ class SyncConflictViewModelTest {
         assertEquals(
             SyncConflictDialogState.Showing(
                 conflictSet = conflictSet,
-                perFileChoices = emptyMap(),
+                perFileChoices = emptyMap<String, SyncConflictResolutionChoice>().toImmutableMap(),
                 expandedFilePath = null,
                 isResolving = false,
             ),
@@ -96,7 +97,7 @@ class SyncConflictViewModelTest {
                 perFileChoices =
                     mapOf(
                         "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                    ),
+                    ).toImmutableMap(),
                 expandedFilePath = null,
                 isResolving = false,
             ),
@@ -129,7 +130,7 @@ class SyncConflictViewModelTest {
                 perFileChoices =
                     mapOf(
                         "memos/2026_03_24.md" to SyncConflictResolutionChoice.MERGE_TEXT,
-                    ),
+                    ).toImmutableMap(),
                 expandedFilePath = null,
                 isResolving = false,
             ),
@@ -150,7 +151,7 @@ class SyncConflictViewModelTest {
             mapOf(
                 "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
                 "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
-            ),
+            ).toImmutableMap(),
             state.perFileChoices,
         )
     }
@@ -195,7 +196,7 @@ class SyncConflictViewModelTest {
                 "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_REMOTE,
                 "memos/2026_03_25.md" to SyncConflictResolutionChoice.MERGE_TEXT,
                 "images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW,
-            ),
+            ).toImmutableMap(),
             state.perFileChoices,
         )
     }
@@ -243,7 +244,7 @@ class SyncConflictViewModelTest {
                             mapOf(
                                 "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
                                 "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_REMOTE,
-                            ),
+                            ).toImmutableMap(),
                         ),
                 )
             }
@@ -272,7 +273,7 @@ class SyncConflictViewModelTest {
                 mapOf(
                     "memos/2026_03_24.md" to SyncConflictResolutionChoice.KEEP_LOCAL,
                     "images/photo.jpg" to SyncConflictResolutionChoice.KEEP_LOCAL,
-                ),
+                ).toImmutableMap(),
                 state.perFileChoices,
             )
             coVerify(exactly = 0) { syncConflictResolutionUseCase.resolve(any(), any()) }
@@ -327,7 +328,8 @@ class SyncConflictViewModelTest {
             assertEquals(
                 SyncConflictDialogState.Showing(
                     conflictSet = pending,
-                    perFileChoices = mapOf("images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW),
+                    perFileChoices =
+                        mapOf("images/photo.jpg" to SyncConflictResolutionChoice.SKIP_FOR_NOW).toImmutableMap(),
                     expandedFilePath = null,
                     isResolving = false,
                 ),

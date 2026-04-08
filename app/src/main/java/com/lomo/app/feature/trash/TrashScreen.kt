@@ -69,6 +69,11 @@ import com.lomo.ui.component.menu.MemoActionHaptic
 import com.lomo.ui.component.menu.MemoActionSheet
 import com.lomo.ui.component.menu.MemoActionSheetAction
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 
 private val TRASH_LIST_CONTENT_PADDING = 16.dp
 private val TRASH_LIST_ITEM_SPACING = 12.dp
@@ -89,6 +94,7 @@ private const val TRASH_ACTION_HANDLE_ALPHA = 0.4f
 @Composable
 fun TrashScreen(
     onBackClick: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: TrashViewModel = hiltViewModel(),
 ) {
     val trashMemos by viewModel.visibleTrashUiMemos.collectAsStateWithLifecycle()
@@ -124,9 +130,9 @@ fun TrashScreen(
         },
     ) { paddingValues ->
         TrashScreenContent(
-            trashMemos = trashMemos,
-            deletingMemoIds = deletingMemoIds,
-            collapsingMemoIds = collapsingMemoIds,
+            trashMemos = remember(trashMemos) { trashMemos.toImmutableList() },
+            deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
+            collapsingMemoIds = remember(collapsingMemoIds) { collapsingMemoIds.toImmutableSet() },
             dateFormat = appPreferences.dateFormat,
             timeFormat = appPreferences.timeFormat,
             freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
@@ -135,7 +141,7 @@ fun TrashScreen(
                 haptic.medium()
                 selectedMemo = memo
             },
-            modifier = Modifier.padding(paddingValues),
+            modifier = modifier.padding(paddingValues),
         )
     }
 
@@ -223,9 +229,9 @@ private fun TrashScreenScaffold(
 
 @Composable
 private fun TrashScreenContent(
-    trashMemos: List<MemoUiModel>,
-    deletingMemoIds: Set<String>,
-    collapsingMemoIds: Set<String>,
+    trashMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
@@ -233,22 +239,23 @@ private fun TrashScreenContent(
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (trashMemos.isEmpty()) {
-        TrashEmptyState(modifier = modifier.fillMaxSize())
-        return
+    Box(modifier = modifier.fillMaxSize()) {
+        if (trashMemos.isEmpty()) {
+            TrashEmptyState(modifier = Modifier.fillMaxSize())
+        } else {
+            TrashMemoList(
+                trashMemos = trashMemos,
+                deletingMemoIds = deletingMemoIds,
+                collapsingMemoIds = collapsingMemoIds,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                listState = listState,
+                onMemoMenuClick = onMemoMenuClick,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
     }
-
-    TrashMemoList(
-        trashMemos = trashMemos,
-        deletingMemoIds = deletingMemoIds,
-        collapsingMemoIds = collapsingMemoIds,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        freeTextCopyEnabled = freeTextCopyEnabled,
-        listState = listState,
-        onMemoMenuClick = onMemoMenuClick,
-        modifier = modifier.fillMaxSize(),
-    )
 }
 
 @Composable
@@ -264,9 +271,9 @@ private fun TrashEmptyState(modifier: Modifier = Modifier) {
 
 @Composable
 private fun TrashMemoList(
-    trashMemos: List<MemoUiModel>,
-    deletingMemoIds: Set<String>,
-    collapsingMemoIds: Set<String>,
+    trashMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
@@ -517,7 +524,7 @@ private fun TrashActionSheet(
             equalWidthActions = true,
             benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
             actions =
-                listOf(
+                persistentListOf(
                     MemoActionSheetAction(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         label = stringResource(R.string.action_restore),

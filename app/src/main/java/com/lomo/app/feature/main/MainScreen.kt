@@ -19,7 +19,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -30,6 +29,8 @@ import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.MemoVersionHistoryUiMapper
+import com.lomo.app.util.activityHiltViewModel
+import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoRevision
@@ -37,6 +38,11 @@ import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -44,6 +50,14 @@ internal const val DRAFT_AUTOSAVE_DEBOUNCE_MILLIS = 500L
 internal const val MAIN_SCREEN_LIST_SCROLL_SETTLE_INDEX = 10
 internal const val MAIN_SCREEN_FAB_VISIBILITY_THRESHOLD = 0.9f
 internal const val MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION = 0.8f
+
+internal data class MainScreenDependencies(
+    val mainViewModel: MainViewModel,
+    val sidebarViewModel: SidebarViewModel,
+    val editorViewModel: MemoEditorViewModel,
+    val recordingViewModel: RecordingViewModel,
+    val conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel,
+)
 
 @Composable
 fun MainScreen(
@@ -55,13 +69,23 @@ fun MainScreen(
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
-    viewModel: MainViewModel = hiltViewModel(),
-    sidebarViewModel: SidebarViewModel = hiltViewModel(),
-    editorViewModel: MemoEditorViewModel = hiltViewModel(),
-    recordingViewModel: RecordingViewModel = hiltViewModel(),
-    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = hiltViewModel(),
+    viewModel: MainViewModel = activityHiltViewModel(),
+    sidebarViewModel: SidebarViewModel = injectedHiltViewModel(),
+    editorViewModel: MemoEditorViewModel = injectedHiltViewModel(),
+    recordingViewModel: RecordingViewModel = injectedHiltViewModel(),
+    conflictViewModel: com.lomo.app.feature.conflict.SyncConflictViewModel = injectedHiltViewModel(),
 ) {
-    val screenState = collectMainScreenUiSnapshot(viewModel = viewModel, sidebarViewModel = sidebarViewModel)
+    val dependencies =
+        remember(viewModel, sidebarViewModel, editorViewModel, recordingViewModel, conflictViewModel) {
+            MainScreenDependencies(
+                mainViewModel = viewModel,
+                sidebarViewModel = sidebarViewModel,
+                editorViewModel = editorViewModel,
+                recordingViewModel = recordingViewModel,
+                conflictViewModel = conflictViewModel,
+            )
+        }
+    val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
     val hostState = rememberMainScreenHostState()
     val currentListTopMemoId = screenState.visibleUiMemos.firstOrNull()?.memo?.id
     val unknownErrorMessage = stringResource(R.string.error_unknown)
@@ -69,10 +93,10 @@ fun MainScreen(
 
     MainScreenDraftAutosaveEffect(
         editorController = hostState.editorController,
-        editorViewModel = editorViewModel,
+        dependencies = dependencies,
     )
     MainScreenAutomaticRefreshEffect(
-        viewModel = viewModel,
+        onRequestAutomaticRefresh = dependencies.mainViewModel.requestAutomaticRefreshForVisibleScreen,
         uiState = screenState.uiState,
     )
     MainScreenPendingNewMemoCreationEffect(
@@ -80,8 +104,7 @@ fun MainScreen(
         listState = hostState.listState,
         currentListTopMemoId = currentListTopMemoId,
         newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
-        viewModel = viewModel,
-        editorViewModel = editorViewModel,
+        dependencies = dependencies,
     )
     MainScreenNewMemoInsertAnimationEffect(
         listState = hostState.listState,
@@ -91,8 +114,7 @@ fun MainScreen(
     )
 
     MainScreenTransientEffects(
-        viewModel = viewModel,
-        editorViewModel = editorViewModel,
+        dependencies = dependencies,
         visibleUiMemos = screenState.visibleUiMemos,
         listState = hostState.listState,
         editorController = hostState.editorController,
@@ -103,14 +125,11 @@ fun MainScreen(
             screenState.uiState is MainViewModel.MainScreenState.Ready &&
                 screenState.pendingNewMemoCreationRequest == null,
     )
-    MainScreenConflictHost(viewModel = viewModel, conflictViewModel = conflictViewModel)
+    MainScreenConflictHost(dependencies = dependencies)
     MainScreenContentHost(
         screenState = screenState,
         hostState = hostState,
-        viewModel = viewModel,
-        sidebarViewModel = sidebarViewModel,
-        editorViewModel = editorViewModel,
-        recordingViewModel = recordingViewModel,
+        dependencies = dependencies,
         unknownErrorMessage = unknownErrorMessage,
         isRefreshing = isRefreshing,
         onRefreshingChange = { isRefreshing = it },
@@ -127,15 +146,15 @@ fun MainScreen(
 
 @Composable
 private fun MainScreenAutomaticRefreshEffect(
-    viewModel: MainViewModel,
+    onRequestAutomaticRefresh: () -> Unit,
     uiState: MainViewModel.MainScreenState,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val latestViewModel = rememberUpdatedState(viewModel)
+    val latestAutomaticRefresh = rememberUpdatedState(onRequestAutomaticRefresh)
 
     LaunchedEffect(uiState) {
         if (uiState is MainViewModel.MainScreenState.Ready) {
-            latestViewModel.value.requestAutomaticRefreshForVisibleScreen()
+            latestAutomaticRefresh.value()
         }
     }
 
@@ -143,7 +162,7 @@ private fun MainScreenAutomaticRefreshEffect(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_RESUME) {
-                    latestViewModel.value.requestAutomaticRefreshForVisibleScreen()
+                    latestAutomaticRefresh.value()
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -159,12 +178,10 @@ private fun MainScreenPendingNewMemoCreationEffect(
     listState: androidx.compose.foundation.lazy.LazyListState,
     currentListTopMemoId: String?,
     newMemoInsertAnimationSession: NewMemoInsertAnimationSession,
-    viewModel: MainViewModel,
-    editorViewModel: MemoEditorViewModel,
+    dependencies: MainScreenDependencies,
 ) {
     val scope = rememberCoroutineScope()
-    val latestViewModel = rememberUpdatedState(viewModel)
-    val latestEditorViewModel = rememberUpdatedState(editorViewModel)
+    val latestDependencies = rememberUpdatedState(dependencies)
     val latestListTopMemoId = rememberUpdatedState(currentListTopMemoId)
     val latestNewMemoInsertAnimationSession = rememberUpdatedState(newMemoInsertAnimationSession)
     val creationCoordinator =
@@ -182,9 +199,9 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         previousTopMemoId = latestListTopMemoId.value,
                     )
                     val consumedRequest =
-                        latestViewModel.value.consumePendingNewMemoCreationRequest(request.requestId)
+                        latestDependencies.value.mainViewModel.consumePendingNewMemoCreationRequest(request.requestId)
                     if (consumedRequest != null) {
-                        latestEditorViewModel.value.createMemo(consumedRequest.content)
+                        latestDependencies.value.editorViewModel.createMemo(consumedRequest.content)
                     }
                 },
             )
@@ -253,8 +270,8 @@ internal data class DraftAutosaveState(
 )
 
 internal data class MainScreenUiSnapshot(
-    val uiMemos: List<MemoUiModel>,
-    val visibleUiMemos: List<MemoUiModel>,
+    val uiMemos: ImmutableList<MemoUiModel>,
+    val visibleUiMemos: ImmutableList<MemoUiModel>,
     val hasRawItems: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
@@ -265,7 +282,7 @@ internal data class MainScreenUiSnapshot(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
-    val memoActionOrder: List<String>,
+    val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val uiState: MainViewModel.MainScreenState,
@@ -297,7 +314,7 @@ private data class MainScreenInteractionCallbacks(
 )
 
 @Composable
-private fun rememberInputHints(showInputHints: Boolean): List<String> {
+private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
     val hint1 = stringResource(R.string.input_hint_1)
     val hint3 = stringResource(R.string.input_hint_3)
     val hint4 = stringResource(R.string.input_hint_4)
@@ -307,18 +324,17 @@ private fun rememberInputHints(showInputHints: Boolean): List<String> {
 
     return remember(showInputHints, hint1, hint3, hint4, hint5, hint6, hint7) {
         if (!showInputHints) {
-            emptyList()
+            persistentListOf()
         } else {
-            listOf(hint1, hint3, hint4, hint5, hint6, hint7)
+            persistentListOf(hint1, hint3, hint4, hint5, hint6, hint7)
         }
     }
 }
 
 @Composable
 private fun MainScreenTransientEffects(
-    viewModel: MainViewModel,
-    editorViewModel: MemoEditorViewModel,
-    visibleUiMemos: List<MemoUiModel>,
+    dependencies: MainScreenDependencies,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
@@ -326,18 +342,18 @@ private fun MainScreenTransientEffects(
     unknownErrorMessage: String,
     canOpenCreateMemo: Boolean,
 ) {
-    val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val editorErrorMessage by editorViewModel.errorMessage.collectAsStateWithLifecycle()
-    val sharedContentEvents by viewModel.sharedContentEvents.collectAsStateWithLifecycle()
-    val pendingSharedImageEvents by viewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
-    val appActionEvents by viewModel.appActionEvents.collectAsStateWithLifecycle()
-    val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val draftText by editorViewModel.draftText.collectAsStateWithLifecycle()
+    val errorMessage by dependencies.mainViewModel.errorMessage.collectAsStateWithLifecycle()
+    val editorErrorMessage by dependencies.editorViewModel.errorMessage.collectAsStateWithLifecycle()
+    val sharedContentEvents by dependencies.mainViewModel.sharedContentEvents.collectAsStateWithLifecycle()
+    val pendingSharedImageEvents by dependencies.mainViewModel.pendingSharedImageEvents.collectAsStateWithLifecycle()
+    val appActionEvents by dependencies.mainViewModel.appActionEvents.collectAsStateWithLifecycle()
+    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
+    val draftText by dependencies.editorViewModel.draftText.collectAsStateWithLifecycle()
 
     MainScreenEventEffectsHost(
-        sharedContentEvents = sharedContentEvents,
-        appActionEvents = appActionEvents,
-        pendingSharedImageEvents = pendingSharedImageEvents,
+        sharedContentEvents = remember(sharedContentEvents) { sharedContentEvents.toImmutableList() },
+        appActionEvents = remember(appActionEvents) { appActionEvents.toImmutableList() },
+        pendingSharedImageEvents = remember(pendingSharedImageEvents) { pendingSharedImageEvents.toImmutableList() },
         imageDirectory = imageDirectory,
         errorMessage = errorMessage,
         editorErrorMessage = editorErrorMessage,
@@ -361,22 +377,20 @@ private fun MainScreenTransientEffects(
                 false
             }
         },
-        onResolveMemoById = viewModel.resolveMemoById,
-        onSaveImage = { uri, onResult -> editorViewModel.saveImage(uri = uri, onResult = onResult) },
+        onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
+        onSaveImage = { uri, onResult -> dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult) },
         onRequireImageDirectory = directoryGuideController::requestImage,
-        onConsumeSharedContentEvent = viewModel.consumeSharedContentEvent,
-        onConsumeAppActionEvent = viewModel.consumeAppActionEvent,
-        onConsumePendingSharedImageEvent = viewModel.consumePendingSharedImageEvent,
-        onClearMainError = viewModel.clearError,
-        onClearEditorError = editorViewModel::clearError,
+        onConsumeSharedContentEvent = dependencies.mainViewModel.consumeSharedContentEvent,
+        onConsumeAppActionEvent = dependencies.mainViewModel.consumeAppActionEvent,
+        onConsumePendingSharedImageEvent = dependencies.mainViewModel.consumePendingSharedImageEvent,
+        onClearMainError = dependencies.mainViewModel.clearError,
+        onClearEditorError = dependencies.editorViewModel::clearError,
     )
 }
 
 @Composable
 internal fun MainScreenInteractionBindings(
-    viewModel: MainViewModel,
-    editorViewModel: MemoEditorViewModel,
-    recordingViewModel: RecordingViewModel,
+    dependencies: MainScreenDependencies,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
     scope: CoroutineScope,
@@ -385,24 +399,23 @@ internal fun MainScreenInteractionBindings(
     shareCardShowTime: Boolean,
     quickSaveOnBackEnabled: Boolean,
     memoActionAutoReorderEnabled: Boolean,
-    memoActionOrder: List<String>,
-    availableTags: List<String>,
+    memoActionOrder: ImmutableList<String>,
+    availableTags: ImmutableList<String>,
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
     content: MainScreenInteractionContent,
 ) {
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
-    val gitSyncEnabled by viewModel.gitSyncEnabled.collectAsStateWithLifecycle()
-    val versionHistoryState by viewModel.versionHistoryState.collectAsStateWithLifecycle()
-    val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
-    val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
-    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
-    val voiceDirectory by viewModel.voiceDirectory.collectAsStateWithLifecycle()
+    val activeDayCount by dependencies.mainViewModel.activeDayCount.collectAsStateWithLifecycle()
+    val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()
+    val versionHistoryState by dependencies.mainViewModel.versionHistoryState.collectAsStateWithLifecycle()
+    val rootDirectory by dependencies.mainViewModel.rootDirectory.collectAsStateWithLifecycle()
+    val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by dependencies.mainViewModel.imageMap.collectAsStateWithLifecycle()
+    val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val inputHints = rememberInputHints(showInputHints = showInputHints)
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
-            viewModel = viewModel,
-            recordingViewModel = recordingViewModel,
+            dependencies = dependencies,
             editorController = editorController,
             directoryGuideController = directoryGuideController,
             voiceDirectory = voiceDirectory,
@@ -419,25 +432,25 @@ internal fun MainScreenInteractionBindings(
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
-        onMemoActionInvoked = viewModel::recordMemoActionUsage,
-        onDeleteMemo = viewModel.deleteMemo,
-        onUpdateMemo = editorViewModel::updateMemo,
+        onMemoActionInvoked = dependencies.mainViewModel::recordMemoActionUsage,
+        onDeleteMemo = dependencies.mainViewModel.deleteMemo,
+        onUpdateMemo = dependencies.editorViewModel::updateMemo,
         onCreateMemo = interactionCallbacks.onCreateMemo,
-        onSaveImage = editorViewModel::saveImage,
+        onSaveImage = dependencies.editorViewModel::saveImage,
         onLanShare = onNavigateToShare,
-        onDismiss = editorViewModel::discardInputs,
+        onDismiss = dependencies.editorViewModel::discardInputs,
         onImageDirectoryMissing = directoryGuideController::requestImage,
         onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
         availableTags = availableTags,
-        isRecordingFlow = recordingViewModel.isRecording,
-        recordingDurationFlow = recordingViewModel.recordingDuration,
-        recordingAmplitudeFlow = recordingViewModel.recordingAmplitude,
+        isRecordingFlow = dependencies.recordingViewModel.isRecording,
+        recordingDurationFlow = dependencies.recordingViewModel.recordingDuration,
+        recordingAmplitudeFlow = dependencies.recordingViewModel.recordingAmplitude,
         onStartRecording = interactionCallbacks.onStartRecording,
-        onCancelRecording = recordingViewModel::cancelRecording,
+        onCancelRecording = dependencies.recordingViewModel::cancelRecording,
         onStopRecording = interactionCallbacks.onStopRecording,
         hints = inputHints,
         onVersionHistory = interactionCallbacks.onVersionHistory,
-        onTogglePin = viewModel.setMemoPinned,
+        onTogglePin = dependencies.mainViewModel.setMemoPinned,
         showVersionHistory = true,
     ) { showMenu, openEditor ->
         content(showMenu, openEditor)
@@ -447,17 +460,16 @@ internal fun MainScreenInteractionBindings(
         state = versionHistoryState,
         rootPath = rootDirectory,
         imagePath = imageDirectory,
-        imageMap = imageMap,
-        onDismiss = viewModel.dismissVersionHistory,
-        onLoadMore = viewModel.loadMoreVersionHistory,
-        onRestore = { memo, version -> viewModel.restoreVersion(memo, version) },
+        imageMap = remember(imageMap) { imageMap.toImmutableMap() },
+        onDismiss = dependencies.mainViewModel.dismissVersionHistory,
+        onLoadMore = dependencies.mainViewModel.loadMoreVersionHistory,
+        onRestore = { memo, version -> dependencies.mainViewModel.restoreVersion(memo, version) },
     )
 }
 
 @Composable
 private fun rememberMainScreenInteractionCallbacks(
-    viewModel: MainViewModel,
-    recordingViewModel: RecordingViewModel,
+    dependencies: MainScreenDependencies,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
     voiceDirectory: String?,
@@ -466,8 +478,7 @@ private fun rememberMainScreenInteractionCallbacks(
     unknownErrorMessage: String,
 ): MainScreenInteractionCallbacks =
     remember(
-        viewModel,
-        recordingViewModel,
+        dependencies,
         editorController,
         directoryGuideController,
         voiceDirectory,
@@ -477,7 +488,7 @@ private fun rememberMainScreenInteractionCallbacks(
     ) {
         MainScreenInteractionCallbacks(
             onCreateMemo = { contentText ->
-                viewModel.requestPendingNewMemoCreation(contentText)
+                dependencies.mainViewModel.requestPendingNewMemoCreation(contentText)
             },
             onCameraCaptureError = { error ->
                 scope.launch {
@@ -488,18 +499,18 @@ private fun rememberMainScreenInteractionCallbacks(
                 if (voiceDirectory == null) {
                     directoryGuideController.requestVoice()
                 } else {
-                    recordingViewModel.startRecording()
+                    dependencies.recordingViewModel.startRecording()
                 }
             },
             onStopRecording = {
-                recordingViewModel.stopRecording { markdown ->
+                dependencies.recordingViewModel.stopRecording { markdown ->
                     editorController.appendMarkdownBlock(markdown)
                 }
             },
             onVersionHistory = { state ->
                 val memo = state.memo as? Memo
                 if (memo != null) {
-                    viewModel.loadVersionHistory(memo)
+                    dependencies.mainViewModel.loadVersionHistory(memo)
                 }
             },
         )
@@ -529,7 +540,7 @@ private fun VersionHistoryOverlay(
     state: MainVersionHistoryState,
     rootPath: String?,
     imagePath: String?,
-    imageMap: Map<String, android.net.Uri>,
+    imageMap: ImmutableMap<String, android.net.Uri>,
     onDismiss: () -> Unit,
     onLoadMore: () -> Unit,
     onRestore: (Memo, MemoRevision) -> Unit,
@@ -538,7 +549,7 @@ private fun VersionHistoryOverlay(
     when (state) {
         is MainVersionHistoryState.Loading -> {
             com.lomo.app.feature.memo.MemoVersionHistorySheet(
-                versions = emptyList(),
+                versions = persistentListOf(),
                 isLoading = true,
                 canLoadMore = false,
                 isLoadingMore = false,
@@ -554,8 +565,8 @@ private fun VersionHistoryOverlay(
             var pendingRestoreRevisionId by remember(state.memo.id) { mutableStateOf<String?>(null) }
             var versionUiModels by
                 remember {
-                    mutableStateOf<List<com.lomo.app.feature.memo.MemoVersionHistoryUiModel>>(
-                        emptyList(),
+                    mutableStateOf<ImmutableList<com.lomo.app.feature.memo.MemoVersionHistoryUiModel>>(
+                        persistentListOf(),
                     )
                 }
             LaunchedEffect(state.isRestoring, state.restoringRevisionId, state.memo.id) {
@@ -572,7 +583,7 @@ private fun VersionHistoryOverlay(
                             rootPath = rootPath,
                             imagePath = imagePath,
                             imageMap = imageMap,
-                        )
+                        ).toImmutableList()
                     }
             }
             val restoringRevisionId = pendingRestoreRevisionId ?: state.restoringRevisionId

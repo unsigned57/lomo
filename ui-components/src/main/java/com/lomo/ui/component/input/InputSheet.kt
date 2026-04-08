@@ -74,6 +74,8 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.util.AppHapticFeedback
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -82,11 +84,11 @@ private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 data class InputSheetState(
     val inputValue: TextFieldValue,
     val focusRequestToken: Long = 0L,
-    val availableTags: List<String> = emptyList(),
+    val availableTags: ImmutableList<String> = persistentListOf(),
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int = 0,
-    val hints: List<String> = emptyList(),
+    val hints: ImmutableList<String> = persistentListOf(),
 )
 
 sealed interface InputInterceptionResult {

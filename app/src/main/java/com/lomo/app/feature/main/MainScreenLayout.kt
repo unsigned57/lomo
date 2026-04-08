@@ -19,9 +19,12 @@ import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
@@ -30,7 +33,12 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.component.navigation.SidebarDrawer
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import com.lomo.ui.theme.MotionTokens
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
+import kotlinx.collections.immutable.toImmutableSet
 import java.time.LocalDate
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -48,6 +56,8 @@ internal fun MainScreenNavigationRender(
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
 ) {
+    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
+    val collapsingMemoIds by viewModel.collapsingMemoIds.collectAsStateWithLifecycle()
     MainScreenRenderHost(
         isExpanded = hostState.isExpanded,
         drawerState = hostState.drawerState,
@@ -63,8 +73,8 @@ internal fun MainScreenNavigationRender(
         hasRawItems = screenState.hasRawItems,
         uiMemos = screenState.uiMemos,
         visibleUiMemos = screenState.visibleUiMemos,
-        deletingMemoIds = viewModel.deletingMemoIds,
-        collapsingMemoIds = viewModel.collapsingMemoIds,
+        deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
+        collapsingMemoIds = remember(collapsingMemoIds) { collapsingMemoIds.toImmutableSet() },
         newMemoInsertAnimationState = hostState.newMemoInsertAnimationSession.state,
         onNewMemoSpacePrepared = hostState.newMemoInsertAnimationSession::markBlankSpacePrepared,
         onNewMemoRevealConsumed = hostState.newMemoInsertAnimationSession::clearReveal,
@@ -101,10 +111,10 @@ internal fun MainScreenRenderHost(
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
-    uiMemos: List<MemoUiModel>,
-    visibleUiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    uiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -209,8 +219,8 @@ private fun MainScreenSidebarContent(
     SidebarDrawer(
         username = "Lomo",
         stats = sidebarUiState.stats,
-        memoCountByDate = sidebarUiState.memoCountByDate,
-        tags = sidebarUiState.tags,
+        memoCountByDate = sidebarUiState.memoCountByDate.toImmutableMap(),
+        tags = sidebarUiState.tags.toImmutableList(),
         onMemoClick = actions.onSidebarMemoClick,
         onTagClick = actions.onSidebarTagClick,
         onSettingsClick = actions.onSettings,
@@ -230,10 +240,10 @@ internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
     hasRawItems: Boolean,
-    uiMemos: List<MemoUiModel>,
-    visibleUiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    uiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -317,10 +327,10 @@ private fun MainInitialImportingState(modifier: Modifier = Modifier) {
 private fun MainReadyContent(
     hasRawItems: Boolean,
     searchQuery: String,
-    uiMemos: List<MemoUiModel>,
-    visibleUiMemos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
+    uiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -391,7 +401,7 @@ internal enum class MainReadyContentState {
 
 internal fun resolveMainReadyContentState(
     hasRawItems: Boolean,
-    uiMemos: List<MemoUiModel>,
+    uiMemos: ImmutableList<MemoUiModel>,
 ): MainReadyContentState =
     when {
         uiMemos.isNotEmpty() -> MainReadyContentState.List

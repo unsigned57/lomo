@@ -39,6 +39,8 @@ import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
@@ -51,6 +53,7 @@ fun TagFilterScreen(
     tagName: String,
     onBackClick: () -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
+    modifier: Modifier = Modifier,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
@@ -87,7 +90,7 @@ fun TagFilterScreen(
         ) { padding ->
             TagFilterScreenContent(
                 tagName = tagName,
-                memos = memos,
+                memos = remember(memos) { memos.toImmutableList() },
                 dateFormat = appPreferences.dateFormat,
                 timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
@@ -95,7 +98,7 @@ fun TagFilterScreen(
                 onMemoEdit = openEditor,
                 onShowMenu = showMenu,
                 onImageClick = onNavigateToImage,
-                modifier = Modifier.padding(padding),
+                modifier = modifier.padding(padding),
             )
         }
     }
@@ -171,7 +174,7 @@ private fun TagFilterTitle(tagName: String) {
 @Composable
 private fun TagFilterScreenContent(
     tagName: String,
-    memos: List<com.lomo.app.feature.main.MemoUiModel>,
+    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
@@ -181,34 +184,33 @@ private fun TagFilterScreenContent(
     onImageClick: (ImageViewerRequest) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (memos.isEmpty()) {
-        Box(modifier = modifier.fillMaxSize()) {
+    Box(modifier = modifier.fillMaxSize()) {
+        if (memos.isEmpty()) {
             EmptyState(
                 icon = Icons.Outlined.Tag,
                 title = stringResource(R.string.empty_no_tag_matches_title, tagName),
                 description = stringResource(R.string.empty_no_tag_matches_subtitle),
             )
+        } else {
+            MemoCardList(
+                memos = memos,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                onMemoEdit = onMemoEdit,
+                onShowMenu = onShowMenu,
+                onImageClick = onImageClick,
+                animation = MemoCardListAnimation.Placement,
+                contentPadding =
+                    PaddingValues(
+                        top = TAG_FILTER_LIST_PADDING,
+                        start = TAG_FILTER_LIST_PADDING,
+                        end = TAG_FILTER_LIST_PADDING,
+                        bottom = TAG_FILTER_LIST_BOTTOM_PADDING,
+                    ),
+                modifier = Modifier.fillMaxSize(),
+            )
         }
-        return
     }
-
-    MemoCardList(
-        memos = memos,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        doubleTapEditEnabled = doubleTapEditEnabled,
-        freeTextCopyEnabled = freeTextCopyEnabled,
-        onMemoEdit = onMemoEdit,
-        onShowMenu = onShowMenu,
-        onImageClick = onImageClick,
-        animation = MemoCardListAnimation.Placement,
-        contentPadding =
-            PaddingValues(
-                top = TAG_FILTER_LIST_PADDING,
-                start = TAG_FILTER_LIST_PADDING,
-                end = TAG_FILTER_LIST_PADDING,
-                bottom = TAG_FILTER_LIST_BOTTOM_PADDING,
-            ),
-        modifier = modifier.fillMaxSize(),
-    )
 }

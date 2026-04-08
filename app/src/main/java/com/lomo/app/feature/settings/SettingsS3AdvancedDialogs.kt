@@ -13,18 +13,20 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun S3SelectionDialogs(
     uiState: SettingsScreenUiState,
-    s3Feature: SettingsS3FeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
 ) {
+    val s3Feature = features.s3
     SelectionDialogIfVisible(
         visible = dialogState.showS3PathStyleDialog,
         title = stringResource(R.string.settings_s3_select_path_style),
-        options = options.s3PathStyles,
+        options = options.s3PathStyles.toImmutableList(),
         currentSelection = uiState.s3.pathStyle,
         onDismiss = { dialogState.showS3PathStyleDialog = false },
         onSelect = {
@@ -36,7 +38,7 @@ internal fun S3SelectionDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showS3EncryptionModeDialog,
         title = stringResource(R.string.settings_s3_select_encryption_mode),
-        options = options.s3EncryptionModes,
+        options = options.s3EncryptionModes.toImmutableList(),
         currentSelection = uiState.s3.encryptionMode,
         onDismiss = { dialogState.showS3EncryptionModeDialog = false },
         onSelect = {
@@ -52,7 +54,7 @@ internal fun S3SelectionDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showS3RcloneFilenameEncryptionDialog,
         title = stringResource(R.string.settings_s3_select_rclone_filename_encryption),
-        options = options.s3RcloneFilenameEncryptions,
+        options = options.s3RcloneFilenameEncryptions.toImmutableList(),
         currentSelection = uiState.s3.rcloneFilenameEncryption,
         onDismiss = { dialogState.showS3RcloneFilenameEncryptionDialog = false },
         onSelect = {
@@ -64,7 +66,7 @@ internal fun S3SelectionDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showS3RcloneFilenameEncodingDialog,
         title = stringResource(R.string.settings_s3_select_rclone_filename_encoding),
-        options = options.s3RcloneFilenameEncodings,
+        options = options.s3RcloneFilenameEncodings.toImmutableList(),
         currentSelection = uiState.s3.rcloneFilenameEncoding,
         onDismiss = { dialogState.showS3RcloneFilenameEncodingDialog = false },
         onSelect = {
@@ -80,7 +82,7 @@ internal fun S3SelectionDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showS3SyncIntervalDialog,
         title = stringResource(R.string.settings_s3_select_sync_interval),
-        options = options.gitSyncIntervals,
+        options = options.gitSyncIntervals.toImmutableList(),
         currentSelection = uiState.s3.autoSyncInterval,
         onDismiss = { dialogState.showS3SyncIntervalDialog = false },
         onSelect = {

@@ -6,6 +6,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -13,7 +17,7 @@ internal fun resolveModernMarkdownRenderState(
     basePlan: ModernMarkdownRenderPlan?,
     content: String,
     maxVisibleBlocks: Int,
-    knownTagsToStrip: List<String>,
+    knownTagsToStrip: ImmutableList<String>,
 ): ModernMarkdownRenderState =
     if (basePlan == null) {
         ModernMarkdownRenderState.Pending(
@@ -36,7 +40,7 @@ internal fun resolveModernMarkdownRenderState(
 
 internal fun buildPendingModernMarkdownFallbackText(
     content: String,
-    knownTagsToStrip: List<String>,
+    knownTagsToStrip: ImmutableList<String>,
 ): String =
     sanitizeModernMarkdownKnownTags(
         content = content,
@@ -49,11 +53,11 @@ internal fun ModernMarkdownRenderer(
     modifier: Modifier = Modifier,
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
     onTotalBlocks: ((Int) -> Unit)? = null,
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
-    knownTagsToStrip: List<String> = emptyList(),
+    knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
 ) {
     val basePlan by

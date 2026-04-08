@@ -11,7 +11,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -192,7 +192,7 @@ class InputSheetEditorBufferContinuityTest {
         composeRule.runOnUiThread {
             editor.requestFocus()
             editor.setSelection(editor.text.length)
-            inputMethodManager.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
+            inputMethodManager.showSoftInput(editor, 0)
         }
         composeRule.waitForIdle()
 

@@ -45,6 +45,8 @@ import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -192,7 +194,7 @@ private fun DailyReviewScreenContent(
                     )
                 } else {
                     DailyReviewPager(
-                        memos = memos,
+                        memos = remember(memos) { memos.toImmutableList() },
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
@@ -211,7 +213,7 @@ private fun DailyReviewScreenContent(
 
 @Composable
 private fun DailyReviewPager(
-    memos: List<com.lomo.app.feature.main.MemoUiModel>,
+    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,

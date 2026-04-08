@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
@@ -12,14 +14,11 @@ fun MemoInteractionHost(
     shareCardShowTime: Boolean,
     activeDayCount: Int,
     imageDirectory: String?,
-    controller: MemoEditorController = rememberMemoEditorController(),
-    quickSaveOnBackEnabled: Boolean = false,
     onDeleteMemo: (Memo) -> Unit,
     onUpdateMemo: (
         memo: Memo,
         content: String,
     ) -> Unit,
-    onCreateMemo: ((String) -> Unit)? = null,
     onSaveImage: (
         uri: Uri,
         onResult: (String) -> Unit,
@@ -29,12 +28,15 @@ fun MemoInteractionHost(
         content: String,
         timestamp: Long,
     ) -> Unit,
+    onCreateMemo: ((String) -> Unit)? = null,
+    controller: MemoEditorController = rememberMemoEditorController(),
+    quickSaveOnBackEnabled: Boolean = false,
     onTogglePin: ((Memo, Boolean) -> Unit)? = null,
     onJump: ((MemoMenuState) -> Unit)? = null,
     onDismiss: () -> Unit = {},
     onImageDirectoryMissing: (() -> Unit)? = null,
     onCameraCaptureError: ((Throwable) -> Unit)? = null,
-    availableTags: List<String> = emptyList(),
+    availableTags: ImmutableList<String> = persistentListOf(),
     isRecording: Boolean = false,
     recordingDuration: Long = 0L,
     recordingAmplitude: Int = 0,
@@ -44,12 +46,12 @@ fun MemoInteractionHost(
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
-    hints: List<String> = emptyList(),
+    hints: ImmutableList<String> = persistentListOf(),
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
     showJump: Boolean = false,
     showVersionHistory: Boolean = false,
     memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: List<String> = emptyList(),
+    memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,

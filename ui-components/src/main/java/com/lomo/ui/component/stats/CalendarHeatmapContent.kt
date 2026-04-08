@@ -42,10 +42,10 @@ import com.lomo.ui.R
 import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import kotlinx.collections.immutable.ImmutableMap
 
 @Composable
 internal fun HeatmapInteractiveContent(
-    modifier: Modifier,
     layout: HeatmapLayout,
     colors: HeatmapColors,
     textPaint: Paint,
@@ -53,12 +53,13 @@ internal fun HeatmapInteractiveContent(
     horizontalScrollState: androidx.compose.foundation.ScrollState,
     selectedDate: LocalDate?,
     popupOffset: Offset,
-    memoCountByDate: Map<LocalDate, Int>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
     dateFormatter: DateTimeFormatter,
     onSelect: (HeatmapCellHit) -> Unit,
     onClearSelection: () -> Unit,
     onLongPress: (LocalDate) -> Unit,
     onDismissPopup: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
         modifier = modifier.padding(vertical = 4.dp),
@@ -134,7 +135,7 @@ private fun HeatmapScrollableCanvas(
 @Composable
 private fun HeatmapSelectionPopup(
     selectedDate: LocalDate?,
-    memoCountByDate: Map<LocalDate, Int>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
     popupOffset: Offset,
     dateFormatter: DateTimeFormatter,
     density: androidx.compose.ui.unit.Density,

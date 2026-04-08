@@ -12,6 +12,9 @@ import com.lomo.domain.usecase.SyncConflictResolutionResult
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -49,7 +52,7 @@ class SyncConflictViewModel
         ) {
             _state.update { current ->
                 if (current is SyncConflictDialogState.Showing) {
-                    current.copy(perFileChoices = current.perFileChoices + (path to choice))
+                    current.copy(perFileChoices = (current.perFileChoices + (path to choice)).toImmutableMap())
                 } else {
                     current
                 }
@@ -59,7 +62,10 @@ class SyncConflictViewModel
         fun setAllChoices(choice: SyncConflictResolutionChoice) {
             _state.update { current ->
                 if (current is SyncConflictDialogState.Showing) {
-                    val allChoices = current.conflictSet.files.associate { it.relativePath to choice }
+                    val allChoices =
+                        current.conflictSet.files
+                            .associate { it.relativePath to choice }
+                            .toImmutableMap()
                     current.copy(perFileChoices = allChoices)
                 } else {
                     current
@@ -71,7 +77,8 @@ class SyncConflictViewModel
             _state.update { current ->
                 if (current is SyncConflictDialogState.Showing) {
                     current.copy(
-                        perFileChoices = current.perFileChoices + buildSuggestedChoices(current.conflictSet),
+                        perFileChoices =
+                            (current.perFileChoices + buildSuggestedChoices(current.conflictSet)).toImmutableMap(),
                     )
                 } else {
                     current
@@ -120,14 +127,15 @@ class SyncConflictViewModel
 
                         is SyncConflictResolutionResult.Pending -> {
                             val remainingChoices =
-                                current.perFileChoices.filterKeys { path ->
-                                    result.conflictSet.files.any { file -> file.relativePath == path }
-                                }
+                                current.perFileChoices
+                                    .filterKeys { path ->
+                                        result.conflictSet.files.any { file -> file.relativePath == path }
+                                    }.toImmutableMap()
                             _state.value =
                                 SyncConflictDialogState.Showing(
                                     conflictSet = result.conflictSet,
                                     perFileChoices =
-                                        buildSuggestedChoices(result.conflictSet) + remainingChoices,
+                                        (buildSuggestedChoices(result.conflictSet) + remainingChoices).toImmutableMap(),
                                     expandedFilePath = null,
                                     isResolving = false,
                                 )
@@ -148,13 +156,15 @@ class SyncConflictViewModel
             }
         }
 
-        private fun buildSuggestedChoices(conflictSet: SyncConflictSet): Map<String, SyncConflictResolutionChoice> {
+        private fun buildSuggestedChoices(
+            conflictSet: SyncConflictSet,
+        ): ImmutableMap<String, SyncConflictResolutionChoice> {
             if (conflictSet.source != SyncBackendType.S3 && conflictSet.source != SyncBackendType.WEBDAV) {
-                return emptyMap()
+                return persistentHashMapOf()
             }
             return conflictSet.files.mapNotNull { file ->
                 suggestedChoiceFor(file)?.let { choice -> file.relativePath to choice }
-            }.toMap()
+            }.toMap().toImmutableMap()
         }
 
         private fun suggestedChoiceFor(

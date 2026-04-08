@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
+import kotlinx.collections.immutable.toImmutableList
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -38,7 +39,7 @@ class MemoActionSheetActionOrderTest {
                     label = "Edit",
                     onClick = {},
                 ),
-            )
+            ).toImmutableList()
 
         val sorted =
             sortDefaultMemoActionSheetActions(
@@ -75,7 +76,7 @@ class MemoActionSheetActionOrderTest {
                     label = "Edit",
                     onClick = {},
                 ),
-            )
+            ).toImmutableList()
 
         val sorted =
             sortDefaultMemoActionSheetActions(
@@ -106,7 +107,7 @@ class MemoActionSheetActionOrderTest {
                     label = "History",
                     onClick = {},
                 ),
-            )
+            ).toImmutableList()
 
         val sorted =
             sortDefaultMemoActionSheetActions(

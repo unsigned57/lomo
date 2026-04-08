@@ -21,6 +21,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.MemoParagraphText
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.toImmutableList
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
@@ -30,7 +33,7 @@ internal fun ModernMarkdownRenderPlanContent(
     plan: ModernMarkdownRenderPlan,
     modifier: Modifier = Modifier,
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
-    todoOverrides: Map<Int, Boolean> = emptyMap(),
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
     enableTextSelection: Boolean = false,
 ) {
@@ -55,7 +58,7 @@ internal fun ModernMarkdownRenderPlanContent(
 
                 is ModernMarkdownRenderItem.Gallery -> {
                     MDImageGallery(
-                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage),
+                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage).toImmutableList(),
                         onImageClick = onImageClick,
                     )
                 }
@@ -70,7 +73,7 @@ internal fun ModernMarkdownBlock(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
     baseParagraphStyle: TextStyle? = null,
@@ -231,7 +234,7 @@ private fun ModernMarkdownParagraph(
 
                 is ModernParagraphItem.Gallery -> {
                     MDImageGallery(
-                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage),
+                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage).toImmutableList(),
                         onImageClick = onImageClick,
                     )
                 }
@@ -294,7 +297,7 @@ private fun ModernMarkdownBlockQuote(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
 ) {

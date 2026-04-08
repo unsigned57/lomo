@@ -36,56 +36,50 @@ data class SettingsDialogOptions(
 @Composable
 fun SettingsDialogHost(
     uiState: SettingsScreenUiState,
-    storageFeature: SettingsStorageFeatureViewModel,
-    displayFeature: SettingsDisplayFeatureViewModel,
-    snapshotFeature: SettingsSnapshotFeatureViewModel,
-    lanShareFeature: SettingsLanShareFeatureViewModel,
-    gitFeature: SettingsGitFeatureViewModel,
-    webDavFeature: SettingsWebDavFeatureViewModel,
-    s3Feature: SettingsS3FeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
     onApplyLanguageTag: (String) -> Unit,
 ) {
     DisplayPreferenceDialogs(
         uiState = uiState,
-        displayFeature = displayFeature,
+        displayFeature = features.display,
         dialogState = dialogState,
         options = options,
         onApplyLanguageTag = onApplyLanguageTag,
     )
     StoragePreferenceDialogs(
         uiState = uiState,
-        storageFeature = storageFeature,
+        storageFeature = features.storage,
         dialogState = dialogState,
         options = options,
     )
     SnapshotPreferenceDialogs(
         uiState = uiState,
-        snapshotFeature = snapshotFeature,
+        features = features,
         dialogState = dialogState,
         options = options,
     )
     LanShareDialogs(
         uiState = uiState,
-        lanShareFeature = lanShareFeature,
+        features = features,
         dialogState = dialogState,
     )
     GitDialogs(
         uiState = uiState,
-        gitFeature = gitFeature,
+        features = features,
         dialogState = dialogState,
         options = options,
     )
     WebDavDialogs(
         uiState = uiState,
-        webDavFeature = webDavFeature,
+        features = features,
         dialogState = dialogState,
         options = options,
     )
     S3Dialogs(
         uiState = uiState,
-        s3Feature = s3Feature,
+        features = features,
         dialogState = dialogState,
         options = options,
     )

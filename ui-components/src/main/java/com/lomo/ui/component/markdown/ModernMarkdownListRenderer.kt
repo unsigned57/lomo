@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.memoListTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
+import kotlinx.collections.immutable.ImmutableMap
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
@@ -38,7 +39,7 @@ internal fun ModernMarkdownUnorderedList(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
 ) {
@@ -72,7 +73,7 @@ internal fun ModernMarkdownOrderedList(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
 ) {
@@ -108,7 +109,7 @@ private fun ModernMarkdownListItem(
     tokenSpec: ModernMarkdownTokenSpec,
     bullet: String,
     onTodoClick: ((Int, Boolean) -> Unit)?,
-    todoOverrides: Map<Int, Boolean>,
+    todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
 ) {

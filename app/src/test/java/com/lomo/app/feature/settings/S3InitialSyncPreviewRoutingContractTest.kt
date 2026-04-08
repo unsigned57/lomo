@@ -29,12 +29,12 @@ class S3InitialSyncPreviewRoutingContractTest {
             """
             SettingsScreenSupport must handle S3 PreviewingInitialSync by opening the shared conflict dialog.
             Expected HandleS3ConflictState to match S3SyncState.PreviewingInitialSync and call
-            conflictViewModel.showConflictDialog(previewState.conflicts) in:
+            onShowConflictDialog(previewState.conflicts) in:
             ${settingsSupportSource.path}
             """.trimIndent(),
             content.contains("internal fun HandleS3ConflictState(") &&
                 content.contains("syncState as? S3SyncState.PreviewingInitialSync") &&
-                content.contains("conflictViewModel.showConflictDialog(previewState.conflicts)"),
+                content.contains("onShowConflictDialog(previewState.conflicts)"),
         )
     }
 

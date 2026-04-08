@@ -50,6 +50,10 @@ import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import java.time.LocalDate
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 private const val PREVIEW_MEMO_COUNT = 196
 private const val PREVIEW_TAG_COUNT = 14
@@ -108,8 +112,8 @@ sealed interface SidebarDestination {
 fun SidebarDrawer(
     username: String,
     stats: SidebarStats,
-    memoCountByDate: Map<LocalDate, Int>,
-    tags: List<SidebarTag>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
+    tags: ImmutableList<SidebarTag>,
     modifier: Modifier = Modifier,
     currentDestination: SidebarDestination = SidebarDestination.Memo,
     onMemoClick: () -> Unit = {},
@@ -267,7 +271,7 @@ private fun LazyListScope.sidebarStats(stats: SidebarStats) {
 }
 
 private fun LazyListScope.sidebarHeatmap(
-    memoCountByDate: Map<LocalDate, Int>,
+    memoCountByDate: ImmutableMap<LocalDate, Int>,
     onDateLongPress: (LocalDate) -> Unit,
 ) {
     item {
@@ -387,8 +391,8 @@ private fun SidebarDrawerPreviewMemo() {
         SidebarDrawer(
             username = "Lomo",
             stats = sampleStats,
-            memoCountByDate = memoCountByDate,
-            tags = sampleTags,
+            memoCountByDate = memoCountByDate.toImmutableMap(),
+            tags = sampleTags.toImmutableList(),
             currentDestination = SidebarDestination.Memo,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -428,8 +432,8 @@ private fun SidebarDrawerPreviewTagSelected() {
                     tagCount = PREVIEW_TAG_SELECTED_TAG_COUNT,
                     dayCount = PREVIEW_TAG_SELECTED_DAY_COUNT,
                 ),
-            memoCountByDate = memoCountByDate,
-            tags = sampleTags,
+            memoCountByDate = memoCountByDate.toImmutableMap(),
+            tags = sampleTags.toImmutableList(),
             currentDestination = SidebarDestination.Tag("project/android"),
             modifier = Modifier.fillMaxWidth(),
         )

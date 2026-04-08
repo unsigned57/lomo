@@ -4,11 +4,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
 import com.lomo.app.benchmark.BenchmarkAnchorContract
-import com.lomo.app.util.LocalShareUtils
+import com.lomo.app.util.rememberShareUtils
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuHost
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 
 @Composable
@@ -27,12 +29,12 @@ fun MemoMenuBinder(
     showJump: Boolean = false,
     showVersionHistory: Boolean = false,
     memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: List<String> = emptyList(),
+    memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
-    val shareUtils = LocalShareUtils.current
+    val shareUtils = rememberShareUtils()
     val scope = rememberCoroutineScope()
 
     MemoMenuHost(

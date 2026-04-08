@@ -150,8 +150,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 34
-        versionName = "1.0.0"
+        versionCode = 35
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -205,6 +205,8 @@ android {
     composeCompiler {
         // Remove Compose source information in release builds
         includeSourceInformation = false
+        metricsDestination = rootProject.layout.buildDirectory.dir("reports/compose-compiler/app/metrics")
+        reportsDestination = rootProject.layout.buildDirectory.dir("reports/compose-compiler/app/reports")
     }
 
     packaging {
@@ -341,6 +343,7 @@ dependencies {
     // Logging
     implementation(libs.timber)
     implementation(libs.zoomable.image.coil)
+    lintChecks(libs.slack.compose.lint.checks)
 
     // P3-004: Coil for image preloading
     implementation(libs.coil.compose)

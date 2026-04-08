@@ -14,6 +14,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | Situation | Command |
 | --- | --- |
 | Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
+| I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
 | I want JVM tests only | `./gradlew unitTestCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
 | I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
@@ -25,6 +26,7 @@ AI agents inside the sandbox should normally use:
 
 - Iteration:
   - `quality/scripts/ai_fast_quality_check.sh`
+  - `quality/scripts/ai_compose_static_analysis.sh`
 - Final handoff:
   - `quality/scripts/ai_quality_check.sh`
 
@@ -68,6 +70,10 @@ Task roles:
   - Detekt-based architecture guardrails.
 - `androidLintCheck`
   - Android Lint for the configured app and library modules.
+- `composeCompilerAnalysisCheck`
+  - Generates Compose compiler metrics and reports for `app` and `ui-components`.
+- `composeStaticAnalysisCheck`
+  - Runs Android Lint plus Compose compiler metrics/reports for AI-readable static hotspot analysis.
 - `meaningfulTestCheck`
   - Test metadata contract enforcement.
 - `coverageCheck`
@@ -90,6 +96,14 @@ Task roles:
   - Repository-level quality scripts used by hooks and AI verification.
 - `testing/`
   - Meaningful-test policy and AI test authoring contracts.
+
+## Compose Static Analysis Outputs
+
+- `composeStaticAnalysisCheck` writes Android Lint reports to the existing module `build/reports/lint-results-*` locations.
+- Compose compiler metrics and reports are aggregated under `build/reports/compose-compiler/<module>/`.
+- Use these outputs for static hotspot triage:
+  - lint issues are explicit problems or risky patterns
+  - compiler reports highlight unstable or non-skippable composables that may deserve inspection
 
 ## Dependency Updates
 

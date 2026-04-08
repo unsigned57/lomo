@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -23,7 +24,7 @@ class StartupImagePreloadPlannerTest {
                         memoUiModel("memo-1", "cover-1", "cover-2"),
                         memoUiModel("memo-2"),
                         memoUiModel("memo-3", "cover-3"),
-                    ),
+                    ).toImmutableList(),
                 startupMemoCount = 3,
             )
 
@@ -39,7 +40,7 @@ class StartupImagePreloadPlannerTest {
                         memoUiModel("memo-1", "cover-1"),
                         memoUiModel("memo-2", "cover-2"),
                         memoUiModel("memo-3", "cover-3"),
-                    ),
+                    ).toImmutableList(),
                 startupMemoCount = 2,
             )
 

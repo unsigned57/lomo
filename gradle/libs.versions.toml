@@ -12,6 +12,7 @@ bouncycastle = "1.83"
 coil = "3.4.0"
 commonmark = "0.28.0"
 composeBom = "2026.03.01"
+composeLints = "1.4.2"
 coreKtx = "1.18.0"
 coroutines = "1.10.2"
 datastore = "1.2.1"
@@ -119,6 +120,7 @@ ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negoti
 markdown-renderer-android = { module = "com.mikepenz:multiplatform-markdown-renderer-android", version.ref = "markdownRenderer" }
 markdown-renderer-m3-android = { module = "com.mikepenz:multiplatform-markdown-renderer-m3-android", version.ref = "markdownRenderer" }
 mockk = "io.mockk:mockk:1.14.9"
+slack-compose-lint-checks = { module = "com.slack.lint.compose:compose-lint-checks", version.ref = "composeLints" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 # Testing dependencies
 turbine = "app.cash.turbine:turbine:1.2.1"

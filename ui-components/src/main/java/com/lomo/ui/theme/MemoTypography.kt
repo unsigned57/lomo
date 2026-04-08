@@ -8,13 +8,13 @@ import androidx.compose.ui.unit.sp
 fun Typography.memoBodyTextStyle(): TextStyle =
     bodyMedium.copy(
         lineHeight = 16.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.1.sp,
     )
 
 fun Typography.memoSummaryTextStyle(): TextStyle =
     bodyMedium.copy(
         lineHeight = 20.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.1.sp,
     )
 
 fun Typography.memoEditorTextStyle(): TextStyle =
@@ -23,7 +23,7 @@ fun Typography.memoEditorTextStyle(): TextStyle =
 fun Typography.memoHintTextStyle(): TextStyle =
     bodyMedium.copy(
         lineHeight = 16.sp,
-        letterSpacing = 0.sp,
+        letterSpacing = 0.1.sp,
     )
 
 fun Typography.memoListTextStyle(): TextStyle = memoBodyTextStyle()

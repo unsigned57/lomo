@@ -10,7 +10,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
-import com.lomo.app.feature.conflict.SyncConflictViewModel
 import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.WebDavSyncState
@@ -118,7 +117,7 @@ internal fun HandleGitConflictState(
     syncState: SyncEngineState,
     gitFeature: SettingsGitFeatureViewModel,
     dialogState: SettingsDialogState,
-    conflictViewModel: SyncConflictViewModel,
+    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
         val errorState = syncState as? SyncEngineState.Error
@@ -137,33 +136,33 @@ internal fun HandleGitConflictState(
             return@LaunchedEffect
         }
         val conflictState = syncState as? SyncEngineState.ConflictDetected ?: return@LaunchedEffect
-        conflictViewModel.showConflictDialog(conflictState.conflicts)
+        onShowConflictDialog(conflictState.conflicts)
     }
 }
 
 @Composable
 internal fun HandleWebDavConflictState(
     syncState: WebDavSyncState,
-    conflictViewModel: SyncConflictViewModel,
+    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
         val conflictState = syncState as? WebDavSyncState.ConflictDetected ?: return@LaunchedEffect
-        conflictViewModel.showConflictDialog(conflictState.conflicts)
+        onShowConflictDialog(conflictState.conflicts)
     }
 }
 
 @Composable
 internal fun HandleS3ConflictState(
     syncState: S3SyncState,
-    conflictViewModel: SyncConflictViewModel,
+    onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
         val previewState = syncState as? S3SyncState.PreviewingInitialSync
         if (previewState != null) {
-            conflictViewModel.showConflictDialog(previewState.conflicts)
+            onShowConflictDialog(previewState.conflicts)
             return@LaunchedEffect
         }
         val conflictState = syncState as? S3SyncState.ConflictDetected ?: return@LaunchedEffect
-        conflictViewModel.showConflictDialog(conflictState.conflicts)
+        onShowConflictDialog(conflictState.conflicts)
     }
 }

@@ -6,14 +6,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun SnapshotPreferenceDialogs(
     uiState: SettingsScreenUiState,
-    snapshotFeature: SettingsSnapshotFeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
 ) {
+    val snapshotFeature = features.snapshot
     val memoCountLabels =
         options.snapshotRetentionCounts.associateWith { count ->
             memoSnapshotCountOptionLabel(count)
@@ -25,7 +27,7 @@ internal fun SnapshotPreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showMemoSnapshotCountDialog,
         title = stringResource(R.string.settings_memo_snapshot_count_dialog_title),
-        options = options.snapshotRetentionCounts,
+        options = options.snapshotRetentionCounts.toImmutableList(),
         currentSelection = uiState.snapshot.memoSnapshotMaxCount,
         onDismiss = { dialogState.showMemoSnapshotCountDialog = false },
         onSelect = {
@@ -37,7 +39,7 @@ internal fun SnapshotPreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showMemoSnapshotAgeDialog,
         title = stringResource(R.string.settings_memo_snapshot_age_dialog_title),
-        options = options.snapshotRetentionDays,
+        options = options.snapshotRetentionDays.toImmutableList(),
         currentSelection = uiState.snapshot.memoSnapshotMaxAgeDays,
         onDismiss = { dialogState.showMemoSnapshotAgeDialog = false },
         onSelect = {

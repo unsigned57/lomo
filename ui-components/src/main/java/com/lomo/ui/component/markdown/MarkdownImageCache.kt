@@ -38,6 +38,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import kotlinx.collections.immutable.ImmutableList
 import coil3.request.ImageRequest
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.R
@@ -178,7 +179,7 @@ internal fun MarkdownImageBlock(
 
 @Composable
 internal fun MarkdownImagePager(
-    images: List<Image>,
+    images: ImmutableList<Image>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     if (images.isEmpty()) return

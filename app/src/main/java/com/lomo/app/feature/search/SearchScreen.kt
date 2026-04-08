@@ -50,11 +50,13 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 private data class SearchScreenUiSnapshot(
     val query: String,
     val showLoading: Boolean,
-    val searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
+    val searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     val dateFormat: String,
     val timeFormat: String,
     val shareCardShowTime: Boolean,
@@ -141,7 +143,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     return SearchScreenUiSnapshot(
         query = query,
         showLoading = showLoading,
-        searchResults = searchResults,
+        searchResults = searchResults.toImmutableList(),
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
         shareCardShowTime = appPreferences.shareCardShowTime,
@@ -320,7 +322,7 @@ private fun SearchQueryField(
 private fun SearchScreenContent(
     query: String,
     showLoading: Boolean,
-    searchResults: List<com.lomo.app.feature.main.MemoUiModel>,
+    searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,

@@ -54,6 +54,8 @@ import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -83,28 +85,26 @@ private const val MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS = 220
 )
 @Composable
 internal fun MemoListContent(
-    memos: List<MemoUiModel>,
-    deletingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    collapsingMemoIds: kotlinx.coroutines.flow.StateFlow<Set<String>>,
-    newMemoInsertAnimationState: NewMemoInsertAnimationState = NewMemoInsertAnimationState(),
-    onNewMemoSpacePrepared: (String) -> Unit = {},
-    onNewMemoRevealConsumed: (String) -> Unit = {},
+    memos: ImmutableList<MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    collapsingMemoIds: ImmutableSet<String>,
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
+    onTagClick: (String) -> Unit,
+    onImageClick: (ImageViewerRequest) -> Unit,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState = NewMemoInsertAnimationState(),
+    onNewMemoSpacePrepared: (String) -> Unit = {},
+    onNewMemoRevealConsumed: (String) -> Unit = {},
     onMemoDoubleClick: (Memo) -> Unit = {},
     doubleTapEditEnabled: Boolean = true,
     freeTextCopyEnabled: Boolean = false,
-    onTagClick: (String) -> Unit,
-    onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
-    val deletingIds by deletingMemoIds.collectAsStateWithLifecycle()
-    val collapsingIds by collapsingMemoIds.collectAsStateWithLifecycle()
 
     MemoListPreloadEffect(
         memos = memos,
@@ -113,8 +113,8 @@ internal fun MemoListContent(
 
     MemoListBody(
         memos = memos,
-        deletingIds = deletingIds,
-        collapsingIds = collapsingIds,
+        deletingIds = deletingMemoIds,
+        collapsingIds = collapsingMemoIds,
         newMemoInsertAnimationState = newMemoInsertAnimationState,
         onNewMemoSpacePrepared = onNewMemoSpacePrepared,
         onNewMemoRevealConsumed = onNewMemoRevealConsumed,
@@ -136,7 +136,7 @@ internal fun MemoListContent(
 
 @Composable
 private fun MemoListPreloadEffect(
-    memos: List<MemoUiModel>,
+    memos: ImmutableList<MemoUiModel>,
     listState: LazyListState,
 ) {
     val context = LocalContext.current
@@ -187,7 +187,7 @@ private fun MemoListPreloadEffect(
 }
 
 internal fun buildStartupImagePreloadCandidates(
-    memos: List<MemoUiModel>,
+    memos: ImmutableList<MemoUiModel>,
     startupMemoCount: Int,
 ): List<String> =
     memos
@@ -197,7 +197,7 @@ internal fun buildStartupImagePreloadCandidates(
         .toList()
 
 private fun buildVisibleAndLookaheadImagePreloadCandidates(
-    memos: List<MemoUiModel>,
+    memos: ImmutableList<MemoUiModel>,
     firstVisible: Int,
     visibleCount: Int,
     lookaheadCount: Int,
@@ -231,9 +231,9 @@ private fun enqueueImagePreloadRequests(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MemoListBody(
-    memos: List<MemoUiModel>,
-    deletingIds: Set<String>,
-    collapsingIds: Set<String>,
+    memos: ImmutableList<MemoUiModel>,
+    deletingIds: ImmutableSet<String>,
+    collapsingIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -296,9 +296,9 @@ private fun MemoListBody(
 
 @Composable
 private fun MemoListColumn(
-    memos: List<MemoUiModel>,
-    deletingIds: Set<String>,
-    collapsingIds: Set<String>,
+    memos: ImmutableList<MemoUiModel>,
+    deletingIds: ImmutableSet<String>,
+    collapsingIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,

@@ -13,6 +13,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 
 /**
@@ -38,7 +40,7 @@ fun MemoMenuHost(
     showHistory: Boolean = false,
     showJump: Boolean = false,
     memoActionAutoReorderEnabled: Boolean = true,
-    memoActionOrder: List<String> = emptyList(),
+    memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
     benchmarkRootTag: String? = null,
     benchmarkActionAnchorForId: (MemoActionId) -> String? = { null },
@@ -100,7 +102,7 @@ private fun MemoMenuBottomSheetHost(
     showHistory: Boolean,
     showJump: Boolean,
     memoActionAutoReorderEnabled: Boolean,
-    memoActionOrder: List<String>,
+    memoActionOrder: ImmutableList<String>,
     onMemoActionInvoked: (MemoActionId) -> Unit,
     benchmarkRootTag: String?,
     benchmarkActionAnchorForId: (MemoActionId) -> String?,

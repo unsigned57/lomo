@@ -52,11 +52,14 @@ import com.lomo.ui.R
 import com.lomo.ui.component.diff.DiffViewer
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 fun SyncConflictResolutionDialog(
     conflictSet: SyncConflictSet,
-    perFileChoices: Map<String, SyncConflictResolutionChoice>,
+    perFileChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
     expandedFilePath: String?,
     isResolving: Boolean,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
@@ -65,7 +68,9 @@ fun SyncConflictResolutionDialog(
     onToggleExpanded: (path: String) -> Unit,
     onApply: () -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    val conflictFiles = remember(conflictSet.files) { conflictSet.files.toImmutableList() }
     val allFilesChosen = conflictSet.files.all { file ->
         perFileChoices.containsKey(file.relativePath)
     }
@@ -75,7 +80,7 @@ fun SyncConflictResolutionDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            modifier = Modifier.fillMaxSize(),
+            modifier = modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
@@ -88,6 +93,7 @@ fun SyncConflictResolutionDialog(
                     onAcceptSuggestions = onAcceptSuggestions,
                     onFileChoiceChanged = onFileChoiceChanged,
                     onToggleExpanded = onToggleExpanded,
+                    conflictFiles = conflictFiles,
                     onApply = onApply,
                     onDismiss = onDismiss,
                 )
@@ -102,13 +108,14 @@ fun SyncConflictResolutionDialog(
 @Composable
 private fun ConflictDialogContent(
     conflictSet: SyncConflictSet,
-    perFileChoices: Map<String, SyncConflictResolutionChoice>,
+    perFileChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
     expandedFilePath: String?,
     allFilesChosen: Boolean,
     onAllChoicesChanged: (SyncConflictResolutionChoice) -> Unit,
     onAcceptSuggestions: () -> Unit,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: (path: String) -> Unit,
+    conflictFiles: ImmutableList<SyncConflictFile>,
     onApply: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -127,7 +134,7 @@ private fun ConflictDialogContent(
         Spacer(modifier = Modifier.height(AppSpacing.Small))
         ConflictFileList(
             source = conflictSet.source,
-            files = conflictSet.files,
+            files = conflictFiles,
             perFileChoices = perFileChoices,
             expandedFilePath = expandedFilePath,
             onFileChoiceChanged = onFileChoiceChanged,
@@ -143,8 +150,8 @@ private fun ConflictDialogContent(
 @Composable
 private fun ColumnScope.ConflictFileList(
     source: com.lomo.domain.model.SyncBackendType,
-    files: List<SyncConflictFile>,
-    perFileChoices: Map<String, SyncConflictResolutionChoice>,
+    files: ImmutableList<SyncConflictFile>,
+    perFileChoices: ImmutableMap<String, SyncConflictResolutionChoice>,
     expandedFilePath: String?,
     onFileChoiceChanged: (path: String, choice: SyncConflictResolutionChoice) -> Unit,
     onToggleExpanded: (path: String) -> Unit,
@@ -390,7 +397,7 @@ private fun ConflictDiffSection(
         }
         if (hunks.isNotEmpty()) {
             DiffViewer(
-                hunks = hunks,
+                hunks = hunks.toImmutableList(),
                 modifier =
                     Modifier
                         .fillMaxWidth()

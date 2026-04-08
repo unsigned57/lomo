@@ -5,6 +5,7 @@ import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.WebDavProvider
+import kotlinx.collections.immutable.ImmutableMap
 
 @Composable
 internal fun LanShareSettingsSectionContainer(
@@ -33,7 +34,7 @@ internal fun GitSyncSettingsSectionContainer(
     state: GitSectionState,
     dialogState: SettingsDialogState,
     gitFeature: SettingsGitFeatureViewModel,
-    gitSyncIntervalLabels: Map<String, String>,
+    gitSyncIntervalLabels: ImmutableMap<String, String>,
 ) {
     GitSyncSettingsSection(
         state = state,
@@ -75,8 +76,8 @@ internal fun WebDavSyncSettingsSectionContainer(
     state: WebDavSectionState,
     dialogState: SettingsDialogState,
     webDavFeature: SettingsWebDavFeatureViewModel,
-    gitSyncIntervalLabels: Map<String, String>,
-    webDavProviderLabels: Map<WebDavProvider, String>,
+    gitSyncIntervalLabels: ImmutableMap<String, String>,
+    webDavProviderLabels: ImmutableMap<WebDavProvider, String>,
 ) {
     WebDavSyncSettingsSection(
         state = state,
@@ -120,11 +121,11 @@ internal fun S3SyncSettingsSectionContainer(
     dialogState: SettingsDialogState,
     s3Feature: SettingsS3FeatureViewModel,
     onSelectLocalSyncDirectory: () -> Unit,
-    syncIntervalLabels: Map<String, String>,
-    pathStyleLabels: Map<com.lomo.domain.model.S3PathStyle, String>,
-    encryptionModeLabels: Map<com.lomo.domain.model.S3EncryptionMode, String>,
-    rcloneFilenameEncryptionLabels: Map<S3RcloneFilenameEncryption, String>,
-    rcloneFilenameEncodingLabels: Map<S3RcloneFilenameEncoding, String>,
+    syncIntervalLabels: ImmutableMap<String, String>,
+    pathStyleLabels: ImmutableMap<com.lomo.domain.model.S3PathStyle, String>,
+    encryptionModeLabels: ImmutableMap<com.lomo.domain.model.S3EncryptionMode, String>,
+    rcloneFilenameEncryptionLabels: ImmutableMap<S3RcloneFilenameEncryption, String>,
+    rcloneFilenameEncodingLabels: ImmutableMap<S3RcloneFilenameEncoding, String>,
 ) {
     S3SyncSettingsSection(
         state = state,

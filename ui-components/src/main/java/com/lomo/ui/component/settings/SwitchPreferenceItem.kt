@@ -30,9 +30,10 @@ import com.lomo.ui.util.LocalAppHapticFeedback
 @Composable
 fun SettingsGroup(
     title: String,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column {
+    Column(modifier = modifier) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelLarge,
@@ -61,10 +62,11 @@ fun SettingsGroup(
 @Composable
 fun SwitchPreferenceItem(
     title: String,
-    subtitle: String? = null,
     icon: ImageVector,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
 ) {
     val haptic = LocalAppHapticFeedback.current
     ListItem(
@@ -108,7 +110,7 @@ fun SwitchPreferenceItem(
             )
         },
         modifier =
-            Modifier
+            modifier
                 .fillMaxWidth()
                 .clickable {
                     haptic.medium()

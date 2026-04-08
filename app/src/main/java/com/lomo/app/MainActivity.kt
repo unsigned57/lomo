@@ -40,8 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.theme.applyAppNightMode
-import com.lomo.app.util.LocalShareUtils
-import com.lomo.app.util.ShareUtils
+import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.repository.LanShareService
 import com.lomo.ui.benchmark.BenchmarkAnchorConfig
 import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
@@ -58,8 +57,6 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
     @Inject lateinit var audioPlayerController: AudioPlayerController
-
-    @Inject lateinit var shareUtils: ShareUtils
 
     @Inject lateinit var shareServiceManager: LanShareService
 
@@ -214,9 +211,7 @@ class MainActivity : AppCompatActivity() {
     private fun setMainContent() {
         setContent {
             MainActivityScreen(
-                viewModel = viewModel,
                 audioPlayerController = audioPlayerController,
-                shareUtils = shareUtils,
                 shareServiceManager = shareServiceManager,
                 currentUiMode = currentUiMode,
                 onThemeModeChanged = { themeMode ->
@@ -274,13 +269,12 @@ private fun extractSharedImageUris(intent: Intent): List<Uri> {
 
 @Composable
 private fun MainActivityScreen(
-    viewModel: MainViewModel,
     audioPlayerController: AudioPlayerController,
-    shareUtils: ShareUtils,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
     onThemeModeChanged: (com.lomo.domain.model.ThemeMode) -> Unit,
     onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+    viewModel: MainViewModel = injectedHiltViewModel(),
 ) {
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val appLockEnabled by viewModel.appLockEnabled.collectAsStateWithLifecycle()
@@ -298,9 +292,7 @@ private fun MainActivityScreen(
         appPreferences = appPreferences,
         appLockEnabled = appLockEnabled,
         appLockUiState = appLockUiState,
-        viewModel = viewModel,
         audioPlayerController = audioPlayerController,
-        shareUtils = shareUtils,
         shareServiceManager = shareServiceManager,
         currentUiMode = currentUiMode,
     )
@@ -373,9 +365,7 @@ private fun MainActivityRoot(
     appPreferences: AppPreferencesState,
     appLockEnabled: Boolean?,
     appLockUiState: AppLockUiState,
-    viewModel: MainViewModel,
     audioPlayerController: AudioPlayerController,
-    shareUtils: ShareUtils,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
 ) {
@@ -403,9 +393,7 @@ private fun MainActivityRoot(
                     )
                 } else {
                     UnlockedAppRoot(
-                        viewModel = viewModel,
                         audioPlayerController = audioPlayerController,
-                        shareUtils = shareUtils,
                         shareServiceManager = shareServiceManager,
                     )
                 }
@@ -416,19 +404,15 @@ private fun MainActivityRoot(
 
 @Composable
 private fun UnlockedAppRoot(
-    viewModel: MainViewModel,
     audioPlayerController: AudioPlayerController,
-    shareUtils: ShareUtils,
     shareServiceManager: LanShareService,
 ) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
-        LocalShareUtils provides shareUtils,
         LocalBenchmarkAnchorConfig provides
             BenchmarkAnchorConfig(enabled = com.lomo.app.benchmark.areBenchmarkFeaturesEnabled()),
     ) {
         LomoAppRoot(
-            viewModel = viewModel,
             shareServiceManager = shareServiceManager,
         )
     }
@@ -492,40 +476,45 @@ private fun AppLockGateContent(
     showRetryButton: Boolean,
     onRetry: () -> Unit,
 ) {
-    Text(
-        text = stringResource(R.string.app_lock_gate_title),
-        style = MaterialTheme.typography.headlineSmall,
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center,
-    )
-    Text(
-        text = stringResource(R.string.app_lock_gate_subtitle),
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        textAlign = TextAlign.Center,
-    )
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+    ) {
+        Text(
+            text = stringResource(R.string.app_lock_gate_title),
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = stringResource(R.string.app_lock_gate_subtitle),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
 
-    if (showLoadingIndicator) {
-        ExpressiveContainedLoadingIndicator()
-    }
+        if (showLoadingIndicator) {
+            ExpressiveContainedLoadingIndicator()
+        }
 
-    Text(
-        text = statusMessage,
-        style = MaterialTheme.typography.bodySmall,
-        color = statusColor,
-        textAlign = TextAlign.Center,
-    )
+        Text(
+            text = statusMessage,
+            style = MaterialTheme.typography.bodySmall,
+            color = statusColor,
+            textAlign = TextAlign.Center,
+        )
 
-    if (showRetryButton) {
-        Button(
-            onClick = onRetry,
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-        ) {
+        if (showRetryButton) {
+            Button(
+                onClick = onRetry,
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.medium,
+            ) {
             Text(
                 text = stringResource(R.string.app_lock_action_retry),
                 style = MaterialTheme.typography.labelLarge,
             )
+        }
         }
     }
 }

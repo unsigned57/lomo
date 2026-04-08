@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.domain.model.SimpleLineDiff
+import kotlinx.collections.immutable.ImmutableList
 
 private const val DIFF_CHANGED_LINE_ALPHA = 0.2f
 private const val DIFF_LINE_NUMBER_WIDTH = 4
@@ -24,7 +25,7 @@ private const val DIFF_LINE_CONTENT_FONT_SIZE = 12
 
 @Composable
 fun DiffViewer(
-    hunks: List<SimpleLineDiff.DiffHunk>,
+    hunks: ImmutableList<SimpleLineDiff.DiffHunk>,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {

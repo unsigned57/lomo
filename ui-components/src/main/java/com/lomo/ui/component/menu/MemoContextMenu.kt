@@ -124,6 +124,7 @@ fun MemoContextMenu(
     expanded: Boolean,
     onDismiss: () -> Unit,
     state: MemoMenuState,
+    modifier: Modifier = Modifier,
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
 ) {
@@ -134,7 +135,11 @@ fun MemoContextMenu(
     val deleteLabel = stringResource(R.string.action_delete)
     val clipboardMemoLabel = stringResource(R.string.clipboard_label_memo)
 
-    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismiss,
+        modifier = modifier,
+    ) {
         DropdownMenuItem(
             text = { Text(copyLabel) },
             onClick = {

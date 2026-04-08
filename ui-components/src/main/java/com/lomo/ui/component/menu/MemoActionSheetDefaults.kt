@@ -19,12 +19,14 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.res.stringResource
 import com.lomo.ui.R
 import com.lomo.ui.util.AppHapticFeedback
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 internal fun sortDefaultMemoActionSheetActions(
-    actions: List<MemoActionSheetAction>,
+    actions: ImmutableList<MemoActionSheetAction>,
     rankedActionOrder: List<MemoActionId>,
     autoReorderEnabled: Boolean,
-): List<MemoActionSheetAction> {
+): ImmutableList<MemoActionSheetAction> {
     if (!autoReorderEnabled) {
         return actions
     }
@@ -38,7 +40,7 @@ internal fun sortDefaultMemoActionSheetActions(
             actionById[actionId]?.let(::add)
         }
         addAll(actions.filterNot { action -> action.id != null && action.id in rankedIds })
-    }
+    }.toImmutableList()
 }
 
 @Composable
@@ -56,7 +58,7 @@ internal fun rememberDefaultMemoActionSheetActions(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     actionAnchorForId: (MemoActionId) -> String? = { null },
-): List<MemoActionSheetAction> {
+): ImmutableList<MemoActionSheetAction> {
     val labels = rememberMemoActionLabels(isPinned)
     val handlers =
         rememberMemoActionHandlers(
@@ -97,7 +99,7 @@ internal fun rememberDefaultMemoActionSheetActions(
                 ),
             )
             addAll(editingMemoActions(labels, handlers, actionAnchorForId))
-        }
+        }.toImmutableList()
     }
 }
 

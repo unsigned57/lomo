@@ -109,7 +109,7 @@ val Typography =
                 fontWeight = FontWeight(BODY_WEIGHT),
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
-                letterSpacing = 0.25.sp,
+                letterSpacing = 0.1.sp,
             ),
         bodySmall =
             TextStyle(

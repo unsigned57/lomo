@@ -4,6 +4,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.ui.component.dialog.SelectionDialog
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun DisplayPreferenceDialogs(
@@ -16,7 +18,7 @@ internal fun DisplayPreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showDateDialog,
         title = stringResource(R.string.settings_select_date_format),
-        options = options.dateFormats,
+        options = options.dateFormats.toImmutableList(),
         currentSelection = uiState.display.dateFormat,
         onDismiss = { dialogState.showDateDialog = false },
         onSelect = {
@@ -27,7 +29,7 @@ internal fun DisplayPreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showTimeDialog,
         title = stringResource(R.string.settings_select_time_format),
-        options = options.timeFormats,
+        options = options.timeFormats.toImmutableList(),
         currentSelection = uiState.display.timeFormat,
         onDismiss = { dialogState.showTimeDialog = false },
         onSelect = {
@@ -38,7 +40,7 @@ internal fun DisplayPreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showThemeDialog,
         title = stringResource(R.string.settings_select_theme),
-        options = options.themeModes,
+        options = options.themeModes.toImmutableList(),
         currentSelection = uiState.display.themeMode,
         onDismiss = { dialogState.showThemeDialog = false },
         onSelect = {
@@ -71,7 +73,7 @@ internal fun StoragePreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showFilenameDialog,
         title = stringResource(R.string.settings_select_filename_format),
-        options = options.filenameFormats,
+        options = options.filenameFormats.toImmutableList(),
         currentSelection = uiState.storage.filenameFormat,
         onDismiss = { dialogState.showFilenameDialog = false },
         onSelect = {
@@ -82,7 +84,7 @@ internal fun StoragePreferenceDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showTimestampDialog,
         title = stringResource(R.string.settings_select_timestamp_format),
-        options = options.timestampFormats,
+        options = options.timestampFormats.toImmutableList(),
         currentSelection = uiState.storage.timestampFormat,
         onDismiss = { dialogState.showTimestampDialog = false },
         onSelect = {
@@ -96,7 +98,7 @@ internal fun StoragePreferenceDialogs(
 internal fun <T> SelectionDialogIfVisible(
     visible: Boolean,
     title: String,
-    options: List<T>,
+    options: ImmutableList<T>,
     currentSelection: T,
     onDismiss: () -> Unit,
     onSelect: (T) -> Unit,
@@ -115,4 +117,4 @@ internal fun <T> SelectionDialogIfVisible(
     )
 }
 
-private val LANGUAGE_OPTIONS = listOf("system", "zh-CN", "en")
+private val LANGUAGE_OPTIONS = listOf("system", "zh-CN", "en").toImmutableList()

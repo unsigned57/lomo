@@ -24,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
-import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
@@ -32,10 +31,13 @@ import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoMenuBinder
+import com.lomo.app.util.activityHiltViewModel
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -43,8 +45,8 @@ fun GalleryScreen(
     onBackClick: () -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
-    viewModel: MainViewModel = hiltViewModel(),
 ) {
+    val viewModel: MainViewModel = activityHiltViewModel()
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val shareCardShowTime = appPreferences.shareCardShowTime
@@ -92,7 +94,7 @@ fun GalleryScreen(
             snackbarHostState = snackbarHostState,
         ) { padding ->
             GalleryScreenContent(
-                memos = memos,
+                memos = remember(memos) { memos.toImmutableList() },
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
@@ -169,7 +171,7 @@ private fun GalleryScreenScaffold(
 
 @Composable
 private fun GalleryScreenContent(
-    memos: List<com.lomo.app.feature.main.MemoUiModel>,
+    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,

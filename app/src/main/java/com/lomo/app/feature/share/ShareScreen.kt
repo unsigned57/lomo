@@ -53,7 +53,7 @@ fun ShareScreen(
     onBackClick: () -> Unit,
     viewModel: ShareViewModel = hiltViewModel(),
 ) {
-    val uiState = viewModel.collectShareScreenUiState()
+    val uiState = collectShareScreenUiState(viewModel)
     val localState = rememberShareScreenLocalState()
     val canSaveDeviceName = localState.canSaveDeviceName(uiState.deviceName)
     val dismissIme = rememberDismissImeAction()

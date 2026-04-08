@@ -20,11 +20,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
+import kotlinx.collections.immutable.ImmutableList
 
 @Composable
 fun <T> SelectionDialog(
     title: String,
-    options: List<T>,
+    options: ImmutableList<T>,
     currentSelection: T,
     onSelect: (T) -> Unit,
     onDismiss: () -> Unit,

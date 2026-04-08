@@ -14,18 +14,20 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.lomo.app.R
 import com.lomo.domain.model.WebDavProvider
+import kotlinx.collections.immutable.toImmutableList
 
 @Composable
 internal fun WebDavDialogs(
     uiState: SettingsScreenUiState,
-    webDavFeature: SettingsWebDavFeatureViewModel,
+    features: SettingsFeatures,
     dialogState: SettingsDialogState,
     options: SettingsDialogOptions,
 ) {
+    val webDavFeature = features.webDav
     SelectionDialogIfVisible(
         visible = dialogState.showWebDavProviderDialog,
         title = stringResource(R.string.settings_webdav_select_provider),
-        options = options.webDavProviders,
+        options = options.webDavProviders.toImmutableList(),
         currentSelection = uiState.webDav.provider,
         onDismiss = { dialogState.showWebDavProviderDialog = false },
         onSelect = {
@@ -54,7 +56,7 @@ internal fun WebDavDialogs(
     SelectionDialogIfVisible(
         visible = dialogState.showWebDavSyncIntervalDialog,
         title = stringResource(R.string.settings_webdav_select_sync_interval),
-        options = options.gitSyncIntervals,
+        options = options.gitSyncIntervals.toImmutableList(),
         currentSelection = uiState.webDav.autoSyncInterval,
         onDismiss = { dialogState.showWebDavSyncIntervalDialog = false },
         onSelect = {

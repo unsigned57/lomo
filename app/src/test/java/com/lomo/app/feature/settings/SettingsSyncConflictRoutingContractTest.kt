@@ -45,14 +45,14 @@ class SettingsSyncConflictRoutingContractTest {
             """
             SettingsScreenSupport must open the shared conflict dialog for WebDAV and S3 ConflictDetected states.
             Expected HandleWebDavConflictState / HandleS3ConflictState to call
-            conflictViewModel.showConflictDialog(conflictState.conflicts) in:
+            onShowConflictDialog(conflictState.conflicts) in:
             ${settingsSupportSource.path}
             """.trimIndent(),
             content.contains("internal fun HandleWebDavConflictState(") &&
                 content.contains("syncState as? WebDavSyncState.ConflictDetected") &&
                 content.contains("internal fun HandleS3ConflictState(") &&
                 content.contains("syncState as? S3SyncState.ConflictDetected") &&
-                content.contains("conflictViewModel.showConflictDialog(conflictState.conflicts)"),
+                content.contains("onShowConflictDialog(conflictState.conflicts)"),
         )
     }
 

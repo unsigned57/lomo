@@ -5,12 +5,13 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import com.lomo.domain.model.Memo
+import kotlinx.collections.immutable.ImmutableList
 
 @Composable
 fun MainScreenEventEffectsHost(
-    sharedContentEvents: List<PendingUiEvent<MainViewModel.SharedContent>>,
-    appActionEvents: List<PendingUiEvent<MainViewModel.AppAction>>,
-    pendingSharedImageEvents: List<PendingUiEvent<Uri>>,
+    sharedContentEvents: ImmutableList<PendingUiEvent<MainViewModel.SharedContent>>,
+    appActionEvents: ImmutableList<PendingUiEvent<MainViewModel.AppAction>>,
+    pendingSharedImageEvents: ImmutableList<PendingUiEvent<Uri>>,
     imageDirectory: String?,
     errorMessage: String?,
     editorErrorMessage: String?,
@@ -74,7 +75,7 @@ fun MainScreenEventEffectsHost(
 
 @Composable
 fun HandleSharedContentEvents(
-    events: List<PendingUiEvent<MainViewModel.SharedContent>>,
+    events: ImmutableList<PendingUiEvent<MainViewModel.SharedContent>>,
     onAppendText: (String) -> Unit,
     onConsume: (Long) -> Unit,
 ) {
@@ -90,7 +91,7 @@ fun HandleSharedContentEvents(
 
 @Composable
 fun HandleAppActionEvents(
-    events: List<PendingUiEvent<MainViewModel.AppAction>>,
+    events: ImmutableList<PendingUiEvent<MainViewModel.AppAction>>,
     focusMemoInList: suspend (String) -> Boolean,
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     openCreate: () -> Unit,
@@ -127,7 +128,7 @@ fun HandleAppActionEvents(
 @Composable
 fun HandlePendingSharedImageEvents(
     imageDirectory: String?,
-    events: List<PendingUiEvent<android.net.Uri>>,
+    events: ImmutableList<PendingUiEvent<android.net.Uri>>,
     onImageDirectoryMissing: () -> Unit,
     onSaveImage: (android.net.Uri, (String) -> Unit) -> Unit,
     onImageSaved: (String) -> Unit,

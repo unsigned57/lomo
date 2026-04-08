@@ -14,7 +14,7 @@ import org.junit.Test
  * - Unit under test: modern markdown renderer token mapping.
  * - Behavior focus: the library-backed markdown path reuses Lomo memo paragraph rhythm, heading rhythm, and block spacing instead of drifting to library defaults.
  * - Observable outcomes: selected paragraph style line height and letter spacing, selected heading font weight, selected block spacing, and selected link decoration.
- * - Red phase: Fails before the fix because the modern markdown backend uses library defaults rather than Lomo memo typography and spacing tokens.
+ * - Red phase: Fails before the fix because the markdown paragraph style still keeps the old 0sp memo letter spacing instead of the tightened 0.1sp reading contract.
  * - Excludes: actual composable rendering, third-party markdown parsing internals, and image loading behavior.
  */
 class ModernMarkdownRendererTokensTest {
@@ -26,7 +26,7 @@ class ModernMarkdownRendererTokensTest {
 
         assertEquals(typography.memoBodyTextStyle(), spec.paragraphStyle)
         assertEquals(16.sp, spec.paragraphStyle.lineHeight)
-        assertEquals(0.sp, spec.paragraphStyle.letterSpacing)
+        assertEquals(0.1.sp, spec.paragraphStyle.letterSpacing)
         assertTrue(spec.heading1Style.fontWeight != null)
         assertEquals(TextDecoration.Underline, spec.linkStyle.style?.textDecoration)
     }

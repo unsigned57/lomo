@@ -54,6 +54,7 @@ import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableList
 
 private const val DEVICE_DISCOVERY_ENTER_DURATION_MILLIS = 420
 private const val DEVICE_DISCOVERY_EXIT_DURATION_MILLIS = 220
@@ -79,7 +80,7 @@ private const val SEARCHING_HINT_ALPHA = 0.7f
 @Composable
 fun DeviceDiscoverySection(
     showDevicesSection: Boolean,
-    devices: List<DiscoveredDevice>,
+    devices: ImmutableList<DiscoveredDevice>,
     transferState: ShareTransferState,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
@@ -224,7 +225,7 @@ private fun DeviceSearchingState(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DeviceDiscoveryHeader(devices: List<DiscoveredDevice>) {
+private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -262,7 +263,7 @@ private fun DeviceDiscoveryHeader(devices: List<DiscoveredDevice>) {
 
 @Composable
 private fun DeviceDiscoveryList(
-    devices: List<DiscoveredDevice>,
+    devices: ImmutableList<DiscoveredDevice>,
     transferState: ShareTransferState,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     listState: LazyListState,

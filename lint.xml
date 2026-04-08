@@ -21,5 +21,30 @@
     <issue id="AutoboxingStateValueProperty" severity="error" />
     <issue id="ComposableNaming" severity="error" />
     <issue id="CompositionLocalNaming" severity="error" />
+    <issue id="ComposeModifierComposed" severity="error" />
+    <issue id="ComposeModifierReused" severity="error" />
+    <issue id="ComposeMutableParameters" severity="error" />
+    <issue id="ComposeMultipleContentEmitters" severity="error" />
+    <issue id="ComposeContentEmitterReturningValues" severity="error" />
+    <issue id="ComposeUnstableCollections" severity="error" />
+    <issue id="ComposeUnstableReceiver" severity="error" />
+    <issue id="ComposeViewModelForwarding" severity="error" />
+    <issue id="ComposeViewModelInjection" severity="error" />
+    <issue id="ComposeCompositionLocalUsage" severity="error">
+        <option
+            name="allowed-composition-locals"
+            value="LocalAppHapticFeedback,LocalAudioPlayerManager,LocalBenchmarkAnchorConfig,LocalSharedTransitionScope,LocalAnimatedVisibilityScope"
+        />
+    </issue>
+    <issue id="ComposeModifierMissing" severity="error" />
+    <issue id="ComposeModifierWithoutDefault" severity="error" />
+    <issue id="ComposeParameterOrder" severity="error" />
+    <issue id="ComposePreviewNaming" severity="error" />
+    <issue id="ComposePreviewPublic" severity="error" />
+    <issue id="ComposeRememberMissing" severity="error" />
+    <issue id="ComposeNamingUppercase" severity="error" />
+    <issue id="ComposeNamingLowercase" severity="error" />
+    <issue id="ComposeM2Api" severity="error" />
+    <issue id="SlotReused" severity="error" />
     <issue id="UnusedResources" severity="warning" />
 </lint>

@@ -36,6 +36,9 @@ import com.lomo.app.R
 import com.lomo.app.util.MarkdownCleanupFormatter
 import com.lomo.domain.model.Memo
 import dagger.hilt.android.EntryPointAccessors
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -62,8 +65,8 @@ class LomoWidget : GlanceAppWidget() {
         val recentMemos =
             withContext(Dispatchers.IO) {
                 runCatching {
-                    memoRepository.getRecentMemos(WIDGET_MEMO_LIMIT)
-                }.getOrElse { emptyList() }
+                    memoRepository.getRecentMemos(WIDGET_MEMO_LIMIT).toImmutableList()
+                }.getOrElse { persistentListOf() }
             }
 
         provideContent {
@@ -72,178 +75,172 @@ class LomoWidget : GlanceAppWidget() {
             }
         }
     }
+}
 
-    @Composable
-    private fun WidgetContent(
-        context: Context,
-        memos: List<Memo>,
+@Composable
+private fun WidgetContent(
+    context: Context,
+    memos: ImmutableList<Memo>,
+) {
+    Box(
+        modifier =
+            GlanceModifier
+                .fillMaxSize()
+                .cornerRadius(24.dp)
+                .background(GlanceTheme.colors.surface)
+                .padding(16.dp),
     ) {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            WidgetHeader(context)
+            Spacer(modifier = GlanceModifier.height(12.dp))
+            if (memos.isEmpty()) {
+                WidgetEmptyState(context)
+            } else {
+                WidgetMemoList(context, memos)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetHeader(context: Context) {
+    Row(
+        modifier = GlanceModifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Image(
+            provider = ImageProvider(R.drawable.ic_launcher_legacy),
+            contentDescription = context.getString(R.string.app_name),
+            modifier = GlanceModifier.size(48.dp),
+        )
+        Spacer(modifier = GlanceModifier.width(8.dp))
+        Text(
+            text = context.getString(R.string.app_name),
+            style =
+                TextStyle(
+                    color = GlanceTheme.colors.primary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                ),
+        )
+        Spacer(modifier = GlanceModifier.defaultWeight())
         Box(
             modifier =
                 GlanceModifier
-                    .fillMaxSize()
-                    .cornerRadius(24.dp)
-                    .background(GlanceTheme.colors.surface)
-                    .padding(16.dp),
-        ) {
-            Column(modifier = GlanceModifier.fillMaxSize()) {
-                WidgetHeader(context)
-                Spacer(modifier = GlanceModifier.height(12.dp))
-                if (memos.isEmpty()) {
-                    WidgetEmptyState(context)
-                } else {
-                    WidgetMemoList(context, memos)
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun WidgetHeader(context: Context) {
-        Row(
-            modifier = GlanceModifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Image(
-                provider = ImageProvider(R.drawable.ic_launcher_legacy),
-                contentDescription = context.getString(R.string.app_name),
-                modifier = GlanceModifier.size(48.dp),
-            )
-            Spacer(modifier = GlanceModifier.width(8.dp))
-            Text(
-                text = context.getString(R.string.app_name),
-                style =
-                    TextStyle(
-                        color = GlanceTheme.colors.primary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                    ),
-            )
-            Spacer(modifier = GlanceModifier.defaultWeight())
-            Box(
-                modifier =
-                    GlanceModifier
-                        .size(32.dp)
-                        .cornerRadius(16.dp)
-                        .background(GlanceTheme.colors.primaryContainer)
-                        .clickable(
-                            actionStartActivity(
-                                Intent(context, MainActivity::class.java).apply {
-                                    action = MainActivity.ACTION_NEW_MEMO
-                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                },
-                            ),
-                        ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = "+",
-                    style =
-                        TextStyle(
-                            color = GlanceTheme.colors.onPrimaryContainer,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                        ),
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun WidgetEmptyState(context: Context) {
-        Box(
-            modifier = GlanceModifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = context.getString(R.string.widget_no_memos),
-                style =
-                    TextStyle(
-                        color = GlanceTheme.colors.onSurfaceVariant,
-                        fontSize = 14.sp,
-                    ),
-            )
-        }
-    }
-
-    @Composable
-    private fun WidgetMemoList(
-        context: Context,
-        memos: List<Memo>,
-    ) {
-        Column(modifier = GlanceModifier.fillMaxWidth()) {
-            memos.forEachIndexed { index, memo ->
-                MemoItem(context, memo, isLast = index == memos.size - 1)
-            }
-        }
-    }
-
-    @Composable
-    private fun MemoItem(
-        context: Context,
-        memo: Memo,
-        isLast: Boolean = false,
-    ) {
-        val processedContent = stripMarkdown(memo.content)
-
-        // Card-like container
-        Column(
-            modifier =
-                GlanceModifier
-                    .fillMaxWidth()
-                    .cornerRadius(12.dp)
-                    .background(GlanceTheme.colors.surfaceVariant)
+                    .size(32.dp)
+                    .cornerRadius(16.dp)
+                    .background(GlanceTheme.colors.primaryContainer)
                     .clickable(
                         actionStartActivity(
                             Intent(context, MainActivity::class.java).apply {
-                                action = MainActivity.ACTION_OPEN_MEMO
-                                putExtra(MainActivity.EXTRA_MEMO_ID, memo.id)
+                                action = MainActivity.ACTION_NEW_MEMO
                                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                             },
                         ),
-                    ).padding(12.dp),
+                    ),
+            contentAlignment = Alignment.Center,
         ) {
-            // Relative time
             Text(
-                text =
-                    DateUtils
-                        .getRelativeTimeSpanString(
-                            memo.timestamp,
-                            Instant.now().toEpochMilli(),
-                            DateUtils.MINUTE_IN_MILLIS,
-                        ).toString(),
+                text = "+",
                 style =
                     TextStyle(
-                        color = GlanceTheme.colors.onSurfaceVariant,
-                        fontSize = 11.sp,
+                        color = GlanceTheme.colors.onPrimaryContainer,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
                     ),
             )
-            Spacer(modifier = GlanceModifier.height(4.dp))
-            // Content preview
-            Text(
-                text =
-                    processedContent.take(MEMO_PREVIEW_LENGTH).let {
-                        if (processedContent.length > MEMO_PREVIEW_LENGTH) "$it..." else it
-                    },
-                style =
-                    TextStyle(
-                        color = GlanceTheme.colors.onSurface,
-                        fontSize = 14.sp,
-                    ),
-                maxLines = 2,
-            )
         }
-
-        // Spacing between items (except last)
-        if (!isLast) {
-            Spacer(modifier = GlanceModifier.height(8.dp))
-        }
-    }
-
-    private fun stripMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)
-
-    private companion object {
-        const val WIDGET_MEMO_LIMIT = 3
-        const val MEMO_PREVIEW_LENGTH = 100
     }
 }
+
+@Composable
+private fun WidgetEmptyState(context: Context) {
+    Box(
+        modifier = GlanceModifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = context.getString(R.string.widget_no_memos),
+            style =
+                TextStyle(
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = 14.sp,
+                ),
+        )
+    }
+}
+
+@Composable
+private fun WidgetMemoList(
+    context: Context,
+    memos: ImmutableList<Memo>,
+) {
+    Column(modifier = GlanceModifier.fillMaxWidth()) {
+        memos.forEachIndexed { index, memo ->
+            MemoItem(context, memo, isLast = index == memos.size - 1)
+        }
+    }
+}
+
+@Composable
+private fun MemoItem(
+    context: Context,
+    memo: Memo,
+    isLast: Boolean = false,
+) {
+    val processedContent = stripWidgetMarkdown(memo.content)
+
+    Column(
+        modifier =
+            GlanceModifier
+                .fillMaxWidth()
+                .cornerRadius(12.dp)
+                .background(GlanceTheme.colors.surfaceVariant)
+                .clickable(
+                    actionStartActivity(
+                        Intent(context, MainActivity::class.java).apply {
+                            action = MainActivity.ACTION_OPEN_MEMO
+                            putExtra(MainActivity.EXTRA_MEMO_ID, memo.id)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        },
+                    ),
+                ).padding(12.dp),
+    ) {
+        Text(
+            text =
+                DateUtils
+                    .getRelativeTimeSpanString(
+                        memo.timestamp,
+                        Instant.now().toEpochMilli(),
+                        DateUtils.MINUTE_IN_MILLIS,
+                    ).toString(),
+            style =
+                TextStyle(
+                    color = GlanceTheme.colors.onSurfaceVariant,
+                    fontSize = 11.sp,
+                ),
+        )
+        Spacer(modifier = GlanceModifier.height(4.dp))
+        Text(
+            text =
+                processedContent.take(WIDGET_MEMO_PREVIEW_LENGTH).let {
+                    if (processedContent.length > WIDGET_MEMO_PREVIEW_LENGTH) "$it..." else it
+                },
+            style =
+                TextStyle(
+                    color = GlanceTheme.colors.onSurface,
+                    fontSize = 14.sp,
+                ),
+            maxLines = 2,
+        )
+    }
+
+    if (!isLast) {
+        Spacer(modifier = GlanceModifier.height(8.dp))
+    }
+}
+
+private fun stripWidgetMarkdown(content: String): String = MarkdownCleanupFormatter.stripForPlainText(content)
+
+private const val WIDGET_MEMO_LIMIT = 3
+private const val WIDGET_MEMO_PREVIEW_LENGTH = 100

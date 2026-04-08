@@ -1,9 +1,9 @@
 package com.lomo.ui.benchmark
 
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.composed
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
@@ -18,30 +18,26 @@ val LocalBenchmarkAnchorConfig =
         BenchmarkAnchorConfig(enabled = false)
     }
 
+@Composable
 fun Modifier.benchmarkAnchor(tag: String?): Modifier =
-    composed {
-        val config = LocalBenchmarkAnchorConfig.current
-        if (!config.enabled || tag.isNullOrBlank()) {
-            this
-        } else {
-            this.testTag(tag)
-        }
+    if (!LocalBenchmarkAnchorConfig.current.enabled || tag.isNullOrBlank()) {
+        this
+    } else {
+        this.testTag(tag)
     }
 
+@Composable
 fun Modifier.benchmarkAnchorRoot(tag: String? = null): Modifier =
-    composed {
-        val config = LocalBenchmarkAnchorConfig.current
-        if (!config.enabled) {
-            this
-        } else {
-            val anchored =
-                this.semantics {
-                    testTagsAsResourceId = true
-                }
-            if (tag.isNullOrBlank()) {
-                anchored
-            } else {
-                anchored.testTag(tag)
+    if (!LocalBenchmarkAnchorConfig.current.enabled) {
+        this
+    } else {
+        val anchored =
+            this.semantics {
+                testTagsAsResourceId = true
             }
+        if (tag.isNullOrBlank()) {
+            anchored
+        } else {
+            anchored.testTag(tag)
         }
     }
