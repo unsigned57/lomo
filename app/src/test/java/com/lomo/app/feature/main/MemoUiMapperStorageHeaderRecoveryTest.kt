@@ -14,9 +14,9 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: MemoUiMapper
- * - Behavior focus: display-safe recovery of memo content and timestamp when stale memo state still leaks a storage header into app-layer mapping.
- * - Observable outcomes: mapped memo timestamp, processed content, collapsed summary, and markdown precompute choice for deferred rendering.
- * - Red phase: Fails before the fix when a stale `- <zero-width>HH:mm:ss` storage header still surfaces as `00:00:00` plus leaked header text in collapsed/expanded memo rendering.
+ * - Behavior focus: display-safe recovery of memo content and timestamp when stale memo state still leaks a storage header into app-layer mapping or when plain-markdown raw content is the only non-blank source body.
+ * - Observable outcomes: mapped memo timestamp, processed content, collapsed summary, markdown precompute choice for deferred rendering, and URL-only raw markdown recovery when memo.content is blank.
+ * - Red phase: Fails before the fix when a stale `- <zero-width>HH:mm:ss` storage header still surfaces as `00:00:00` plus leaked header text in collapsed/expanded memo rendering, or when URL-only raw markdown still maps to blank UI content.
  * - Excludes: Compose tree rendering, Room query wiring, and repository refresh orchestration.
  */
 class MemoUiMapperStorageHeaderRecoveryTest {
@@ -105,6 +105,34 @@ class MemoUiMapperStorageHeaderRecoveryTest {
         assertEquals("still visible body", uiModel.processedContent)
         assertEquals("still visible body", uiModel.collapsedSummary)
         assertEquals(LocalTime.of(21, 0), Instant.ofEpochMilli(uiModel.memo.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
+    }
+
+    @Test
+    fun `mapToUiModel recovers plain markdown raw content when memo content is blank`() {
+        val rawContent = "https://example.com/url-only"
+        val memo =
+            Memo(
+                id = "2026_03_25_00:00:00_plain_markdown_blank",
+                timestamp = midnightTimestampOf(2026, 3, 25),
+                updatedAt = midnightTimestampOf(2026, 3, 25),
+                content = "",
+                rawContent = rawContent,
+                dateKey = "2026_03_25",
+                tags = emptyList(),
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = null,
+                imagePath = null,
+                imageMap = emptyMap(),
+                precomputeMarkdown = false,
+            )
+
+        assertEquals(rawContent, uiModel.memo.content)
+        assertEquals(rawContent, uiModel.processedContent)
+        assertEquals(rawContent, uiModel.collapsedSummary)
     }
 
     private fun midnightTimestampOf(

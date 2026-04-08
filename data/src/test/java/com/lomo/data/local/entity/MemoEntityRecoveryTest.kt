@@ -12,9 +12,9 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: MemoEntity.toDomain
- * - Behavior focus: recovery of stale persisted memo content and timestamp from rawContent when older parser bugs stored fallback midnight values.
- * - Observable outcomes: recovered domain timestamp date/time, recovered content without storage header leakage, and preserved fallback content when rawContent is plain markdown.
- * - Red phase: Fails before the fix when a stale entity created from `- <zero-width>HH:mm:ss` storage text still surfaces midnight timestamp and raw header text in the UI.
+ * - Behavior focus: recovery of stale persisted memo content and timestamp from rawContent when older parser bugs stored fallback midnight values or left plain-markdown stored content blank.
+ * - Observable outcomes: recovered domain timestamp date/time, recovered content without storage header leakage, preserved fallback content when rawContent is plain markdown, and URL-only raw markdown recovery when stored content is blank.
+ * - Red phase: Fails before the fix when a stale entity created from `- <zero-width>HH:mm:ss` storage text still surfaces midnight timestamp and raw header text in the UI, or when a plain-markdown entity with blank stored content still drops its raw URL body.
  * - Excludes: Room queries, markdown rendering widgets, and sync refresh scheduling.
  */
 class MemoEntityRecoveryTest {
@@ -93,6 +93,25 @@ class MemoEntityRecoveryTest {
 
         assertEquals(storedContent, domain.content)
         assertEquals(LocalTime.of(21, 0), Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
+    }
+
+    @Test
+    fun `toDomain recovers plain markdown raw content when stored content is blank`() {
+        val rawContent = "https://example.com/url-only"
+
+        val domain =
+            MemoEntity(
+                id = "2026_03_25_00:00:00_plain_markdown_blank",
+                timestamp = midnightTimestampOf(2026, 3, 25),
+                content = "",
+                rawContent = rawContent,
+                date = "2026_03_25",
+                tags = "",
+                imageUrls = "",
+            ).toDomain()
+
+        assertEquals(rawContent, domain.content)
+        assertEquals(midnightTimestampOf(2026, 3, 25), domain.timestamp)
     }
 
     private fun midnightTimestampOf(

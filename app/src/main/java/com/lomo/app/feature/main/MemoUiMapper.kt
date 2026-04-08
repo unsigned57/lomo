@@ -112,11 +112,16 @@ class MemoUiMapper
             )
 
         private fun recoverDisplayMemoIfNeeded(memo: Memo): Memo {
+            val normalizedRawContent = memo.rawContent.trim()
             val lines = memo.rawContent.lines()
             val header = lines.firstOrNull()?.let(StorageTimestampFormats::parseMemoHeaderLine)
             val parsedTime = header?.timePart?.let(StorageTimestampFormats::parseOrNull)
             return if (header == null || parsedTime == null) {
-                memo
+                if (normalizedRawContent.isNotBlank() && normalizedRawContent != memo.content) {
+                    memo.copy(content = normalizedRawContent)
+                } else {
+                    memo
+                }
             } else {
                 val recoveredContent = buildRecoveredContent(lines, header.contentPart)
                 val resolvedContent = resolveRecoveredContent(memo.content, recoveredContent)

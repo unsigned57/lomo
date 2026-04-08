@@ -20,6 +20,7 @@ internal object StoredMemoRecovery {
         storedTimestamp: Long,
         dateKey: String,
     ): RecoveredStoredMemo? {
+        val normalizedRawContent = rawContent.trim()
         val lines = rawContent.lines()
         val header = lines.firstOrNull()?.let(StorageTimestampFormats::parseMemoHeaderLine)
         val parsedTime = header?.timePart?.let(StorageTimestampFormats::parseOrNull)
@@ -37,7 +38,14 @@ internal object StoredMemoRecovery {
                 }.trim()
             }
         if (header == null || parsedTime == null || recoveredContent == null) {
-            return null
+            return if (normalizedRawContent.isNotBlank() && normalizedRawContent != storedContent) {
+                RecoveredStoredMemo(
+                    content = normalizedRawContent,
+                    timestamp = storedTimestamp,
+                )
+            } else {
+                null
+            }
         }
 
         val recoveredTimestamp =
