@@ -1,5 +1,7 @@
 package com.lomo.ui.component.media
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,12 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,11 +32,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLocale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.ui.R
-import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.media.AudioPlayerController
 import com.lomo.ui.media.LocalAudioPlayerManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,6 +48,8 @@ import kotlinx.coroutines.flow.flowOf
 
 private const val AUDIO_TIME_MILLIS_PER_SECOND = 1000
 private const val AUDIO_TIME_SECONDS_PER_MINUTE = 60
+private const val AUDIO_PLAYBACK_PROGRESS_TAG = "audio_playback_progress"
+private const val AUDIO_PROGRESS_ANIMATION_DURATION_MS = 180
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
@@ -57,6 +65,14 @@ fun AudioPlayerCard(
     val isCurrentItem = playbackState.isCurrentItem
     val isPlaying = playbackState.isPlaying
     val progress = playbackState.progress
+    val durationMs = playbackState.durationMs
+    val animatedProgress by
+        animateFloatAsState(
+            targetValue = progress.coerceIn(0f, 1f),
+            animationSpec = tween(durationMillis = AUDIO_PROGRESS_ANIMATION_DURATION_MS),
+            label = "audioPlaybackProgress",
+        )
+    val displayProgress = animatedProgress.coerceIn(0f, 1f)
 
     Surface(
         modifier =
@@ -79,10 +95,16 @@ fun AudioPlayerCard(
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            PlaybackProgressIndicator(progress = progress)
+            PlaybackProgressIndicator(
+                progress = displayProgress,
+                active = isCurrentItem && durationMs > 0L,
+            )
 
             Spacer(modifier = Modifier.width(12.dp))
-            PlaybackTimestamp(positionMs = if (isCurrentItem) playbackState.positionMs else 0L)
+            PlaybackTimestamp(
+                positionMs = if (isCurrentItem) playbackState.positionMs else 0L,
+                durationMs = if (isCurrentItem) durationMs else 0L,
+            )
         }
     }
 }
@@ -146,34 +168,66 @@ private fun PlaybackControlButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RowScope.PlaybackProgressIndicator(progress: Float) {
+private fun RowScope.PlaybackProgressIndicator(
+    progress: Float,
+    active: Boolean,
+) {
     Column(
         modifier = Modifier.weight(1f),
         verticalArrangement = Arrangement.Center,
     ) {
-        ExpressiveContainedLoadingIndicator(
+        LinearWavyProgressIndicator(
             progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(16.dp),
-            indicatorColor = MaterialTheme.colorScheme.secondary,
-            containerColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.2f),
-            shape = RoundedCornerShape(2.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(18.dp)
+                    .testTag(AUDIO_PLAYBACK_PROGRESS_TAG),
+            amplitude = { 0.12f + (it * 0.08f) },
+            wavelength = 28.dp,
+            waveSpeed = 18.dp,
+            color =
+                if (active) {
+                    MaterialTheme.colorScheme.secondary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+            trackColor =
+                if (active) {
+                    MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.22f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.28f)
+                },
         )
     }
 }
 
 @Composable
-private fun PlaybackTimestamp(positionMs: Long) {
-    val totalSeconds = positionMs / AUDIO_TIME_MILLIS_PER_SECOND
-    val minutes = totalSeconds / AUDIO_TIME_SECONDS_PER_MINUTE
-    val seconds = totalSeconds % AUDIO_TIME_SECONDS_PER_MINUTE
+private fun PlaybackTimestamp(
+    positionMs: Long,
+    durationMs: Long,
+) {
     val locale = LocalLocale.current.platformLocale
 
     Text(
-        text = String.format(locale, "%02d:%02d", minutes, seconds),
+        text = "${formatAudioTimestamp(positionMs, locale)} / ${formatAudioTimestamp(durationMs, locale)}",
+        modifier = Modifier.widthIn(min = 84.dp),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.End,
     )
+}
+
+private fun formatAudioTimestamp(
+    positionMs: Long,
+    locale: java.util.Locale,
+): String {
+    val totalSeconds = positionMs / AUDIO_TIME_MILLIS_PER_SECOND
+    val minutes = totalSeconds / AUDIO_TIME_SECONDS_PER_MINUTE
+    val seconds = totalSeconds % AUDIO_TIME_SECONDS_PER_MINUTE
+    return String.format(locale, "%02d:%02d", minutes, seconds)
 }
 
 private data class AudioPlaybackState(
