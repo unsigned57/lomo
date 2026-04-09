@@ -44,6 +44,7 @@
     <string name="settings_lan_share_pairing_hint">6–64 个字符</string>
 
     <string name="input_hint_1">长按 + 号回到顶部</string>
+    <string name="input_hint_2">左右滑动工具栏，查看更多功能</string>
     <string name="input_hint_3">支持嵌套标签 #tag/sub</string>
     <string name="input_hint_4">双击memo卡片可以快速进入编辑界面</string>
     <string name="input_hint_5">排序：点一次升序，再点降序</string>

@@ -3,15 +3,15 @@ package com.lomo.ui.component.input
 import android.content.Context
 import android.text.Editable
 import android.text.TextWatcher
-import android.text.method.ArrowKeyMovementMethod
+
 import android.text.Spanned
 import android.text.style.LineHeightSpan
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.TextView.BufferType
 import androidx.compose.ui.graphics.toArgb
@@ -23,12 +23,20 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.core.widget.TextViewCompat
+import com.lomo.ui.text.applySelectionHandleColor
 import com.lomo.ui.text.resolvePlatformTypeface
 import com.lomo.ui.text.toEllipsize
 import kotlin.math.roundToInt
 
 internal const val INPUT_EDITOR_MIN_LINES = 3
 internal const val INPUT_EDITOR_MAX_LINES = 10
+private const val INPUT_EDITOR_PLATFORM_MAX_LINES = Int.MAX_VALUE
+private const val SELECTION_SYNC_DEBOUNCE_MS = 32L
+private const val MEMO_INPUT_STABLE_INPUT_TYPE =
+    InputType.TYPE_CLASS_TEXT or
+        InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+        InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+        InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
 
 internal class MemoInputEditText(
     context: Context,
@@ -39,13 +47,23 @@ internal class MemoInputEditText(
     var lastAppliedStyle: TextStyle? = null
     var lastAppliedDensity: Density? = null
     var lastAppliedCursorColor: Int? = null
+    var lastAppliedHighlightColor: Int? = null
+    var lastAppliedSelectionHandleColor: Int? = null
+
+    private val selectionSyncRunnable = Runnable {
+        onSelectionChangedListener?.invoke()
+    }
 
     override fun onSelectionChanged(
         selStart: Int,
         selEnd: Int,
     ) {
         super.onSelectionChanged(selStart, selEnd)
-        onSelectionChangedListener?.invoke()
+        // Debounce selection sync to avoid expensive Compose round-trips during drag.
+        // Each selection change would otherwise trigger a full recomposition cycle
+        // including reflection-based handle color application, causing visible stutter.
+        removeCallbacks(selectionSyncRunnable)
+        postDelayed(selectionSyncRunnable, SELECTION_SYNC_DEBOUNCE_MS)
     }
 
     fun currentTextFieldValue(): TextFieldValue =
@@ -64,6 +82,11 @@ internal fun MemoInputEditText.syncWith(inputValue: TextFieldValue) {
         restoreSelection(inputValue.selection, desiredText.length)
         return
     }
+
+    // When the EditText has focus, the user may be actively dragging selection handles.
+    // Overriding the selection with Compose state (which may be one frame behind) would
+    // cause the selection to snap back, breaking smooth drag-to-select.
+    if (hasFocus()) return
 
     val desiredStart = inputValue.selection.start.coerceIn(0, desiredText.length)
     val desiredEnd = inputValue.selection.end.coerceIn(0, desiredText.length)
@@ -119,11 +142,12 @@ internal fun EditText.setCursorColor(color: Int) {
 internal fun createMemoInputEditText(
     context: Context,
     cursorColor: Int,
+    selectionHighlightColor: Int,
+    selectionHandleColor: Int,
     onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
 ): MemoInputEditText =
     MemoInputEditText(context).apply {
-        val inputMethodManager = context.getSystemService(InputMethodManager::class.java)
         onEditorReady(this)
         layoutParams =
             ViewGroup.LayoutParams(
@@ -135,25 +159,24 @@ internal fun createMemoInputEditText(
         setPadding(0, 0, 0, 0)
         isCursorVisible = true
         isSingleLine = false
+        inputType = MEMO_INPUT_STABLE_INPUT_TYPE
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             isFallbackLineSpacing = false
         }
         minLines = INPUT_EDITOR_MIN_LINES
-        maxLines = INPUT_EDITOR_MAX_LINES
+        this.maxLines = INPUT_EDITOR_PLATFORM_MAX_LINES
         gravity = Gravity.START or Gravity.TOP
-        movementMethod = ArrowKeyMovementMethod.getInstance()
+
         imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
         overScrollMode = View.OVER_SCROLL_NEVER
-        highlightColor = cursorColor
+        isVerticalScrollBarEnabled = true
+        highlightColor = selectionHighlightColor
+        applySelectionHandleColor(selectionHandleColor)
         onFocusChangeListener =
             View.OnFocusChangeListener { _, hasFocus ->
                 if (hasFocus) {
                     setCursorColor(cursorColor)
-                    post {
-                        requestFocusFromTouch()
-                        @Suppress("DEPRECATION")
-                        inputMethodManager?.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
-                    }
+                    applySelectionHandleColor(selectionHandleColor)
                 }
             }
         addTextChangedListener(
@@ -192,12 +215,24 @@ internal fun updateMemoInputEditText(
     displayStyle: TextStyle,
     density: Density,
     cursorColor: Int,
+    selectionHighlightColor: Int,
+    selectionHandleColor: Int,
     onEditorReady: (MemoInputEditText) -> Unit,
 ) {
     onEditorReady(editText)
     val minimumContentHeightPx = resolveMemoInputMinimumContentHeightPx(displayStyle, density)
     editText.isUpdatingFromModel = true
     editText.minimumHeight = minimumContentHeightPx
+    editText.maxLines = INPUT_EDITOR_PLATFORM_MAX_LINES
+    editText.isVerticalScrollBarEnabled = true
+    if (editText.lastAppliedHighlightColor != selectionHighlightColor) {
+        editText.highlightColor = selectionHighlightColor
+        editText.lastAppliedHighlightColor = selectionHighlightColor
+    }
+    if (editText.lastAppliedSelectionHandleColor != selectionHandleColor) {
+        editText.applySelectionHandleColor(selectionHandleColor)
+        editText.lastAppliedSelectionHandleColor = selectionHandleColor
+    }
     val shouldReplacePresentation =
         shouldReplaceMemoInputPresentationText(
             currentText = editText.text ?: "",
@@ -212,7 +247,6 @@ internal fun updateMemoInputEditText(
             text = buildRawMemoEditorPresentationText(inputValue.text, paragraphSpacingPx),
             style = displayStyle,
             density = density,
-            maxLines = INPUT_EDITOR_MAX_LINES,
             overflow = TextOverflow.Clip,
         )
         editText.lastAppliedParagraphSpacingPx = paragraphSpacingPx
@@ -223,7 +257,6 @@ internal fun updateMemoInputEditText(
             text = editText.text ?: "",
             style = displayStyle,
             density = density,
-            maxLines = INPUT_EDITOR_MAX_LINES,
             overflow = TextOverflow.Clip,
         )
         editText.lastAppliedStyle = displayStyle
@@ -271,7 +304,6 @@ private fun EditText.applyMemoInputParagraphTextStyle(
     text: CharSequence,
     style: TextStyle,
     density: Density,
-    maxLines: Int,
     overflow: TextOverflow,
 ) {
     setText(text, BufferType.EDITABLE)
@@ -279,7 +311,6 @@ private fun EditText.applyMemoInputParagraphTextStyle(
         text = text,
         style = style,
         density = density,
-        maxLines = maxLines,
         overflow = overflow,
     )
 }
@@ -288,14 +319,13 @@ private fun EditText.applyMemoInputParagraphAppearance(
     text: CharSequence,
     style: TextStyle,
     density: Density,
-    maxLines: Int,
     overflow: TextOverflow,
 ) {
     val layoutPolicy = resolveMemoInputParagraphLayoutPolicy(text)
     setTextColor(style.color.toArgb())
     gravity = layoutPolicy.gravity
     textAlignment = layoutPolicy.textAlignment
-    this.maxLines = maxLines
+    this.maxLines = INPUT_EDITOR_PLATFORM_MAX_LINES
     ellipsize = overflow.toEllipsize()
     breakStrategy = layoutPolicy.breakStrategy
     hyphenationFrequency = layoutPolicy.hyphenationFrequency

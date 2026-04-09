@@ -2,24 +2,34 @@ package com.lomo.ui.component.input
 
 import java.nio.file.Paths
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /*
  * Test Contract:
  * - Unit under test: memo input editable-selection bridge contract.
- * - Behavior focus: the memo editor bridge must not force either selectable-only mode or an explicit non-selectable mode, because the input sheet relies on the platform EditText default editable-selection behavior and stable native range handles.
- * - Observable outcomes: source-level absence of direct selectable-mode calls in MemoInputEditTextBridge.kt and continued installation of an editable movement method.
- * - Red phase: Fails before the fix because the bridge explicitly calls setTextIsSelectable(true) or setTextIsSelectable(false), both of which can disrupt native editable range-handle behavior on device.
+ * - Behavior focus: the memo editor bridge must not force either selectable-only mode or an explicit
+ *   non-selectable mode, and must not install ArrowKeyMovementMethod which blocks touch-based
+ *   selection handle dragging and cross-line selection.
+ * - Observable outcomes: source-level absence of direct selectable-mode calls and
+ *   ArrowKeyMovementMethod in MemoInputEditTextBridge.kt.
+ * - Red phase: Fails before the fix because the bridge installs ArrowKeyMovementMethod which
+ *   prevents smooth touch selection handle dragging across lines.
  * - Excludes: Android widget internals, OEM handle visuals, IME rendering, and Compose hosting.
- */
-/*
+ *
  * Test Change Justification:
- * - Reason category: factual correction.
- * - Exact behavior or assertion being replaced: the old contract required exactly one setTextIsSelectable(false) call during creation.
- * - Why the previous assertion is no longer correct: device-level regression proof on Samsung/Android 16 showed that even forcing false once can suppress the expected editable long-press range handles, so the correct contract is to avoid explicit selectable-state writes entirely and preserve the platform default EditText mode.
- * - What retained or new coverage preserves the original risk: the updated source contract still forbids selectable-only mode and now also forbids explicit non-selectable mode, while the device regression test verifies that long-press can produce a non-collapsed selection on a focused editor.
- * - Why this is not "changing the test to fit the implementation": the change follows a reproduced device failure and tightens the behavior contract around the user-visible selection regression instead of weakening it.
+ * - Reason category: product/domain contract changed.
+ * - Exact behavior or assertion being replaced: the old contract asserted that
+ *   ArrowKeyMovementMethod.getInstance() must be present.
+ * - Why the previous assertion is no longer correct: ArrowKeyMovementMethod was identified as the
+ *   root cause of the bug where selection handle dragging could only move one character at a time
+ *   and could not cross lines. ArrowKeyMovementMethod is designed for arrow-key navigation in
+ *   non-editable TextViews, not for touch selection in EditText.
+ * - What retained or new coverage preserves the original risk: the test now asserts that
+ *   ArrowKeyMovementMethod is NOT installed, which ensures the native EditText touch selection
+ *   behavior works correctly for drag selection.
+ * - Why this is not "changing the test to fit the implementation": this follows a reproduced bug
+ *   where ArrowKeyMovementMethod was the root cause, and the test now enforces the correct
+ *   behavior contract.
  */
 class MemoInputEditableSelectionModeContractTest {
     private val sourceText: String by lazy {
@@ -52,9 +62,13 @@ class MemoInputEditableSelectionModeContractTest {
     }
 
     @Test
-    fun `memo input bridge still installs an editable movement method`() {
-        assertTrue(
-            sourceText.contains("movementMethod = ArrowKeyMovementMethod.getInstance()"),
+    fun `memo input bridge must not install ArrowKeyMovementMethod`() {
+        assertFalse(
+            """
+            ArrowKeyMovementMethod blocks touch-based selection handle dragging and cross-line
+            selection. EditText should use its default touch selection behavior instead.
+            """.trimIndent(),
+            sourceText.contains("ArrowKeyMovementMethod"),
         )
     }
 }

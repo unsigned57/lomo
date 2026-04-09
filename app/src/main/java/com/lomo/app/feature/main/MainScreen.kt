@@ -316,17 +316,18 @@ private data class MainScreenInteractionCallbacks(
 @Composable
 private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
     val hint1 = stringResource(R.string.input_hint_1)
+    val hint2 = stringResource(R.string.input_hint_2)
     val hint3 = stringResource(R.string.input_hint_3)
     val hint4 = stringResource(R.string.input_hint_4)
     val hint5 = stringResource(R.string.input_hint_5)
     val hint6 = stringResource(R.string.input_hint_6)
     val hint7 = stringResource(R.string.input_hint_7)
 
-    return remember(showInputHints, hint1, hint3, hint4, hint5, hint6, hint7) {
+    return remember(showInputHints, hint1, hint2, hint3, hint4, hint5, hint6, hint7) {
         if (!showInputHints) {
             persistentListOf()
         } else {
-            persistentListOf(hint1, hint3, hint4, hint5, hint6, hint7)
+            persistentListOf(hint1, hint2, hint3, hint4, hint5, hint6, hint7)
         }
     }
 }

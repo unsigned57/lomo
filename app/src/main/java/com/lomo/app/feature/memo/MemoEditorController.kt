@@ -26,6 +26,11 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
+enum class MemoEditorMode {
+    Compact,
+    Expanded,
+}
+
 @Stable
 class MemoEditorController
     internal constructor() {
@@ -41,18 +46,23 @@ class MemoEditorController
         var inputValue by mutableStateOf(TextFieldValue(""))
             private set
 
+        var mode by mutableStateOf(MemoEditorMode.Compact)
+            private set
+
         fun openForCreate(initialText: String = "") {
             editingMemo = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
+            mode = MemoEditorMode.Compact
             isVisible = true
-            requestEditorFocus()
+            focusRequestToken += 1L
         }
 
         fun openForEdit(memo: Memo) {
             editingMemo = memo
             inputValue = TextFieldValue(memo.content, TextRange(memo.content.length))
+            mode = MemoEditorMode.Compact
             isVisible = true
-            requestEditorFocus()
+            focusRequestToken += 1L
         }
 
         fun appendMarkdownBlock(markdown: String) {
@@ -72,17 +82,39 @@ class MemoEditorController
 
         fun ensureVisible() {
             isVisible = true
-            requestEditorFocus()
+            focusRequestToken += 1L
         }
+
+        fun expand() {
+            if (mode == MemoEditorMode.Expanded) return
+            mode = MemoEditorMode.Expanded
+        }
+
+        fun collapse() {
+            if (mode == MemoEditorMode.Compact) return
+            mode = MemoEditorMode.Compact
+        }
+
+        fun toggleExpanded() {
+            when (mode) {
+                MemoEditorMode.Compact -> expand()
+                MemoEditorMode.Expanded -> collapse()
+            }
+        }
+
+        fun consumeBackPress(): Boolean =
+            if (mode == MemoEditorMode.Expanded) {
+                collapse()
+                true
+            } else {
+                false
+            }
 
         fun close() {
             isVisible = false
             editingMemo = null
             inputValue = TextFieldValue("")
-        }
-
-        private fun requestEditorFocus() {
-            focusRequestToken += 1L
+            mode = MemoEditorMode.Compact
         }
     }
 
@@ -137,6 +169,7 @@ fun MemoEditorSheetHost(
             com.lomo.ui.component.input.InputSheetState(
                 inputValue = controller.inputValue,
                 focusRequestToken = controller.focusRequestToken,
+                isExpanded = controller.mode == MemoEditorMode.Expanded,
                 availableTags = availableTags,
                 isRecording = isRecordingValue,
                 recordingDuration = recordingDurationValue,
@@ -150,6 +183,9 @@ fun MemoEditorSheetHost(
                     controller.close()
                     onDismiss()
                 },
+                onToggleExpanded = controller::toggleExpanded,
+                onCollapse = controller::collapse,
+                onConsumeBackPress = controller::consumeBackPress,
                 onSubmit = { content ->
                     onSubmit(controller.editingMemo, content)
                     controller.close()

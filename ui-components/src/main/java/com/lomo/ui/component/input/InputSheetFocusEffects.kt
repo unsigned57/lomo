@@ -1,24 +1,22 @@
 package com.lomo.ui.component.input
 
-import android.view.View
-import android.view.ViewGroup
-import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.SoftwareKeyboardController
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
 
 internal const val INPUT_SHEET_EDITOR_READY_MAX_FRAMES = 12
 internal const val INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS = 5
 internal const val INPUT_SHEET_FOCUS_SETTLE_MAX_FRAMES = 12
 internal const val INPUT_SHEET_FOCUS_RELEASE_MAX_ATTEMPTS = 5
 internal const val INPUT_SHEET_ENTRY_SETTLE_DELAY_MILLIS = MotionTokens.DurationLong2.toLong()
-private const val INPUT_SHEET_WINDOW_FOCUS_SINK_TAG = "lomo_input_sheet_window_focus_sink"
 
 @Composable
 internal fun InputSheetVisibilityEffects(
@@ -71,6 +69,8 @@ internal fun InputSheetFocusRequestEffects(
     editorView: MemoInputEditText?,
     keyboardController: SoftwareKeyboardController?,
 ) {
+    var lastHandledFocusRequestToken by remember { mutableLongStateOf(Long.MIN_VALUE) }
+
     LaunchedEffect(isSheetVisible, isRecording, isDismissing, editorView, keyboardController) {
         if (!isSheetVisible) return@LaunchedEffect
         when {
@@ -95,7 +95,19 @@ internal fun InputSheetFocusRequestEffects(
         focusRequestToken,
         editorView,
     ) {
-        if (!isSheetVisible || !isSheetEntrySettled || isDismissing || isRecording) return@LaunchedEffect
+        if (
+            !shouldRequestInputSheetEditorFocus(
+                isSheetVisible = isSheetVisible,
+                isSheetEntrySettled = isSheetEntrySettled,
+                isRecording = isRecording,
+                isDismissing = isDismissing,
+                editorView = editorView,
+                focusRequestToken = focusRequestToken,
+                lastHandledFocusRequestToken = lastHandledFocusRequestToken,
+            )
+        ) {
+            return@LaunchedEffect
+        }
         focusRequester.requestFocus()
         val editor = editorView ?: return@LaunchedEffect
         if (!awaitInputEditorReady(editor)) return@LaunchedEffect
@@ -103,143 +115,32 @@ internal fun InputSheetFocusRequestEffects(
             editor = editor,
             keyboardController = keyboardController,
         )
+        lastHandledFocusRequestToken = focusRequestToken
     }
 }
+
+internal fun shouldRequestInputSheetEditorFocus(
+    isSheetVisible: Boolean,
+    isSheetEntrySettled: Boolean,
+    isRecording: Boolean,
+    isDismissing: Boolean,
+    editorView: MemoInputEditText?,
+    focusRequestToken: Long,
+    lastHandledFocusRequestToken: Long,
+): Boolean =
+    isSheetVisible &&
+        isSheetEntrySettled &&
+        !isRecording &&
+        !isDismissing &&
+        editorView != null &&
+        focusRequestToken != lastHandledFocusRequestToken
 
 internal fun releaseEditorFocusAndKeyboardImmediately(
     editor: MemoInputEditText?,
     keyboardController: SoftwareKeyboardController?,
     focusParkingRequester: FocusRequester,
 ) {
-    val inputMethodManager = editor?.context?.getSystemService(InputMethodManager::class.java)
     editor?.clearFocus()
-    parkInputSheetFocus(focusParkingRequester = focusParkingRequester, editor = editor)
-    if (editor != null) {
-        inputMethodManager?.hideSoftInputFromWindow(editor.windowToken, 0)
-    }
+    releaseEditorWindowFocus(editor = editor, focusParkingRequester = focusParkingRequester)
     keyboardController?.hide()
-}
-
-private suspend fun releaseEditorFocusAndKeyboard(
-    editor: MemoInputEditText,
-    keyboardController: SoftwareKeyboardController?,
-    focusParkingRequester: FocusRequester,
-) {
-    val inputMethodManager = editor.context.getSystemService(InputMethodManager::class.java)
-    repeat(INPUT_SHEET_FOCUS_RELEASE_MAX_ATTEMPTS) {
-        runOnInputEditor(editor) {
-            editor.clearFocus()
-            inputMethodManager?.hideSoftInputFromWindow(editor.windowToken, 0)
-        }
-        parkInputSheetFocus(focusParkingRequester = focusParkingRequester, editor = editor)
-        keyboardController?.hide()
-        if (awaitInputEditorBlurred(editor = editor, inputMethodManager = inputMethodManager)) {
-            return
-        }
-    }
-    keyboardController?.hide()
-}
-
-private fun parkInputSheetFocus(
-    focusParkingRequester: FocusRequester,
-    editor: MemoInputEditText? = null,
-) {
-    parkWindowRootFocus(editor)
-    runCatching { focusParkingRequester.requestFocus() }
-}
-
-private fun parkWindowRootFocus(editor: MemoInputEditText?) {
-    val rootView = editor?.rootView ?: return
-    val focusHost =
-        rootView.findViewById<ViewGroup?>(android.R.id.content) ?: (rootView as? ViewGroup)
-    val persistentFocusTarget =
-        focusHost?.findViewWithTag<View>(INPUT_SHEET_WINDOW_FOCUS_SINK_TAG)
-            ?: focusHost?.let { contentRoot ->
-                View(contentRoot.context).apply {
-                    tag = INPUT_SHEET_WINDOW_FOCUS_SINK_TAG
-                    layoutParams = ViewGroup.LayoutParams(1, 1)
-                    alpha = 0f
-                    isClickable = false
-                    isFocusable = true
-                    isFocusableInTouchMode = true
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                    contentRoot.addView(this)
-                }
-            }
-            ?: rootView
-    if (!persistentFocusTarget.isFocusable) persistentFocusTarget.isFocusable = true
-    if (!persistentFocusTarget.isFocusableInTouchMode) {
-        persistentFocusTarget.isFocusableInTouchMode = true
-    }
-    persistentFocusTarget.requestFocus()
-}
-
-private suspend fun awaitInputEditorReady(editor: MemoInputEditText): Boolean {
-    repeat(INPUT_SHEET_EDITOR_READY_MAX_FRAMES) {
-        if (editor.isAttachedToWindow && editor.isLaidOut && editor.isShown && editor.hasWindowFocus()) {
-            return true
-        }
-        withFrameNanos { }
-    }
-    return editor.isAttachedToWindow && editor.isLaidOut && editor.isShown && editor.hasWindowFocus()
-}
-
-private suspend fun requestEditorFocusAndKeyboard(
-    editor: MemoInputEditText,
-    keyboardController: SoftwareKeyboardController?,
-) {
-    val inputMethodManager = editor.context.getSystemService(InputMethodManager::class.java)
-    repeat(INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS) {
-        runOnInputEditor(editor) {
-            editor.requestFocus()
-            editor.requestFocusFromTouch()
-            @Suppress("DEPRECATION")
-            inputMethodManager?.showSoftInput(editor, InputMethodManager.SHOW_IMPLICIT)
-        }
-        keyboardController?.show()
-        if (awaitInputEditorFocused(editor = editor, inputMethodManager = inputMethodManager)) {
-            return
-        }
-    }
-    keyboardController?.show()
-}
-
-private suspend fun awaitInputEditorFocused(
-    editor: MemoInputEditText,
-    inputMethodManager: InputMethodManager?,
-): Boolean {
-    repeat(INPUT_SHEET_FOCUS_SETTLE_MAX_FRAMES) {
-        if (editor.hasFocus() && inputMethodManager?.isActive(editor) == true) {
-            return true
-        }
-        withFrameNanos { }
-    }
-    return editor.hasFocus() && inputMethodManager?.isActive(editor) == true
-}
-
-private suspend fun awaitInputEditorBlurred(
-    editor: MemoInputEditText,
-    inputMethodManager: InputMethodManager?,
-): Boolean {
-    repeat(INPUT_SHEET_FOCUS_SETTLE_MAX_FRAMES) {
-        if (!editor.hasFocus() && inputMethodManager?.isActive(editor) != true) {
-            return true
-        }
-        withFrameNanos { }
-    }
-    return !editor.hasFocus() && inputMethodManager?.isActive(editor) != true
-}
-
-private suspend fun runOnInputEditor(
-    editor: MemoInputEditText,
-    action: () -> Unit,
-) {
-    suspendCancellableCoroutine { continuation ->
-        editor.post {
-            action()
-            if (continuation.isActive) {
-                continuation.resume(Unit)
-            }
-        }
-    }
 }

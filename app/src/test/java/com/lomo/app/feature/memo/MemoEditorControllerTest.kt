@@ -12,9 +12,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: MemoEditorController
- * - Behavior focus: create/edit opening state, markdown append behavior, visibility management, and close reset semantics.
- * - Observable outcomes: visible flag, editingMemo selection, input text/value selection, and appended markdown content.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: create/edit opening state, markdown append behavior, compact/expanded mode transitions, visibility management, and close reset semantics.
+ * - Observable outcomes: visible flag, editingMemo selection, editor mode, input text/value selection, back-press consumption, and appended markdown content.
+ * - Red phase: Fails before the fix because MemoEditorController has no long-form mode state, cannot expand/collapse the active session, and cannot consume back to collapse before dismiss.
  * - Excludes: Compose sheet rendering, activity-result launchers, and media save wiring.
  */
 class MemoEditorControllerTest {
@@ -70,5 +70,35 @@ class MemoEditorControllerTest {
         controller.openForCreate()
         controller.appendMarkdownBlock("```kotlin")
         assertEquals("```kotlin", controller.inputValue.text)
+    }
+
+    @Test
+    fun `create session defaults to compact and expanded mode can collapse without losing draft`() {
+        val controller = MemoEditorController()
+
+        controller.openForCreate("draft")
+
+        assertEquals(MemoEditorMode.Compact, controller.mode)
+        assertEquals("draft", controller.inputValue.text)
+        assertEquals(TextRange(5), controller.inputValue.selection)
+
+        controller.expand()
+
+        assertEquals(MemoEditorMode.Expanded, controller.mode)
+        assertEquals("draft", controller.inputValue.text)
+        assertEquals(TextRange(5), controller.inputValue.selection)
+
+        assertTrue(controller.consumeBackPress())
+        assertEquals(MemoEditorMode.Compact, controller.mode)
+        assertEquals("draft", controller.inputValue.text)
+        assertEquals(TextRange(5), controller.inputValue.selection)
+
+        assertFalse(controller.consumeBackPress())
+
+        controller.close()
+        controller.openForCreate("fresh")
+
+        assertEquals(MemoEditorMode.Compact, controller.mode)
+        assertEquals("fresh", controller.inputValue.text)
     }
 }

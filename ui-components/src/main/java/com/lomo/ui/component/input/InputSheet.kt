@@ -84,6 +84,7 @@ private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 data class InputSheetState(
     val inputValue: TextFieldValue,
     val focusRequestToken: Long = 0L,
+    val isExpanded: Boolean = false,
     val availableTags: ImmutableList<String> = persistentListOf(),
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
@@ -120,6 +121,9 @@ fun passThroughInputInterceptor(): InputInterceptor = PassThroughInputIntercepto
 data class InputSheetCallbacks(
     val onInputValueChange: (TextFieldValue) -> Unit,
     val onDismiss: () -> Unit,
+    val onToggleExpanded: () -> Unit = {},
+    val onCollapse: () -> Unit = {},
+    val onConsumeBackPress: () -> Boolean = { false },
     val onSubmit: (String) -> Unit,
     val onImageClick: () -> Unit,
     val onCameraClick: () -> Unit = {},
@@ -200,6 +204,8 @@ fun InputSheet(
         focusRequestToken = state.focusRequestToken,
         editorView = editorView,
         keyboardController = keyboardController,
+        onCollapse = callbacks.onCollapse,
+        onConsumeBackPress = callbacks.onConsumeBackPress,
         onRequestDismiss = requestDismiss,
     )
 
@@ -386,6 +392,8 @@ private fun InputSheetLifecycle(
     focusRequestToken: Long,
     editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    onCollapse: () -> Unit,
+    onConsumeBackPress: () -> Boolean,
     onRequestDismiss: () -> Unit,
 ) {
     InputSheetVisibilityEffects(
@@ -406,7 +414,13 @@ private fun InputSheetLifecycle(
         editorView = editorView,
         keyboardController = keyboardController,
     )
-    BackHandler(enabled = true) { onRequestDismiss() }
+    BackHandler(enabled = true) {
+        if (state.isExpanded) {
+            onCollapse()
+        } else if (!onConsumeBackPress()) {
+            onRequestDismiss()
+        }
+    }
     InputSheetSubmissionResetEffect(
         inputText = inputText,
         isSubmitting = sessionState.isSubmitting,

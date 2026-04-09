@@ -27,6 +27,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.collections.immutable.persistentListOf
 
 /*
  * Test Contract:
@@ -52,7 +53,7 @@ class InputSheetEditorBufferContinuityTest {
                     state =
                         InputSheetState(
                             inputValue = inputValue.value,
-                            hints = listOf("revision:${revision.intValue}"),
+                            hints = persistentListOf("revision:${revision.intValue}"),
                         ),
                     callbacks =
                         InputSheetCallbacks(

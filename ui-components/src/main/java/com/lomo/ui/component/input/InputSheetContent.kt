@@ -40,6 +40,7 @@ internal fun InputSheetContent(
         isRecording = state.isRecording,
         recordingDuration = state.recordingDuration,
         recordingAmplitude = state.recordingAmplitude,
+        isExpanded = state.isExpanded,
         inputValue = inputValue,
         hintText = hintText,
         availableTags = state.availableTags,
@@ -53,6 +54,7 @@ internal fun InputSheetContent(
             callbacks.onInputValueChange(buildTagInsertionValue(inputValue.text, tag))
             sessionState.showTagSelector = false
         },
+        onToggleExpanded = callbacks.onToggleExpanded,
         onToggleTagSelector = { sessionState.showTagSelector = !sessionState.showTagSelector },
         onCameraClick = callbacks.onCameraClick,
         onImageClick = callbacks.onImageClick,
@@ -83,6 +85,7 @@ private fun InputSheetBody(
     isRecording: Boolean,
     recordingDuration: Long,
     recordingAmplitude: Int,
+    isExpanded: Boolean,
     inputValue: TextFieldValue,
     hintText: String,
     availableTags: ImmutableList<String>,
@@ -92,6 +95,7 @@ private fun InputSheetBody(
     onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
     onTagSelected: (String) -> Unit,
+    onToggleExpanded: () -> Unit,
     onToggleTagSelector: () -> Unit,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
@@ -115,12 +119,19 @@ private fun InputSheetBody(
 
     InputSheetScaffold(
         isSheetVisible = isSheetVisible,
-        scrimAlpha = if (isSheetVisible) 0.32f else 0f,
+        isExpanded = isExpanded,
+        scrimAlpha =
+            when {
+                !isSheetVisible -> 0f
+                isExpanded -> 0.16f
+                else -> 0.32f
+            },
         onRequestDismiss = onRequestDismiss,
         benchmarkRootTag = benchmarkRootTag,
         focusParkingRequester = focusParkingRequester,
-    ) {
+    ) { motionStage, contentModifier ->
         AnimatedContent(
+            modifier = contentModifier,
             targetState = isRecording,
             transitionSpec = { fadeScaleContentTransition() },
             label = "RecordingStateTransition",
@@ -144,6 +155,7 @@ private fun InputSheetBody(
                 )
             } else {
                 InputEditorPanel(
+                    motionStage = motionStage,
                     inputValue = inputValue,
                     hintText = hintText,
                     availableTags = availableTags,
@@ -152,6 +164,7 @@ private fun InputSheetBody(
                     onEditorReady = onEditorReady,
                     onTextChange = onTextChange,
                     onTagSelected = onTagSelected,
+                    onToggleExpanded = onToggleExpanded,
                     onToggleTagSelector = onToggleTagSelector,
                     onCameraClick = onCameraClick,
                     onImageClick = onImageClick,
