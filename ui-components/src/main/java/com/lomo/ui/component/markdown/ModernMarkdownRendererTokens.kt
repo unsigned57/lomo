@@ -19,6 +19,9 @@ import com.mikepenz.markdown.model.DefaultMarkdownTypography
 import com.mikepenz.markdown.model.MarkdownPadding
 import com.mikepenz.markdown.model.MarkdownTypography
 
+private const val DEFAULT_HIGHLIGHT_BACKGROUND_COLOR_VALUE = 0x66FFE082
+private val DEFAULT_HIGHLIGHT_BACKGROUND_COLOR = Color(DEFAULT_HIGHLIGHT_BACKGROUND_COLOR_VALUE)
+
 internal data class ModernMarkdownTokenSpec(
     val paragraphStyle: TextStyle,
     val heading1Style: TextStyle,
@@ -42,7 +45,7 @@ internal data class ModernMarkdownTokenSpec(
 internal fun createModernMarkdownTokenSpec(
     typography: Typography,
     linkColor: Color = Color.Unspecified,
-    highlightBackgroundColor: Color = Color(0x66FFE082),
+    highlightBackgroundColor: Color = DEFAULT_HIGHLIGHT_BACKGROUND_COLOR,
 ): ModernMarkdownTokenSpec {
     val paragraphStyle = typography.memoBodyTextStyle()
     val linkSpanStyle =

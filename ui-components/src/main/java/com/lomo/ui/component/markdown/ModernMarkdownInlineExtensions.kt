@@ -11,6 +11,16 @@ private const val MODERN_MARKDOWN_HIGHLIGHT_CLOSE_MARKER = "LOMO_MD_HL_CLOSE"
 private const val MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER = "LOMO_MD_U_OPEN"
 private const val MODERN_MARKDOWN_UNDERLINE_CLOSE_MARKER = "LOMO_MD_U_CLOSE"
 
+private class InlineExtensionRenderState(
+    sourceLength: Int,
+) {
+    val output = StringBuilder(sourceLength)
+    val indexMap = IntArray(sourceLength + 1)
+    val highlightStarts = ArrayDeque<Int>()
+    val underlineStarts = ArrayDeque<Int>()
+    val extensionRanges = mutableListOf<AnnotatedString.Range<out AnnotatedString.Annotation>>()
+}
+
 private data class PendingInlineMarker(
     val start: Int,
     val placeholder: String,
@@ -32,25 +42,23 @@ internal fun preprocessModernMarkdownInlineExtensions(
 
     while (index < fragment.length) {
         val backtickRunLength = fragment.countRepeatedBackticks(index)
-        if (backtickRunLength > 0) {
-            output.append(fragment, index, index + backtickRunLength)
-            inlineCodeDelimiterLength =
-                when {
-                    inlineCodeDelimiterLength == null -> backtickRunLength
-                    inlineCodeDelimiterLength == backtickRunLength -> null
-                    else -> inlineCodeDelimiterLength
-                }
-            index += backtickRunLength
-            continue
-        }
-
-        if (inlineCodeDelimiterLength != null) {
-            output.append(fragment[index])
-            index++
-            continue
-        }
-
         when {
+            backtickRunLength > 0 -> {
+                output.append(fragment, index, index + backtickRunLength)
+                inlineCodeDelimiterLength =
+                    when {
+                        inlineCodeDelimiterLength == null -> backtickRunLength
+                        inlineCodeDelimiterLength == backtickRunLength -> null
+                        else -> inlineCodeDelimiterLength
+                    }
+                index += backtickRunLength
+            }
+
+            inlineCodeDelimiterLength != null -> {
+                output.append(fragment[index])
+                index++
+            }
+
             fragment.startsWith("<u>", index) -> {
                 val markerStart = output.length
                 output.append(MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER)
@@ -114,93 +122,22 @@ internal fun applyModernMarkdownInlineExtensions(
         return annotatedText
     }
 
-    val output = StringBuilder(sourceText.length)
-    val indexMap = IntArray(sourceText.length + 1)
-    val highlightStarts = ArrayDeque<Int>()
-    val underlineStarts = ArrayDeque<Int>()
-    val extensionRanges = mutableListOf<AnnotatedString.Range<out AnnotatedString.Annotation>>()
-    var index = 0
+    val renderState = InlineExtensionRenderState(sourceText.length)
+    consumeInlineExtensionMarkers(
+        sourceText = sourceText,
+        tokenSpec = tokenSpec,
+        renderState = renderState,
+    )
 
-    while (index < sourceText.length) {
-        when {
-            sourceText.startsWith(MODERN_MARKDOWN_HIGHLIGHT_OPEN_MARKER, index) -> {
-                highlightStarts.addLast(output.length)
-                index = consumeRemovedMarker(sourceText, index, MODERN_MARKDOWN_HIGHLIGHT_OPEN_MARKER, indexMap, output.length)
-            }
-
-            sourceText.startsWith(MODERN_MARKDOWN_HIGHLIGHT_CLOSE_MARKER, index) -> {
-                highlightStarts.removeLastOrNull()?.let { start ->
-                    if (start < output.length) {
-                        extensionRanges +=
-                            AnnotatedString.Range(
-                                item = tokenSpec.highlightSpanStyle,
-                                start = start,
-                                end = output.length,
-                            )
-                    }
-                }
-                index = consumeRemovedMarker(sourceText, index, MODERN_MARKDOWN_HIGHLIGHT_CLOSE_MARKER, indexMap, output.length)
-            }
-
-            sourceText.startsWith(MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER, index) -> {
-                underlineStarts.addLast(output.length)
-                index = consumeRemovedMarker(sourceText, index, MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER, indexMap, output.length)
-            }
-
-            sourceText.startsWith(MODERN_MARKDOWN_UNDERLINE_CLOSE_MARKER, index) -> {
-                underlineStarts.removeLastOrNull()?.let { start ->
-                    if (start < output.length) {
-                        extensionRanges +=
-                            AnnotatedString.Range(
-                                item = SpanStyle(textDecoration = TextDecoration.Underline),
-                                start = start,
-                                end = output.length,
-                            )
-                    }
-                }
-                index = consumeRemovedMarker(sourceText, index, MODERN_MARKDOWN_UNDERLINE_CLOSE_MARKER, indexMap, output.length)
-            }
-
-            else -> {
-                output.append(sourceText[index])
-                index++
-                indexMap[index] = output.length
-            }
-        }
-    }
-
-    val remappedText = output.toString()
+    val remappedText = renderState.output.toString()
     val builder = AnnotatedString.Builder(remappedText)
 
-    annotatedText.spanStyles.forEach { range ->
-        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
-            builder.addStyle(range.item, start, end)
-        }
-    }
-    annotatedText.paragraphStyles.forEach { range ->
-        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
-            builder.addStyle(range.item, start, end)
-        }
-    }
-    annotatedText.getStringAnnotations(0, annotatedText.length).forEach { range ->
-        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
-            builder.addStringAnnotation(range.tag, range.item, start, end)
-        }
-    }
-    annotatedText.getTtsAnnotations(0, annotatedText.length).forEach { range ->
-        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
-            builder.addTtsAnnotation(range.item, start, end)
-        }
-    }
-    annotatedText.getLinkAnnotations(0, annotatedText.length).forEach { range ->
-        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
-            when (val item = range.item) {
-                is LinkAnnotation.Url -> builder.addLink(item, start, end)
-                is LinkAnnotation.Clickable -> builder.addLink(item, start, end)
-            }
-        }
-    }
-    extensionRanges.forEach { range ->
+    copyRemappedAnnotations(
+        source = annotatedText,
+        builder = builder,
+        indexMap = renderState.indexMap,
+    )
+    renderState.extensionRanges.forEach { range ->
         val item = range.item
         if (item is SpanStyle) {
             builder.addStyle(item, range.start, range.end)
@@ -209,8 +146,133 @@ internal fun applyModernMarkdownInlineExtensions(
     return builder.toAnnotatedString()
 }
 
+private fun consumeInlineExtensionMarkers(
+    sourceText: String,
+    tokenSpec: ModernMarkdownTokenSpec,
+    renderState: InlineExtensionRenderState,
+) {
+    var index = 0
+
+    while (index < sourceText.length) {
+        when {
+            sourceText.startsWith(MODERN_MARKDOWN_HIGHLIGHT_OPEN_MARKER, index) -> {
+                renderState.highlightStarts.addLast(renderState.output.length)
+                index =
+                    consumeRemovedMarker(
+                        startIndex = index,
+                        marker = MODERN_MARKDOWN_HIGHLIGHT_OPEN_MARKER,
+                        indexMap = renderState.indexMap,
+                        outputLength = renderState.output.length,
+                    )
+            }
+
+            sourceText.startsWith(MODERN_MARKDOWN_HIGHLIGHT_CLOSE_MARKER, index) -> {
+                addExtensionStyleRange(
+                    starts = renderState.highlightStarts,
+                    outputLength = renderState.output.length,
+                    style = tokenSpec.highlightSpanStyle,
+                    extensionRanges = renderState.extensionRanges,
+                )
+                index =
+                    consumeRemovedMarker(
+                        startIndex = index,
+                        marker = MODERN_MARKDOWN_HIGHLIGHT_CLOSE_MARKER,
+                        indexMap = renderState.indexMap,
+                        outputLength = renderState.output.length,
+                    )
+            }
+
+            sourceText.startsWith(MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER, index) -> {
+                renderState.underlineStarts.addLast(renderState.output.length)
+                index =
+                    consumeRemovedMarker(
+                        startIndex = index,
+                        marker = MODERN_MARKDOWN_UNDERLINE_OPEN_MARKER,
+                        indexMap = renderState.indexMap,
+                        outputLength = renderState.output.length,
+                    )
+            }
+
+            sourceText.startsWith(MODERN_MARKDOWN_UNDERLINE_CLOSE_MARKER, index) -> {
+                addExtensionStyleRange(
+                    starts = renderState.underlineStarts,
+                    outputLength = renderState.output.length,
+                    style = SpanStyle(textDecoration = TextDecoration.Underline),
+                    extensionRanges = renderState.extensionRanges,
+                )
+                index =
+                    consumeRemovedMarker(
+                        startIndex = index,
+                        marker = MODERN_MARKDOWN_UNDERLINE_CLOSE_MARKER,
+                        indexMap = renderState.indexMap,
+                        outputLength = renderState.output.length,
+                    )
+            }
+
+            else -> {
+                renderState.output.append(sourceText[index])
+                index++
+                renderState.indexMap[index] = renderState.output.length
+            }
+        }
+    }
+}
+
+private fun addExtensionStyleRange(
+    starts: ArrayDeque<Int>,
+    outputLength: Int,
+    style: SpanStyle,
+    extensionRanges: MutableList<AnnotatedString.Range<out AnnotatedString.Annotation>>,
+) {
+    starts.removeLastOrNull()?.let { start ->
+        if (start < outputLength) {
+            extensionRanges +=
+                AnnotatedString.Range(
+                    item = style,
+                    start = start,
+                    end = outputLength,
+                )
+        }
+    }
+}
+
+@OptIn(ExperimentalTextApi::class)
+private fun copyRemappedAnnotations(
+    source: AnnotatedString,
+    builder: AnnotatedString.Builder,
+    indexMap: IntArray,
+) {
+    source.spanStyles.forEach { range ->
+        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
+            builder.addStyle(range.item, start, end)
+        }
+    }
+    source.paragraphStyles.forEach { range ->
+        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
+            builder.addStyle(range.item, start, end)
+        }
+    }
+    source.getStringAnnotations(0, source.length).forEach { range ->
+        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
+            builder.addStringAnnotation(range.tag, range.item, start, end)
+        }
+    }
+    source.getTtsAnnotations(0, source.length).forEach { range ->
+        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
+            builder.addTtsAnnotation(range.item, start, end)
+        }
+    }
+    source.getLinkAnnotations(0, source.length).forEach { range ->
+        remapRange(indexMap, range.start, range.end)?.let { (start, end) ->
+            when (val item = range.item) {
+                is LinkAnnotation.Url -> builder.addLink(item, start, end)
+                is LinkAnnotation.Clickable -> builder.addLink(item, start, end)
+            }
+        }
+    }
+}
+
 private fun consumeRemovedMarker(
-    text: String,
     startIndex: Int,
     marker: String,
     indexMap: IntArray,
