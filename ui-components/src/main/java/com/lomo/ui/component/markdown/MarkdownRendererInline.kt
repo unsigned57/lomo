@@ -120,7 +120,6 @@ internal fun AnnotatedString.Builder.appendNode(
             withStyle(
                 SpanStyle(
                     color = colorScheme.primary,
-                    textDecoration = TextDecoration.Underline,
                 ),
             ) { visitChildren(node, colorScheme, displayState) }
             pop()

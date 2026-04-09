@@ -6,20 +6,23 @@ import android.text.TextUtils
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.widget.TextViewCompat
+import com.lomo.ui.theme.memoPlatformTextHandleColor
+import com.lomo.ui.theme.memoPlatformTextSelectionHighlightColor
 
 private const val BOLD_WEIGHT_THRESHOLD = 600
 
@@ -45,6 +48,7 @@ internal fun MemoParagraphText(
     overflow: TextOverflow = TextOverflow.Clip,
     selectable: Boolean = false,
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     PlatformMemoParagraphText(
         text = text,
         style = style,
@@ -52,6 +56,8 @@ internal fun MemoParagraphText(
         maxLines = maxLines,
         overflow = overflow,
         selectable = selectable,
+        selectionHighlightColor = memoPlatformTextSelectionHighlightColor(colorScheme).toArgb(),
+        selectionHandleColor = memoPlatformTextHandleColor(colorScheme).toArgb(),
     )
 }
 
@@ -64,13 +70,19 @@ internal fun MemoParagraphText(
     overflow: TextOverflow = TextOverflow.Clip,
     selectable: Boolean = false,
 ) {
+    val colorScheme = MaterialTheme.colorScheme
     PlatformMemoParagraphText(
-        text = text.toPlatformParagraphCharSequence(),
+        text =
+            text.toPlatformParagraphCharSequence(
+                defaultLinkColor = memoPlatformTextHandleColor(colorScheme),
+            ),
         style = style,
         modifier = modifier,
         maxLines = maxLines,
         overflow = overflow,
         selectable = selectable,
+        selectionHighlightColor = memoPlatformTextSelectionHighlightColor(colorScheme).toArgb(),
+        selectionHandleColor = memoPlatformTextHandleColor(colorScheme).toArgb(),
     )
 }
 
@@ -81,6 +93,8 @@ private fun PlatformMemoParagraphText(
     maxLines: Int,
     overflow: TextOverflow,
     selectable: Boolean,
+    selectionHighlightColor: Int,
+    selectionHandleColor: Int,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -105,6 +119,8 @@ private fun PlatformMemoParagraphText(
                 maxLines = maxLines,
                 overflow = overflow,
                 selectable = selectable,
+                selectionHighlightColor = selectionHighlightColor,
+                selectionHandleColor = selectionHandleColor,
             )
         },
     )
@@ -117,9 +133,20 @@ internal fun TextView.applyMemoParagraphTextStyle(
     maxLines: Int,
     overflow: TextOverflow,
     selectable: Boolean,
+    selectionHighlightColor: Int,
+    selectionHandleColor: Int,
 ) {
     this.text = text
-    applyMemoParagraphAppearance(text, style, density, maxLines, overflow, selectable)
+    applyMemoParagraphAppearance(
+        text = text,
+        style = style,
+        density = density,
+        maxLines = maxLines,
+        overflow = overflow,
+        selectable = selectable,
+        selectionHighlightColor = selectionHighlightColor,
+        selectionHandleColor = selectionHandleColor,
+    )
 }
 
 internal fun TextStyle.resolvePlatformTypeface(): Typeface {

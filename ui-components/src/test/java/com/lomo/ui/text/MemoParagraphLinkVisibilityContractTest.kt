@@ -1,33 +1,64 @@
 package com.lomo.ui.text
 
-import java.nio.file.Paths
-import org.junit.Assert.assertTrue
+import androidx.compose.material3.Typography
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
+import com.lomo.ui.component.markdown.createModernMarkdownTokenSpec
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /*
  * Test Contract:
  * - Unit under test: memo paragraph link-visibility contract.
- * - Behavior focus: paragraphs rendered through platform TextView must align link text color with the resolved paragraph text color so a memo consisting only of a URL remains visible instead of depending on platform-default link colors.
- * - Observable outcomes: source-level presence of explicit link-text-color alignment in MemoParagraphAppearance.kt.
- * - Red phase: Fails before the fix because link-bearing memo paragraphs leave TextView link color at the platform default, so a URL-only memo can appear blank when every visible glyph is styled as a link.
- * - Excludes: Android span drawing internals, theme resource resolution, clickable navigation dispatch, and Compose layout.
+ * - Behavior focus: platform URL spans must preserve the annotated markdown link color and avoid
+ *   reintroducing an underline when the Material 3 token contract chooses a cleaner link style.
+ * - Observable outcomes: resolved platform URL visual style color and underline flag.
+ * - Red phase: Fails before the fix because MemoUrlSpan falls back to TextView link defaults,
+ *   which can repaint URLs with the wrong color and force an underline regardless of the
+ *   annotated markdown span style.
+ * - Excludes: actual TextView drawing, Activity launch behavior, and Compose layout measurement.
  */
 class MemoParagraphLinkVisibilityContractTest {
-    private val sourceText: String by lazy {
-        Paths
-            .get("src/main/java/com/lomo/ui/text/MemoParagraphAppearance.kt")
-            .toFile()
-            .readText()
+    private val linkColor = Color(0xFF0061A4)
+
+    @Test
+    fun `platform link style keeps annotated markdown color without underline`() {
+        val annotated =
+            buildAnnotatedString {
+                pushLink(
+                    LinkAnnotation.Url(
+                        url = "https://example.com",
+                        styles = TextLinkStyles(style = SpanStyle(color = linkColor)),
+                    ),
+                )
+                append("Example")
+                pop()
+            }
+
+        val visualStyle =
+            resolveMemoUrlVisualStyle(
+                text = annotated,
+                start = 0,
+                end = annotated.length,
+                defaultColor = Color.Magenta,
+                defaultUnderline = true,
+            )
+
+        assertEquals(linkColor, visualStyle.color)
+        assertEquals(false, visualStyle.isUnderlineText)
     }
 
     @Test
-    fun `link bearing memo paragraphs align link color with resolved text color`() {
-        assertTrue(
-            """
-            URL-only memo paragraphs must explicitly align TextView link color with the resolved
-            paragraph text color so the entire line stays visible even when every glyph is a link.
-            """.trimIndent(),
-            sourceText.contains("setLinkTextColor(currentTextColor)"),
+    fun `modern markdown tokens expose clean non underlined link style`() {
+        val spec = createModernMarkdownTokenSpec(Typography(), linkColor = linkColor)
+
+        assertEquals(linkColor, spec.linkStyle.style?.color)
+        assertEquals(
+            null,
+            spec.linkStyle.style?.textDecoration,
         )
     }
 }

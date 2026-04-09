@@ -9,6 +9,7 @@ import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -21,6 +22,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -249,12 +251,16 @@ fun LomoTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = animatedColorScheme,
-        typography = typography,
-        shapes = Shapes,
-        content = content,
-    )
+    CompositionLocalProvider(
+        LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
+    ) {
+        MaterialTheme(
+            colorScheme = animatedColorScheme,
+            typography = typography,
+            shapes = Shapes,
+            content = content,
+        )
+    }
 }
 
 @Composable

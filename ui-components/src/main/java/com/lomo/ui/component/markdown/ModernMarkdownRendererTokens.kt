@@ -10,7 +10,6 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.memoBodyTextStyle
@@ -43,10 +42,9 @@ internal fun createModernMarkdownTokenSpec(
     linkColor: Color = Color.Unspecified,
 ): ModernMarkdownTokenSpec {
     val paragraphStyle = typography.memoBodyTextStyle()
-    val underlinedLinkStyle =
+    val linkSpanStyle =
         SpanStyle(
             color = linkColor,
-            textDecoration = TextDecoration.Underline,
         )
 
     return ModernMarkdownTokenSpec(
@@ -62,7 +60,7 @@ internal fun createModernMarkdownTokenSpec(
         codeStyle = typography.bodySmall,
         inlineCodeStyle = typography.bodySmall,
         tableStyle = paragraphStyle,
-        linkStyle = TextLinkStyles(style = underlinedLinkStyle),
+        linkStyle = TextLinkStyles(style = linkSpanStyle),
         blockSpacing = memoParagraphBlockSpacing(),
         listSpacing = memoParagraphBlockSpacing(),
         listItemSpacing = 4.dp,
