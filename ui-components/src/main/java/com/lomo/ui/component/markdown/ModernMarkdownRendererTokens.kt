@@ -10,6 +10,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.memoBodyTextStyle
@@ -32,6 +33,7 @@ internal data class ModernMarkdownTokenSpec(
     val inlineCodeStyle: TextStyle,
     val tableStyle: TextStyle,
     val linkStyle: TextLinkStyles,
+    val highlightSpanStyle: SpanStyle,
     val blockSpacing: Dp,
     val listSpacing: Dp,
     val listItemSpacing: Dp,
@@ -40,11 +42,17 @@ internal data class ModernMarkdownTokenSpec(
 internal fun createModernMarkdownTokenSpec(
     typography: Typography,
     linkColor: Color = Color.Unspecified,
+    highlightBackgroundColor: Color = Color(0x66FFE082),
 ): ModernMarkdownTokenSpec {
     val paragraphStyle = typography.memoBodyTextStyle()
     val linkSpanStyle =
         SpanStyle(
             color = linkColor,
+            textDecoration = TextDecoration.Underline,
+        )
+    val highlightSpanStyle =
+        SpanStyle(
+            background = highlightBackgroundColor,
         )
 
     return ModernMarkdownTokenSpec(
@@ -61,6 +69,7 @@ internal fun createModernMarkdownTokenSpec(
         inlineCodeStyle = typography.bodySmall,
         tableStyle = paragraphStyle,
         linkStyle = TextLinkStyles(style = linkSpanStyle),
+        highlightSpanStyle = highlightSpanStyle,
         blockSpacing = memoParagraphBlockSpacing(),
         listSpacing = memoParagraphBlockSpacing(),
         listItemSpacing = 4.dp,
@@ -86,6 +95,7 @@ internal fun resolveVisibleModernMarkdownTokenSpec(
         inlineCodeStyle = baseSpec.inlineCodeStyle.withVisibleMarkdownTextColor(primaryTextColor),
         tableStyle = baseSpec.tableStyle.withVisibleMarkdownTextColor(primaryTextColor),
         linkStyle = baseSpec.linkStyle.withVisibleMarkdownLinkColor(primaryTextColor),
+        highlightSpanStyle = baseSpec.highlightSpanStyle,
     )
 
 internal data class ModernMarkdownTokens(
@@ -103,6 +113,7 @@ internal fun rememberModernMarkdownTokenSpec(): ModernMarkdownTokenSpec {
                 createModernMarkdownTokenSpec(
                     typography = materialTypography,
                     linkColor = colorScheme.primary,
+                    highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
                 ),
             primaryTextColor = colorScheme.onSurface,
             secondaryTextColor = colorScheme.onSurfaceVariant,
@@ -121,6 +132,7 @@ internal fun rememberModernMarkdownTokens(): ModernMarkdownTokens {
                     createModernMarkdownTokenSpec(
                         typography = materialTypography,
                         linkColor = colorScheme.primary,
+                        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
                     ),
                 primaryTextColor = colorScheme.onSurface,
                 secondaryTextColor = colorScheme.onSurfaceVariant,

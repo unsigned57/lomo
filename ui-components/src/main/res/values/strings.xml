@@ -59,6 +59,7 @@
     <string name="cd_add_image">Add Image</string>
     <string name="cd_take_photo">Take Photo</string>
     <string name="cd_add_checkbox">Add Checkbox</string>
+    <string name="cd_add_underline">Underline</string>
     <string name="cd_add_tag">Add Tag</string>
     <string name="cd_send">Send</string>
     <string name="recording_in_progress">Recording in progress</string>

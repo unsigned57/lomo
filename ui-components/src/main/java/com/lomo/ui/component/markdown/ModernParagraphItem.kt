@@ -107,10 +107,11 @@ internal fun buildModernMarkdownAnnotatedTextFromFragment(
     tokenSpec: ModernMarkdownTokenSpec,
 ): AnnotatedString {
     val normalizedFragment = normalizeModernParagraphFragmentForDisplay(fragment)
-    val root = parseModernMarkdownDocument(normalizedFragment)
+    val extensionReadyFragment = preprocessModernMarkdownInlineExtensions(normalizedFragment)
+    val root = parseModernMarkdownDocument(extensionReadyFragment)
     val renderNode = root.children.firstOrNull { it.type != MarkdownTokenTypes.EOL } ?: root
     return buildModernMarkdownAnnotatedText(
-        content = normalizedFragment,
+        content = extensionReadyFragment,
         node = renderNode,
         style = style,
         tokenSpec = tokenSpec,

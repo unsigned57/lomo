@@ -103,10 +103,14 @@ internal fun buildModernMarkdownAnnotatedText(
     style: TextStyle,
     tokenSpec: ModernMarkdownTokenSpec,
 ): AnnotatedString =
-    content.buildMarkdownAnnotatedString(
-        textNode = node,
-        style = style,
-        annotatorSettings = buildModernAnnotatorSettings(tokenSpec),
+    applyModernMarkdownInlineExtensions(
+        annotatedText =
+            content.buildMarkdownAnnotatedString(
+                textNode = node,
+                style = style,
+                annotatorSettings = buildModernAnnotatorSettings(tokenSpec),
+            ),
+        tokenSpec = tokenSpec,
     )
 
 private fun MarkdownComponentModel.buildAnnotatedText(style: TextStyle) =
@@ -129,6 +133,7 @@ private fun MarkdownComponentModel.buildAnnotatedText(style: TextStyle) =
                 inlineCodeStyle = typography.inlineCode,
                 tableStyle = typography.table,
                 linkStyle = typography.textLink,
+                highlightSpanStyle = SpanStyle(),
                 blockSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing(),
                 listSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing(),
                 listItemSpacing = 4.dp,

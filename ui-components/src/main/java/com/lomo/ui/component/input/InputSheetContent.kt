@@ -60,6 +60,7 @@ internal fun InputSheetContent(
         onImageClick = callbacks.onImageClick,
         onStartRecording = callbacks.onStartRecording,
         onInsertTodo = { callbacks.onInputValueChange(buildTodoInsertionValue(inputValue.text)) },
+        onInsertUnderline = { callbacks.onInputValueChange(buildUnderlineInsertionValue(inputValue)) },
         onSubmit = {
             if (inputValue.text.isNotBlank()) {
                 submitWithLock(inputValue.text.trim(), inputValue.text, inputValue.text)
@@ -101,6 +102,7 @@ private fun InputSheetBody(
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
     onInsertTodo: () -> Unit,
+    onInsertUnderline: () -> Unit,
     onSubmit: () -> Unit,
     benchmarkRootTag: String?,
     benchmarkEditorTag: String?,
@@ -170,6 +172,7 @@ private fun InputSheetBody(
                     onImageClick = onImageClick,
                     onStartRecording = onStartRecording,
                     onInsertTodo = onInsertTodo,
+                    onInsertUnderline = onInsertUnderline,
                     onSubmit = onSubmit,
                     benchmarkEditorTag = benchmarkEditorTag,
                     benchmarkSubmitTag = benchmarkSubmitTag,
@@ -192,4 +195,39 @@ private fun buildTagInsertionValue(
 private fun buildTodoInsertionValue(inputText: String): TextFieldValue {
     val newText = if (inputText.isEmpty()) "- [ ] " else "$inputText\n- [ ] "
     return TextFieldValue(newText, TextRange(newText.length))
+}
+
+internal fun buildUnderlineInsertionValue(inputValue: TextFieldValue): TextFieldValue =
+    buildWrappedSelectionInsertionValue(
+        inputValue = inputValue,
+        prefix = "<u>",
+        suffix = "</u>",
+    )
+
+internal fun buildWrappedSelectionInsertionValue(
+    inputValue: TextFieldValue,
+    prefix: String,
+    suffix: String,
+): TextFieldValue {
+    val selectionStart = minOf(inputValue.selection.start, inputValue.selection.end)
+    val selectionEnd = maxOf(inputValue.selection.start, inputValue.selection.end)
+    val selectedText = inputValue.text.substring(selectionStart, selectionEnd)
+    val replacementText = prefix + selectedText + suffix
+    val newText =
+        buildString {
+            append(inputValue.text.substring(0, selectionStart))
+            append(replacementText)
+            append(inputValue.text.substring(selectionEnd))
+        }
+    val innerSelectionStart = selectionStart + prefix.length
+    val innerSelectionEnd = innerSelectionStart + selectedText.length
+    return TextFieldValue(
+        text = newText,
+        selection =
+            if (selectionStart == selectionEnd) {
+                TextRange(innerSelectionStart)
+            } else {
+                TextRange(innerSelectionStart, innerSelectionEnd)
+            },
+    )
 }

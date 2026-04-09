@@ -45,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.rounded.CheckBox
+import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
@@ -245,6 +246,7 @@ internal fun InputEditorPanel(
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
     onInsertTodo: () -> Unit,
+    onInsertUnderline: () -> Unit,
     onSubmit: () -> Unit,
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
@@ -300,6 +302,7 @@ internal fun InputEditorPanel(
             onStartRecording = onStartRecording,
             onToggleTagSelector = onToggleTagSelector,
             onInsertTodo = onInsertTodo,
+            onInsertUnderline = onInsertUnderline,
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,
@@ -364,6 +367,7 @@ internal fun InputEditorToolbar(
     onStartRecording: () -> Unit,
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
+    onInsertUnderline: () -> Unit,
     onSubmit: () -> Unit,
     benchmarkSubmitTag: String?,
     haptic: AppHapticFeedback,
@@ -389,6 +393,7 @@ internal fun InputEditorToolbar(
                 onStartRecording = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
                 onToggleTagSelector = onToggleTagSelector,
                 onInsertTodo = onInsertTodo,
+                onInsertUnderline = onInsertUnderline,
                 haptic = haptic,
             )
         }
@@ -411,6 +416,7 @@ private fun InputToolbarScrollableTools(
     onStartRecording: () -> Unit,
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
+    onInsertUnderline: () -> Unit,
     haptic: AppHapticFeedback,
 ) {
     val toolIds =
@@ -421,6 +427,7 @@ private fun InputToolbarScrollableTools(
                 "record",
                 "tag",
                 "todo",
+                "underline",
             )
         }
     LazyRow(
@@ -474,6 +481,14 @@ private fun InputToolbarScrollableTools(
                         icon = Icons.Rounded.CheckBox,
                         contentDescription = stringResource(R.string.cd_add_checkbox),
                         onClick = onInsertTodo,
+                        haptic = haptic,
+                    )
+
+                "underline" ->
+                    InputToolbarIconButton(
+                        icon = Icons.Rounded.FormatUnderlined,
+                        contentDescription = stringResource(R.string.cd_add_underline),
+                        onClick = onInsertUnderline,
                         haptic = haptic,
                     )
             }

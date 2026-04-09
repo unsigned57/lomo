@@ -55,6 +55,7 @@
     <string name="cd_add_image">添加图片</string>
     <string name="cd_take_photo">拍照</string>
     <string name="cd_add_checkbox">添加复选框</string>
+    <string name="cd_add_underline">添加下划线</string>
     <string name="cd_add_tag">添加标签</string>
     <string name="cd_send">发送</string>
     <string name="recording_in_progress">正在录音</string>
