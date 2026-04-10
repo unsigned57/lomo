@@ -19,10 +19,10 @@ class MemoEditorFocusStabilityTest {
         controller.openForCreate("draft")
         val initialFocusRequestToken = controller.focusRequestToken
 
-        controller.expand()
+        controller.setExpanded(true)
         assertEquals(initialFocusRequestToken, controller.focusRequestToken)
 
-        controller.collapse()
+        controller.setExpanded(false)
         assertEquals(initialFocusRequestToken, controller.focusRequestToken)
     }
 }

@@ -19,10 +19,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.app.feature.main.MemoUiImageContentResolver
 import com.lomo.app.util.CameraCaptureUtils
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.input.InputEditorDisplayMode
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
 
@@ -49,10 +53,14 @@ class MemoEditorController
         var mode by mutableStateOf(MemoEditorMode.Compact)
             private set
 
+        var displayMode by mutableStateOf(InputEditorDisplayMode.Edit)
+            private set
+
         fun openForCreate(initialText: String = "") {
             editingMemo = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
             mode = MemoEditorMode.Compact
+            displayMode = InputEditorDisplayMode.Edit
             isVisible = true
             focusRequestToken += 1L
         }
@@ -61,6 +69,7 @@ class MemoEditorController
             editingMemo = memo
             inputValue = TextFieldValue(memo.content, TextRange(memo.content.length))
             mode = MemoEditorMode.Compact
+            displayMode = InputEditorDisplayMode.Edit
             isVisible = true
             focusRequestToken += 1L
         }
@@ -85,36 +94,48 @@ class MemoEditorController
             focusRequestToken += 1L
         }
 
-        fun expand() {
-            if (mode == MemoEditorMode.Expanded) return
-            mode = MemoEditorMode.Expanded
-        }
-
-        fun collapse() {
-            if (mode == MemoEditorMode.Compact) return
-            mode = MemoEditorMode.Compact
+        fun setExpanded(expanded: Boolean) {
+            if (expanded) {
+                if (mode == MemoEditorMode.Expanded) return
+                mode = MemoEditorMode.Expanded
+            } else {
+                if (mode == MemoEditorMode.Compact) return
+                mode = MemoEditorMode.Compact
+                displayMode = InputEditorDisplayMode.Edit
+            }
         }
 
         fun toggleExpanded() {
-            when (mode) {
-                MemoEditorMode.Compact -> expand()
-                MemoEditorMode.Expanded -> collapse()
-            }
+            setExpanded(mode == MemoEditorMode.Compact)
         }
 
         fun consumeBackPress(): Boolean =
             if (mode == MemoEditorMode.Expanded) {
-                collapse()
+                setExpanded(false)
                 true
             } else {
                 false
             }
+
+        fun updateDisplayMode(mode: InputEditorDisplayMode) {
+            if (displayMode == mode) return
+            val previousDisplayMode = displayMode
+            displayMode = mode
+            val isRestoringEditFromPreview =
+                isVisible &&
+                    previousDisplayMode == InputEditorDisplayMode.Preview &&
+                    mode == InputEditorDisplayMode.Edit
+            if (isRestoringEditFromPreview) {
+                focusRequestToken += 1L
+            }
+        }
 
         fun close() {
             isVisible = false
             editingMemo = null
             inputValue = TextFieldValue("")
             mode = MemoEditorMode.Compact
+            displayMode = InputEditorDisplayMode.Edit
         }
     }
 
@@ -134,6 +155,8 @@ fun MemoEditorSheetHost(
         memo: Memo?,
         content: String,
     ) -> Unit,
+    rootPath: String? = null,
+    imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
     quickSaveOnBackEnabled: Boolean = false,
     onDismiss: () -> Unit = {},
     onImageDirectoryMissing: (() -> Unit)? = null,
@@ -163,13 +186,24 @@ fun MemoEditorSheetHost(
             onImageDirectoryMissing = onImageDirectoryMissing,
             onCameraCaptureError = onCameraCaptureError,
         )
+    val previewContent =
+        remember(controller.inputValue.text, rootPath, imageDirectory, imageMap) {
+            buildMemoEditorPreviewContent(
+                content = controller.inputValue.text,
+                rootPath = rootPath,
+                imagePath = imageDirectory,
+                imageMap = imageMap,
+            )
+        }
 
     com.lomo.ui.component.input.InputSheet(
         state =
             com.lomo.ui.component.input.InputSheetState(
                 inputValue = controller.inputValue,
+                previewContent = previewContent,
                 focusRequestToken = controller.focusRequestToken,
                 isExpanded = controller.mode == MemoEditorMode.Expanded,
+                displayMode = controller.displayMode,
                 availableTags = availableTags,
                 isRecording = isRecordingValue,
                 recordingDuration = recordingDurationValue,
@@ -184,7 +218,8 @@ fun MemoEditorSheetHost(
                     onDismiss()
                 },
                 onToggleExpanded = controller::toggleExpanded,
-                onCollapse = controller::collapse,
+                onCollapse = { controller.setExpanded(false) },
+                onDisplayModeChange = controller::updateDisplayMode,
                 onConsumeBackPress = controller::consumeBackPress,
                 onSubmit = { content ->
                     onSubmit(controller.editingMemo, content)
@@ -293,6 +328,20 @@ private fun rememberMemoEditorMediaActions(
         },
     )
 }
+
+internal fun buildMemoEditorPreviewContent(
+    content: String,
+    rootPath: String?,
+    imagePath: String?,
+    imageMap: Map<String, Uri>,
+    resolver: MemoUiImageContentResolver = MemoUiImageContentResolver(),
+): String =
+    resolver.buildProcessedContent(
+        content = content,
+        rootPath = rootPath,
+        imagePath = imagePath,
+        imageMap = imageMap,
+    )
 
 private fun showImageDirectoryMissingToast(
     context: android.content.Context,

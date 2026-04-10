@@ -51,7 +51,9 @@
     <string name="input_discard_confirm">放弃</string>
     <string name="input_discard_cancel">继续编辑</string>
     <string name="input_select_tag">选择标签</string>
-    <string name="input_long_form_mode">长文模式</string>
+    <string name="input_mode_edit">编辑</string>
+    <string name="input_mode_preview">预览</string>
+    <string name="input_preview_empty">还没有可预览的内容</string>
     <string name="cd_add_image">添加图片</string>
     <string name="cd_take_photo">拍照</string>
     <string name="cd_add_checkbox">添加复选框</string>

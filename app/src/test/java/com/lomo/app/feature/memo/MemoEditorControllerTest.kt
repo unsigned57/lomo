@@ -82,7 +82,7 @@ class MemoEditorControllerTest {
         assertEquals("draft", controller.inputValue.text)
         assertEquals(TextRange(5), controller.inputValue.selection)
 
-        controller.expand()
+        controller.setExpanded(true)
 
         assertEquals(MemoEditorMode.Expanded, controller.mode)
         assertEquals("draft", controller.inputValue.text)

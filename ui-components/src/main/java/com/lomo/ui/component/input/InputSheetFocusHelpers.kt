@@ -62,7 +62,6 @@ internal suspend fun requestEditorFocusAndKeyboard(
     repeat(INPUT_SHEET_FOCUS_REQUEST_MAX_ATTEMPTS) {
         runOnInputEditor(editor) {
             editor.requestFocus()
-            editor.requestFocusFromTouch()
             inputMethodManager?.showSoftInput(editor, 0)
         }
         keyboardController?.show()

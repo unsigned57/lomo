@@ -14,7 +14,9 @@ internal fun InputSheetContent(
     callbacks: InputSheetCallbacks,
     slots: InputSheetSlots,
     sessionState: InputSheetSessionState,
+    presentationState: InputSheetPresentationState,
     inputValue: TextFieldValue,
+    previewContent: String?,
     hintText: String,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
@@ -40,8 +42,9 @@ internal fun InputSheetContent(
         isRecording = state.isRecording,
         recordingDuration = state.recordingDuration,
         recordingAmplitude = state.recordingAmplitude,
-        isExpanded = state.isExpanded,
+        presentationState = presentationState,
         inputValue = inputValue,
+        previewContent = previewContent,
         hintText = hintText,
         availableTags = state.availableTags,
         showTagSelector = sessionState.showTagSelector,
@@ -55,6 +58,7 @@ internal fun InputSheetContent(
             sessionState.showTagSelector = false
         },
         onToggleExpanded = callbacks.onToggleExpanded,
+        onDisplayModeChange = callbacks.onDisplayModeChange,
         onToggleTagSelector = { sessionState.showTagSelector = !sessionState.showTagSelector },
         onCameraClick = callbacks.onCameraClick,
         onImageClick = callbacks.onImageClick,
@@ -86,8 +90,9 @@ private fun InputSheetBody(
     isRecording: Boolean,
     recordingDuration: Long,
     recordingAmplitude: Int,
-    isExpanded: Boolean,
+    presentationState: InputSheetPresentationState,
     inputValue: TextFieldValue,
+    previewContent: String?,
     hintText: String,
     availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
@@ -97,6 +102,7 @@ private fun InputSheetBody(
     onTextChange: (TextFieldValue) -> Unit,
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
+    onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
     onToggleTagSelector: () -> Unit,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
@@ -121,11 +127,11 @@ private fun InputSheetBody(
 
     InputSheetScaffold(
         isSheetVisible = isSheetVisible,
-        isExpanded = isExpanded,
+        presentationState = presentationState,
         scrimAlpha =
             when {
                 !isSheetVisible -> 0f
-                isExpanded -> 0.16f
+                presentationState.surfaceMotionStage().usesExpandedSurfaceForm() -> 0.16f
                 else -> 0.32f
             },
         onRequestDismiss = onRequestDismiss,
@@ -157,8 +163,9 @@ private fun InputSheetBody(
                 )
             } else {
                 InputEditorPanel(
-                    motionStage = motionStage,
+                    presentationState = presentationState,
                     inputValue = inputValue,
+                    previewContent = previewContent,
                     hintText = hintText,
                     availableTags = availableTags,
                     showTagSelector = showTagSelector,
@@ -167,6 +174,7 @@ private fun InputSheetBody(
                     onTextChange = onTextChange,
                     onTagSelected = onTagSelected,
                     onToggleExpanded = onToggleExpanded,
+                    onDisplayModeChange = onDisplayModeChange,
                     onToggleTagSelector = onToggleTagSelector,
                     onCameraClick = onCameraClick,
                     onImageClick = onImageClick,

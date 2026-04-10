@@ -55,6 +55,16 @@ internal fun resolveInputSheetSurfaceForm(stage: InputSheetMotionStage): InputSh
 internal fun InputSheetMotionStage.usesExpandedSurfaceForm(): Boolean =
     resolveInputSheetSurfaceForm(this) == InputSheetSurfaceForm.ExpandedFullscreen
 
-internal fun InputSheetMotionStage.showsCompactChrome(): Boolean = this == InputSheetMotionStage.Compact
+internal fun InputSheetMotionStage.usesExpandedInsets(): Boolean =
+    when (this) {
+        InputSheetMotionStage.Compact,
+        InputSheetMotionStage.Collapsing,
+        -> false
 
+        InputSheetMotionStage.Expanding,
+        InputSheetMotionStage.Expanded,
+        -> true
+    }
+
+internal fun InputSheetMotionStage.showsCompactChrome(): Boolean = this == InputSheetMotionStage.Compact
 

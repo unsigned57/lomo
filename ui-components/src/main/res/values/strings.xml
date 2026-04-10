@@ -55,7 +55,9 @@
     <string name="input_discard_confirm">Discard</string>
     <string name="input_discard_cancel">Keep editing</string>
     <string name="input_select_tag">Select Tag</string>
-    <string name="input_long_form_mode">Long-form</string>
+    <string name="input_mode_edit">Edit</string>
+    <string name="input_mode_preview">Preview</string>
+    <string name="input_preview_empty">Nothing to preview yet</string>
     <string name="cd_add_image">Add Image</string>
     <string name="cd_take_photo">Take Photo</string>
     <string name="cd_add_checkbox">Add Checkbox</string>

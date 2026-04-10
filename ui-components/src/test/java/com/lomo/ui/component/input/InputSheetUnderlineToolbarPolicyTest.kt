@@ -17,6 +17,8 @@ class InputSheetUnderlineToolbarPolicyTest {
         File("src/main/java/com/lomo/ui/component/input/InputSheetContent.kt").readText()
     private val componentsSourceText =
         File("src/main/java/com/lomo/ui/component/input/InputSheetComponents.kt").readText()
+    private val toolbarSourceText =
+        File("src/main/java/com/lomo/ui/component/input/InputEditorToolbarComponents.kt").readText()
 
     @Test
     fun underlineAction_isWiredFromContentIntoEditorToolbar() {
@@ -44,15 +46,15 @@ class InputSheetUnderlineToolbarPolicyTest {
     fun underlineTool_isExposedInScrollableToolbar() {
         assertTrue(
             "Toolbar tool ids should include underline so formatting is available alongside todo/tag actions.",
-            componentsSourceText.contains("\"underline\""),
+            toolbarSourceText.contains("\"underline\""),
         )
         assertTrue(
             "Underline tool should use the Material underlined-format icon for affordance consistency.",
-            componentsSourceText.contains("Icons.Rounded.FormatUnderlined"),
+            toolbarSourceText.contains("Icons.Rounded.FormatUnderlined"),
         )
         assertTrue(
             "Underline tool should expose a dedicated accessibility/content-description string.",
-            componentsSourceText.contains("R.string.cd_add_underline"),
+            toolbarSourceText.contains("R.string.cd_add_underline"),
         )
     }
 }

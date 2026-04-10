@@ -19,6 +19,7 @@ class InputEditorChromeStateTest {
         val state =
             resolveInputEditorChromeState(
                 isExpanded = false,
+                displayMode = InputEditorDisplayMode.Edit,
                 inputText = "",
                 hintText = "Write something long",
             )
@@ -26,6 +27,9 @@ class InputEditorChromeStateTest {
         assertEquals(InputEditorToggleIcon.Expand, state.toggleIcon)
         assertFalse(state.showsStandaloneModeBar)
         assertTrue(state.showsPlaceholder)
+        assertFalse(state.showsDisplayModeToggle)
+        assertTrue(state.showsFormattingToolbar)
+        assertFalse(state.showsPreviewContent)
     }
 
     @Test
@@ -33,6 +37,7 @@ class InputEditorChromeStateTest {
         val state =
             resolveInputEditorChromeState(
                 isExpanded = true,
+                displayMode = InputEditorDisplayMode.Edit,
                 inputText = "",
                 hintText = "Write something long",
             )
@@ -40,5 +45,25 @@ class InputEditorChromeStateTest {
         assertEquals(InputEditorToggleIcon.Collapse, state.toggleIcon)
         assertFalse(state.showsStandaloneModeBar)
         assertFalse(state.showsPlaceholder)
+        assertTrue(state.showsDisplayModeToggle)
+        assertTrue(state.showsFormattingToolbar)
+        assertFalse(state.showsPreviewContent)
+    }
+
+    @Test
+    fun `expanded preview hides editor placeholder and switches content path`() {
+        val state =
+            resolveInputEditorChromeState(
+                isExpanded = true,
+                displayMode = InputEditorDisplayMode.Preview,
+                inputText = "",
+                hintText = "Write something long",
+            )
+
+        assertEquals(InputEditorToggleIcon.Collapse, state.toggleIcon)
+        assertFalse(state.showsPlaceholder)
+        assertTrue(state.showsDisplayModeToggle)
+        assertFalse(state.showsFormattingToolbar)
+        assertTrue(state.showsPreviewContent)
     }
 }

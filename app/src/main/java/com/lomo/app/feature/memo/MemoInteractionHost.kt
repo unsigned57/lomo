@@ -6,7 +6,9 @@ import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoActionId
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.coroutines.flow.StateFlow
 
 @Composable
@@ -28,6 +30,8 @@ fun MemoInteractionHost(
         content: String,
         timestamp: Long,
     ) -> Unit,
+    rootPath: String? = null,
+    imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
     onCreateMemo: ((String) -> Unit)? = null,
     controller: MemoEditorController = rememberMemoEditorController(),
     quickSaveOnBackEnabled: Boolean = false,
@@ -78,6 +82,8 @@ fun MemoInteractionHost(
         MemoEditorSheetHost(
             controller = controller,
             imageDirectory = imageDirectory,
+            rootPath = rootPath,
+            imageMap = imageMap,
             quickSaveOnBackEnabled = quickSaveOnBackEnabled,
             onSaveImage = onSaveImage,
             onSubmit = { memo, content ->

@@ -83,8 +83,10 @@ private const val INPUT_SHEET_DISMISS_KEYBOARD_DELAY_MILLIS = 150L
 
 data class InputSheetState(
     val inputValue: TextFieldValue,
+    val previewContent: String? = null,
     val focusRequestToken: Long = 0L,
     val isExpanded: Boolean = false,
+    val displayMode: InputEditorDisplayMode = InputEditorDisplayMode.Edit,
     val availableTags: ImmutableList<String> = persistentListOf(),
     val isRecording: Boolean = false,
     val recordingDuration: Long = 0L,
@@ -123,6 +125,7 @@ data class InputSheetCallbacks(
     val onDismiss: () -> Unit,
     val onToggleExpanded: () -> Unit = {},
     val onCollapse: () -> Unit = {},
+    val onDisplayModeChange: (InputEditorDisplayMode) -> Unit = {},
     val onConsumeBackPress: () -> Boolean = { false },
     val onSubmit: (String) -> Unit,
     val onImageClick: () -> Unit,
@@ -157,6 +160,17 @@ fun InputSheet(
 ) {
     val inputValue = state.inputValue
     val hintText = remember(state.hints) { state.hints.randomOrNull().orEmpty() }
+    val resolvedDisplayMode =
+        if (state.isExpanded) {
+            state.displayMode
+        } else {
+            InputEditorDisplayMode.Edit
+        }
+    val presentationState =
+        rememberInputSheetPresentationState(
+            targetExpanded = state.isExpanded,
+            targetDisplayMode = resolvedDisplayMode,
+        )
     val currentInputValue by rememberUpdatedState(inputValue)
     val sessionState = rememberInputSheetSessionState(inputValue.text)
     val haptic = LocalAppHapticFeedback.current
@@ -199,6 +213,7 @@ fun InputSheet(
         sessionState = sessionState,
         state = state,
         inputText = inputValue.text,
+        presentationState = presentationState,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
         focusRequestToken = state.focusRequestToken,
@@ -224,7 +239,9 @@ fun InputSheet(
         callbacks = callbacks,
         slots = slots,
         sessionState = sessionState,
+        presentationState = presentationState,
         inputValue = inputValue,
+        previewContent = state.previewContent,
         hintText = hintText,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
@@ -387,6 +404,7 @@ private fun InputSheetLifecycle(
     sessionState: InputSheetSessionState,
     state: InputSheetState,
     inputText: String,
+    presentationState: InputSheetPresentationState,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
     focusRequestToken: Long,
@@ -406,6 +424,7 @@ private fun InputSheetLifecycle(
     InputSheetFocusRequestEffects(
         isSheetVisible = sessionState.isSheetVisible,
         isSheetEntrySettled = sessionState.isSheetEntrySettled,
+        presentationState = presentationState,
         isRecording = state.isRecording,
         isDismissing = sessionState.isDismissing,
         focusRequester = focusRequester,

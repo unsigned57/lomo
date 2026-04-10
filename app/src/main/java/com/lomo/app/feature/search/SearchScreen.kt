@@ -50,8 +50,10 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.theme.AppSpacing
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 private data class SearchScreenUiSnapshot(
     val query: String,
@@ -63,7 +65,9 @@ private data class SearchScreenUiSnapshot(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val activeDayCount: Int,
+    val rootDirectory: String?,
     val imageDirectory: String?,
+    val imageMap: ImmutableMap<String, android.net.Uri>,
     val errorMessage: String?,
 )
 
@@ -95,7 +99,9 @@ fun SearchScreen(
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,
+        rootPath = uiState.rootDirectory,
         imageDirectory = uiState.imageDirectory,
+        imageMap = uiState.imageMap,
         onLanShare = onNavigateToShare,
     ) { showMenu, openEditor ->
         val onShowSearchMenu =
@@ -137,7 +143,9 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
+    val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     return SearchScreenUiSnapshot(
@@ -150,7 +158,9 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
         activeDayCount = activeDayCount,
+        rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
+        imageMap = remember(imageMap) { imageMap.toImmutableMap() },
         errorMessage = errorMessage,
     )
 }

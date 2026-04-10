@@ -41,6 +41,7 @@ import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
@@ -60,7 +61,10 @@ fun TagFilterScreen(
     val memos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
+    val rootDirectory by viewModel.rootDir.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDir.collectAsStateWithLifecycle()
+    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
+    val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
@@ -74,6 +78,8 @@ fun TagFilterScreen(
     MemoInteractionHost(
         shareCardShowTime = appPreferences.shareCardShowTime,
         activeDayCount = activeDayCount,
+        rootPath = rootDirectory,
+        imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,

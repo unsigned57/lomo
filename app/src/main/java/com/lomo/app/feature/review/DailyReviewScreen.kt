@@ -47,6 +47,7 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,7 +66,10 @@ fun DailyReviewScreen(
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
     val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
+    val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
+    val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
+    val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val haptic = LocalAppHapticFeedback.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -81,6 +85,8 @@ fun DailyReviewScreen(
     MemoInteractionHost(
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
+        rootPath = rootDirectory,
+        imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,

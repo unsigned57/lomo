@@ -77,6 +77,8 @@ class DailyReviewViewModel
                     initialValue = null,
                 )
 
+        val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
+
         init {
             loadDailyReview()
         }

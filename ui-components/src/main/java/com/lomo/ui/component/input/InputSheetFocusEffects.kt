@@ -61,6 +61,7 @@ internal fun InputSheetVisibilityEffects(
 internal fun InputSheetFocusRequestEffects(
     isSheetVisible: Boolean,
     isSheetEntrySettled: Boolean,
+    presentationState: InputSheetPresentationState,
     isRecording: Boolean,
     isDismissing: Boolean,
     focusRequester: FocusRequester,
@@ -71,10 +72,19 @@ internal fun InputSheetFocusRequestEffects(
 ) {
     var lastHandledFocusRequestToken by remember { mutableLongStateOf(Long.MIN_VALUE) }
 
-    LaunchedEffect(isSheetVisible, isRecording, isDismissing, editorView, keyboardController) {
+    LaunchedEffect(isSheetVisible, presentationState, isRecording, isDismissing, editorView, keyboardController) {
         if (!isSheetVisible) return@LaunchedEffect
         when {
             isDismissing -> {
+                val editor = editorView ?: return@LaunchedEffect
+                releaseEditorFocusAndKeyboard(
+                    editor = editor,
+                    keyboardController = keyboardController,
+                    focusParkingRequester = focusParkingRequester,
+                )
+            }
+
+            presentationState.shouldReleaseEditorFocus() -> {
                 val editor = editorView ?: return@LaunchedEffect
                 releaseEditorFocusAndKeyboard(
                     editor = editor,
@@ -90,6 +100,7 @@ internal fun InputSheetFocusRequestEffects(
     LaunchedEffect(
         isSheetVisible,
         isSheetEntrySettled,
+        presentationState,
         isRecording,
         isDismissing,
         focusRequestToken,
@@ -99,6 +110,7 @@ internal fun InputSheetFocusRequestEffects(
             !shouldRequestInputSheetEditorFocus(
                 isSheetVisible = isSheetVisible,
                 isSheetEntrySettled = isSheetEntrySettled,
+                presentationState = presentationState,
                 isRecording = isRecording,
                 isDismissing = isDismissing,
                 editorView = editorView,
@@ -122,6 +134,7 @@ internal fun InputSheetFocusRequestEffects(
 internal fun shouldRequestInputSheetEditorFocus(
     isSheetVisible: Boolean,
     isSheetEntrySettled: Boolean,
+    presentationState: InputSheetPresentationState,
     isRecording: Boolean,
     isDismissing: Boolean,
     editorView: MemoInputEditText?,
@@ -130,6 +143,7 @@ internal fun shouldRequestInputSheetEditorFocus(
 ): Boolean =
     isSheetVisible &&
         isSheetEntrySettled &&
+        presentationState.prefersEditorFocus() &&
         !isRecording &&
         !isDismissing &&
         editorView != null &&
