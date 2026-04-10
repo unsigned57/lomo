@@ -370,13 +370,11 @@ private fun MainScreenTransientEffects(
         },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
-            val index = visibleUiMemos.indexOfFirst { it.memo.id == memoId }
-            if (index >= 0) {
-                listState.animateScrollToItem(index)
-                true
-            } else {
-                false
-            }
+            focusMemoInMainScreen(
+                memoId = memoId,
+                visibleUiMemos = visibleUiMemos,
+                scroller = MainScreenFocusScroller { index -> listState.scrollToItem(index) },
+            )
         },
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
         onSaveImage = { uri, onResult -> dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult) },
@@ -413,6 +411,7 @@ internal fun MainScreenInteractionBindings(
     val imageDirectory by dependencies.mainViewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by dependencies.mainViewModel.imageMap.collectAsStateWithLifecycle()
     val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
+    val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val inputHints = rememberInputHints(showInputHints = showInputHints)
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
@@ -429,6 +428,8 @@ internal fun MainScreenInteractionBindings(
         shareCardShowTime = shareCardShowTime,
         activeDayCount = activeDayCount,
         imageDirectory = imageDirectory,
+        rootPath = rootDirectory,
+        imageMap = stableImageMap,
         controller = editorController,
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
@@ -461,7 +462,7 @@ internal fun MainScreenInteractionBindings(
         state = versionHistoryState,
         rootPath = rootDirectory,
         imagePath = imageDirectory,
-        imageMap = remember(imageMap) { imageMap.toImmutableMap() },
+        imageMap = stableImageMap,
         onDismiss = dependencies.mainViewModel.dismissVersionHistory,
         onLoadMore = dependencies.mainViewModel.loadMoreVersionHistory,
         onRestore = { memo, version -> dependencies.mainViewModel.restoreVersion(memo, version) },
