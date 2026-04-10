@@ -75,6 +75,10 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
    3. Build and Run on an Emulator or Device (Min SDK 26).
 4. On first launch, select a local folder to store your memos.
 
+## Support
+
+If Lomo is useful to you, you can support the project here: [Sponsor page](docs/sponsor_en.md).
+
 ## License
 
 This project is licensed under the [GNU General Public License v3.0](LICENSE).

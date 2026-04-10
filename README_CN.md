@@ -75,6 +75,10 @@ Lomo 的灵感来自于许多优秀的前辈，如 **Memos**、**Flomo**、**Moe
    3. 在模拟器或真机上构建并运行 (Min SDK 26)。
 4. 首次启动时，选择一个本地文件夹来存储你的备忘录。
 
+## 赞助
+
+如果 Lomo 对你有帮助，可以在这里支持项目：[赞助页面](docs/sponsor.md)。
+
 ## 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE) 许可证。
