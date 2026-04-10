@@ -94,3 +94,6 @@ Thumbs.db
 .codex
 .local
 .config
+.home
+.android
+.android-test-home

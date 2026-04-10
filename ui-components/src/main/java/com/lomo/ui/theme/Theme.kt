@@ -251,6 +251,10 @@ fun LomoTheme(
         }
     }
 
+    // Warm the expressive motion scheme during stable theme composition so first-use surfaces such as the
+    // memo menu sheet do not initialize their motion path on the initial click.
+    PrewarmExpressiveMotion()
+
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
     ) {
