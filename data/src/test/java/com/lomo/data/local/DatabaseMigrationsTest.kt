@@ -18,8 +18,8 @@ import org.junit.Test
  *   for supported remotes, and persists shard-level remote reconcile state plus telemetry for S3.
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
  *   plus direct-migration coverage to the current target version.
- * - Red phase: Fails before the fix because the schema target assertion still stops before the shard-state
- *   telemetry schema and no test locks the 42->43 addition of idle-streak / verification columns.
+ * - Red phase: Fails before the fix because the schema target assertion still stops before the persisted
+ *   S3 metadata fingerprint schema and no test locks the 44->45 metadata-column addition contract.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
@@ -32,8 +32,8 @@ class DatabaseMigrationsTest {
      * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
      */
     @Test
-    fun `database version advances to 44 for pending sync conflict persistence`() {
-        assertEquals(44, MEMO_DATABASE_VERSION)
+    fun `database version advances to 45 for persisted s3 metadata fingerprints`() {
+        assertEquals(45, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -254,6 +254,23 @@ class DatabaseMigrationsTest {
                         it.contains("`payload_json` TEXT NOT NULL")
                 },
             )
+        }
+    }
+
+    @Test
+    fun `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+
+        MIGRATION_44_45.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `s3_sync_metadata` ADD COLUMN `local_size` INTEGER")
+        }
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `s3_sync_metadata` ADD COLUMN `remote_size` INTEGER")
+        }
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `s3_sync_metadata` ADD COLUMN `local_fingerprint` TEXT")
         }
     }
 

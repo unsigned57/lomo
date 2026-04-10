@@ -7,9 +7,11 @@ import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
+import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncReason
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -39,6 +41,48 @@ class S3RemoteReconcileSupportTest {
             encryptionMode = S3EncryptionMode.NONE,
             encryptionPassword = null,
         )
+
+    @Test
+    fun `hasFreshRemoteIndex uses endpoint profile specific freshness window`() {
+        val now = 20 * 60_000L
+        val protocolState = S3SyncProtocolState(lastFullRemoteScanAt = now - 10 * 60_000L)
+
+        assertTrue(
+            protocolState.hasFreshRemoteIndex(
+                config.copy(endpointProfile = S3EndpointProfile.AWS_S3),
+                now = now,
+            ),
+        )
+        assertFalse(
+            protocolState.hasFreshRemoteIndex(
+                config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
+                now = now,
+            ),
+        )
+    }
+
+    @Test
+    fun `shouldRunIncrementalReconcile uses endpoint profile specific interval`() {
+        val now = 3 * 60_000L
+        val protocolState = S3SyncProtocolState(lastReconcileAt = now - (2 * 60_000L))
+
+        assertTrue(
+            shouldRunIncrementalReconcile(
+                policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                config = config.copy(endpointProfile = S3EndpointProfile.GENERIC_S3),
+                protocolState = protocolState,
+                now = now,
+            ),
+        )
+        assertFalse(
+            shouldRunIncrementalReconcile(
+                policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
+                protocolState = protocolState,
+                now = now,
+            ),
+        )
+    }
 
     @Test
     fun `buildRemoteScanPlan derives hot character shards and keeps cold fallback`() {
@@ -412,6 +456,7 @@ class S3RemoteReconcileSupportTest {
                     override suspend fun readScheduleTelemetry(
                         now: Long,
                         reconcileInterval: java.time.Duration,
+                        endpointProfile: S3EndpointProfile,
                     ): S3RemoteShardScheduleTelemetry =
                         S3RemoteShardScheduleTelemetry(
                             shardCount = 1,
@@ -507,6 +552,7 @@ class S3RemoteReconcileSupportTest {
                 execution =
                     S3ActionExecutionResult(
                         actionOutcomes = emptyMap(),
+                        syncedContentFingerprints = emptyMap(),
                         failedPaths = listOf(unresolvedPath),
                         unresolvedPaths = setOf(unresolvedPath),
                         localChanged = false,
@@ -579,6 +625,7 @@ class S3RemoteReconcileSupportTest {
                 execution =
                     S3ActionExecutionResult(
                         actionOutcomes = emptyMap(),
+                        syncedContentFingerprints = emptyMap(),
                         failedPaths = emptyList(),
                         unresolvedPaths = emptySet(),
                         localChanged = false,
@@ -656,6 +703,7 @@ class S3RemoteReconcileSupportTest {
                 execution =
                     S3ActionExecutionResult(
                         actionOutcomes = emptyMap(),
+                        syncedContentFingerprints = emptyMap(),
                         failedPaths = emptyList(),
                         unresolvedPaths = emptySet(),
                         localChanged = false,
@@ -708,6 +756,7 @@ class S3RemoteReconcileSupportTest {
                 execution =
                     S3ActionExecutionResult(
                         actionOutcomes = mapOf(path to (S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER)),
+                        syncedContentFingerprints = emptyMap(),
                         failedPaths = emptyList(),
                         unresolvedPaths = emptySet(),
                         localChanged = false,
@@ -782,6 +831,44 @@ class S3RemoteReconcileSupportTest {
 
             assertTrue("hot changing shard should receive a larger list-page budget", observedMaxKeys > 256)
         }
+
+    @Test
+    fun `reconcile tuner uses more conservative base budgets for minio profile`() {
+        val tuning =
+            S3RemoteReconcileTuner().tune(
+                config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
+                protocolState = S3SyncProtocolState(),
+                activeShardState = null,
+            )
+
+        assertEquals(192, tuning.pageSize)
+        assertEquals(10, tuning.headLimit)
+        assertEquals(2, tuning.headConcurrency)
+    }
+
+    @Test
+    fun `reconcile tuner does not clamp moderate verification failures for minio profile`() {
+        val tuning =
+            S3RemoteReconcileTuner().tune(
+                config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
+                protocolState = S3SyncProtocolState(),
+                activeShardState =
+                    S3RemoteShardState(
+                        bucketId = S3_SCAN_BUCKET_MEMO,
+                        relativePrefix = "lomo/memo",
+                        lastScannedAt = 900L,
+                        lastObjectCount = 12,
+                        lastDurationMs = 250L,
+                        lastChangeCount = 2,
+                        idleScanStreak = 0,
+                        lastVerificationAttemptCount = 5,
+                        lastVerificationFailureCount = 3,
+                    ),
+            )
+
+        assertEquals(10, tuning.headLimit)
+        assertEquals(2, tuning.headConcurrency)
+    }
 
     @Test
     fun `prepareRemoteReconcile shrinks verification head budget when shard has high failure rate`() =

@@ -22,6 +22,7 @@ internal suspend fun prepareRemoteReconcile(
         shardPlanner.plan(
             layout = layout,
             mode = mode,
+            endpointProfile = config.endpointProfile,
             protocolState = protocolState,
             remoteIndexStore = remoteIndexStore,
             shardStateStore = shardStateStore,
@@ -38,7 +39,12 @@ internal suspend fun prepareRemoteReconcile(
         )
     }
     val activeShardState = resolveActiveShardState(shardStateStore, activeShard)
-    val tuning = reconcileTuner.tune(protocolState = protocolState, activeShardState = activeShardState)
+    val tuning =
+        reconcileTuner.tune(
+            config = config,
+            protocolState = protocolState,
+            activeShardState = activeShardState,
+        )
     val pageStartedAt = System.currentTimeMillis()
     val listedPage =
         shardScanner.listObservedRemoteEntries(
@@ -131,6 +137,7 @@ internal suspend fun applyRemoteIndexUpdates(
                 execution.remoteFilesAfterSync.keys +
                 execution.unresolvedPaths +
                 execution.failedPaths +
+                prepared.observedMissingRemotePaths +
                 prepared.remoteReconcileState?.missingRemotePaths.orEmpty(),
         ).associateBy(S3RemoteIndexEntry::relativePath)
     val observedEntries = linkedMapOf<String, S3RemoteIndexEntry>()
@@ -169,7 +176,14 @@ internal suspend fun applyRemoteIndexUpdates(
     val missingEntries =
         buildMap {
             prepared.remoteReconcileState?.missingRemotePaths.orEmpty().forEach { path ->
-                put(path, buildMissingEntry(path, existingByPath[path], prepared, now, currentScanEpoch))
+                if (path !in execution.remoteFilesAfterSync) {
+                    put(path, buildMissingEntry(path, existingByPath[path], prepared, now, currentScanEpoch))
+                }
+            }
+            prepared.observedMissingRemotePaths.forEach { path ->
+                if (path !in execution.remoteFilesAfterSync) {
+                    put(path, buildMissingEntry(path, existingByPath[path], prepared, now, currentScanEpoch))
+                }
             }
             execution.actionOutcomes.forEach { (path, outcome) ->
                 if (outcome.first == S3SyncDirection.DELETE_REMOTE) {
@@ -222,6 +236,7 @@ private fun buildMissingEntry(
 
 internal fun shouldRunIncrementalReconcile(
     policy: S3SyncScanPolicy,
+    config: S3ResolvedConfig,
     protocolState: S3SyncProtocolState,
     now: Long = System.currentTimeMillis(),
 ): Boolean =
@@ -229,7 +244,7 @@ internal fun shouldRunIncrementalReconcile(
         (
             protocolState.remoteScanCursor != null ||
                 protocolState.lastReconcileAt == null ||
-                now - protocolState.lastReconcileAt >= S3_INCREMENTAL_RECONCILE_INTERVAL_MS
+                now - protocolState.lastReconcileAt >= config.endpointProfile.incrementalReconcileIntervalMs
         )
 
 internal fun nextScanEpoch(

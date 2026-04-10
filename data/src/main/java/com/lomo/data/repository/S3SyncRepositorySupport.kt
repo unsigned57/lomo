@@ -8,11 +8,12 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.S3RcloneCryptConfig
 import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.http.middleware.HttpResponseException
+import java.net.URI
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import javax.inject.Inject
-import javax.inject.Singleton
 
 @Singleton
 class S3SyncRepositorySupport
@@ -47,6 +48,7 @@ class S3SyncRepositorySupport
                 pathStyle = s3PathStyleFromPreference(runtime.dataStore.s3PathStyle.first()),
                 encryptionMode = s3EncryptionModeFromPreference(runtime.dataStore.s3EncryptionMode.first()),
                 encryptionPassword = encryptionPassword,
+                endpointProfile = inferS3EndpointProfile(endpointUrl),
                 encryptionPassword2 = encryptionPassword2,
                 rcloneCryptConfig =
                     S3RcloneCryptConfig(
@@ -73,6 +75,7 @@ class S3SyncRepositorySupport
             block: suspend (LomoS3Client) -> T,
         ): T =
             runS3Io {
+                validateEndpointSecurity(config)
                 validateEncryptionSupport(config)
                 val client = runtime.clientFactory.create(config)
                 try {
@@ -169,7 +172,37 @@ class S3SyncRepositorySupport
                 config.requireEncryptionPassword()
             }
         }
+
+        private fun validateEndpointSecurity(config: S3ResolvedConfig) {
+            val uri = runCatching { URI(config.endpointUrl) }.getOrNull()
+            val failureMessage = endpointSecurityFailureMessage(uri, config.allowInsecureHttp)
+            if (failureMessage != null) {
+                throw S3SyncFailureException(
+                    code = S3SyncErrorCode.CONNECTION_FAILED,
+                    message = failureMessage,
+                )
+            }
+        }
     }
+
+private fun endpointSecurityFailureMessage(
+    uri: URI?,
+    allowInsecureHttp: Boolean,
+): String? {
+    if (uri == null || !uri.isAbsolute || uri.host.isNullOrBlank()) {
+        return "S3 endpoint URL must be a valid absolute HTTP or HTTPS URL"
+    }
+    return when (uri.scheme?.lowercase(java.util.Locale.ROOT)) {
+        "https" -> null
+        "http" ->
+            if (allowInsecureHttp) {
+                null
+            } else {
+                "S3 endpoint must use HTTPS unless insecure HTTP is explicitly allowed"
+            }
+        else -> "S3 endpoint URL must use HTTP or HTTPS"
+    }
+}
 
 internal fun S3ResolvedConfig.requireEncryptionPassword(): String =
     encryptionPassword?.takeIf(String::isNotBlank)

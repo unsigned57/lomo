@@ -23,7 +23,7 @@ internal suspend fun listFileVaultRootLocalFiles(
                 if (!isSyncableContentPath(relativePath)) {
                     return@mapNotNull null
                 }
-                relativePath to LocalS3File(relativePath, file.lastModified())
+                relativePath to LocalS3File(relativePath, file.lastModified(), file.length())
             }.toMap()
     }
 
@@ -52,7 +52,7 @@ internal suspend fun getFileVaultRootLocalFile(
     withContext(Dispatchers.IO) {
         val file = File(mode.rootDir, relativePath)
         if (file.exists() && file.isFile) {
-            LocalS3File(path = relativePath, lastModified = file.lastModified())
+            LocalS3File(path = relativePath, lastModified = file.lastModified(), size = file.length())
         } else {
             null
         }

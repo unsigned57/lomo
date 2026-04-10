@@ -14,6 +14,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.io.File
 
 @Singleton
 class S3SyncFileBridge
@@ -45,32 +46,48 @@ class S3SyncFileBridge
             localFiles: Map<String, LocalS3File>,
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, S3SyncMetadataEntity>,
+            seededMetadataByPath: Map<String, S3SyncMetadataEntity> = emptyMap(),
             actionOutcomes: Map<String, Pair<S3SyncDirection, S3SyncReason>>,
+            syncedContentFingerprints: Map<String, String> = emptyMap(),
             unresolvedPaths: Set<String>,
             completeSnapshot: Boolean = true,
         ) {
             val intersectionPaths = localFiles.keys.intersect(remoteFiles.keys)
             val now = System.currentTimeMillis()
             val upserts =
-                actionOutcomes.keys
-                    .asSequence()
-                    .filter { path -> path in intersectionPaths }
-                    .sorted()
-                    .mapNotNull { path ->
-                        val local = localFiles[path] ?: return@mapNotNull null
-                        val remote = remoteFiles[path] ?: return@mapNotNull null
-                        val outcome = requireNotNull(actionOutcomes[path])
-                        S3SyncMetadataEntity(
-                            relativePath = path,
-                            remotePath = remote.remotePath,
-                            etag = remote.etag,
-                            remoteLastModified = remote.lastModified,
-                            localLastModified = local.lastModified,
-                            lastSyncedAt = now,
-                            lastResolvedDirection = outcome.first.name,
-                            lastResolvedReason = outcome.second.name,
-                        )
-                    }.toList()
+                (
+                    actionOutcomes.keys
+                        .asSequence()
+                        .filter { path -> path in intersectionPaths }
+                        .sorted()
+                        .mapNotNull { path ->
+                            val local = localFiles[path] ?: return@mapNotNull null
+                            val remote = remoteFiles[path] ?: return@mapNotNull null
+                            val outcome = requireNotNull(actionOutcomes[path])
+                            S3SyncMetadataEntity(
+                                relativePath = path,
+                                remotePath = remote.remotePath,
+                                etag = remote.etag,
+                                remoteLastModified = remote.lastModified,
+                                localLastModified = local.lastModified,
+                                localSize = local.size,
+                                remoteSize = remote.size,
+                                localFingerprint =
+                                    syncedContentFingerprints[path]
+                                        ?: normalizeSinglePartS3Md5(remote.etag)
+                                        ?: metadataByPath[path]
+                                            ?.takeIf { existing ->
+                                                existing.localLastModified == local.lastModified &&
+                                                    existing.localSize == local.size
+                                            }?.localFingerprint,
+                                lastSyncedAt = now,
+                                lastResolvedDirection = outcome.first.name,
+                                lastResolvedReason = outcome.second.name,
+                            )
+                        }.toList() + seededMetadataByPath.values
+                ).associateBy(S3SyncMetadataEntity::relativePath)
+                    .values
+                    .sortedBy(S3SyncMetadataEntity::relativePath)
             val deletePaths =
                 if (completeSnapshot) {
                     metadataByPath.keys
@@ -199,6 +216,7 @@ internal class S3SyncFileBridgeScope(
                         etag = remote.eTag,
                         lastModified =
                             encodingSupport.resolveRemoteLastModified(remote.metadata, remote.lastModified),
+                        size = remote.size,
                         remotePath = remote.key,
                     )
             }
@@ -223,7 +241,7 @@ internal class S3SyncFileBridgeScope(
             is S3LocalSyncMode.SafVaultRoot ->
                 resolveVaultRootPath(path, layout, mode)?.let { relativePath ->
                     safTreeAccess.getFile(mode.rootUriString, relativePath)?.let { metadata ->
-                        LocalS3File(path = path, lastModified = metadata.lastModified)
+                        LocalS3File(path = path, lastModified = metadata.lastModified, size = metadata.size)
                     }
                 }
 
@@ -268,6 +286,30 @@ internal class S3SyncFileBridgeScope(
                 }
         }
 
+    suspend fun exportLocalFile(
+        path: String,
+        layout: SyncDirectoryLayout,
+        session: S3SyncTransferSession,
+    ): S3TransferFile? =
+        when (mode) {
+            is S3LocalSyncMode.VaultRoot ->
+                exportVaultRootFile(
+                    mode = mode,
+                    relativePath = resolveVaultRootPath(path, layout, mode) ?: return null,
+                    safTreeAccess = safTreeAccess,
+                    session = session,
+                )
+
+            is S3LocalSyncMode.Legacy ->
+                legacyExportLocalFile(
+                    runtime = runtime,
+                    path = path,
+                    layout = layout,
+                    mode = mode,
+                    session = session,
+                )
+        }
+
     suspend fun writeLocalBytes(
         path: String,
         bytes: ByteArray,
@@ -283,6 +325,31 @@ internal class S3SyncFileBridgeScope(
                 )
 
             is S3LocalSyncMode.Legacy -> legacyWriteLocalBytes(runtime, path, bytes, layout)
+        }
+    }
+
+    suspend fun importLocalFile(
+        path: String,
+        source: File,
+        layout: SyncDirectoryLayout,
+    ) {
+        when (mode) {
+            is S3LocalSyncMode.VaultRoot ->
+                importVaultRootFile(
+                    mode = mode,
+                    relativePath = resolveVaultRootPath(path, layout, mode) ?: return,
+                    source = source,
+                    safTreeAccess = safTreeAccess,
+                )
+
+            is S3LocalSyncMode.Legacy ->
+                legacyImportLocalFile(
+                    runtime = runtime,
+                    path = path,
+                    source = source,
+                    layout = layout,
+                    mode = mode,
+                )
         }
     }
 

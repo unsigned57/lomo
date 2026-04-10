@@ -2,18 +2,27 @@ package com.lomo.data.s3
 
 import aws.sdk.kotlin.runtime.auth.credentials.StaticCredentialsProvider
 import aws.sdk.kotlin.services.s3.S3Client
+import aws.sdk.kotlin.services.s3.model.AbortMultipartUploadRequest
+import aws.sdk.kotlin.services.s3.model.CompleteMultipartUploadRequest
+import aws.sdk.kotlin.services.s3.model.CompletedMultipartUpload
+import aws.sdk.kotlin.services.s3.model.CompletedPart
+import aws.sdk.kotlin.services.s3.model.CreateMultipartUploadRequest
 import aws.sdk.kotlin.services.s3.model.DeleteObjectRequest
 import aws.sdk.kotlin.services.s3.model.GetObjectRequest
 import aws.sdk.kotlin.services.s3.model.HeadObjectRequest
 import aws.sdk.kotlin.services.s3.model.ListObjectsV2Request
 import aws.sdk.kotlin.services.s3.model.PutObjectRequest
+import aws.sdk.kotlin.services.s3.model.UploadPartRequest
 import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.content.ByteStream
+import aws.smithy.kotlin.runtime.content.asByteStream
 import aws.smithy.kotlin.runtime.content.toByteArray
+import aws.smithy.kotlin.runtime.content.toInputStream
 import aws.smithy.kotlin.runtime.net.url.Url
 import aws.smithy.kotlin.runtime.time.epochMilliseconds
 import com.lomo.data.repository.S3ResolvedConfig
 import com.lomo.domain.model.S3PathStyle
+import java.io.File
 import javax.inject.Inject
 
 data class S3RemoteObject(
@@ -40,6 +49,9 @@ data class S3RemoteListPage(
     val objects: List<S3RemoteObject>,
     val nextContinuationToken: String?,
 )
+
+internal const val S3_MULTIPART_UPLOAD_THRESHOLD_BYTES: Long = 8L * 1024L * 1024L
+internal const val S3_MULTIPART_UPLOAD_PART_SIZE_BYTES: Long = 8L * 1024L * 1024L
 
 fun interface LomoS3ClientFactory {
     fun create(config: S3ResolvedConfig): LomoS3Client
@@ -76,12 +88,41 @@ interface LomoS3Client : AutoCloseable {
 
     suspend fun getObject(key: String): S3RemoteObjectPayload
 
+    suspend fun getObjectToFile(
+        key: String,
+        destination: File,
+    ): S3RemoteObject {
+        val payload = getObject(key)
+        destination.parentFile?.mkdirs()
+        destination.writeBytes(payload.bytes)
+        return S3RemoteObject(
+            key = payload.key,
+            eTag = payload.eTag,
+            lastModified = payload.lastModified,
+            size = destination.length(),
+            metadata = payload.metadata,
+        )
+    }
+
     suspend fun putObject(
         key: String,
         bytes: ByteArray,
         contentType: String,
         metadata: Map<String, String>,
     ): S3PutObjectResult
+
+    suspend fun putObjectFile(
+        key: String,
+        file: File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): S3PutObjectResult =
+        putObject(
+            key = key,
+            bytes = file.readBytes(),
+            contentType = contentType,
+            metadata = metadata,
+        )
 
     suspend fun deleteObject(key: String)
 }
@@ -150,6 +191,32 @@ internal class AwsSdkS3Client(
                 lastModified = response.lastModified?.epochMilliseconds,
                 metadata = response.metadata.orEmpty(),
                 bytes = response.body?.toByteArray() ?: ByteArray(0),
+            )
+        }
+    }
+
+    override suspend fun getObjectToFile(
+        key: String,
+        destination: File,
+    ): S3RemoteObject {
+        val request =
+            GetObjectRequest {
+                bucket = config.bucket
+                this.key = key
+            }
+        destination.parentFile?.mkdirs()
+        return client.getObject(request) { response ->
+            destination.outputStream().use { output ->
+                response.body?.toInputStream()?.use { input ->
+                    input.copyTo(output)
+                }
+            }
+            S3RemoteObject(
+                key = key,
+                eTag = response.eTag,
+                lastModified = response.lastModified?.epochMilliseconds,
+                size = response.contentLength ?: destination.length(),
+                metadata = response.metadata.orEmpty(),
             )
         }
     }
@@ -226,8 +293,111 @@ internal class AwsSdkS3Client(
                     this.metadata = metadata
                     body = ByteStream.fromBytes(bytes)
                 },
-            )
+        )
         return S3PutObjectResult(eTag = response.eTag)
+    }
+
+    override suspend fun putObjectFile(
+        key: String,
+        file: File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): S3PutObjectResult {
+        if (file.length() < S3_MULTIPART_UPLOAD_THRESHOLD_BYTES) {
+            val response =
+                client.putObject(
+                    PutObjectRequest {
+                        bucket = config.bucket
+                        this.key = key
+                        this.contentType = contentType
+                        this.metadata = metadata
+                        body = file.asByteStream()
+                    },
+                )
+            return S3PutObjectResult(eTag = response.eTag)
+        }
+        return putMultipartObject(
+            key = key,
+            file = file,
+            contentType = contentType,
+            metadata = metadata,
+        )
+    }
+
+    private suspend fun putMultipartObject(
+        key: String,
+        file: File,
+        contentType: String,
+        metadata: Map<String, String>,
+    ): S3PutObjectResult {
+        val uploadId =
+            client.createMultipartUpload(
+                CreateMultipartUploadRequest {
+                    bucket = config.bucket
+                    this.key = key
+                    this.contentType = contentType
+                    this.metadata = metadata
+                },
+            ).uploadId ?: error("S3 multipart upload started without uploadId for key=$key")
+        try {
+            val completedParts = uploadMultipartParts(key = key, file = file, uploadId = uploadId)
+            val response =
+                client.completeMultipartUpload(
+                    CompleteMultipartUploadRequest {
+                        bucket = config.bucket
+                        this.key = key
+                        this.uploadId = uploadId
+                        multipartUpload =
+                            CompletedMultipartUpload {
+                                parts = completedParts
+                            }
+                    },
+                )
+            return S3PutObjectResult(eTag = response.eTag)
+        } catch (error: Exception) {
+            runCatching {
+                client.abortMultipartUpload(
+                    AbortMultipartUploadRequest {
+                        bucket = config.bucket
+                        this.key = key
+                        this.uploadId = uploadId
+                    },
+                )
+            }
+            throw error
+        }
+    }
+
+    private suspend fun uploadMultipartParts(
+        key: String,
+        file: File,
+        uploadId: String,
+    ): List<CompletedPart> {
+        val completedParts = mutableListOf<CompletedPart>()
+        var offset = 0L
+        var partNumber = 1
+        while (offset < file.length()) {
+            val partSize = minOf(S3_MULTIPART_UPLOAD_PART_SIZE_BYTES, file.length() - offset)
+            val endInclusive = offset + partSize - 1
+            val response =
+                client.uploadPart(
+                    UploadPartRequest {
+                        bucket = config.bucket
+                        this.key = key
+                        this.uploadId = uploadId
+                        this.partNumber = partNumber
+                        body = file.asByteStream(offset, endInclusive)
+                    },
+                )
+            completedParts +=
+                CompletedPart {
+                    this.partNumber = partNumber
+                    eTag = response.eTag
+                }
+            offset += partSize
+            partNumber += 1
+        }
+        return completedParts
     }
 
     override suspend fun deleteObject(key: String) {

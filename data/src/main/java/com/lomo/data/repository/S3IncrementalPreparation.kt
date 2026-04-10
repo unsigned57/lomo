@@ -126,6 +126,7 @@ private fun syntheticDeleteMetadata(
         etag = indexedEntry.etag,
         remoteLastModified = indexedEntry.remoteLastModified,
         localLastModified = deletedAt,
+        remoteSize = indexedEntry.size,
         lastSyncedAt = deletedAt,
         lastResolvedDirection = S3SyncMetadataEntity.NONE,
         lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,

@@ -46,6 +46,7 @@ interface S3RemoteShardStateStore {
     suspend fun readScheduleTelemetry(
         now: Long,
         reconcileInterval: Duration,
+        endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
     ): S3RemoteShardScheduleTelemetry
 
     suspend fun upsert(states: Collection<S3RemoteShardState>)
@@ -67,6 +68,7 @@ object DisabledS3RemoteShardStateStore : S3RemoteShardStateStore {
     override suspend fun readScheduleTelemetry(
         now: Long,
         reconcileInterval: Duration,
+        endpointProfile: S3EndpointProfile,
     ): S3RemoteShardScheduleTelemetry =
         S3RemoteShardScheduleTelemetry(
             shardCount = 0,
@@ -109,8 +111,9 @@ class InMemoryS3RemoteShardStateStore(
     override suspend fun readScheduleTelemetry(
         now: Long,
         reconcileInterval: Duration,
+        endpointProfile: S3EndpointProfile,
     ): S3RemoteShardScheduleTelemetry =
-        mutex.withLock { states.values.toList().toScheduleTelemetry(now, reconcileInterval) }
+        mutex.withLock { states.values.toList().toScheduleTelemetry(now, reconcileInterval, endpointProfile) }
 
     override suspend fun upsert(states: Collection<S3RemoteShardState>) {
         if (states.isEmpty()) return
@@ -155,15 +158,16 @@ class RoomBackedS3RemoteShardStateStore
         override suspend fun readScheduleTelemetry(
             now: Long,
             reconcileInterval: Duration,
+            endpointProfile: S3EndpointProfile,
         ): S3RemoteShardScheduleTelemetry =
             dao.getScheduleTelemetry(
                 now = now,
                 recentChangeWindowMs = reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR,
                 uncertaintyWindowMs = reconcileInterval.toMillis(),
-                changePressureThreshold = S3_CHANGE_PRESSURE_THRESHOLD,
-                verificationFailureThreshold = S3_VERIFICATION_FAILURE_THRESHOLD,
-                minUncertaintyAttempts = S3_MIN_UNCERTAINTY_ATTEMPTS,
-                minUncertaintyFailures = S3_MIN_UNCERTAINTY_FAILURES,
+                changePressureThreshold = endpointProfile.changePressureThreshold,
+                verificationFailureThreshold = endpointProfile.verificationFailureThreshold,
+                minUncertaintyAttempts = endpointProfile.minUncertaintyAttempts,
+                minUncertaintyFailures = endpointProfile.minUncertaintyFailures,
             ).toModel()
 
         override suspend fun upsert(states: Collection<S3RemoteShardState>) {
@@ -212,6 +216,7 @@ private fun S3RemoteShardState.toEntity(): S3RemoteShardStateEntity =
 private fun List<S3RemoteShardState>.toScheduleTelemetry(
     now: Long,
     reconcileInterval: Duration,
+    endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
 ): S3RemoteShardScheduleTelemetry {
     val recentChangeWindowMillis = reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR
     val uncertaintyWindowMillis = reconcileInterval.toMillis()
@@ -222,14 +227,14 @@ private fun List<S3RemoteShardState>.toScheduleTelemetry(
             any { state ->
                 state.idleScanStreak == 0 &&
                     state.scanAgeMillis(now) <= recentChangeWindowMillis &&
-                    state.changeRate() >= S3_CHANGE_PRESSURE_THRESHOLD
+                    state.changeRate() >= endpointProfile.changePressureThreshold
             },
         hasHighVerificationUncertainty =
             any { state ->
                 state.scanAgeMillis(now) <= uncertaintyWindowMillis &&
-                    state.lastVerificationAttemptCount >= S3_MIN_UNCERTAINTY_ATTEMPTS &&
-                    state.lastVerificationFailureCount >= S3_MIN_UNCERTAINTY_FAILURES &&
-                    state.verificationFailureRate() >= S3_VERIFICATION_FAILURE_THRESHOLD
+                    state.lastVerificationAttemptCount >= endpointProfile.minUncertaintyAttempts &&
+                    state.lastVerificationFailureCount >= endpointProfile.minUncertaintyFailures &&
+                    state.verificationFailureRate() >= endpointProfile.verificationFailureThreshold
             },
     )
 }
@@ -251,7 +256,3 @@ private fun S3RemoteShardState.verificationFailureRate(): Double =
     lastVerificationFailureCount.toDouble() / lastVerificationAttemptCount.coerceAtLeast(1).toDouble()
 
 internal const val S3_RECENT_CHANGE_WINDOW_DIVISOR = 2L
-internal const val S3_CHANGE_PRESSURE_THRESHOLD = 0.5
-internal const val S3_VERIFICATION_FAILURE_THRESHOLD = 0.5
-internal const val S3_MIN_UNCERTAINTY_ATTEMPTS = 2
-internal const val S3_MIN_UNCERTAINTY_FAILURES = 2

@@ -31,6 +31,8 @@ data class S3ResolvedConfig(
     val pathStyle: S3PathStyle,
     val encryptionMode: S3EncryptionMode,
     val encryptionPassword: String?,
+    val allowInsecureHttp: Boolean = false,
+    val endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
     val encryptionPassword2: String? = null,
     val rcloneCryptConfig: S3RcloneCryptConfig = S3RcloneCryptConfig(),
 )
@@ -48,4 +50,5 @@ class S3SyncRepositoryContext
         val memoSynchronizer: MemoSynchronizer,
         val planner: S3SyncPlanner,
         val stateHolder: S3SyncStateHolder,
+        val transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
     )

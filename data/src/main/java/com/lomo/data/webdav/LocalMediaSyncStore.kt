@@ -101,7 +101,7 @@ class LocalMediaSyncStore
                     .flatMap { root ->
                         when (root) {
                             is MediaRoot.Direct -> listDirectFiles(root, layout)
-                            is MediaRoot.Saf -> listSafFiles(root, layout)
+                            is MediaRoot.Saf -> listSafFiles(context, root, layout)
                         }
                     }.associateBy { it.relativePath }
             }
@@ -155,6 +155,70 @@ class LocalMediaSyncStore
             }
         }
 
+        suspend fun exportToFile(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+            destination: File,
+        ) {
+            withContext(Dispatchers.IO) {
+                val located = requireLocatedMediaFile(locate(relativePath, layout), relativePath)
+                destination.parentFile?.mkdirs()
+                when (val root = located.root) {
+                    is MediaRoot.Direct ->
+                        File(root.path, located.filename).inputStream().use { input ->
+                            destination.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+
+                    is MediaRoot.Saf -> {
+                        val document =
+                            requireNotNull(getSafRoot(context, root)?.findFile(located.filename)) {
+                                "Media file not found: $relativePath"
+                            }
+                        context.contentResolver.openInputStream(document.uri)?.use { input ->
+                            destination.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        } ?: throw IOException("Cannot open media file: $relativePath")
+                    }
+                }
+            }
+        }
+
+        suspend fun importFromFile(
+            relativePath: String,
+            source: File,
+            layout: SyncDirectoryLayout,
+        ) {
+            withContext(Dispatchers.IO) {
+                val located = requireLocatedMediaFile(locate(relativePath, layout), relativePath)
+                when (val root = located.root) {
+                    is MediaRoot.Direct -> {
+                        val directory = File(root.path)
+                        if (!directory.exists()) directory.mkdirs()
+                        val file = File(directory, located.filename)
+                        file.parentFile?.mkdirs()
+                        source.inputStream().use { input ->
+                            file.outputStream().use { output ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+
+                    is MediaRoot.Saf -> {
+                        val directory = requireSafMediaRoot(context, root, relativePath)
+                        val target = resolveOrCreateSafTarget(directory, located, relativePath)
+                        openRequiredOutputStream(context, target.uri, relativePath).use { output ->
+                            source.inputStream().use { input ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         suspend fun delete(
             relativePath: String,
             layout: SyncDirectoryLayout,
@@ -192,42 +256,6 @@ class LocalMediaSyncStore
                 voiceDirectory = dataStore.voiceDirectory.first(),
                 voiceUri = dataStore.voiceUri.first(),
             )
-        }
-
-        private fun listDirectFiles(
-            root: MediaRoot.Direct,
-            layout: SyncDirectoryLayout,
-        ): List<LocalMediaSyncFile> {
-            val directory = File(root.path)
-            if (!directory.exists() || !directory.isDirectory) return emptyList()
-            val folder = root.category.remoteFolder(layout)
-            return directory
-                .listFiles()
-                ?.asSequence()
-                ?.filter { file -> file.isFile && accepts(root.category, file.name) }
-                ?.map { file ->
-                    LocalMediaSyncFile(
-                        relativePath = "$folder/${file.name}",
-                        lastModified = file.lastModified(),
-                    )
-                }?.toList()
-                ?: emptyList()
-        }
-
-        private fun listSafFiles(
-            root: MediaRoot.Saf,
-            layout: SyncDirectoryLayout,
-        ): List<LocalMediaSyncFile> {
-            val directory = getSafRoot(context, root) ?: return emptyList()
-            val folder = root.category.remoteFolder(layout)
-            return directory.listFiles().mapNotNull { document ->
-                val name = document.name ?: return@mapNotNull null
-                if (!document.isFile || !accepts(root.category, name, document.type)) return@mapNotNull null
-                LocalMediaSyncFile(
-                    relativePath = "$folder/$name",
-                    lastModified = document.lastModified(),
-                )
-            }
         }
 
         private suspend fun locate(
@@ -293,7 +321,7 @@ private fun resolveOrCreateSafTarget(
         )
         ?: throw IOException("Cannot create media file: $relativePath")
 
-private fun accepts(
+internal fun accepts(
     category: MediaSyncCategory,
     filename: String,
     mimeType: String? = null,
@@ -352,4 +380,5 @@ enum class MediaSyncCategory {
 data class LocalMediaSyncFile(
     val relativePath: String,
     val lastModified: Long,
+    val size: Long? = null,
 )

@@ -1,0 +1,1233 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 45,
+    "identityHash": "dbe94e3760d9984880f45fde479e8ed4",
+    "entities": [
+      {
+        "tableName": "Lomo",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `content` TEXT NOT NULL, `rawContent` TEXT NOT NULL, `date` TEXT NOT NULL, `tags` TEXT NOT NULL, `imageUrls` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawContent",
+            "columnName": "rawContent",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrls",
+            "columnName": "imageUrls",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_Lomo_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Lomo_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_Lomo_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Lomo_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_Lomo_date",
+            "unique": false,
+            "columnNames": [
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_Lomo_date` ON `${TABLE_NAME}` (`date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "LomoTrash",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `content` TEXT NOT NULL, `rawContent` TEXT NOT NULL, `date` TEXT NOT NULL, `tags` TEXT NOT NULL, `imageUrls` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawContent",
+            "columnName": "rawContent",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "date",
+            "columnName": "date",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tags",
+            "columnName": "tags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageUrls",
+            "columnName": "imageUrls",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_LomoTrash_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_LomoTrash_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_LomoTrash_updatedAt",
+            "unique": false,
+            "columnNames": [
+              "updatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_LomoTrash_updatedAt` ON `${TABLE_NAME}` (`updatedAt`)"
+          },
+          {
+            "name": "index_LomoTrash_date",
+            "unique": false,
+            "columnNames": [
+              "date"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_LomoTrash_date` ON `${TABLE_NAME}` (`date`)"
+          }
+        ]
+      },
+      {
+        "tableName": "lomo_fts",
+        "createSql": "CREATE VIRTUAL TABLE IF NOT EXISTS `${TABLE_NAME}` USING FTS4(`memoId` TEXT NOT NULL, `content` TEXT NOT NULL, tokenize=unicode61)",
+        "fields": [
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "content",
+            "columnName": "content",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": []
+        },
+        "ftsVersion": "FTS4",
+        "ftsOptions": {
+          "tokenizer": "unicode61",
+          "tokenizerArgs": [],
+          "contentTable": "",
+          "languageIdColumnName": "",
+          "matchInfo": "FTS4",
+          "notIndexedColumns": [],
+          "prefixSizes": [],
+          "preferredOrder": "ASC"
+        },
+        "contentSyncTriggers": []
+      },
+      {
+        "tableName": "MemoTagCrossRef",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`memoId` TEXT NOT NULL, `tag` TEXT NOT NULL, PRIMARY KEY(`memoId`, `tag`), FOREIGN KEY(`memoId`) REFERENCES `Lomo`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tag",
+            "columnName": "tag",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "memoId",
+            "tag"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_MemoTagCrossRef_memoId",
+            "unique": false,
+            "columnNames": [
+              "memoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoTagCrossRef_memoId` ON `${TABLE_NAME}` (`memoId`)"
+          },
+          {
+            "name": "index_MemoTagCrossRef_tag",
+            "unique": false,
+            "columnNames": [
+              "tag"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoTagCrossRef_tag` ON `${TABLE_NAME}` (`tag`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "Lomo",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "memoId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "local_file_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`filename` TEXT NOT NULL, `isTrash` INTEGER NOT NULL, `saf_uri` TEXT, `last_known_modified_time` INTEGER NOT NULL, `missing_since` INTEGER, `missing_count` INTEGER NOT NULL, `last_seen_at` INTEGER NOT NULL, PRIMARY KEY(`filename`, `isTrash`))",
+        "fields": [
+          {
+            "fieldPath": "filename",
+            "columnName": "filename",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isTrash",
+            "columnName": "isTrash",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "safUri",
+            "columnName": "saf_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastKnownModifiedTime",
+            "columnName": "last_known_modified_time",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "missingSince",
+            "columnName": "missing_since",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "missingCount",
+            "columnName": "missing_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSeenAt",
+            "columnName": "last_seen_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "filename",
+            "isTrash"
+          ]
+        }
+      },
+      {
+        "tableName": "MemoFileOutbox",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `operation` TEXT NOT NULL, `memoId` TEXT NOT NULL, `memoDate` TEXT NOT NULL, `memoTimestamp` INTEGER NOT NULL, `memoRawContent` TEXT NOT NULL, `newContent` TEXT, `createRawContent` TEXT, `createdAt` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `retryCount` INTEGER NOT NULL, `lastError` TEXT, `claimToken` TEXT, `claimUpdatedAt` INTEGER)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "operation",
+            "columnName": "operation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoDate",
+            "columnName": "memoDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoTimestamp",
+            "columnName": "memoTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoRawContent",
+            "columnName": "memoRawContent",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "newContent",
+            "columnName": "newContent",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createRawContent",
+            "columnName": "createRawContent",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "retryCount",
+            "columnName": "retryCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastError",
+            "columnName": "lastError",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "claimToken",
+            "columnName": "claimToken",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "claimUpdatedAt",
+            "columnName": "claimUpdatedAt",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_MemoFileOutbox_memoId",
+            "unique": false,
+            "columnNames": [
+              "memoId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_memoId` ON `${TABLE_NAME}` (`memoId`)"
+          },
+          {
+            "name": "index_MemoFileOutbox_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          },
+          {
+            "name": "index_MemoFileOutbox_claimToken",
+            "unique": false,
+            "columnNames": [
+              "claimToken"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_claimToken` ON `${TABLE_NAME}` (`claimToken`)"
+          },
+          {
+            "name": "index_MemoFileOutbox_claimUpdatedAt",
+            "unique": false,
+            "columnNames": [
+              "claimUpdatedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoFileOutbox_claimUpdatedAt` ON `${TABLE_NAME}` (`claimUpdatedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "MemoPin",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`memoId` TEXT NOT NULL, `pinnedAt` INTEGER NOT NULL, PRIMARY KEY(`memoId`))",
+        "fields": [
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinnedAt",
+            "columnName": "pinnedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "memoId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_MemoPin_pinnedAt",
+            "unique": false,
+            "columnNames": [
+              "pinnedAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_MemoPin_pinnedAt` ON `${TABLE_NAME}` (`pinnedAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "webdav_sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`relative_path` TEXT NOT NULL, `remote_path` TEXT NOT NULL, `etag` TEXT, `remote_last_modified` INTEGER, `local_last_modified` INTEGER, `last_synced_at` INTEGER NOT NULL, `last_resolved_direction` TEXT NOT NULL, `last_resolved_reason` TEXT NOT NULL, PRIMARY KEY(`relative_path`))",
+        "fields": [
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remotePath",
+            "columnName": "remote_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteLastModified",
+            "columnName": "remote_last_modified",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localLastModified",
+            "columnName": "local_last_modified",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "last_synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastResolvedDirection",
+            "columnName": "last_resolved_direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastResolvedReason",
+            "columnName": "last_resolved_reason",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "relative_path"
+          ]
+        }
+      },
+      {
+        "tableName": "s3_sync_metadata",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`relative_path` TEXT NOT NULL, `remote_path` TEXT NOT NULL, `etag` TEXT, `remote_last_modified` INTEGER, `local_last_modified` INTEGER, `local_size` INTEGER, `remote_size` INTEGER, `local_fingerprint` TEXT, `last_synced_at` INTEGER NOT NULL, `last_resolved_direction` TEXT NOT NULL, `last_resolved_reason` TEXT NOT NULL, PRIMARY KEY(`relative_path`))",
+        "fields": [
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remotePath",
+            "columnName": "remote_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteLastModified",
+            "columnName": "remote_last_modified",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localLastModified",
+            "columnName": "local_last_modified",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localSize",
+            "columnName": "local_size",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "remoteSize",
+            "columnName": "remote_size",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "localFingerprint",
+            "columnName": "local_fingerprint",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastSyncedAt",
+            "columnName": "last_synced_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastResolvedDirection",
+            "columnName": "last_resolved_direction",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastResolvedReason",
+            "columnName": "last_resolved_reason",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "relative_path"
+          ]
+        }
+      },
+      {
+        "tableName": "s3_remote_index",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`relative_path` TEXT NOT NULL, `remote_path` TEXT NOT NULL, `etag` TEXT, `remote_last_modified` INTEGER, `size` INTEGER, `last_seen_at` INTEGER NOT NULL, `last_verified_at` INTEGER, `scan_bucket` TEXT NOT NULL, `scan_priority` INTEGER NOT NULL, `dirty_suspect` INTEGER NOT NULL, `missing_on_last_scan` INTEGER NOT NULL, `scan_epoch` INTEGER NOT NULL, PRIMARY KEY(`relative_path`))",
+        "fields": [
+          {
+            "fieldPath": "relativePath",
+            "columnName": "relative_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remotePath",
+            "columnName": "remote_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "etag",
+            "columnName": "etag",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteLastModified",
+            "columnName": "remote_last_modified",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "size",
+            "columnName": "size",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastSeenAt",
+            "columnName": "last_seen_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastVerifiedAt",
+            "columnName": "last_verified_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "scanBucket",
+            "columnName": "scan_bucket",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scanPriority",
+            "columnName": "scan_priority",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dirtySuspect",
+            "columnName": "dirty_suspect",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "missingOnLastScan",
+            "columnName": "missing_on_last_scan",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scanEpoch",
+            "columnName": "scan_epoch",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "relative_path"
+          ]
+        }
+      },
+      {
+        "tableName": "s3_remote_shard_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`bucket_id` TEXT NOT NULL, `relative_prefix` TEXT, `last_scanned_at` INTEGER NOT NULL, `last_object_count` INTEGER NOT NULL, `last_duration_ms` INTEGER NOT NULL, `last_change_count` INTEGER NOT NULL, `idle_scan_streak` INTEGER NOT NULL, `last_verification_attempt_count` INTEGER NOT NULL, `last_verification_failure_count` INTEGER NOT NULL, PRIMARY KEY(`bucket_id`))",
+        "fields": [
+          {
+            "fieldPath": "bucketId",
+            "columnName": "bucket_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relativePrefix",
+            "columnName": "relative_prefix",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "lastScannedAt",
+            "columnName": "last_scanned_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastObjectCount",
+            "columnName": "last_object_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastDurationMs",
+            "columnName": "last_duration_ms",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastChangeCount",
+            "columnName": "last_change_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "idleScanStreak",
+            "columnName": "idle_scan_streak",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastVerificationAttemptCount",
+            "columnName": "last_verification_attempt_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastVerificationFailureCount",
+            "columnName": "last_verification_failure_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "bucket_id"
+          ]
+        }
+      },
+      {
+        "tableName": "s3_sync_protocol_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `protocol_version` INTEGER NOT NULL, `last_successful_sync_at` INTEGER, `last_fast_sync_at` INTEGER, `last_reconcile_at` INTEGER, `last_full_remote_scan_at` INTEGER, `indexed_local_file_count` INTEGER NOT NULL, `indexed_remote_file_count` INTEGER NOT NULL, `local_mode_fingerprint` TEXT, `remote_scan_cursor` TEXT, `scan_epoch` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "protocolVersion",
+            "columnName": "protocol_version",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastSuccessfulSyncAt",
+            "columnName": "last_successful_sync_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastFastSyncAt",
+            "columnName": "last_fast_sync_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastReconcileAt",
+            "columnName": "last_reconcile_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "lastFullRemoteScanAt",
+            "columnName": "last_full_remote_scan_at",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "indexedLocalFileCount",
+            "columnName": "indexed_local_file_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "indexedRemoteFileCount",
+            "columnName": "indexed_remote_file_count",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "localModeFingerprint",
+            "columnName": "local_mode_fingerprint",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "remoteScanCursor",
+            "columnName": "remote_scan_cursor",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "scanEpoch",
+            "columnName": "scan_epoch",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "s3_local_change_journal",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `kind` TEXT NOT NULL, `filename` TEXT NOT NULL, `change_type` TEXT NOT NULL, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filename",
+            "columnName": "filename",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "changeType",
+            "columnName": "change_type",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        }
+      },
+      {
+        "tableName": "version_commit",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`commitId` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `origin` TEXT NOT NULL, `actor` TEXT NOT NULL, `batchId` TEXT, `summary` TEXT NOT NULL, PRIMARY KEY(`commitId`))",
+        "fields": [
+          {
+            "fieldPath": "commitId",
+            "columnName": "commitId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "actor",
+            "columnName": "actor",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batchId",
+            "columnName": "batchId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "summary",
+            "columnName": "summary",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "commitId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_version_commit_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_version_commit_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          },
+          {
+            "name": "index_version_commit_batchId",
+            "unique": false,
+            "columnNames": [
+              "batchId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_version_commit_batchId` ON `${TABLE_NAME}` (`batchId`)"
+          }
+        ]
+      },
+      {
+        "tableName": "memo_version_blob",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`blobHash` TEXT NOT NULL, `storagePath` TEXT NOT NULL, `byteSize` INTEGER NOT NULL, `contentEncoding` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`blobHash`))",
+        "fields": [
+          {
+            "fieldPath": "blobHash",
+            "columnName": "blobHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "storagePath",
+            "columnName": "storagePath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "byteSize",
+            "columnName": "byteSize",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentEncoding",
+            "columnName": "contentEncoding",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "blobHash"
+          ]
+        }
+      },
+      {
+        "tableName": "memo_revision",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`revisionId` TEXT NOT NULL, `memoId` TEXT NOT NULL, `parentRevisionId` TEXT, `commitId` TEXT NOT NULL, `dateKey` TEXT NOT NULL, `lifecycleState` TEXT NOT NULL, `rawMarkdownBlobHash` TEXT NOT NULL, `contentHash` TEXT NOT NULL, `assetFingerprint` TEXT, `memoTimestamp` INTEGER NOT NULL, `memoUpdatedAt` INTEGER NOT NULL, `memoContent` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`revisionId`))",
+        "fields": [
+          {
+            "fieldPath": "revisionId",
+            "columnName": "revisionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoId",
+            "columnName": "memoId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentRevisionId",
+            "columnName": "parentRevisionId",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "commitId",
+            "columnName": "commitId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "dateKey",
+            "columnName": "dateKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lifecycleState",
+            "columnName": "lifecycleState",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rawMarkdownBlobHash",
+            "columnName": "rawMarkdownBlobHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentHash",
+            "columnName": "contentHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "assetFingerprint",
+            "columnName": "assetFingerprint",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "memoTimestamp",
+            "columnName": "memoTimestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoUpdatedAt",
+            "columnName": "memoUpdatedAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "memoContent",
+            "columnName": "memoContent",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "revisionId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memo_revision_memoId_createdAt",
+            "unique": false,
+            "columnNames": [
+              "memoId",
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_createdAt` ON `${TABLE_NAME}` (`memoId`, `createdAt`)"
+          },
+          {
+            "name": "index_memo_revision_memoId_createdAt_revisionId",
+            "unique": false,
+            "columnNames": [
+              "memoId",
+              "createdAt",
+              "revisionId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_createdAt_revisionId` ON `${TABLE_NAME}` (`memoId`, `createdAt`, `revisionId`)"
+          },
+          {
+            "name": "index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint",
+            "unique": false,
+            "columnNames": [
+              "memoId",
+              "lifecycleState",
+              "contentHash",
+              "rawMarkdownBlobHash",
+              "assetFingerprint"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint` ON `${TABLE_NAME}` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)"
+          },
+          {
+            "name": "index_memo_revision_commitId",
+            "unique": false,
+            "columnNames": [
+              "commitId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_commitId` ON `${TABLE_NAME}` (`commitId`)"
+          },
+          {
+            "name": "index_memo_revision_rawMarkdownBlobHash",
+            "unique": false,
+            "columnNames": [
+              "rawMarkdownBlobHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_rawMarkdownBlobHash` ON `${TABLE_NAME}` (`rawMarkdownBlobHash`)"
+          }
+        ]
+      },
+      {
+        "tableName": "memo_revision_asset",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`revisionId` TEXT NOT NULL, `logicalPath` TEXT NOT NULL, `blobHash` TEXT NOT NULL, `contentEncoding` TEXT NOT NULL, PRIMARY KEY(`revisionId`, `logicalPath`))",
+        "fields": [
+          {
+            "fieldPath": "revisionId",
+            "columnName": "revisionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "logicalPath",
+            "columnName": "logicalPath",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "blobHash",
+            "columnName": "blobHash",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "contentEncoding",
+            "columnName": "contentEncoding",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "revisionId",
+            "logicalPath"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_memo_revision_asset_blobHash",
+            "unique": false,
+            "columnNames": [
+              "blobHash"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_blobHash` ON `${TABLE_NAME}` (`blobHash`)"
+          },
+          {
+            "name": "index_memo_revision_asset_revisionId_logicalPath",
+            "unique": false,
+            "columnNames": [
+              "revisionId",
+              "logicalPath"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath` ON `${TABLE_NAME}` (`revisionId`, `logicalPath`)"
+          }
+        ]
+      },
+      {
+        "tableName": "pending_sync_conflict",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`backend` TEXT NOT NULL, `session_kind` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `payload_json` TEXT NOT NULL, PRIMARY KEY(`backend`))",
+        "fields": [
+          {
+            "fieldPath": "backend",
+            "columnName": "backend",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sessionKind",
+            "columnName": "session_kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "payloadJson",
+            "columnName": "payload_json",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "backend"
+          ]
+        }
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'dbe94e3760d9984880f45fde479e8ed4')"
+    ]
+  }
+}

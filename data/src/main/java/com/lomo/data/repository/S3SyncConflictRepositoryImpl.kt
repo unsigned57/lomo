@@ -62,21 +62,23 @@ class S3ConflictResolver
                             fileBridgeScope = fileBridgeScope,
                             mode = mode,
                         )
-                    fileBridge.persistMetadata(
-                        localFiles = applied.resolvedLocalFiles,
-                        remoteFiles = applied.resolvedRemoteFiles,
-                        metadataByPath = context.metadataByPath,
-                        actionOutcomes = applied.actionOutcomes,
-                        unresolvedPaths = applied.unresolvedPaths(),
-                        completeSnapshot = false,
-                    )
-                    commitIncrementalConflictResolutionState(
-                        layout = layout,
-                        mode = mode,
-                        protocolState = context.protocolState,
-                        resolvedRemoteFiles = applied.resolvedRemoteFiles,
-                        resolvedPaths = applied.actionOutcomes.keys,
-                    )
+                    runtime.transactionRunner.runInTransaction {
+                        fileBridge.persistMetadata(
+                            localFiles = applied.resolvedLocalFiles,
+                            remoteFiles = applied.resolvedRemoteFiles,
+                            metadataByPath = context.metadataByPath,
+                            actionOutcomes = applied.actionOutcomes,
+                            unresolvedPaths = applied.unresolvedPaths(),
+                            completeSnapshot = false,
+                        )
+                        commitIncrementalConflictResolutionState(
+                            layout = layout,
+                            mode = mode,
+                            protocolState = context.protocolState,
+                            resolvedRemoteFiles = applied.resolvedRemoteFiles,
+                            resolvedPaths = applied.actionOutcomes.keys,
+                        )
+                    }
                     refreshAfterResolution()
                     buildFinalResult(conflictSet, applied.unresolvedFiles)
                 }

@@ -324,6 +324,77 @@ class S3ConflictResolverTest {
         }
 
     @Test
+    fun `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadataDao = ConflictMetadataDao()
+            val protocolStateStore =
+                ConflictFailingWriteProtocolStateStore(
+                    delegate =
+                        InMemoryS3SyncProtocolStateStore().apply {
+                            write(
+                                S3SyncProtocolState(
+                                    lastSuccessfulSyncAt = 10L,
+                                    lastFullRemoteScanAt = 10L,
+                                    indexedLocalFileCount = 0,
+                                    indexedRemoteFileCount = 0,
+                                ),
+                            )
+                        },
+                    failure = IllegalStateException("protocol write failed"),
+                )
+            val localChangeJournalStore =
+                InMemoryS3LocalChangeJournalStore().apply {
+                    upsert(
+                        S3LocalChangeJournalEntry(
+                            id = "MEMO:note.md",
+                            kind = S3LocalChangeKind.MEMO,
+                            filename = "note.md",
+                            changeType = S3LocalChangeType.UPSERT,
+                            updatedAt = 50L,
+                        ),
+                    )
+                }
+            val remoteIndexStore = InMemoryS3RemoteIndexStore()
+            val client = ConflictProbeS3Client()
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# local"
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 50L)
+            val resolver =
+                createResolver(
+                    client = client,
+                    metadataDao = metadataDao,
+                    protocolStateStore = protocolStateStore,
+                    localChangeJournalStore = localChangeJournalStore,
+                    remoteIndexStore = remoteIndexStore,
+                    transactionRunner =
+                        rollbackableConflictResolutionTransactionRunner(
+                            metadataDao = metadataDao,
+                            protocolStateStore = protocolStateStore,
+                            localChangeJournalStore = localChangeJournalStore,
+                            remoteIndexStore = remoteIndexStore,
+                        ),
+                )
+
+            val result =
+                resolver.resolveConflicts(
+                    resolution =
+                        SyncConflictResolution(
+                            perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_LOCAL),
+                        ),
+                    conflictSet = conflictSet(path = path),
+                )
+
+            assertTrue(result is S3SyncResult.Error)
+            assertTrue(metadataDao.getAll().isEmpty())
+            assertTrue(localChangeJournalStore.read().containsKey("MEMO:note.md"))
+            assertTrue(remoteIndexStore.readAllRelativePaths().isEmpty())
+        }
+
+    @Test
     fun `resolveConflicts maps remote read failure without bucket scan`() =
         runTest {
             val path = "lomo/memo/note.md"
@@ -443,8 +514,11 @@ class S3ConflictResolverTest {
     private fun createResolver(
         client: ConflictProbeS3Client,
         metadataDao: ConflictMetadataDao,
+        protocolStateStore: S3SyncProtocolStateStore = InMemoryS3SyncProtocolStateStore(),
+        localChangeJournalStore: S3LocalChangeJournalStore = InMemoryS3LocalChangeJournalStore(),
         remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
         pendingStore: PendingSyncConflictStore = InMemoryPendingSyncConflictStore(),
+        transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
     ): S3ConflictResolver {
         every { clientFactory.create(any()) } returns client
         val runtime =
@@ -458,6 +532,7 @@ class S3ConflictResolverTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = stateHolder,
+                transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
         fileBridge = S3SyncFileBridge(runtime, encodingSupport)
@@ -467,8 +542,8 @@ class S3ConflictResolverTest {
             support = support,
             encodingSupport = encodingSupport,
             fileBridge = fileBridge,
-            protocolStateStore = InMemoryS3SyncProtocolStateStore(),
-            localChangeJournalStore = InMemoryS3LocalChangeJournalStore(),
+            protocolStateStore = protocolStateStore,
+            localChangeJournalStore = localChangeJournalStore,
             remoteIndexStore = remoteIndexStore,
             pendingConflictStore = pendingStore,
         )
@@ -565,6 +640,13 @@ private class ConflictMetadataDao(
     }
 
     fun require(path: String): S3SyncMetadataEntity = requireNotNull(entries[path])
+
+    suspend fun snapshot(): List<S3SyncMetadataEntity> = getAll()
+
+    suspend fun restore(snapshot: List<S3SyncMetadataEntity>) {
+        clearAll()
+        upsertAll(snapshot)
+    }
 }
 
 private class ConflictProbeS3Client(
@@ -611,3 +693,62 @@ private class ConflictProbeS3Client(
 
     override fun close() = Unit
 }
+
+private class ConflictFailingWriteProtocolStateStore(
+    private val delegate: S3SyncProtocolStateStore,
+    private val failure: Throwable,
+) : S3SyncProtocolStateStore by delegate {
+    private var failWrites: Boolean = true
+
+    override suspend fun write(state: S3SyncProtocolState) {
+        if (failWrites) {
+            throw failure
+        }
+        delegate.write(state)
+    }
+
+    suspend fun restoreSnapshot(state: S3SyncProtocolState?) {
+        failWrites = false
+        delegate.clear()
+        if (state != null) {
+            delegate.write(state)
+        }
+        failWrites = true
+    }
+}
+
+private fun rollbackableConflictResolutionTransactionRunner(
+    metadataDao: ConflictMetadataDao,
+    protocolStateStore: S3SyncProtocolStateStore,
+    localChangeJournalStore: S3LocalChangeJournalStore,
+    remoteIndexStore: S3RemoteIndexStore,
+): S3SyncTransactionRunner =
+    object : S3SyncTransactionRunner {
+        override suspend fun <T> runInTransaction(block: suspend () -> T): T {
+            val metadataSnapshot = metadataDao.snapshot()
+            val protocolSnapshot = protocolStateStore.read()
+            val journalSnapshot = localChangeJournalStore.read().values.toList()
+            val remoteIndexSnapshot =
+                remoteIndexStore.readByRelativePaths(remoteIndexStore.readAllRelativePaths())
+            return try {
+                block()
+            } catch (error: Throwable) {
+                metadataDao.restore(metadataSnapshot)
+                if (protocolStateStore is ConflictFailingWriteProtocolStateStore) {
+                    protocolStateStore.restoreSnapshot(protocolSnapshot)
+                } else {
+                    protocolStateStore.clear()
+                    if (protocolSnapshot != null) {
+                        protocolStateStore.write(protocolSnapshot)
+                    }
+                }
+                localChangeJournalStore.clear()
+                journalSnapshot.forEach { entry ->
+                    localChangeJournalStore.upsert(entry)
+                }
+                remoteIndexStore.clear()
+                remoteIndexStore.upsert(remoteIndexSnapshot)
+                throw error
+            }
+        }
+    }

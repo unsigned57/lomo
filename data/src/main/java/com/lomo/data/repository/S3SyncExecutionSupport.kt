@@ -12,6 +12,8 @@ internal data class PreparedS3Sync(
     val localFiles: Map<String, LocalS3File>,
     val remoteFiles: Map<String, RemoteS3File>,
     val metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
+    val seededMetadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity> = emptyMap(),
+    val preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
     val plan: S3SyncPlan,
     val normalActions: List<S3SyncAction>,
     val conflictSet: SyncConflictSet?,
@@ -23,10 +25,12 @@ internal data class PreparedS3Sync(
     val clearableJournalIds: Set<String> = emptySet(),
     val localModeFingerprint: String? = null,
     val remoteReconcileState: PreparedRemoteReconcile? = null,
+    val observedMissingRemotePaths: Set<String> = emptySet(),
 )
 
 internal data class S3ActionExecutionResult(
     val actionOutcomes: Map<String, Pair<S3SyncDirection, S3SyncReason>>,
+    val syncedContentFingerprints: Map<String, String>,
     val failedPaths: List<String>,
     val unresolvedPaths: Set<String>,
     val localChanged: Boolean,

@@ -26,6 +26,7 @@ internal suspend fun buildS3ConflictSet(
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
     sessionKind: SyncConflictSessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
+    lightweightPreview: Boolean = false,
 ): SyncConflictSet? {
     val concurrencyLimiter = Semaphore(S3_ACTION_CONCURRENCY)
     val conflictFiles =
@@ -33,6 +34,14 @@ internal suspend fun buildS3ConflictSet(
             actions.map { action ->
                 async {
                     concurrencyLimiter.withPermit {
+                        if (lightweightPreview) {
+                            return@withPermit SyncConflictFile(
+                                relativePath = action.path,
+                                localContent = null,
+                                remoteContent = null,
+                                isBinary = !action.path.endsWith(S3_MEMO_SUFFIX),
+                            )
+                        }
                         val localContent =
                             if (isMemoPath(action.path, layout, mode)) {
                                 fileBridgeScope.readLocalText(action.path, layout)

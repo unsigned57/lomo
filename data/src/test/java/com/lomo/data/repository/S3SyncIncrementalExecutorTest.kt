@@ -38,9 +38,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: S3SyncExecutor
- * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, and verify destructive local-delete candidates without scanning the whole bucket.
- * - Observable outcomes: returned S3SyncResult, remote list/head invocation counts, uploaded/deleted remote keys, and local journal drain behavior.
- * - Red phase: Fails before the fix because sync still probes the retired manifest protocol and cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects.
+ * - Behavior focus: manifest-free S3 sync should reuse the local remote index for fast paths, reconcile with a full remote listing only when the cached index is stale, verify destructive local-delete candidates without scanning the whole bucket, and use content fingerprints to resolve tracked memo drift when etags are unreliable.
+ * - Observable outcomes: returned S3SyncResult, remote list/head/get invocation counts, uploaded/deleted remote keys, metadata fingerprint persistence, and local journal drain behavior.
+ * - Red phase: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, and treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
 class S3SyncIncrementalExecutorTest {
@@ -183,6 +183,62 @@ class S3SyncIncrementalExecutorTest {
             assertEquals(0, client.headCalls)
             assertTrue("journal should be drained after successful upload", journalStore.read().isEmpty())
             assertEquals(listOf("lomo/memo/note.md"), metadataDao.paths())
+        }
+
+    @Test
+    fun `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() =
+        runTest {
+            val initialProtocolState =
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 0,
+                    indexedRemoteFileCount = 0,
+                )
+            protocolStateStore.write(initialProtocolState)
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 50L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 50L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns "# note"
+            val metadataDao = ExecutorRecordingMetadataDao()
+            val failingProtocolStateStore =
+                FailingWriteProtocolStateStore(
+                    delegate = protocolStateStore,
+                    failure = IllegalStateException("protocol write failed"),
+                )
+            val executor =
+                createExecutor(
+                    client = ProbeS3Client(),
+                    metadataDao = metadataDao,
+                    protocolStateStore = failingProtocolStateStore,
+                    localChangeJournalStore = journalStore,
+                    transactionRunner =
+                        rollbackableS3SyncTransactionRunner(
+                            metadataDao = metadataDao,
+                            protocolStateStore = failingProtocolStateStore,
+                            localChangeJournalStore = journalStore,
+                            remoteIndexStore = remoteIndexStore,
+                        ),
+                )
+
+            val result = executor.performSync()
+
+            assertTrue(result is S3SyncResult.Error)
+            assertEquals(emptyList<String>(), metadataDao.paths())
+            assertTrue(journalStore.read().containsKey("MEMO:note.md"))
+            assertEquals(emptyList<String>(), remoteIndexStore.readAllRelativePaths())
+            assertEquals(initialProtocolState, failingProtocolStateStore.read())
         }
 
     @Test
@@ -483,6 +539,159 @@ class S3SyncIncrementalExecutorTest {
         }
 
     @Test
+    fun `performSync suppresses tracked memo conflict when local and remote content still match baseline`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns baseline.toString(StandardCharsets.UTF_8)
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
+                    },
+                    onGetObject = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObjectPayload(
+                            key = key,
+                            eTag = "multipart-2",
+                            lastModified = 20L,
+                            metadata = emptyMap(),
+                            bytes = baseline,
+                        )
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                                localFingerprint = baseline.md5Hex(),
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+
+            assertEquals(
+                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
+                result,
+            )
+            assertEquals(listOf(path), client.headKeys)
+            assertEquals(listOf(path), client.getKeys)
+            assertEquals(emptyList<String>(), client.putKeys)
+            assertTrue("journal should be drained after content-equivalent sync", journalStore.read().isEmpty())
+        }
+
+    @Test
+    fun `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            val localBytes = "# local changed".toByteArray(StandardCharsets.UTF_8)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns localBytes.toString(StandardCharsets.UTF_8)
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
+                    },
+                    onGetObject = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObjectPayload(
+                            key = key,
+                            eTag = "multipart-2",
+                            lastModified = 20L,
+                            metadata = emptyMap(),
+                            bytes = baseline,
+                        )
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                                localFingerprint = baseline.md5Hex(),
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+
+            val success = result as S3SyncResult.Success
+            assertEquals("S3 sync completed", success.message)
+            assertEquals(
+                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER),
+                success.outcomes.map { it.direction to it.reason },
+            )
+            assertEquals(listOf(path), client.headKeys)
+            assertTrue("content comparison should fetch the tracked remote memo", client.getKeys.isNotEmpty())
+            assertTrue("content comparison should only fetch the targeted memo", client.getKeys.all { it == path })
+            assertEquals(listOf(path), client.putKeys)
+            assertEquals(localBytes.md5Hex(), metadataDao.getAll().single().localFingerprint)
+            assertTrue("journal should be drained after fingerprint-backed upload", journalStore.read().isEmpty())
+        }
+
+    @Test
     fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
         runTest {
             val path = "lomo/memo/note.md"
@@ -773,7 +982,12 @@ class S3SyncIncrementalExecutorTest {
                 SignalingRemoteIndexStore(
                     delegate = InMemoryS3RemoteIndexStore(),
                     onUpsert = { entries ->
-                        if (entries.any { it.relativePath == "lomo/memo/first.md" } && !firstPageIndexed.isCompleted) {
+                        if (
+                            entries.any { entry ->
+                                entry.relativePath.endsWith("first.md") || entry.remotePath.endsWith("first.md")
+                            } &&
+                            !firstPageIndexed.isCompleted
+                        ) {
                             firstPageIndexed.complete(Unit)
                         }
                     },
@@ -865,7 +1079,10 @@ class S3SyncIncrementalExecutorTest {
     private fun createExecutor(
         client: ProbeS3Client,
         metadataDao: ExecutorRecordingMetadataDao,
+        protocolStateStore: S3SyncProtocolStateStore = this.protocolStateStore,
+        localChangeJournalStore: S3LocalChangeJournalStore = journalStore,
         remoteIndexStore: S3RemoteIndexStore = this.remoteIndexStore,
+        transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
     ): S3SyncExecutor {
         every { clientFactory.create(any()) } returns client
         val runtime =
@@ -879,6 +1096,7 @@ class S3SyncIncrementalExecutorTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
         val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
@@ -889,7 +1107,7 @@ class S3SyncIncrementalExecutorTest {
             fileBridge = fileBridge,
             actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
             protocolStateStore = protocolStateStore,
-            localChangeJournalStore = journalStore,
+            localChangeJournalStore = localChangeJournalStore,
             remoteIndexStore = remoteIndexStore,
         )
     }
@@ -945,12 +1163,14 @@ class S3SyncIncrementalExecutorTest {
         path: String,
         eTag: String,
         lastModified: Long,
+        localFingerprint: String? = null,
     ) = S3SyncMetadataEntity(
         relativePath = path,
         remotePath = path,
         etag = eTag,
         remoteLastModified = lastModified,
         localLastModified = lastModified,
+        localFingerprint = localFingerprint,
         lastSyncedAt = lastModified,
         lastResolvedDirection = S3SyncMetadataEntity.NONE,
         lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
@@ -976,6 +1196,7 @@ private class ExecutorRecordingMetadataDao(
                 etag = entity.etag,
                 remoteLastModified = entity.remoteLastModified,
                 localLastModified = entity.localLastModified,
+                localFingerprint = entity.localFingerprint,
                 lastSyncedAt = entity.lastSyncedAt,
                 lastResolvedDirection = entity.lastResolvedDirection,
                 lastResolvedReason = entity.lastResolvedReason,
@@ -1014,6 +1235,13 @@ private class ExecutorRecordingMetadataDao(
     }
 
     fun paths(): List<String> = entries.keys.toList()
+
+    suspend fun snapshot(): List<S3SyncMetadataEntity> = getAll()
+
+    suspend fun restore(snapshot: List<S3SyncMetadataEntity>) {
+        clearAll()
+        upsertAll(snapshot)
+    }
 }
 
 private class ProbeS3Client(
@@ -1033,7 +1261,9 @@ private class ProbeS3Client(
     private val listCallsValue = AtomicInteger(0)
     private val listPageCallsValue = AtomicInteger(0)
     private val headCallsValue = AtomicInteger(0)
+    private val getObjectCallsValue = AtomicInteger(0)
     val headKeys = mutableListOf<String>()
+    val getKeys = mutableListOf<String>()
     val putKeys = mutableListOf<String>()
     val deletedKeys = mutableListOf<String>()
 
@@ -1045,6 +1275,9 @@ private class ProbeS3Client(
 
     val headCalls: Int
         get() = headCallsValue.get()
+
+    val getObjectCalls: Int
+        get() = getObjectCallsValue.get()
 
     override suspend fun verifyAccess(prefix: String) = Unit
 
@@ -1077,7 +1310,11 @@ private class ProbeS3Client(
             }
     }
 
-    override suspend fun getObject(key: String): S3RemoteObjectPayload = onGetObject(key)
+    override suspend fun getObject(key: String): S3RemoteObjectPayload {
+        getObjectCallsValue.incrementAndGet()
+        getKeys += key
+        return onGetObject(key)
+    }
 
     override suspend fun putObject(
         key: String,
@@ -1106,3 +1343,62 @@ private class SignalingRemoteIndexStore(
         onUpsert(entries)
     }
 }
+
+private class FailingWriteProtocolStateStore(
+    private val delegate: S3SyncProtocolStateStore,
+    private val failure: Throwable,
+) : S3SyncProtocolStateStore by delegate {
+    private var failWrites: Boolean = true
+
+    override suspend fun write(state: S3SyncProtocolState) {
+        if (failWrites) {
+            throw failure
+        }
+        delegate.write(state)
+    }
+
+    suspend fun restoreSnapshot(state: S3SyncProtocolState?) {
+        failWrites = false
+        delegate.clear()
+        if (state != null) {
+            delegate.write(state)
+        }
+        failWrites = true
+    }
+}
+
+private fun rollbackableS3SyncTransactionRunner(
+    metadataDao: ExecutorRecordingMetadataDao,
+    protocolStateStore: S3SyncProtocolStateStore,
+    localChangeJournalStore: S3LocalChangeJournalStore,
+    remoteIndexStore: S3RemoteIndexStore,
+): S3SyncTransactionRunner =
+    object : S3SyncTransactionRunner {
+        override suspend fun <T> runInTransaction(block: suspend () -> T): T {
+            val metadataSnapshot = metadataDao.snapshot()
+            val protocolSnapshot = protocolStateStore.read()
+            val journalSnapshot = localChangeJournalStore.read().values.toList()
+            val remoteIndexSnapshot =
+                remoteIndexStore.readByRelativePaths(remoteIndexStore.readAllRelativePaths())
+            return try {
+                block()
+            } catch (error: Throwable) {
+                metadataDao.restore(metadataSnapshot)
+                if (protocolStateStore is FailingWriteProtocolStateStore) {
+                    protocolStateStore.restoreSnapshot(protocolSnapshot)
+                } else {
+                    protocolStateStore.clear()
+                    if (protocolSnapshot != null) {
+                        protocolStateStore.write(protocolSnapshot)
+                    }
+                }
+                localChangeJournalStore.clear()
+                journalSnapshot.forEach { entry ->
+                    localChangeJournalStore.upsert(entry)
+                }
+                remoteIndexStore.clear()
+                remoteIndexStore.upsert(remoteIndexSnapshot)
+                throw error
+            }
+        }
+    }

@@ -105,6 +105,118 @@ class S3PreparedActionVerificationGateTest {
             assertTrue(verified.verifiedMissingRemotePaths.isEmpty())
             assertEquals(listOf(path), client.headKeys)
         }
+
+    @Test
+    fun `verify does not delete local file on first observed remote miss outside reconcile evidence`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = path,
+                    etag = "etag-stable",
+                    remoteLastModified = 10L,
+                    localLastModified = 10L,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout = com.lomo.data.sync.SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false),
+                    localFiles = mapOf(path to LocalS3File(path = path, lastModified = 10L)),
+                    remoteFiles = emptyMap(),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
+                    conflictSet = null,
+                    completeSnapshot = false,
+                    protocolState = S3SyncProtocolState(scanEpoch = 11L),
+                    remoteFileCountHint = 0,
+                )
+            val verifier =
+                S3PreparedActionVerificationGate(
+                    planner = planner,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = InMemoryS3RemoteIndexStore(),
+                )
+            val client = VerificationProbeS3Client(onHead = { null })
+
+            val verified = verifier.verify(prepared = prepared, client = client, config = config)
+
+            assertEquals(emptyList<S3SyncAction>(), verified.prepared.plan.actions)
+            assertTrue(verified.verifiedMissingRemotePaths.isEmpty())
+            assertEquals(setOf(path), verified.prepared.observedMissingRemotePaths)
+            assertEquals(listOf(path), client.headKeys)
+        }
+
+    @Test
+    fun `verify preserves delete local after repeated verified missing evidence`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val metadata =
+                S3SyncMetadataEntity(
+                    relativePath = path,
+                    remotePath = path,
+                    etag = "etag-stable",
+                    remoteLastModified = 10L,
+                    localLastModified = 10L,
+                    lastSyncedAt = 10L,
+                    lastResolvedDirection = S3SyncMetadataEntity.NONE,
+                    lastResolvedReason = S3SyncMetadataEntity.UNCHANGED,
+                )
+            val prepared =
+                PreparedS3Sync(
+                    layout = com.lomo.data.sync.SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false),
+                    localFiles = mapOf(path to LocalS3File(path = path, lastModified = 10L)),
+                    remoteFiles = emptyMap(),
+                    metadataByPath = mapOf(path to metadata),
+                    plan =
+                        S3SyncPlan(
+                            actions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
+                            pendingChanges = 1,
+                        ),
+                    normalActions = listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
+                    conflictSet = null,
+                    completeSnapshot = false,
+                    protocolState = S3SyncProtocolState(scanEpoch = 12L),
+                    remoteFileCountHint = 0,
+                )
+            val remoteIndexStore =
+                InMemoryS3RemoteIndexStore().apply {
+                    upsert(
+                        listOf(
+                            missingRemoteIndexEntry(
+                                relativePath = path,
+                                remotePath = path,
+                                now = 100L,
+                                scanEpoch = 12L,
+                            ),
+                        ),
+                    )
+                }
+            val verifier =
+                S3PreparedActionVerificationGate(
+                    planner = planner,
+                    encodingSupport = encodingSupport,
+                    remoteIndexStore = remoteIndexStore,
+                )
+            val client = VerificationProbeS3Client(onHead = { null })
+
+            val verified = verifier.verify(prepared = prepared, client = client, config = config)
+
+            assertEquals(
+                listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
+                verified.prepared.plan.actions,
+            )
+            assertEquals(setOf(path), verified.verifiedMissingRemotePaths)
+            assertEquals(setOf(path), verified.prepared.observedMissingRemotePaths)
+            assertEquals(listOf(path), client.headKeys)
+        }
 }
 
 private class VerificationProbeS3Client(

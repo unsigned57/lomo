@@ -8,6 +8,8 @@ import com.lomo.data.s3.S3CredentialStore
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.domain.model.S3EncryptionMode
+import com.lomo.domain.model.S3SyncErrorCode
+import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3PathStyle
 import io.mockk.MockKAnnotations
 import io.mockk.every
@@ -96,5 +98,35 @@ class S3SyncRepositorySupportTest {
             assertEquals("ok", result)
             verify(exactly = 1) { clientFactory.create(config) }
             verify(exactly = 1) { client.close() }
+        }
+
+    @Test
+    fun `withClient rejects insecure http endpoint by default`() =
+        runTest {
+            val config =
+                S3ResolvedConfig(
+                    endpointUrl = "http://s3.example.com",
+                    region = "us-east-1",
+                    bucket = "bucket",
+                    prefix = "vault",
+                    accessKeyId = "access",
+                    secretAccessKey = "secret",
+                    sessionToken = null,
+                    pathStyle = S3PathStyle.AUTO,
+                    encryptionMode = S3EncryptionMode.NONE,
+                    encryptionPassword = null,
+                )
+
+            val failure =
+                runCatching { support.withClient(config) { "unexpected" } }.exceptionOrNull()
+                    as? S3SyncFailureException
+
+            requireNotNull(failure)
+            assertEquals(S3SyncErrorCode.CONNECTION_FAILED, failure.code)
+            assertEquals(
+                "S3 endpoint must use HTTPS unless insecure HTTP is explicitly allowed",
+                failure.message,
+            )
+            verify(exactly = 0) { clientFactory.create(any()) }
         }
 }

@@ -1,5 +1,6 @@
 package com.lomo.data.worker
 
+import com.lomo.data.repository.S3EndpointProfile
 import com.lomo.data.repository.S3RemoteShardState
 import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.domain.model.S3SyncScanPolicy
@@ -28,6 +29,72 @@ class S3SyncSchedulerPolicyTest {
             )
 
         assertEquals(S3SyncScanPolicy.FULL_RECONCILE, policy)
+    }
+
+    @Test
+    fun `effective reconcile interval uses endpoint profile floor`() {
+        assertEquals(
+            Duration.ofHours(4),
+            effectiveS3ReconcileInterval(
+                requestedInterval = Duration.ofHours(1),
+                endpointProfile = com.lomo.data.repository.S3EndpointProfile.AWS_S3,
+            ),
+        )
+        assertEquals(
+            Duration.ofHours(12),
+            effectiveS3ReconcileInterval(
+                requestedInterval = Duration.ofHours(6),
+                endpointProfile = com.lomo.data.repository.S3EndpointProfile.MINIO_COMPAT,
+            ),
+        )
+    }
+
+    @Test
+    fun `catch-up policy treats moderate change pressure differently by endpoint profile`() {
+        val shardState =
+            S3RemoteShardState(
+                bucketId = "memo",
+                relativePrefix = "lomo/memo",
+                lastScannedAt = Duration.ofHours(23).toMillis(),
+                lastObjectCount = 10,
+                lastDurationMs = 50L,
+                lastChangeCount = 4,
+                idleScanStreak = 0,
+                lastVerificationAttemptCount = 2,
+                lastVerificationFailureCount = 0,
+            )
+
+        val awsPolicy =
+            resolveCatchUpPolicy(
+                protocolState =
+                    S3SyncProtocolState(
+                        lastSuccessfulSyncAt = 10L,
+                        lastReconcileAt = 1L,
+                        lastFullRemoteScanAt = Duration.ofHours(23).toMillis(),
+                    ),
+                reconcileInterval = Duration.ofHours(6),
+                now = Duration.ofHours(24).toMillis(),
+                incrementalEnabled = true,
+                shardStates = listOf(shardState),
+                endpointProfile = S3EndpointProfile.AWS_S3,
+            )
+        val minioPolicy =
+            resolveCatchUpPolicy(
+                protocolState =
+                    S3SyncProtocolState(
+                        lastSuccessfulSyncAt = 10L,
+                        lastReconcileAt = 1L,
+                        lastFullRemoteScanAt = Duration.ofHours(23).toMillis(),
+                    ),
+                reconcileInterval = Duration.ofHours(6),
+                now = Duration.ofHours(24).toMillis(),
+                incrementalEnabled = true,
+                shardStates = listOf(shardState),
+                endpointProfile = S3EndpointProfile.MINIO_COMPAT,
+            )
+
+        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, awsPolicy)
+        assertNull(minioPolicy)
     }
 
     @Test

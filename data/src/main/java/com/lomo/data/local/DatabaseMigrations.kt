@@ -29,6 +29,7 @@ const val SCHEMA_VERSION_41 = 41
 const val SCHEMA_VERSION_42 = 42
 const val SCHEMA_VERSION_43 = 43
 const val SCHEMA_VERSION_44 = 44
+const val SCHEMA_VERSION_45 = 45
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -261,6 +262,13 @@ val MIGRATION_43_44: Migration =
         }
     }
 
+val MIGRATION_44_45: Migration =
+    object : Migration(SCHEMA_VERSION_44, SCHEMA_VERSION_45) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addS3SyncMetadataPersistenceColumns(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -310,6 +318,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_41_42,
             MIGRATION_42_43,
             MIGRATION_43_44,
+            MIGRATION_44_45,
         )
 
 /**
@@ -336,6 +345,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase P: Apply v41→v42 changes (S3 remote shard reconcile state).
  * Phase Q: Apply v42→v43 changes (richer shard scheduling telemetry).
  * Phase R: Apply v43→v44 changes (pending sync conflict persistence).
+ * Phase S: Apply v44→v45 changes (persisted S3 metadata sizes and fingerprints).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -425,6 +435,69 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase R: v43 → v44 (pending sync conflict persistence) ──────────
     createPendingSyncConflictTable(db)
+
+    // ── Phase S: v44 → v45 (persisted S3 metadata sizes and fingerprints) ──
+    normalizeS3SyncMetadataTable(db)
+}
+
+private fun normalizeS3SyncMetadataTable(db: SupportSQLiteDatabase) {
+    if (!db.tableExists(S3_SYNC_METADATA_TABLE)) {
+        createS3SyncMetadataTable(db)
+        return
+    }
+
+    val columns = db.tableColumns(S3_SYNC_METADATA_TABLE)
+    if (hasNormalizedS3SyncMetadataColumns(columns)) {
+        return
+    }
+
+    val legacyTable = "${S3_SYNC_METADATA_TABLE}_legacy_v45"
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
+    db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` RENAME TO `$legacyTable`")
+    createS3SyncMetadataTable(db)
+    val legacyColumns = db.tableColumns(legacyTable)
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO `$S3_SYNC_METADATA_TABLE` (
+            `relative_path`,
+            `remote_path`,
+            `etag`,
+            `remote_last_modified`,
+            `local_last_modified`,
+            `local_size`,
+            `remote_size`,
+            `local_fingerprint`,
+            `last_synced_at`,
+            `last_resolved_direction`,
+            `last_resolved_reason`
+        )
+        SELECT
+            ${pickTextExpr(legacyColumns, "relative_path", "relativePath")},
+            ${pickTextExpr(legacyColumns, "remote_path", "remotePath")},
+            ${pickNullableTextExpr(legacyColumns, "etag")},
+            ${pickNullableIntExpr(legacyColumns, "remote_last_modified", "remoteLastModified")},
+            ${pickNullableIntExpr(legacyColumns, "local_last_modified", "localLastModified")},
+            ${pickNullableIntExpr(legacyColumns, "local_size", "localSize")},
+            ${pickNullableIntExpr(legacyColumns, "remote_size", "remoteSize")},
+            ${pickNullableTextExpr(legacyColumns, "local_fingerprint", "localFingerprint")},
+            ${pickIntExpr(legacyColumns, "last_synced_at", "lastSyncedAt")},
+            ${pickTextExpr(legacyColumns, "last_resolved_direction", "lastResolvedDirection")},
+            ${pickTextExpr(legacyColumns, "last_resolved_reason", "lastResolvedReason")}
+        FROM `$legacyTable`
+        """.trimIndent(),
+    )
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
+}
+
+private fun hasNormalizedS3SyncMetadataColumns(columns: Set<String>): Boolean =
+    "local_size" in columns &&
+        "remote_size" in columns &&
+        "local_fingerprint" in columns
+
+private fun addS3SyncMetadataPersistenceColumns(db: SupportSQLiteDatabase) {
+    db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_size` INTEGER")
+    db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `remote_size` INTEGER")
+    db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_fingerprint` TEXT")
 }
 
 private fun normalizeS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {

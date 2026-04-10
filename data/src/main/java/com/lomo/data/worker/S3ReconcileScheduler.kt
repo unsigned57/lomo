@@ -1,14 +1,12 @@
 package com.lomo.data.worker
 
+import com.lomo.data.repository.S3EndpointProfile
 import com.lomo.data.repository.S3RemoteShardScheduleTelemetry
 import com.lomo.data.repository.S3RemoteShardStateStore
-import com.lomo.data.repository.S3_CHANGE_PRESSURE_THRESHOLD
-import com.lomo.data.repository.S3_MIN_UNCERTAINTY_ATTEMPTS
-import com.lomo.data.repository.S3_MIN_UNCERTAINTY_FAILURES
 import com.lomo.data.repository.S3_RECENT_CHANGE_WINDOW_DIVISOR
-import com.lomo.data.repository.S3_VERIFICATION_FAILURE_THRESHOLD
 import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.data.repository.S3SyncProtocolStateStore
+import com.lomo.data.repository.S3SyncRepositorySupport
 import com.lomo.domain.model.S3SyncScanPolicy
 import java.time.Duration
 import javax.inject.Inject
@@ -18,14 +16,24 @@ import javax.inject.Singleton
 class S3ReconcileScheduler
     @Inject
     constructor(
+        private val support: S3SyncRepositorySupport,
         private val protocolStateStore: S3SyncProtocolStateStore,
         private val remoteShardStateStore: S3RemoteShardStateStore,
     ) {
         suspend fun buildSchedulePlan(interval: String): S3SyncSchedulePlan {
             val fastInterval = parseS3AutoSyncInterval(interval)
-            val reconcileInterval = fastInterval.coerceAtLeast(MIN_S3_RECONCILE_INTERVAL)
+            val endpointProfile = resolveEndpointProfile()
+            val reconcileInterval =
+                effectiveS3ReconcileInterval(
+                    requestedInterval = fastInterval,
+                    endpointProfile = endpointProfile,
+                )
             val protocolState = protocolStateStore.readIfIncrementalEnabled()
-            val telemetry = remoteShardStateStore.readScheduleTelemetryIfEnabled(reconcileInterval)
+            val telemetry =
+                remoteShardStateStore.readScheduleTelemetryIfEnabled(
+                    reconcileInterval = reconcileInterval,
+                    endpointProfile = endpointProfile,
+                )
             return S3SyncSchedulePlan(
                 fastInterval = fastInterval,
                 reconcileInterval = reconcileInterval,
@@ -35,6 +43,7 @@ class S3ReconcileScheduler
                         reconcileInterval = reconcileInterval,
                         incrementalEnabled = protocolStateStore.incrementalSyncEnabled,
                         telemetry = telemetry,
+                        endpointProfile = endpointProfile,
                     ),
             )
         }
@@ -42,16 +51,36 @@ class S3ReconcileScheduler
         suspend fun buildRefreshPlan(
             reconcileInterval: Duration,
         ): S3RefreshSyncPlan {
+            val endpointProfile = resolveEndpointProfile()
+            val effectiveReconcileInterval =
+                effectiveS3ReconcileInterval(
+                    requestedInterval = reconcileInterval,
+                    endpointProfile = endpointProfile,
+                )
             val protocolState = protocolStateStore.readIfIncrementalEnabled()
-            val telemetry = remoteShardStateStore.readScheduleTelemetryIfEnabled(reconcileInterval)
+            val telemetry =
+                remoteShardStateStore.readScheduleTelemetryIfEnabled(
+                    reconcileInterval = effectiveReconcileInterval,
+                    endpointProfile = endpointProfile,
+                )
             return buildS3RefreshSyncPlan(
                 protocolState = protocolState,
-                reconcileInterval = reconcileInterval,
+                reconcileInterval = effectiveReconcileInterval,
                 incrementalEnabled = protocolStateStore.incrementalSyncEnabled,
                 telemetry = telemetry,
+                endpointProfile = endpointProfile,
             )
         }
+
+        private suspend fun resolveEndpointProfile(): S3EndpointProfile =
+            support.resolveConfig()?.endpointProfile ?: S3EndpointProfile.GENERIC_S3
     }
+
+internal fun effectiveS3ReconcileInterval(
+    requestedInterval: Duration,
+    endpointProfile: S3EndpointProfile,
+): Duration =
+    requestedInterval.coerceAtLeast(Duration.ofMillis(endpointProfile.scheduledReconcileIntervalFloorMs))
 
 private suspend fun S3SyncProtocolStateStore.readIfIncrementalEnabled(): S3SyncProtocolState? =
     if (incrementalSyncEnabled) {
@@ -62,10 +91,15 @@ private suspend fun S3SyncProtocolStateStore.readIfIncrementalEnabled(): S3SyncP
 
 private suspend fun S3RemoteShardStateStore.readScheduleTelemetryIfEnabled(
     reconcileInterval: Duration,
+    endpointProfile: S3EndpointProfile,
     now: Long = System.currentTimeMillis(),
 ): S3RemoteShardScheduleTelemetry? =
     if (remoteShardStateEnabled) {
-        readScheduleTelemetry(now = now, reconcileInterval = reconcileInterval)
+        readScheduleTelemetry(
+            now = now,
+            reconcileInterval = reconcileInterval,
+            endpointProfile = endpointProfile,
+        )
     } else {
         null
     }
@@ -77,11 +111,13 @@ internal fun resolveCatchUpPolicy(
     incrementalEnabled: Boolean,
     telemetry: S3RemoteShardScheduleTelemetry? = null,
     shardStates: List<com.lomo.data.repository.S3RemoteShardState>? = null,
+    endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
 ): S3SyncScanPolicy? {
     if (!incrementalEnabled) {
         return null
     }
-    val effectiveTelemetry = telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval)
+    val effectiveTelemetry =
+        telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval, endpointProfile)
     return when {
         protocolState?.lastFullRemoteScanAt == null -> S3SyncScanPolicy.FULL_RECONCILE
         telemetry != null && telemetry.shardCount == 0 -> S3SyncScanPolicy.FULL_RECONCILE
@@ -105,6 +141,7 @@ internal fun buildS3RefreshSyncPlan(
     incrementalEnabled: Boolean,
     telemetry: S3RemoteShardScheduleTelemetry? = null,
     shardStates: List<com.lomo.data.repository.S3RemoteShardState>? = null,
+    endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
 ): S3RefreshSyncPlan {
     if (!incrementalEnabled) {
         return S3RefreshSyncPlan(
@@ -112,7 +149,8 @@ internal fun buildS3RefreshSyncPlan(
             catchUpPolicy = null,
         )
     }
-    val effectiveTelemetry = telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval)
+    val effectiveTelemetry =
+        telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval, endpointProfile)
     return when {
         protocolState?.lastFullRemoteScanAt == null ->
             S3RefreshSyncPlan(
@@ -163,6 +201,7 @@ internal fun buildS3RefreshSyncPlan(
 internal fun List<com.lomo.data.repository.S3RemoteShardState>.toScheduleTelemetry(
     now: Long,
     reconcileInterval: Duration,
+    endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
 ): S3RemoteShardScheduleTelemetry =
     S3RemoteShardScheduleTelemetry(
         shardCount = size,
@@ -171,14 +210,14 @@ internal fun List<com.lomo.data.repository.S3RemoteShardState>.toScheduleTelemet
             any { state ->
                 state.idleScanStreak == 0 &&
                     state.scanAgeMillis(now) <= reconcileInterval.toMillis() / S3_RECENT_CHANGE_WINDOW_DIVISOR &&
-                    state.changeRate() >= S3_CHANGE_PRESSURE_THRESHOLD
+                    state.changeRate() >= endpointProfile.changePressureThreshold
             },
         hasHighVerificationUncertainty =
             any { state ->
                 state.scanAgeMillis(now) <= reconcileInterval.toMillis() &&
-                    state.lastVerificationAttemptCount >= S3_MIN_UNCERTAINTY_ATTEMPTS &&
-                    state.lastVerificationFailureCount >= S3_MIN_UNCERTAINTY_FAILURES &&
-                    state.verificationFailureRate() >= S3_VERIFICATION_FAILURE_THRESHOLD
+                    state.lastVerificationAttemptCount >= endpointProfile.minUncertaintyAttempts &&
+                    state.lastVerificationFailureCount >= endpointProfile.minUncertaintyFailures &&
+                    state.verificationFailureRate() >= endpointProfile.verificationFailureThreshold
             },
     )
 
@@ -197,7 +236,6 @@ private fun com.lomo.data.repository.S3RemoteShardState.verificationFailureRate(
     lastVerificationFailureCount.toDouble() / lastVerificationAttemptCount.coerceAtLeast(1).toDouble()
 
 internal val DEFAULT_S3_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(S3_AUTO_SYNC_HOURS_1)
-internal val MIN_S3_RECONCILE_INTERVAL: Duration = Duration.ofHours(S3_AUTO_SYNC_HOURS_6)
 internal const val FULL_RECONCILE_STALE_MULTIPLIER = 2L
 private const val S3_AUTO_SYNC_MINUTES_30 = 30L
 private const val S3_AUTO_SYNC_HOURS_1 = 1L

@@ -15,7 +15,14 @@ class S3SyncActionApplier
         private val runtime: S3SyncRepositoryContext,
         private val encodingSupport: S3SyncEncodingSupport,
         fileBridge: S3SyncFileBridge,
+        private val transferWorkspace: S3SyncTransferWorkspace,
     ) {
+        internal constructor(
+            runtime: S3SyncRepositoryContext,
+            encodingSupport: S3SyncEncodingSupport,
+            fileBridge: S3SyncFileBridge,
+        ) : this(runtime, encodingSupport, fileBridge, S3SyncTransferWorkspace.systemTemp())
+
         internal suspend fun applyAction(
             action: S3SyncAction,
             client: com.lomo.data.s3.LomoS3Client,
@@ -99,7 +106,6 @@ class S3SyncActionApplier
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Uploading
-            val bytes = loadUploadBytes(action, layout, fileBridgeScope) ?: return S3ActionExecutionState.Skipped
             val uploadTarget =
                 verifyUploadTarget(
                     action = action,
@@ -109,35 +115,35 @@ class S3SyncActionApplier
                     metadataByPath = metadataByPath,
                     verifiedMissingRemotePaths = verifiedMissingRemotePaths,
                 ) ?: return S3ActionExecutionState.Skipped
-            val uploaded = client.putObject(
-                key = uploadTarget.remotePath,
-                bytes = encodingSupport.encodeContent(bytes, config),
-                contentType = contentTypeForPath(action.path, layout, runtime, mode),
-                metadata = encodingSupport.objectMetadata(localFiles[action.path]?.lastModified),
-            )
-            return S3ActionExecutionState.Applied(
-                localChanged = false,
-                remoteChanged = true,
-                updatedRemoteFile =
-                    RemoteS3File(
-                        path = action.path,
-                        etag = uploaded.eTag,
-                        lastModified = localFiles[action.path]?.lastModified,
-                        remotePath = uploadTarget.remotePath,
-                    ),
-            )
-        }
-
-        private suspend fun loadUploadBytes(
-            action: S3SyncAction,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            fileBridgeScope: S3SyncFileBridgeScope,
-        ): ByteArray? {
-            val bytes = fileBridgeScope.readLocalBytes(action.path, layout)
-            if (bytes == null) {
-                Timber.w("Local file missing during upload: %s, skipping", action.path)
+            return transferWorkspace.withSession { session ->
+                val source =
+                    fileBridgeScope.exportLocalFile(action.path, layout, session)
+                        ?: run {
+                            Timber.w("Local file missing during upload: %s, skipping", action.path)
+                            return@withSession S3ActionExecutionState.Skipped
+                        }
+                val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
+                val uploaded =
+                    client.putObjectFile(
+                        key = uploadTarget.remotePath,
+                        file = uploadFile.file,
+                        contentType = contentTypeForPath(action.path, layout, runtime, mode),
+                        metadata = encodingSupport.objectMetadata(localFiles[action.path]?.lastModified),
+                    )
+                S3ActionExecutionState.Applied(
+                    localChanged = false,
+                    remoteChanged = true,
+                    syncedContentFingerprint = memoContentFingerprint(action.path, layout, mode, source.file),
+                    updatedRemoteFile =
+                        RemoteS3File(
+                            path = action.path,
+                            etag = uploaded.eTag,
+                            lastModified = localFiles[action.path]?.lastModified,
+                            size = localFiles[action.path]?.size ?: source.file.length(),
+                            remotePath = uploadTarget.remotePath,
+                        ),
+                )
             }
-            return bytes
         }
 
         private suspend fun downloadAction(
@@ -152,16 +158,20 @@ class S3SyncActionApplier
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Downloading
             val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
-            val remoteFile = client.getObject(remotePath)
-            val bytes = encodingSupport.decodeContent(remoteFile.bytes, config)
-            fileBridgeScope.writeLocalBytes(action.path, bytes, layout)
-            val updatedLocalFile = fileBridgeScope.localFile(action.path, layout)
-            return S3ActionExecutionState.Applied(
-                localChanged = true,
-                remoteChanged = false,
-                updatedLocalFile = updatedLocalFile,
-                memoRefreshPlan = buildMemoRefreshPlan(action.path, layout, mode),
-            )
+            return transferWorkspace.withSession { session ->
+                val downloadedFile = session.createTempFile("s3-download-", action.path.transferSuffix())
+                client.getObjectToFile(remotePath, downloadedFile)
+                val decoded = encodingSupport.decodeDownloadedFile(downloadedFile, config, session)
+                fileBridgeScope.importLocalFile(action.path, decoded.file, layout)
+                val updatedLocalFile = fileBridgeScope.localFile(action.path, layout)
+                S3ActionExecutionState.Applied(
+                    localChanged = true,
+                    remoteChanged = false,
+                    syncedContentFingerprint = memoContentFingerprint(action.path, layout, mode, decoded.file),
+                    updatedLocalFile = updatedLocalFile,
+                    memoRefreshPlan = buildMemoRefreshPlan(action.path, layout, mode),
+                )
+            }
         }
 
         private suspend fun deleteLocalAction(
@@ -311,6 +321,18 @@ class S3SyncActionApplier
         ): S3MemoRefreshPlan =
             resolveMemoRefreshTarget(path, layout, mode)?.let(S3MemoRefreshPlan::Targets)
                 ?: S3MemoRefreshPlan.None
+
+        private fun memoContentFingerprint(
+            path: String,
+            layout: com.lomo.data.sync.SyncDirectoryLayout,
+            mode: S3LocalSyncMode,
+            file: java.io.File,
+        ): String? =
+            if (isMemoPath(path, layout, mode)) {
+                file.md5Hex()
+            } else {
+                null
+            }
     }
 
 internal sealed interface S3ActionExecutionState {
@@ -319,6 +341,7 @@ internal sealed interface S3ActionExecutionState {
     data class Applied(
         val localChanged: Boolean,
         val remoteChanged: Boolean,
+        val syncedContentFingerprint: String? = null,
         val updatedLocalFile: LocalS3File? = null,
         val deletedLocalPath: String? = null,
         val updatedRemoteFile: RemoteS3File? = null,
@@ -417,3 +440,6 @@ private suspend fun verifyUploadTargetAgainstRemote(
         else -> null
     }
 }
+
+private fun String.transferSuffix(): String =
+    substringAfterLast('.', "").takeIf(String::isNotBlank)?.let { ".$it" } ?: ".tmp"

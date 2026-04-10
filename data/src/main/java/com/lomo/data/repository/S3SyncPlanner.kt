@@ -10,12 +10,14 @@ import kotlin.math.abs
 data class LocalS3File(
     val path: String,
     val lastModified: Long,
+    val size: Long? = null,
 )
 
 data class RemoteS3File(
     val path: String,
     val etag: String?,
     val lastModified: Long?,
+    val size: Long? = null,
     val remotePath: String = path,
     val verificationLevel: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
 )
@@ -38,12 +40,14 @@ data class S3SyncPlan(
 )
 
 class S3SyncPlanner(
-    private val timestampToleranceMs: Long = 1000L,
+    internal val timestampToleranceMs: Long = 1000L,
 ) {
     fun plan(
         localFiles: Map<String, LocalS3File>,
         remoteFiles: Map<String, RemoteS3File>,
         metadata: Map<String, S3SyncMetadataEntity>,
+        preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
+        suppressedPaths: Set<String> = emptySet(),
         missingRemoteVerificationByPath: Map<String, S3RemoteVerificationLevel> = emptyMap(),
         defaultMissingRemoteVerification: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     ): S3SyncPlan {
@@ -52,6 +56,13 @@ class S3SyncPlanner(
                 (localFiles.keys + remoteFiles.keys + metadata.keys)
                     .sorted()
                     .forEach { path ->
+                        if (path in suppressedPaths) {
+                            return@forEach
+                        }
+                        preResolvedActionsByPath[path]?.let {
+                            add(it)
+                            return@forEach
+                        }
                         createAction(
                             path = path,
                             local = localFiles[path],
@@ -74,6 +85,8 @@ class S3SyncPlanner(
         localFiles: Map<String, LocalS3File>,
         remoteFiles: Map<String, RemoteS3File>,
         metadata: Map<String, S3SyncMetadataEntity>,
+        preResolvedActionsByPath: Map<String, S3SyncAction> = emptyMap(),
+        suppressedPaths: Set<String> = emptySet(),
         missingRemoteVerificationByPath: Map<String, S3RemoteVerificationLevel> = emptyMap(),
         defaultMissingRemoteVerification: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     ): S3SyncPlan {
@@ -83,6 +96,10 @@ class S3SyncPlanner(
                 .distinct()
                 .sorted()
                 .mapNotNull { path ->
+                    if (path in suppressedPaths) {
+                        return@mapNotNull null
+                    }
+                    preResolvedActionsByPath[path]?.let { return@mapNotNull it }
                     createAction(
                         path = path,
                         local = localFiles[path],

@@ -10,6 +10,7 @@ internal fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(
         path = relativePath,
         etag = eTag,
         lastModified = encodingSupport.resolveRemoteLastModified(metadata, lastModified),
+        size = size,
         remotePath = key,
         verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     )
@@ -40,6 +41,7 @@ internal fun S3RemoteIndexEntry.toVerifiedRemoteFile(): RemoteS3File =
         path = relativePath,
         etag = etag,
         lastModified = remoteLastModified,
+        size = size,
         remotePath = remotePath,
         verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     )
@@ -49,6 +51,7 @@ internal fun S3RemoteIndexEntry.toCachedRemoteFile(): RemoteS3File =
         path = relativePath,
         etag = etag,
         lastModified = remoteLastModified,
+        size = size,
         remotePath = remotePath,
         verificationLevel = S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
     )
@@ -63,7 +66,7 @@ internal fun RemoteS3File.toRemoteIndexEntry(
         remotePath = remotePath,
         etag = etag,
         remoteLastModified = lastModified,
-        size = null,
+        size = size,
         lastSeenAt = now,
         lastVerifiedAt = now,
         scanBucket = scanBucketFor(path),

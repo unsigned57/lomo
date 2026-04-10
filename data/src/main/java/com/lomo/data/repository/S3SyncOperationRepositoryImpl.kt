@@ -23,7 +23,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
-import java.time.Duration
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -120,10 +119,7 @@ internal class DefaultS3RefreshSyncPlanner
         override suspend fun planRefreshSync(): S3RefreshSyncPlan {
             val interval = runtime.dataStore.s3AutoSyncInterval.first()
             return reconcileScheduler.buildRefreshPlan(
-                reconcileInterval =
-                    parseS3AutoSyncInterval(interval).coerceAtLeast(
-                        MIN_S3_REFRESH_RECONCILE_INTERVAL,
-                    ),
+                reconcileInterval = parseS3AutoSyncInterval(interval),
             )
         }
     }
@@ -150,11 +146,6 @@ private fun S3SyncProtocolState.toRemoteIndexState(): S3RemoteIndexState =
         localModeFingerprint = localModeFingerprint,
     )
 
-private val MIN_S3_REFRESH_RECONCILE_INTERVAL: Duration =
-    Duration.ofHours(S3_MIN_REFRESH_RECONCILE_HOURS)
-
-private const val S3_MIN_REFRESH_RECONCILE_HOURS = 6L
-
 @Singleton
 class S3SyncStatusTester
     @Inject
@@ -178,6 +169,7 @@ class S3SyncStatusTester
                     layout = layout,
                     mode = mode,
                     fileBridgeScope = fileBridgeScope,
+                    config = config,
                 )?.let { status ->
                     return@withClient status
                 }
@@ -209,6 +201,7 @@ class S3SyncStatusTester
             layout: SyncDirectoryLayout,
             mode: S3LocalSyncMode,
             fileBridgeScope: S3SyncFileBridgeScope,
+            config: S3ResolvedConfig,
         ): S3SyncStatus? {
             val protocolState =
                 protocolStateStore.read()
@@ -229,7 +222,7 @@ class S3SyncStatusTester
                 )
             val journalEntries = effectiveLocalChanges.journalEntries
             val localAuditExpired = shouldPerformFullLocalAudit(mode, protocolState)
-            if (!protocolState.hasFreshRemoteIndex() || localAuditExpired) {
+            if (!protocolState.hasFreshRemoteIndex(config) || localAuditExpired) {
                 return null
             }
             if (journalEntries.isEmpty()) {

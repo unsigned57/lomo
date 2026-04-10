@@ -62,10 +62,17 @@ class S3SyncExecutorPerformancePolicyTest {
     private lateinit var memoSynchronizer: MemoSynchronizer
 
     private lateinit var executor: S3SyncExecutor
+    private lateinit var memoRootDirectory: java.io.File
+    private lateinit var imageRootDirectory: java.io.File
+    private lateinit var voiceRootDirectory: java.io.File
 
     @Before
     fun setUp() {
         MockKAnnotations.init(this)
+        val writableRoot = Files.createTempDirectory("s3-sync-performance").toFile()
+        memoRootDirectory = writableRoot.resolve("memo").also { it.mkdirs() }
+        imageRootDirectory = writableRoot.resolve("images").also { it.mkdirs() }
+        voiceRootDirectory = writableRoot.resolve("voice").also { it.mkdirs() }
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
         every { dataStore.s3EndpointUrl } returns flowOf("https://s3.example.com")
@@ -80,11 +87,12 @@ class S3SyncExecutorPerformancePolicyTest {
         every { dataStore.s3RcloneDataEncryptionEnabled } returns flowOf(true)
         every { dataStore.s3RcloneEncryptedSuffix } returns flowOf(".bin")
         every { dataStore.s3LocalSyncDirectory } returns flowOf(null)
-        every { dataStore.rootDirectory } returns flowOf("/memo")
-        every { dataStore.rootUri } returns flowOf(null)
-        every { dataStore.imageDirectory } returns flowOf("/images")
+        every { dataStore.rootDirectory } returns flowOf(memoRootDirectory.absolutePath)
+        // Keep legacy mode for this suite while using writable direct media roots.
+        every { dataStore.rootUri } returns flowOf("content://com.lomo.test/sync-root")
+        every { dataStore.imageDirectory } returns flowOf(imageRootDirectory.absolutePath)
         every { dataStore.imageUri } returns flowOf(null)
-        every { dataStore.voiceDirectory } returns flowOf("/voice")
+        every { dataStore.voiceDirectory } returns flowOf(voiceRootDirectory.absolutePath)
         every { dataStore.voiceUri } returns flowOf(null)
         every { credentialStore.getAccessKeyId() } returns "access"
         every { credentialStore.getSecretAccessKey() } returns "secret"
@@ -92,6 +100,20 @@ class S3SyncExecutorPerformancePolicyTest {
         every { credentialStore.getEncryptionPassword() } returns null
         every { credentialStore.getEncryptionPassword2() } returns null
         every { clientFactory.create(any()) } returns client
+        coEvery { client.getObjectToFile(any(), any()) } coAnswers {
+            val key = args[0] as String
+            val destination = args[1] as java.io.File
+            val payload = client.getObject(key)
+            destination.parentFile?.mkdirs()
+            destination.writeBytes(payload.bytes)
+            com.lomo.data.s3.S3RemoteObject(
+                key = payload.key,
+                eTag = payload.eTag,
+                lastModified = payload.lastModified,
+                size = destination.length(),
+                metadata = payload.metadata,
+            )
+        }
 
         coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
@@ -198,7 +220,11 @@ class S3SyncExecutorPerformancePolicyTest {
 
             val result = executor.performSync()
 
-            val success = result as S3SyncResult.Success
+            if (result !is S3SyncResult.Success) {
+                val errorMsg = if (result is S3SyncResult.Error) "Error: ${result.message}" else "Unknown result type"
+                throw ClassCastException("Expected S3SyncResult.Success but got $errorMsg")
+            }
+            val success = result
             assertEquals("S3 sync completed", success.message)
             assertEquals(
                 listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),

@@ -10,6 +10,10 @@ import org.bouncycastle.crypto.macs.Poly1305
 import org.bouncycastle.crypto.params.KeyParameter
 import org.bouncycastle.crypto.params.ParametersWithIV
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -167,6 +171,97 @@ class S3RcloneCryptCompatCodec(
         return output.toByteArray()
     }
 
+    fun encryptFile(
+        input: File,
+        output: File,
+        password: String,
+        password2: String,
+    ) {
+        input.inputStream().use { source ->
+            output.outputStream().use { sink ->
+                encryptStream(
+                    input = source,
+                    output = sink,
+                    password = password,
+                    password2 = password2,
+                )
+            }
+        }
+    }
+
+    fun decryptFile(
+        input: File,
+        output: File,
+        password: String,
+        password2: String,
+    ) {
+        input.inputStream().use { source ->
+            output.outputStream().use { sink ->
+                decryptStream(
+                    input = source,
+                    output = sink,
+                    password = password,
+                    password2 = password2,
+                )
+            }
+        }
+    }
+
+    fun encryptStream(
+        input: InputStream,
+        output: OutputStream,
+        password: String,
+        password2: String,
+    ) {
+        val keyMaterial = deriveKeyMaterial(password, password2)
+        val initialNonce = nonceGenerator()
+        require(initialNonce.size == FILE_NONCE_SIZE_BYTES) {
+            "Rclone-compatible nonce must be 24 bytes"
+        }
+
+        output.write(FILE_MAGIC)
+        output.write(initialNonce)
+
+        val blockNonce = initialNonce.copyOf()
+        val buffer = ByteArray(BLOCK_DATA_SIZE_BYTES)
+        var read = input.read(buffer)
+        while (read >= 0) {
+            if (read > 0) {
+            val block = if (read == buffer.size) buffer.copyOf() else buffer.copyOf(read)
+            output.write(secretBoxSeal(blockNonce, keyMaterial.dataKey, block))
+            incrementNonce(blockNonce)
+            }
+            read = input.read(buffer)
+        }
+    }
+
+    fun decryptStream(
+        input: InputStream,
+        output: OutputStream,
+        password: String,
+        password2: String,
+    ) {
+        val header = readRequiredBytes(input, FILE_HEADER_SIZE, "Encrypted rclone payload is too short")
+        require(header.copyOfRange(0, FILE_MAGIC.size).contentEquals(FILE_MAGIC)) {
+            "Encrypted payload does not use the rclone magic header"
+        }
+
+        val keyMaterial = deriveKeyMaterial(password, password2)
+        val blockNonce = header.copyOfRange(FILE_MAGIC.size, FILE_HEADER_SIZE)
+        val buffer = ByteArray(ENCRYPTED_BLOCK_SIZE_BYTES)
+        while (true) {
+            val blockSize = readBlock(input, buffer)
+            if (blockSize == 0) {
+                break
+            }
+            require(blockSize > SECRETBOX_MAC_SIZE) {
+                "Encrypted rclone block header is truncated"
+            }
+            output.write(secretBoxOpen(blockNonce, keyMaterial.dataKey, buffer.copyOf(blockSize)))
+            incrementNonce(blockNonce)
+        }
+    }
+
     private fun deriveKeyMaterial(
         password: String,
         password2: String,
@@ -240,6 +335,41 @@ class S3RcloneCryptCompatCodec(
         return ByteArray(payloadSize).also { plaintext ->
             xsalsa20.processBytes(ciphertext, SECRETBOX_MAC_SIZE, payloadSize, plaintext, 0)
         }
+    }
+
+    private fun readRequiredBytes(
+        input: InputStream,
+        count: Int,
+        message: String,
+    ): ByteArray {
+        val buffer = ByteArray(count)
+        var offset = 0
+        while (offset < count) {
+            val read = input.read(buffer, offset, count - offset)
+            if (read < 0) {
+                throw IOException(message)
+            }
+            offset += read
+        }
+        return buffer
+    }
+
+    private fun readBlock(
+        input: InputStream,
+        buffer: ByteArray,
+    ): Int {
+        var total = 0
+        while (total < buffer.size) {
+            val read = input.read(buffer, total, buffer.size - total)
+            if (read < 0) {
+                return total
+            }
+            total += read
+            if (read == 0) {
+                break
+            }
+        }
+        return total
     }
 }
 

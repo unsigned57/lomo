@@ -6,6 +6,7 @@ import androidx.documentfile.provider.DocumentFile
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
@@ -14,6 +15,7 @@ import javax.inject.Singleton
 data class S3SafTreeFile(
     val relativePath: String,
     val lastModified: Long,
+    val size: Long? = null,
 )
 
 interface S3SafTreeAccess {
@@ -34,10 +36,22 @@ interface S3SafTreeAccess {
         relativePath: String,
     ): String?
 
+    suspend fun exportToFile(
+        rootUriString: String,
+        relativePath: String,
+        destination: File,
+    ): Boolean
+
     suspend fun writeBytes(
         rootUriString: String,
         relativePath: String,
         bytes: ByteArray,
+    )
+
+    suspend fun importFromFile(
+        rootUriString: String,
+        relativePath: String,
+        source: File,
     )
 
     suspend fun deleteFile(
@@ -78,6 +92,7 @@ class AndroidS3SafTreeAccess
                 S3SafTreeFile(
                     relativePath = sanitized,
                     lastModified = document.lastModified(),
+                    size = document.length(),
                 )
             }
 
@@ -96,6 +111,24 @@ class AndroidS3SafTreeAccess
             rootUriString: String,
             relativePath: String,
         ): String? = readBytes(rootUriString, relativePath)?.toString(StandardCharsets.UTF_8)
+
+        override suspend fun exportToFile(
+            rootUriString: String,
+            relativePath: String,
+            destination: File,
+        ): Boolean =
+            withContext(Dispatchers.IO) {
+                val root = resolveRoot(rootUriString) ?: return@withContext false
+                val sanitized = sanitizeRelativePath(relativePath) ?: return@withContext false
+                val document = findDocument(root, sanitized) ?: return@withContext false
+                destination.parentFile?.mkdirs()
+                context.contentResolver.openInputStream(document.uri)?.use { input ->
+                    destination.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: return@withContext false
+                true
+            }
 
         override suspend fun writeBytes(
             rootUriString: String,
@@ -122,6 +155,37 @@ class AndroidS3SafTreeAccess
                 }
                 context.contentResolver.openOutputStream(target.uri, "w")?.use { output ->
                     output.write(bytes)
+                } ?: throw IOException("Cannot open SAF output stream: $sanitized")
+            }
+        }
+
+        override suspend fun importFromFile(
+            rootUriString: String,
+            relativePath: String,
+            source: File,
+        ) {
+            withContext(Dispatchers.IO) {
+                val root = requireNotNull(resolveRoot(rootUriString)) { "Cannot access SAF root directory" }
+                val sanitized = requireNotNull(sanitizeRelativePath(relativePath)) {
+                    "Invalid SAF relative path"
+                }
+                val parentPath = sanitized.substringBeforeLast('/', "")
+                val filename = sanitized.substringAfterLast('/')
+                val parent = ensureDirectory(root, parentPath)
+                var target = parent.findFile(filename)
+                if (target != null && target.isDirectory) {
+                    target.delete()
+                    target = null
+                }
+                if (target == null) {
+                    target =
+                        parent.createFile(contentTypeForRelativePath(sanitized), filename)
+                            ?: throw IOException("Cannot create SAF file: $sanitized")
+                }
+                context.contentResolver.openOutputStream(target.uri, "w")?.use { output ->
+                    source.inputStream().use { input ->
+                        input.copyTo(output)
+                    }
                 } ?: throw IOException("Cannot open SAF output stream: $sanitized")
             }
         }
@@ -155,6 +219,7 @@ class AndroidS3SafTreeAccess
                             S3SafTreeFile(
                                 relativePath = relativePath,
                                 lastModified = child.lastModified(),
+                                size = child.length(),
                             )
                 }
             }
@@ -220,10 +285,24 @@ internal object UnsupportedS3SafTreeAccess : S3SafTreeAccess {
         relativePath: String,
     ): String? = error("S3 SAF tree access is not configured for this test instance")
 
+    override suspend fun exportToFile(
+        rootUriString: String,
+        relativePath: String,
+        destination: File,
+    ): Boolean = error("S3 SAF tree access is not configured for this test instance")
+
     override suspend fun writeBytes(
         rootUriString: String,
         relativePath: String,
         bytes: ByteArray,
+    ) {
+        error("S3 SAF tree access is not configured for this test instance")
+    }
+
+    override suspend fun importFromFile(
+        rootUriString: String,
+        relativePath: String,
+        source: File,
     ) {
         error("S3 SAF tree access is not configured for this test instance")
     }

@@ -26,15 +26,16 @@ internal data class HeadVerifiedRemoteReconcile(
 )
 
 internal data class S3RemoteReconcileTuning(
-    val pageSize: Int = S3_RECONCILE_PAGE_SIZE,
-    val headLimit: Int = S3_RECONCILE_HEAD_LIMIT,
-    val headConcurrency: Int = S3_RECONCILE_HEAD_CONCURRENCY,
+    val pageSize: Int = S3EndpointProfile.GENERIC_S3.reconcilePageSize,
+    val headLimit: Int = S3EndpointProfile.GENERIC_S3.reconcileHeadLimit,
+    val headConcurrency: Int = S3EndpointProfile.GENERIC_S3.reconcileHeadConcurrency,
 )
 
 internal class S3RemoteShardPlanner {
     suspend fun plan(
         layout: com.lomo.data.sync.SyncDirectoryLayout,
         mode: S3LocalSyncMode,
+        endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
         protocolState: S3SyncProtocolState,
         remoteIndexStore: S3RemoteIndexStore,
         shardStateStore: S3RemoteShardStateStore,
@@ -62,6 +63,7 @@ internal class S3RemoteShardPlanner {
                 prioritizeColdShards(
                     baseScanPlan = baseScanPlan,
                     statesByBucket = statesByBucketId,
+                    endpointProfile = endpointProfile,
                     now = now,
                 )
             }
@@ -81,12 +83,13 @@ internal class S3RemoteShardPlanner {
     private fun prioritizeColdShards(
         baseScanPlan: List<S3RemoteScanShard>,
         statesByBucket: Map<String, S3RemoteShardState>,
+        endpointProfile: S3EndpointProfile,
         now: Long,
     ): List<S3RemoteScanShard> {
         val originalOrder = baseScanPlan.mapIndexed { index, shard -> shard.bucketId to index }.toMap()
         return baseScanPlan.sortedWith(
             compareByDescending<S3RemoteScanShard> { shard ->
-                shardRiskBand(statesByBucket[shard.bucketId])
+                shardRiskBand(statesByBucket[shard.bucketId], endpointProfile)
             }.thenByDescending { shard ->
                 shardVerificationFailureRate(statesByBucket[shard.bucketId])
             }.thenByDescending { shard ->
@@ -103,11 +106,14 @@ internal class S3RemoteShardPlanner {
         )
     }
 
-    private fun shardRiskBand(state: S3RemoteShardState?): Int =
+    private fun shardRiskBand(
+        state: S3RemoteShardState?,
+        endpointProfile: S3EndpointProfile,
+    ): Int =
         when {
             state == null -> 0
-            shardVerificationFailureRate(state) >= S3_TUNING_FAILURE_RATE_THRESHOLD -> 2
-            shardChangeRate(state) >= S3_TUNING_CHANGE_RATE_THRESHOLD -> 1
+            shardVerificationFailureRate(state) >= endpointProfile.verificationFailureThreshold -> 2
+            shardChangeRate(state) >= endpointProfile.changePressureThreshold -> 1
             else -> 0
         }
 
@@ -232,18 +238,19 @@ internal class S3RemoteVerificationGate {
 
 internal class S3RemoteReconcileTuner {
     fun tune(
+        config: S3ResolvedConfig,
         protocolState: S3SyncProtocolState,
         activeShardState: S3RemoteShardState?,
     ): S3RemoteReconcileTuning {
-        var pageSize = S3_RECONCILE_PAGE_SIZE
-        var headLimit = S3_RECONCILE_HEAD_LIMIT
-        var headConcurrency = S3_RECONCILE_HEAD_CONCURRENCY
+        var pageSize = config.endpointProfile.reconcilePageSize
+        var headLimit = config.endpointProfile.reconcileHeadLimit
+        var headConcurrency = config.endpointProfile.reconcileHeadConcurrency
         if (protocolState.remoteScanCursor != null) {
-            pageSize += S3_TUNING_CURSOR_PAGE_BONUS
+            pageSize += config.endpointProfile.cursorPageBonus
         }
         activeShardState?.let { state ->
             if (
-                state.changeRate() >= S3_TUNING_CHANGE_RATE_THRESHOLD &&
+                state.changeRate() >= config.endpointProfile.changePressureThreshold &&
                 state.lastDurationMs <= S3_TUNING_FAST_SCAN_MS
             ) {
                 pageSize += S3_TUNING_HOT_SHARD_PAGE_BONUS
@@ -253,7 +260,7 @@ internal class S3RemoteReconcileTuner {
             if (state.idleScanStreak >= S3_TUNING_IDLE_STREAK_THRESHOLD) {
                 pageSize -= S3_TUNING_IDLE_SHARD_PAGE_PENALTY
             }
-            if (state.verificationFailureRate() >= S3_TUNING_FAILURE_RATE_THRESHOLD) {
+            if (state.verificationFailureRate() >= config.endpointProfile.verificationFailureThreshold) {
                 headLimit = minOf(headLimit, S3_TUNING_FAILURE_HEAD_LIMIT_CAP)
                 headConcurrency = minOf(headConcurrency, S3_TUNING_FAILURE_HEAD_CONCURRENCY_CAP)
             }
@@ -282,9 +289,6 @@ private fun S3RemoteShardState.verificationFailureRate(): Double =
         ?.let { attempts -> lastVerificationFailureCount.toDouble() / attempts.toDouble() }
         ?: 0.0
 
-private const val S3_RECONCILE_PAGE_SIZE = 256
-private const val S3_RECONCILE_HEAD_LIMIT = 16
-private const val S3_RECONCILE_HEAD_CONCURRENCY = 4
 private const val S3_RECONCILE_PAGE_SIZE_MIN = 128
 private const val S3_RECONCILE_PAGE_SIZE_MAX = 512
 private const val S3_RECONCILE_HEAD_LIMIT_MIN = 4
@@ -293,11 +297,8 @@ private const val S3_RECONCILE_HEAD_CONCURRENCY_MIN = 1
 private const val S3_RECONCILE_HEAD_CONCURRENCY_MAX = 6
 private const val S3_REMOTE_SHARD_PRIORITY_WINDOW_MS = 15 * 60_000L
 private const val S3_SHARD_PLANNING_SEED_LIMIT = 64
-private const val S3_TUNING_CHANGE_RATE_THRESHOLD = 0.5
-private const val S3_TUNING_FAILURE_RATE_THRESHOLD = 0.5
 private const val S3_TUNING_FAST_SCAN_MS = 100L
 private const val S3_TUNING_IDLE_STREAK_THRESHOLD = 3
-private const val S3_TUNING_CURSOR_PAGE_BONUS = 64
 private const val S3_TUNING_HOT_SHARD_PAGE_BONUS = 128
 private const val S3_TUNING_HOT_SHARD_HEAD_BONUS = 8
 private const val S3_TUNING_HOT_SHARD_CONCURRENCY_BONUS = 2

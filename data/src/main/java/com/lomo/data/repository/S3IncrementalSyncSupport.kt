@@ -453,7 +453,8 @@ private fun S3LocalChangeJournalEntity.toModel(): S3LocalChangeJournalEntry =
     )
 
 internal fun S3SyncProtocolState.hasFreshRemoteIndex(
+    config: S3ResolvedConfig,
     now: Long = System.currentTimeMillis(),
 ): Boolean =
     lastFullRemoteScanAt != null &&
-        now - lastFullRemoteScanAt <= S3_REMOTE_INDEX_FRESHNESS_INTERVAL_MS
+        now - lastFullRemoteScanAt <= config.endpointProfile.remoteIndexFreshnessIntervalMs
