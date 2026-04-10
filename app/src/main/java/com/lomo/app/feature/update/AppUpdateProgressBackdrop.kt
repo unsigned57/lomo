@@ -137,9 +137,9 @@ private fun wave(timeSeconds: Float, frequency: Float, usesSine: Boolean): Float
         kotlin.math.cos(timeSeconds * frequency)
     }
 
-private const val FALLBACK_SURFACE_OVERLAY_ALPHA = 0.0f
-private const val FALLBACK_BLOB_ALPHA = 0.52f
-private const val FALLBACK_BLOB_RADIUS_FACTOR = 0.42f
+private const val FALLBACK_SURFACE_OVERLAY_ALPHA = 0.84f
+private const val FALLBACK_BLOB_ALPHA = 0.18f
+private const val FALLBACK_BLOB_RADIUS_FACTOR = 0.38f
 private const val BACKDROP_COLOR_MIX_RATIO = 0.20f
 private const val NANOS_PER_SECOND = 1_000_000_000f
 private const val INITIAL_TIME_SECONDS = 0f

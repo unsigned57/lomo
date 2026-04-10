@@ -258,6 +258,12 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_close">Close</string>
     <string name="action_retry">Retry</string>
+    <string name="update_progress_title_preparing">Preparing update</string>
+    <string name="update_progress_title_downloading">Downloading update</string>
+    <string name="update_progress_title_installing">Opening installer</string>
+    <string name="update_progress_title_completed">Installer ready</string>
+    <string name="update_progress_title_requires_install_permission">Allow app installs</string>
+    <string name="update_progress_title_failed">Download failed</string>
     <string name="update_progress_preparing">Preparing your update download…</string>
     <string name="update_progress_downloading">Downloading update package…</string>
     <string name="update_progress_installing">Opening the Android installer…</string>

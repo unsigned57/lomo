@@ -76,6 +76,6 @@ internal fun probeUpdateProgressShader(resources: Resources) {
     RuntimeShader(shaderSource)
 }
 
-private const val SHADER_SURFACE_OVERLAY_ALPHA = 0.0f
-private const val SHADER_DISTORTION_STRENGTH = 0.35f
-private const val SHADER_SWIRL_STRENGTH = 0.20f
+private const val SHADER_SURFACE_OVERLAY_ALPHA = 0.86f
+private const val SHADER_DISTORTION_STRENGTH = 0.16f
+private const val SHADER_SWIRL_STRENGTH = 0.10f

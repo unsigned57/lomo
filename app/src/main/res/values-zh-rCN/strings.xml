@@ -252,6 +252,12 @@
     <string name="action_cancel">取消</string>
     <string name="action_close">关闭</string>
     <string name="action_retry">重试</string>
+    <string name="update_progress_title_preparing">正在准备更新</string>
+    <string name="update_progress_title_downloading">正在下载更新</string>
+    <string name="update_progress_title_installing">正在打开安装程序</string>
+    <string name="update_progress_title_completed">安装程序已就绪</string>
+    <string name="update_progress_title_requires_install_permission">需要安装权限</string>
+    <string name="update_progress_title_failed">下载失败</string>
     <string name="update_progress_preparing">正在准备更新下载…</string>
     <string name="update_progress_downloading">正在下载更新包…</string>
     <string name="update_progress_installing">正在打开安装程序…</string>
