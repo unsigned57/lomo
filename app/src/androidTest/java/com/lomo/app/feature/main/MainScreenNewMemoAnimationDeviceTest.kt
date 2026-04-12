@@ -22,9 +22,11 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.lomo.domain.model.Memo
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -59,6 +61,7 @@ import java.time.ZoneId
  */
 @RunWith(AndroidJUnit4::class)
 class MainScreenNewMemoAnimationDeviceTest {
+    @Suppress("DEPRECATION")
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
@@ -201,12 +204,14 @@ class MainScreenNewMemoAnimationDeviceTest {
                         animationSession.arm(previousTopMemoId = latestTopMemoId.value)
                         nextNewMemoIndex += 1
                         harness.memos.value =
-                            listOf(
-                                memoUiModel(
-                                    id = "new-$nextNewMemoIndex",
-                                    content = content,
-                                ),
-                            ) + harness.memos.value
+                            (
+                                listOf(
+                                    memoUiModel(
+                                        id = "new-$nextNewMemoIndex",
+                                        content = content,
+                                    ),
+                                ) + harness.memos.value
+                            ).toImmutableList()
                     },
                 )
             }
@@ -257,8 +262,8 @@ class MainScreenNewMemoAnimationDeviceTest {
         MaterialTheme {
             MemoListContent(
                 memos = harness.memos.value,
-                deletingMemoIds = MutableStateFlow(emptySet()),
-                collapsingMemoIds = MutableStateFlow(emptySet()),
+                deletingMemoIds = persistentSetOf(),
+                collapsingMemoIds = persistentSetOf(),
                 newMemoInsertAnimationState = animationSession.state,
                 onNewMemoSpacePrepared = animationSession::markBlankSpacePrepared,
                 onNewMemoRevealConsumed = animationSession::clearReveal,
@@ -358,13 +363,13 @@ class MainScreenNewMemoAnimationDeviceTest {
         return null
     }
 
-    private fun memoUiModels(count: Int): List<MemoUiModel> =
+    private fun memoUiModels(count: Int): ImmutableList<MemoUiModel> =
         List(count) { index ->
             memoUiModel(
                 id = "memo-${index.toString().padStart(2, '0')}",
                 content = "Memo ${index.toString().padStart(2, '0')}",
             )
-        }
+        }.toImmutableList()
 
     private fun memoUiModel(
         id: String,
@@ -402,7 +407,7 @@ class MainScreenNewMemoAnimationDeviceTest {
     )
 
     private class AnimationHarness(
-        val memos: MutableState<List<MemoUiModel>>,
+        val memos: MutableState<ImmutableList<MemoUiModel>>,
     ) {
         lateinit var listState: LazyListState
         lateinit var scope: CoroutineScope

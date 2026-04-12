@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.SideEffect
@@ -18,11 +19,20 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.common.RetainedVisibleListTracker
 import com.lomo.domain.model.Memo
+import com.lomo.ui.benchmark.BenchmarkAnchorConfig
+import com.lomo.ui.benchmark.LocalBenchmarkAnchorConfig
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -35,18 +45,22 @@ import java.time.ZoneId
 
 /*
  * Test Contract:
- * - Unit under test: MainScreen list prepend visibility and delete-motion regression behavior on a real device.
+ * - Unit under test: MainScreen list prepend visibility, same-id edit remeasure, and delete-motion regression
+ *   behavior on a real device.
  * - Behavior focus: prepending a new memo must keep the inserted card in the visible top viewport whether the
- *   list is already at the top or must scroll back first; deleting a middle memo must move the following memo
- *   upward in a single continuous settle without a downward rebound.
+ *   list is already at the top or must scroll back first; editing an existing memo in place must force the row to
+ *   remeasure so the following memo stays separated after both growth and shrink; deleting a middle memo must move
+ *   the following memo upward in a single continuous settle without a downward rebound.
  * - Observable outcomes: new memo TextView presence in the composed viewport after prepend, list anchor reset to
- *   absolute top, stable off-top scroll recovery before prepend, and monotonic upward screen-Y movement for the
- *   following memo once collapse begins.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ *   absolute top, memo-card gap staying at the configured item spacing after same-id content edits, and monotonic
+ *   upward screen-Y movement for the following memo once collapse begins.
+ * - Red phase: Fails before the fix when the first memo is edited in place with the same id and a much different
+ *   height, leaving the next memo overlapped or separated by a stale oversized gap until the list is scrolled.
  * - Excludes: Hilt wiring, repository persistence, detailed easing-curve fidelity, and full app navigation.
  */
 @RunWith(AndroidJUnit4::class)
 class MainScreenListRegressionTest {
+    @Suppress("DEPRECATION")
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
@@ -93,6 +107,71 @@ class MainScreenListRegressionTest {
 
         waitForListAtAbsoluteTop(harness.listState)
         waitForTextView(newMemoText)
+    }
+
+    @Test
+    fun editingMemoInPlace_remeasuresHeightWithoutManualScroll() {
+        val editedMemoId = "memo-00"
+        val followingMemoId = "memo-01"
+        val harness =
+            EditHarness(
+                memos =
+                    mutableStateOf(
+                        listOf(
+                            memoUiModel(
+                                id = editedMemoId,
+                                content = "Short memo for edit regression.",
+                            ),
+                            memoUiModel(
+                                id = followingMemoId,
+                                content = "Neighbor memo should stay directly below the edited one.",
+                            ),
+                            memoUiModel(
+                                id = "memo-02",
+                                content = "Trailing memo keeps the list dense enough for a realistic viewport.",
+                            ),
+                        ).toImmutableList(),
+                    ),
+            )
+
+        setEditHarnessContent(harness = harness)
+        waitForMemoCard(editedMemoId)
+        waitForMemoCard(followingMemoId)
+        val initialEditedHeight = readMemoCardBoundsInRoot(editedMemoId).height
+
+        composeRule.runOnIdle {
+            harness.updateMemo(
+                id = editedMemoId,
+                content = LONG_EDITED_MEMO_CONTENT,
+            )
+        }
+        composeRule.waitForIdle()
+        val expandedEditedHeight = readMemoCardBoundsInRoot(editedMemoId).height
+        assertTrue(
+            "Expected the edited memo to become substantially taller after the long-content update, but height only changed from $initialEditedHeight to $expandedEditedHeight.",
+            expandedEditedHeight >= initialEditedHeight + MIN_HEIGHT_DELTA_PX,
+        )
+        assertMemoCardsStaySeparated(
+            editedMemoId = editedMemoId,
+            followingMemoId = followingMemoId,
+        )
+
+        composeRule.runOnIdle {
+            harness.updateMemo(
+                id = editedMemoId,
+                content = SHORT_EDITED_MEMO_CONTENT,
+            )
+        }
+        composeRule.waitForIdle()
+        val shrunkEditedHeight = readMemoCardBoundsInRoot(editedMemoId).height
+        assertTrue(
+            "Expected the edited memo to shrink again after the short-content update, but height only changed from $expandedEditedHeight to $shrunkEditedHeight.",
+            shrunkEditedHeight <= expandedEditedHeight - MIN_HEIGHT_DELTA_PX,
+        )
+        assertMemoCardsStaySeparated(
+            editedMemoId = editedMemoId,
+            followingMemoId = followingMemoId,
+        )
     }
 
     @Test
@@ -166,12 +245,14 @@ class MainScreenListRegressionTest {
                     createMemo = { content ->
                         nextNewMemoIndex += 1
                         harness.memos.value =
-                            listOf(
-                                memoUiModel(
-                                    id = "new-$nextNewMemoIndex",
-                                    content = content,
-                                ),
-                            ) + harness.memos.value
+                            (
+                                listOf(
+                                    memoUiModel(
+                                        id = "new-$nextNewMemoIndex",
+                                        content = content,
+                                    ),
+                                ) + harness.memos.value
+                            ).toImmutableList()
                     },
                 )
             }
@@ -182,11 +263,37 @@ class MainScreenListRegressionTest {
             harness.coordinator = coordinator
         }
 
-        MaterialTheme {
+        ListRegressionHarnessTheme {
             MemoListContent(
                 memos = harness.memos.value,
-                deletingMemoIds = MutableStateFlow(emptySet()),
-                collapsingMemoIds = MutableStateFlow(emptySet()),
+                deletingMemoIds = persistentSetOf(),
+                collapsingMemoIds = persistentSetOf(),
+                listState = listState,
+                isRefreshing = false,
+                onRefresh = {},
+                onTodoClick = { _, _, _ -> },
+                dateFormat = "yyyy-MM-dd",
+                timeFormat = "HH:mm",
+                onTagClick = {},
+                onImageClick = {},
+                onShowMemoMenu = {},
+            )
+        }
+    }
+
+    @Composable
+    private fun EditHarnessContent(harness: EditHarness) {
+        val listState = rememberLazyListState()
+
+        SideEffect {
+            harness.listState = listState
+        }
+
+        ListRegressionHarnessTheme {
+            MemoListContent(
+                memos = harness.memos.value,
+                deletingMemoIds = persistentSetOf(),
+                collapsingMemoIds = persistentSetOf(),
                 listState = listState,
                 isRefreshing = false,
                 onRefresh = {},
@@ -215,6 +322,7 @@ class MainScreenListRegressionTest {
             }
         val collapsingIds by harness.collapsingIds.collectAsState()
         val visibleMemos by tracker.visibleItems.collectAsState()
+        val deletingIds by harness.deletingIds.collectAsState()
 
         LaunchedEffect(harness.sourceMemos.value, collapsingIds) {
             tracker.reconcile(
@@ -223,11 +331,11 @@ class MainScreenListRegressionTest {
             )
         }
 
-        MaterialTheme {
+        ListRegressionHarnessTheme {
             MemoListContent(
-                memos = visibleMemos,
-                deletingMemoIds = harness.deletingIds,
-                collapsingMemoIds = harness.collapsingIds,
+                memos = visibleMemos.toImmutableList(),
+                deletingMemoIds = deletingIds.toPersistentSet(),
+                collapsingMemoIds = collapsingIds.toPersistentSet(),
                 listState = rememberLazyListState(),
                 isRefreshing = false,
                 onRefresh = {},
@@ -244,6 +352,12 @@ class MainScreenListRegressionTest {
     private fun setNewMemoHarnessContent(harness: NewMemoHarness) {
         composeRule.setContent {
             NewMemoHarnessContent(harness = harness)
+        }
+    }
+
+    private fun setEditHarnessContent(harness: EditHarness) {
+        composeRule.setContent {
+            EditHarnessContent(harness = harness)
         }
     }
 
@@ -309,13 +423,59 @@ class MainScreenListRegressionTest {
         return null
     }
 
-    private fun memoUiModels(count: Int): List<MemoUiModel> =
+    private fun waitForMemoCard(
+        memoId: String,
+        timeoutMillis: Long = 5_000,
+    ) {
+        composeRule.waitUntil(timeoutMillis) {
+            runCatching {
+                readMemoCardBoundsInRoot(memoId)
+            }.isSuccess
+        }
+    }
+
+    private fun assertMemoCardsStaySeparated(
+        editedMemoId: String,
+        followingMemoId: String,
+    ) {
+        waitForMemoCard(editedMemoId)
+        waitForMemoCard(followingMemoId)
+
+        val editedBounds = readMemoCardBoundsInRoot(editedMemoId)
+        val followingBounds = readMemoCardBoundsInRoot(followingMemoId)
+        val actualGapPx = followingBounds.top - editedBounds.bottom
+        val expectedGapPx = expectedMemoCardSpacingPx()
+
+        assertTrue(
+            "Expected memo cards to stay separated by about $expectedGapPx px after an in-place edit, but the edited memo bottom was ${editedBounds.bottom}, the following memo top was ${followingBounds.top}, and the gap was $actualGapPx.",
+            kotlin.math.abs(actualGapPx - expectedGapPx) <= CARD_GAP_TOLERANCE_PX,
+        )
+    }
+
+    private fun readMemoCardBoundsInRoot(memoId: String): Rect =
+        composeRule
+            .onNodeWithTag(BenchmarkAnchorContract.memoCard(memoId), useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .boundsInRoot
+
+    private fun expectedMemoCardSpacingPx(): Float {
+        var spacingPx = 0f
+        composeRule.runOnIdle {
+            spacingPx =
+                with(composeRule.activity.resources.displayMetrics) {
+                    MEMO_CARD_SPACING_DP * density
+                }
+        }
+        return spacingPx
+    }
+
+    private fun memoUiModels(count: Int): ImmutableList<MemoUiModel> =
         List(count) { index ->
             memoUiModel(
                 id = "memo-${index.toString().padStart(2, '0')}",
                 content = "Memo ${index.toString().padStart(2, '0')}",
             )
-        }
+        }.toImmutableList()
 
     private fun memoUiModel(
         id: String,
@@ -342,16 +502,57 @@ class MainScreenListRegressionTest {
         )
     }
 
+    private fun updatedMemoUiModel(
+        existing: MemoUiModel,
+        content: String,
+    ): MemoUiModel =
+        memoUiModel(
+            id = existing.memo.id,
+            content = content,
+        )
+
+    @Composable
+    private fun ListRegressionHarnessTheme(content: @Composable () -> Unit) {
+        CompositionLocalProvider(
+            LocalBenchmarkAnchorConfig provides BenchmarkAnchorConfig(enabled = true),
+        ) {
+            MaterialTheme {
+                content()
+            }
+        }
+    }
+
     private class NewMemoHarness(
-        val memos: MutableState<List<MemoUiModel>>,
+        val memos: MutableState<ImmutableList<MemoUiModel>>,
     ) {
         lateinit var listState: LazyListState
         lateinit var scope: CoroutineScope
         lateinit var coordinator: NewMemoCreationCoordinator<String>
     }
 
+    private inner class EditHarness(
+        val memos: MutableState<ImmutableList<MemoUiModel>>,
+    ) {
+        lateinit var listState: LazyListState
+
+        fun updateMemo(
+            id: String,
+            content: String,
+        ) {
+            memos.value =
+                memos.value
+                    .map { uiModel ->
+                        if (uiModel.memo.id == id) {
+                            updatedMemoUiModel(existing = uiModel, content = content)
+                        } else {
+                            uiModel
+                        }
+                    }.toImmutableList()
+        }
+    }
+
     private class DeleteHarness(
-        val sourceMemos: MutableState<List<MemoUiModel>>,
+        val sourceMemos: MutableState<ImmutableList<MemoUiModel>>,
     ) {
         val deletingIds = MutableStateFlow(emptySet<String>())
         val collapsingIds = MutableStateFlow(emptySet<String>())
@@ -361,12 +562,41 @@ class MainScreenListRegressionTest {
         }
 
         fun commitCollapsedRemoval(id: String) {
-            sourceMemos.value = sourceMemos.value.filterNot { item -> item.memo.id == id }
+            sourceMemos.value =
+                sourceMemos.value
+                    .filterNot { item -> item.memo.id == id }
+                    .toImmutableList()
             collapsingIds.value = setOf(id)
         }
     }
 
     private companion object {
         const val POSITION_TOLERANCE_PX = 2
+        const val MEMO_CARD_SPACING_DP = 12f
+        const val CARD_GAP_TOLERANCE_PX = 3f
+        const val MIN_HEIGHT_DELTA_PX = 80f
+        val LONG_EDITED_MEMO_CONTENT =
+            """
+            Edited memo after save.
+            Line 01 keeps the card noticeably taller.
+            Line 02 keeps the card noticeably taller.
+            Line 03 keeps the card noticeably taller.
+            Line 04 keeps the card noticeably taller.
+            Line 05 keeps the card noticeably taller.
+            Line 06 keeps the card noticeably taller.
+            Line 07 keeps the card noticeably taller.
+            Line 08 keeps the card noticeably taller.
+            Line 09 keeps the card noticeably taller.
+            Line 10 keeps the card noticeably taller.
+            Line 11 keeps the card noticeably taller.
+            Line 12 keeps the card noticeably taller.
+            Line 13 keeps the card noticeably taller.
+            Line 14 keeps the card noticeably taller.
+            Line 15 keeps the card noticeably taller.
+            Line 16 keeps the card noticeably taller.
+            Line 17 keeps the card noticeably taller.
+            Line 18 keeps the card noticeably taller.
+            """.trimIndent()
+        const val SHORT_EDITED_MEMO_CONTENT = "Short memo again."
     }
 }

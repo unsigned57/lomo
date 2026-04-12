@@ -24,6 +24,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 class MemoEditorImeRequestTest {
+    @Suppress("DEPRECATION")
     @get:Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 

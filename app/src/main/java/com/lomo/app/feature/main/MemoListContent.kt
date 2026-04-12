@@ -32,6 +32,7 @@ import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -331,7 +332,13 @@ private fun MemoListColumn(
         itemsIndexed(
             items = memos,
             key = { _, item -> item.memo.id },
-            contentType = { _, _ -> "memo" },
+            contentType = { _, item ->
+                if (newMemoInsertAnimationState.blocksPlacementSpring) {
+                    "memo"
+                } else {
+                    item.memoListItemLayoutSignature
+                }
+            },
         ) { index, uiModel ->
             val deleteAnimationPolicy =
                 resolveDeleteAnimationVisualPolicy(
@@ -405,6 +412,7 @@ private fun MemoListItem(
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val layoutSignature = uiModel.memoListItemLayoutSignature
     val deleteAlpha by animateFloatAsState(
         targetValue =
             if (isDeleting) {
@@ -473,23 +481,25 @@ private fun MemoListItem(
                 bottomSpacing = animatedBottomSpacing,
             ),
     ) {
-        MemoCardEntry(
-            uiModel = uiModel,
-            dateFormat = dateFormat,
-            timeFormat = timeFormat,
-            onTodoClick = stableTodoClick,
-            onTagClick = onTagClick,
-            onMemoEdit = onMemoDoubleClick,
-            doubleTapEditEnabled = doubleTapEditEnabled,
-            freeTextCopyEnabled = freeTextCopyEnabled,
-            onImageClick = stableImageClick,
-            onShowMenu = onShowMemoMenu,
-            modifier =
-                Modifier.memoVisibilityModifier(
-                    alpha = combinedAlpha,
-                    keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
-                ),
-        )
+        key(layoutSignature) {
+            MemoCardEntry(
+                uiModel = uiModel,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                onTodoClick = stableTodoClick,
+                onTagClick = onTagClick,
+                onMemoEdit = onMemoDoubleClick,
+                doubleTapEditEnabled = doubleTapEditEnabled,
+                freeTextCopyEnabled = freeTextCopyEnabled,
+                onImageClick = stableImageClick,
+                onShowMenu = onShowMemoMenu,
+                modifier =
+                    Modifier.memoVisibilityModifier(
+                        alpha = combinedAlpha,
+                        keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
+                    ),
+            )
+        }
     }
 }
 
@@ -610,3 +620,23 @@ internal class ImagePreloadGate(
         }
     }
 }
+
+private data class MemoListItemLayoutSignature(
+    val memoContent: String,
+    val processedContent: String,
+    val tags: ImmutableList<String>,
+    val imageUrls: ImmutableList<String>,
+    val shouldShowExpand: Boolean,
+    val collapsedSummary: String,
+)
+
+private val MemoUiModel.memoListItemLayoutSignature: MemoListItemLayoutSignature
+    get() =
+        MemoListItemLayoutSignature(
+            memoContent = memo.content,
+            processedContent = processedContent,
+            tags = tags,
+            imageUrls = imageUrls,
+            shouldShowExpand = shouldShowExpand,
+            collapsedSummary = collapsedSummary,
+        )
