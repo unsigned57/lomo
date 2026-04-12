@@ -3,7 +3,7 @@
 English | [中文](README_CN.md)
 
 Lomo is a local-first, Markdown-based memo application for Android, built with Jetpack Compose and Material 3.
-It manages your notes as plain `.md` files on your device—no **digital walled gardens**. It supports Git/S3 backup, and you can still sync files however you want (Syncthing, Nextcloud, etc.).
+It manages your notes as plain `.md` files on your device—no **digital walled gardens**. It supports S3/Git/WebDAV backup, and you can still sync files however you want (Syncthing, Nextcloud, etc.).
 
 <p align="center">
   <img src="docs/screenshots/01_menu.png" width="32%" />
@@ -22,7 +22,15 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 
 **Compatibility**: Lomo is fully compatible with Thino's daily note format. You can effectively treat it as a standalone, native Android client for your Thino data.
 
-> **A Note on Development**: This project was built almost entirely using **Google Antigravity** and **Codex**. Since Lomo is tailored to my specific workflow, I plan to maintain it for as long as it remains part of my daily toolchain. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
+> **A Note on Maintenance**: Lomo is tailored to my own workflow, and I also use it heavily myself. As long as it remains part of my daily toolchain, I plan to keep maintaining it.
+
+> **A Note on Development**: This project was built almost entirely using **Google Antigravity** and **Codex**. If you have concerns about the stability of AI-generated code, feel free to fork and adapt it to your needs.
+
+## How Should You Sync Your Notes?
+
+Lomo stores your notes entirely on local storage, so you can back them up and sync them with any method you prefer, including tools like Syncthing. Lomo also includes built-in S3/Git/WebDAV sync options. S3 is the only built-in option that supports end-to-end encryption, so it is strongly recommended if you care about data privacy and security. It is also the sync method used by the author, so it receives the most active maintenance.
+
+Lomo's S3 sync is fully compatible with the Obsidian Remotely Save plugin. That plugin has not been actively maintained for a long time, though, so for Android-to-Android syncing it is recommended to use Lomo's S3 sync directly against the root of your Obsidian vault instead. Lomo's S3 sync also supports custom folder sync, and on Linux it is generally better to sync with Rclone directly.
 
 ## Features
 
@@ -38,6 +46,11 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
 - **LAN Sharing**: Support sharing notes to other Lomo apps via local network.
 - **S3 Backup (Recommended)**: Support backing up notes to standard object storage via S3.
 - **Git Backup**: Support backing up notes to GitHub via Git.
+- **WebDAV Backup**: Support backing up notes via WebDAV. Currently only tested with Nutstore.
+
+## Support
+
+If Lomo is useful to you, you can support the project here: [Sponsor page](docs/sponsor_en.md).
 
 ## Tech Stack
 
@@ -74,10 +87,6 @@ For a long time, I relied on the Thino plugin in Obsidian. While Thino covers th
    2. Sync Gradle.
    3. Build and Run on an Emulator or Device (Min SDK 26).
 4. On first launch, select a local folder to store your memos.
-
-## Support
-
-If Lomo is useful to you, you can support the project here: [Sponsor page](docs/sponsor_en.md).
 
 ## License
 

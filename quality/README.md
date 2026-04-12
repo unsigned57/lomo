@@ -2,6 +2,28 @@
 
 This directory is the repository entrypoint for quality tasks, scripts, and testing policy.
 
+## Read This When
+
+- choosing the right verification command
+- debugging a red quality gate
+- changing quality scripts, Detekt rules, Lint policy, or prompt-policy docs
+- deciding which AI verification path applies to the current change
+
+## Do Not Read This When
+
+- the task is clearly scoped to a feature/module and you already know the relevant code path
+- you are not selecting or debugging a verification command
+- you are only navigating business logic and no quality/build/prompt decision is involved
+
+## Next Documents
+
+- `testing/ai-meaningful-tests.md`
+  - Read only when writing, editing, or reviewing tests.
+- `scripts/`
+  - Read scripts directly when debugging shell behavior or environment setup.
+- `detekt-rules/`
+  - Read rule code directly when modifying architecture checks or custom Detekt behavior.
+
 ## Read This For
 
 - choosing the right verification command
@@ -14,6 +36,8 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | Situation | Command |
 | --- | --- |
 | Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
+| AI iteration after `src/main`, Gradle, quality, detekt, workflow, or AGENTS/prompt changes | `quality/scripts/ai_static_quality_check.sh` |
+| AI iteration for pure test/docs changes | `quality/scripts/ai_fast_quality_check.sh` |
 | I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
 | I want JVM tests only | `./gradlew unitTestCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
@@ -24,11 +48,19 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 
 AI agents inside the sandbox should normally use:
 
-- Iteration:
+- Iteration for production/build/quality/workflow changes:
+  - `quality/scripts/ai_static_quality_check.sh`
+- Iteration for pure test/docs changes:
   - `quality/scripts/ai_fast_quality_check.sh`
+- Optional Compose hotspot pass:
   - `quality/scripts/ai_compose_static_analysis.sh`
 - Final handoff:
   - `quality/scripts/ai_quality_check.sh`
+
+Policy notes:
+
+- AGENTS/prompt/doc-policy changes belong on the static AI verification path, not the fast test/docs path.
+- Docs-only work may intentionally skip verification, but the final summary must say so explicitly.
 
 Execution defaults:
 
@@ -37,6 +69,7 @@ Execution defaults:
 - Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/task-inspect"` so wrapper downloads and caches are reused instead of being recreated under `/tmp` or another ephemeral directory.
 - The AI quality scripts already enforce repo-root execution and repo-local `GRADLE_USER_HOME`; use them when possible.
 - The AI quality scripts also set repo-local `HOME`, `ANDROID_USER_HOME`, and `XDG_*` paths so Kotlin daemon and Android tooling do not fall back to read-only global directories.
+- `ai_fast_quality_check.sh` intentionally exits non-zero when the working tree contains production/build/quality/workflow changes, so AI cannot silently skip detekt-capable verification.
 
 ## Staged Quality Pipeline
 
@@ -55,6 +88,8 @@ Task roles:
   - Runs JVM unit tests across modules after compile gates pass.
 - `fastQualityCheck`
   - Default iterative gate: compile gates, meaningful-test metadata, and JVM unit tests.
+- `aiStaticQualityCheck`
+  - AI-oriented static gate via `quality/scripts/ai_static_quality_check.sh`, which runs `staticQualityCheck`.
 - `staticQualityCheck`
   - Compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage.
 - `fullQualityCheck`

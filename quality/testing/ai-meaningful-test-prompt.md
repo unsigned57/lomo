@@ -6,6 +6,7 @@ Use this template when asking AI to add tests in this repository.
 Write meaningful tests for <TARGET_CLASS>.
 
 Repository rules:
+- Read `AGENTS.md` first, then open `quality/testing/ai-meaningful-tests.md` only after confirming the task is actually test-related.
 - First read quality/testing/ai-meaningful-tests.md in full, then follow it.
 - Prefer behavior-bearing tests over line coverage.
 - Refuse to add tests if the target is render-only or wiring-only; recommend a logic extraction instead.
@@ -14,6 +15,7 @@ Repository rules:
 - Treat existing tests as locked behavior contracts by default.
 - When an existing test fails after a production edit, do not rewrite the test to match the implementation by default. Prove why the test is wrong before touching it.
 - Do not delete, weaken, or narrow an existing test just to make a new implementation pass.
+- Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in newly written or modified test code unless a repository rule explicitly allows that exception.
 
 Target:
 - Layer owner: <app/domain/data/ui-components>
