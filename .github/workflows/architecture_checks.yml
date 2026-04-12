@@ -1,4 +1,4 @@
-name: Architecture Checks
+name: Quality Checks
 
 on:
   pull_request:
@@ -7,7 +7,7 @@ on:
       - 'v*'
 
 jobs:
-  verify:
+  compile-and-unit:
     runs-on: ubuntu-latest
     env:
       HOME: ${{ github.workspace }}/.home
@@ -35,7 +35,75 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run repository quality gate
+      - name: Run compile and unit gate
+        run: |
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain fastQualityCheck
+
+  static-quality:
+    runs-on: ubuntu-latest
+    needs: compile-and-unit
+    env:
+      HOME: ${{ github.workspace }}/.home
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android
+      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/ci
+      GRADLE_OPTS: -Duser.home=${{ github.workspace }}/.home
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '25'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run static quality gate
+        run: |
+          mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain staticQualityCheck
+
+  full-quality:
+    runs-on: ubuntu-latest
+    needs: static-quality
+    env:
+      HOME: ${{ github.workspace }}/.home
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android
+      XDG_DATA_HOME: ${{ github.workspace }}/.local/share
+      XDG_CONFIG_HOME: ${{ github.workspace }}/.config
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle/ci
+      GRADLE_OPTS: -Duser.home=${{ github.workspace }}/.home
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '25'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Run final repository quality gate
         run: |
           mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
           ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain qualityCheck
