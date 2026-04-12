@@ -12,6 +12,11 @@ import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class S3RefreshSignal {
+    NORMAL,
+    STRONG_REMOTE_HINT,
+}
+
 @Singleton
 class S3ReconcileScheduler
     @Inject
@@ -50,6 +55,7 @@ class S3ReconcileScheduler
 
         suspend fun buildRefreshPlan(
             reconcileInterval: Duration,
+            signal: S3RefreshSignal = S3RefreshSignal.NORMAL,
         ): S3RefreshSyncPlan {
             val endpointProfile = resolveEndpointProfile()
             val effectiveReconcileInterval =
@@ -67,6 +73,7 @@ class S3ReconcileScheduler
                 protocolState = protocolState,
                 reconcileInterval = effectiveReconcileInterval,
                 incrementalEnabled = protocolStateStore.incrementalSyncEnabled,
+                signal = signal,
                 telemetry = telemetry,
                 endpointProfile = endpointProfile,
             )
@@ -139,64 +146,83 @@ internal fun buildS3RefreshSyncPlan(
     reconcileInterval: Duration,
     now: Long = System.currentTimeMillis(),
     incrementalEnabled: Boolean,
+    signal: S3RefreshSignal = S3RefreshSignal.NORMAL,
     telemetry: S3RemoteShardScheduleTelemetry? = null,
     shardStates: List<com.lomo.data.repository.S3RemoteShardState>? = null,
     endpointProfile: S3EndpointProfile = S3EndpointProfile.GENERIC_S3,
 ): S3RefreshSyncPlan {
-    if (!incrementalEnabled) {
-        return S3RefreshSyncPlan(
-            foregroundPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
-            catchUpPolicy = null,
-        )
-    }
-    val effectiveTelemetry =
-        telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval, endpointProfile)
-    return when {
-        protocolState?.lastFullRemoteScanAt == null ->
+    val basePlan =
+        if (!incrementalEnabled) {
             S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
-            )
-
-        telemetry != null && telemetry.shardCount == 0 ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
-            )
-
-        shardStates != null && shardStates.isEmpty() ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
-            )
-
-        effectiveTelemetry.hasHighVerificationUncertainty ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                foregroundPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
                 catchUpPolicy = null,
             )
+        } else {
+            val effectiveTelemetry =
+                telemetry ?: shardStates.orEmpty().toScheduleTelemetry(now, reconcileInterval, endpointProfile)
+            when {
+                protocolState?.lastFullRemoteScanAt == null ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                    )
 
-        protocolState.remoteScanCursor != null ||
-            effectiveTelemetry.hasElevatedChangePressure ||
-            effectiveTelemetry.oldestScanAgeMillis(now)?.let { age -> age >= reconcileInterval.toMillis() } == true ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
-            )
+                telemetry != null && telemetry.shardCount == 0 ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                    )
 
-        now - protocolState.lastFullRemoteScanAt >= reconcileInterval.toMillis() * FULL_RECONCILE_STALE_MULTIPLIER ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
-            )
+                shardStates != null && shardStates.isEmpty() ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                    )
 
-        else ->
-            S3RefreshSyncPlan(
-                foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
-                catchUpPolicy = null,
-            )
+                effectiveTelemetry.hasHighVerificationUncertainty ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                        catchUpPolicy = null,
+                    )
+
+                protocolState.remoteScanCursor != null ||
+                    effectiveTelemetry.hasElevatedChangePressure ||
+                    effectiveTelemetry.oldestScanAgeMillis(now)?.let { age ->
+                        age >= reconcileInterval.toMillis()
+                    } == true ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
+                    )
+
+                now - protocolState.lastFullRemoteScanAt >=
+                    reconcileInterval.toMillis() * FULL_RECONCILE_STALE_MULTIPLIER ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = S3SyncScanPolicy.FULL_RECONCILE,
+                    )
+
+                else ->
+                    S3RefreshSyncPlan(
+                        foregroundPolicy = S3SyncScanPolicy.FAST_ONLY,
+                        catchUpPolicy = null,
+                    )
+            }
+        }
+    return when (signal) {
+        S3RefreshSignal.NORMAL -> basePlan
+        S3RefreshSignal.STRONG_REMOTE_HINT -> basePlan.upgradeForegroundForStrongSignal()
     }
 }
+
+private fun S3RefreshSyncPlan.upgradeForegroundForStrongSignal(): S3RefreshSyncPlan =
+    when (foregroundPolicy) {
+        S3SyncScanPolicy.FULL_RECONCILE -> this
+        S3SyncScanPolicy.FAST_ONLY,
+        S3SyncScanPolicy.FAST_THEN_RECONCILE,
+        ->
+            copy(foregroundPolicy = S3SyncScanPolicy.FAST_THEN_RECONCILE)
+    }
 
 internal fun List<com.lomo.data.repository.S3RemoteShardState>.toScheduleTelemetry(
     now: Long,
@@ -217,7 +243,9 @@ internal fun List<com.lomo.data.repository.S3RemoteShardState>.toScheduleTelemet
                 state.scanAgeMillis(now) <= reconcileInterval.toMillis() &&
                     state.lastVerificationAttemptCount >= endpointProfile.minUncertaintyAttempts &&
                     state.lastVerificationFailureCount >= endpointProfile.minUncertaintyFailures &&
-                    state.verificationFailureRate() >= endpointProfile.verificationFailureThreshold
+                    state.lastVerificationFailureCount.toDouble() /
+                        state.lastVerificationAttemptCount.coerceAtLeast(1).toDouble() >=
+                        endpointProfile.verificationFailureThreshold
             },
     )
 
@@ -231,9 +259,6 @@ private fun com.lomo.data.repository.S3RemoteShardState.scanAgeMillis(now: Long)
 
 private fun com.lomo.data.repository.S3RemoteShardState.changeRate(): Double =
     lastChangeCount.toDouble() / lastObjectCount.coerceAtLeast(1).toDouble()
-
-private fun com.lomo.data.repository.S3RemoteShardState.verificationFailureRate(): Double =
-    lastVerificationFailureCount.toDouble() / lastVerificationAttemptCount.coerceAtLeast(1).toDouble()
 
 internal val DEFAULT_S3_AUTO_SYNC_INTERVAL: Duration = Duration.ofHours(S3_AUTO_SYNC_HOURS_1)
 internal const val FULL_RECONCILE_STALE_MULTIPLIER = 2L

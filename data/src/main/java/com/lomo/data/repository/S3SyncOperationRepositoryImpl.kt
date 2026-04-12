@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.util.runNonFatalCatching
+import com.lomo.data.worker.S3RefreshSignal
 import com.lomo.data.worker.S3ReconcileScheduler
 import com.lomo.data.worker.S3RefreshSyncPlan
 import com.lomo.data.worker.parseS3AutoSyncInterval
@@ -22,6 +23,8 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -40,6 +43,32 @@ class S3SyncOperationRepositoryImpl
         private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) : S3SyncOperationRepository {
         private val syncGuard = AtomicBoolean(false)
+        private val refreshRequestMutex = Mutex()
+        private var refreshLoopActive = false
+        private var pendingRefreshSignal: S3RefreshSignal? = null
+        private var lastRefreshRequestAt: Long? = null
+        private var nowProvider: () -> Long = System::currentTimeMillis
+
+        internal constructor(
+            syncExecutor: S3SyncExecutor,
+            statusTester: S3SyncStatusTester,
+            refreshPlanner: S3RefreshSyncPlanner,
+            refreshScheduler: S3RefreshCatchUpScheduler,
+            stateHolder: S3SyncStateHolder,
+            protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
+            pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
+            nowProvider: () -> Long,
+        ) : this(
+            syncExecutor = syncExecutor,
+            statusTester = statusTester,
+            refreshPlanner = refreshPlanner,
+            refreshScheduler = refreshScheduler,
+            stateHolder = stateHolder,
+            protocolStateStore = protocolStateStore,
+            pendingConflictStore = pendingConflictStore,
+        ) {
+            this.nowProvider = nowProvider
+        }
 
         override suspend fun sync(policy: S3SyncScanPolicy): S3SyncResult =
             withSyncGuard(inProgressMessage = "S3 sync already in progress") {
@@ -51,21 +80,16 @@ class S3SyncOperationRepositoryImpl
                 result
             }
 
-        override suspend fun syncForRefresh(): S3SyncResult =
-            withSyncGuard(inProgressMessage = "S3 sync already in progress") {
-                restorePendingConflictIfPresent()?.let { pending ->
-                    return@withSyncGuard pending
-                }
-                val plan = refreshPlanner.planRefreshSync()
-                val result = syncExecutor.performSync(plan.foregroundPolicy)
-                if (result is S3SyncResult.Success) {
-                    plan.catchUpPolicy?.let { policy ->
-                        refreshScheduler.scheduleCatchUp(policy)
-                    }
-                }
-                clearPendingConflictsOnSuccess(result)
-                result
+        override suspend fun syncForRefresh(): S3SyncResult {
+            val initialSignal =
+                beginRefreshRequest()
+                    ?: return S3SyncResult.Success("S3 refresh sync already in progress")
+            return try {
+                executeRefreshSyncLoop(initialSignal)
+            } finally {
+                finishRefreshLoop()
             }
+        }
 
         override suspend fun getStatus(): S3SyncStatus = statusTester.getStatus()
 
@@ -99,10 +123,83 @@ class S3SyncOperationRepositoryImpl
                 pendingConflictStore.clear(SyncBackendType.S3)
             }
         }
+
+        private suspend fun beginRefreshRequest(): S3RefreshSignal? =
+            refreshRequestMutex.withLock {
+                val signal = resolveRefreshSignalLocked(nowProvider())
+                if (refreshLoopActive) {
+                    pendingRefreshSignal = mergeRefreshSignals(pendingRefreshSignal, signal)
+                    null
+                } else {
+                    refreshLoopActive = true
+                    signal
+                }
+            }
+
+        private suspend fun executeRefreshSyncLoop(initialSignal: S3RefreshSignal): S3SyncResult {
+            var currentSignal = initialSignal
+            var firstResult: S3SyncResult? = null
+            while (true) {
+                val result =
+                    withSyncGuard(inProgressMessage = "S3 sync already in progress") {
+                        restorePendingConflictIfPresent()?.let { pending ->
+                            return@withSyncGuard pending
+                        }
+                        val plan = refreshPlanForSignal(currentSignal)
+                        val syncResult = syncExecutor.performSync(plan.foregroundPolicy)
+                        if (syncResult is S3SyncResult.Success) {
+                            plan.catchUpPolicy?.let { policy ->
+                                refreshScheduler.scheduleCatchUp(policy)
+                            }
+                        }
+                        clearPendingConflictsOnSuccess(syncResult)
+                        syncResult
+                    }
+                if (firstResult == null) {
+                    firstResult = result
+                }
+                if (result !is S3SyncResult.Success) {
+                    return firstResult
+                }
+                currentSignal = consumePendingRefreshSignal() ?: return firstResult
+            }
+        }
+
+        private suspend fun refreshPlanForSignal(signal: S3RefreshSignal): S3RefreshSyncPlan =
+            when (signal) {
+                S3RefreshSignal.NORMAL -> refreshPlanner.planRefreshSync()
+                S3RefreshSignal.STRONG_REMOTE_HINT -> refreshPlanner.planRefreshSync(signal)
+            }
+
+        private suspend fun consumePendingRefreshSignal(): S3RefreshSignal? =
+            refreshRequestMutex.withLock {
+                pendingRefreshSignal.also {
+                    pendingRefreshSignal = null
+                }
+            }
+
+        private suspend fun finishRefreshLoop() {
+            refreshRequestMutex.withLock {
+                refreshLoopActive = false
+                pendingRefreshSignal = null
+            }
+        }
+
+        private fun resolveRefreshSignalLocked(now: Long): S3RefreshSignal {
+            val previousRefreshAt = lastRefreshRequestAt
+            lastRefreshRequestAt = now
+            return if (previousRefreshAt != null && now - previousRefreshAt <= S3_REFRESH_SIGNAL_WINDOW_MS) {
+                S3RefreshSignal.STRONG_REMOTE_HINT
+            } else {
+                S3RefreshSignal.NORMAL
+            }
+        }
     }
 
 internal interface S3RefreshSyncPlanner {
     suspend fun planRefreshSync(): S3RefreshSyncPlan
+
+    suspend fun planRefreshSync(signal: S3RefreshSignal): S3RefreshSyncPlan = planRefreshSync()
 }
 
 internal interface S3RefreshCatchUpScheduler {
@@ -117,9 +214,14 @@ internal class DefaultS3RefreshSyncPlanner
         private val reconcileScheduler: S3ReconcileScheduler,
     ) : S3RefreshSyncPlanner {
         override suspend fun planRefreshSync(): S3RefreshSyncPlan {
+            return planRefreshSync(S3RefreshSignal.NORMAL)
+        }
+
+        override suspend fun planRefreshSync(signal: S3RefreshSignal): S3RefreshSyncPlan {
             val interval = runtime.dataStore.s3AutoSyncInterval.first()
             return reconcileScheduler.buildRefreshPlan(
                 reconcileInterval = parseS3AutoSyncInterval(interval),
+                signal = signal,
             )
         }
     }
@@ -145,6 +247,19 @@ private fun S3SyncProtocolState.toRemoteIndexState(): S3RemoteIndexState =
         scanEpoch = scanEpoch,
         localModeFingerprint = localModeFingerprint,
     )
+
+private fun mergeRefreshSignals(
+    current: S3RefreshSignal?,
+    incoming: S3RefreshSignal,
+): S3RefreshSignal =
+    when {
+        current == S3RefreshSignal.STRONG_REMOTE_HINT || incoming == S3RefreshSignal.STRONG_REMOTE_HINT ->
+            S3RefreshSignal.STRONG_REMOTE_HINT
+
+        else -> incoming
+    }
+
+private const val S3_REFRESH_SIGNAL_WINDOW_MS = 1_500L
 
 @Singleton
 class S3SyncStatusTester
