@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
@@ -271,13 +272,18 @@ class MainViewModel
                 // Step 1.5: Delay non-critical startup warmups to avoid blocking first render.
                 viewModelScope.launch {
                     kotlinx.coroutines.delay(DEFERRED_STARTUP_DELAY_MILLIS)
-                    try {
+                    runCatching {
                         startupCoordinator.runDeferredStartupTasks(initialDir)
-                    } catch (throwable: Throwable) {
-                        handleRefreshFailure(
-                            throwable = throwable,
-                            fallbackMessage = "Failed to finish startup sync",
-                        )
+                    }.onFailure { throwable ->
+                        when (throwable) {
+                            is CancellationException -> throw throwable
+                            is com.lomo.domain.usecase.SyncConflictException ->
+                                _syncConflictEvent.tryEmit(throwable.conflicts)
+                            is Exception ->
+                                _errorMessage.value =
+                                    throwable.toUserMessage("Failed to finish startup sync")
+                            else -> throw throwable
+                        }
                     }
                 }
 

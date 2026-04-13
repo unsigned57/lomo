@@ -418,11 +418,15 @@ object CoreRepositoryModule {
 
     @Provides
     @Singleton
-    fun provideSyncInboxRepository(impl: SyncInboxRepositoryImpl): SyncInboxRepository = impl
+    fun provideGitSyncRepository(impl: GitSyncRepositoryImpl): GitSyncRepository = impl
+}
 
+@Module
+@InstallIn(SingletonComponent::class)
+object InboxRepositoryModule {
     @Provides
     @Singleton
-    fun provideGitSyncRepository(impl: GitSyncRepositoryImpl): GitSyncRepository = impl
+    fun provideSyncInboxRepository(impl: SyncInboxRepositoryImpl): SyncInboxRepository = impl
 }
 
 @Module
