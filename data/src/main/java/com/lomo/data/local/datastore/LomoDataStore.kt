@@ -48,6 +48,8 @@ interface LomoMediaLocationStore {
     val imageDirectory: Flow<String?>
     val voiceUri: Flow<String?>
     val voiceDirectory: Flow<String?>
+    val syncInboxUri: Flow<String?>
+    val syncInboxDirectory: Flow<String?>
 
     suspend fun updateImageUri(uri: String?)
 
@@ -56,6 +58,10 @@ interface LomoMediaLocationStore {
     suspend fun updateVoiceUri(uri: String?)
 
     suspend fun updateVoiceDirectory(path: String?)
+
+    suspend fun updateSyncInboxUri(uri: String?)
+
+    suspend fun updateSyncInboxDirectory(path: String?)
 }
 
 interface LomoStorageFormatStore {
@@ -118,6 +124,7 @@ interface LomoLanSharePreferencesStore {
     val lanShareDeviceName: Flow<String?>
     val shareCardShowTime: Flow<Boolean>
     val shareCardShowBrand: Flow<Boolean>
+    val syncInboxEnabled: Flow<Boolean>
 
     suspend fun updateLanSharePairingKeyHex(keyHex: String?)
 
@@ -128,6 +135,8 @@ interface LomoLanSharePreferencesStore {
     suspend fun updateShareCardShowTime(enabled: Boolean)
 
     suspend fun updateShareCardShowBrand(enabled: Boolean)
+
+    suspend fun updateSyncInboxEnabled(enabled: Boolean)
 }
 
 interface LomoSnapshotPreferencesStore {
@@ -324,8 +333,10 @@ internal object LomoDataStoreKeys {
     val ROOT_DIRECTORY = stringPreferencesKey(PreferenceKeys.ROOT_DIRECTORY)
     val IMAGE_URI = stringPreferencesKey(PreferenceKeys.IMAGE_URI)
     val IMAGE_DIRECTORY = stringPreferencesKey(PreferenceKeys.IMAGE_DIRECTORY)
-    val VOICE_URI = stringPreferencesKey("voice_uri")
-    val VOICE_DIRECTORY = stringPreferencesKey("voice_directory")
+    val VOICE_URI = stringPreferencesKey(PreferenceKeys.VOICE_URI)
+    val VOICE_DIRECTORY = stringPreferencesKey(PreferenceKeys.VOICE_DIRECTORY)
+    val SYNC_INBOX_URI = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_URI)
+    val SYNC_INBOX_DIRECTORY = stringPreferencesKey(PreferenceKeys.SYNC_INBOX_DIRECTORY)
     val STORAGE_FILENAME_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_FILENAME_FORMAT)
     val STORAGE_TIMESTAMP_FORMAT = stringPreferencesKey(PreferenceKeys.STORAGE_TIMESTAMP_FORMAT)
     val DATE_FORMAT = stringPreferencesKey(PreferenceKeys.DATE_FORMAT)
@@ -346,6 +357,7 @@ internal object LomoDataStoreKeys {
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
     val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
+    val SYNC_INBOX_ENABLED = booleanPreferencesKey(PreferenceKeys.SYNC_INBOX_ENABLED)
     val MEMO_SNAPSHOTS_ENABLED = booleanPreferencesKey(PreferenceKeys.MEMO_SNAPSHOTS_ENABLED)
     val MEMO_SNAPSHOT_MAX_COUNT = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_COUNT)
     val MEMO_SNAPSHOT_MAX_AGE_DAYS = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS)

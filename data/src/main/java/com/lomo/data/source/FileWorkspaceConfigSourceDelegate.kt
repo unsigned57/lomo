@@ -70,6 +70,11 @@ class FileWorkspaceConfigSourceDelegate
                     dataStore.updateVoiceUri(uri)
                     dataStore.updateVoiceDirectory(path)
                 }
+
+                StorageRootType.SYNC_INBOX -> {
+                    dataStore.updateSyncInboxUri(uri)
+                    dataStore.updateSyncInboxDirectory(path)
+                }
             }
         }
 
@@ -78,6 +83,7 @@ class FileWorkspaceConfigSourceDelegate
                 StorageRootType.MAIN -> dataStore.rootUri
                 StorageRootType.IMAGE -> dataStore.imageUri
                 StorageRootType.VOICE -> dataStore.voiceUri
+                StorageRootType.SYNC_INBOX -> dataStore.syncInboxUri
             }
 
         private fun readRootPathFlow(type: StorageRootType): Flow<String?> =
@@ -85,6 +91,7 @@ class FileWorkspaceConfigSourceDelegate
                 StorageRootType.MAIN -> dataStore.rootDirectory
                 StorageRootType.IMAGE -> dataStore.imageDirectory
                 StorageRootType.VOICE -> dataStore.voiceDirectory
+                StorageRootType.SYNC_INBOX -> dataStore.syncInboxDirectory
             }
 
         private fun displayNameForUri(uri: Uri): String =

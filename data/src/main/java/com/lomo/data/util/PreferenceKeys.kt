@@ -14,6 +14,10 @@ object PreferenceKeys {
     const val ROOT_DIRECTORY = "root_directory"
     const val IMAGE_URI = "image_uri"
     const val IMAGE_DIRECTORY = "image_directory"
+    const val VOICE_URI = "voice_uri"
+    const val VOICE_DIRECTORY = "voice_directory"
+    const val SYNC_INBOX_URI = "sync_inbox_uri"
+    const val SYNC_INBOX_DIRECTORY = "sync_inbox_directory"
 
     // Storage Formats (New)
     const val STORAGE_FILENAME_FORMAT = "storage_filename_format"
@@ -39,6 +43,7 @@ object PreferenceKeys {
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
     const val SHARE_CARD_SHOW_TIME = "share_card_show_time"
     const val SHARE_CARD_SHOW_BRAND = "share_card_show_brand"
+    const val SYNC_INBOX_ENABLED = "sync_inbox_enabled"
     const val MEMO_SNAPSHOTS_ENABLED = "memo_snapshots_enabled"
     const val MEMO_SNAPSHOT_MAX_COUNT = "memo_snapshot_max_count"
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = "memo_snapshot_max_age_days"
@@ -101,6 +106,7 @@ object PreferenceKeys {
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
         const val SHARE_CARD_SHOW_BRAND = PreferenceDefaults.SHARE_CARD_SHOW_BRAND
+        const val SYNC_INBOX_ENABLED = PreferenceDefaults.SYNC_INBOX_ENABLED
         const val MEMO_SNAPSHOTS_ENABLED = PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED
         const val MEMO_SNAPSHOT_MAX_COUNT = PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT
         const val MEMO_SNAPSHOT_MAX_AGE_DAYS = PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS

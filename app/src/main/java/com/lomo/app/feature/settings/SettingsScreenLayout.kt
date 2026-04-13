@@ -256,6 +256,8 @@ private fun PrimarySettingsSections(
         onSelectRoot = storagePickers.openRoot,
         onSelectImageRoot = storagePickers.openImage,
         onSelectVoiceRoot = storagePickers.openVoice,
+        onToggleSyncInbox = features.storage::updateSyncInboxEnabled,
+        onSelectSyncInbox = storagePickers.openSyncInbox,
         onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
         onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
     )

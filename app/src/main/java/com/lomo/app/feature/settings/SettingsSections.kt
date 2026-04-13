@@ -6,6 +6,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -36,6 +37,8 @@ fun StorageSettingsSection(
     onSelectRoot: () -> Unit,
     onSelectImageRoot: () -> Unit,
     onSelectVoiceRoot: () -> Unit,
+    onToggleSyncInbox: (Boolean) -> Unit,
+    onSelectSyncInbox: () -> Unit,
     onOpenFilenameFormatDialog: () -> Unit,
     onOpenTimestampFormatDialog: () -> Unit,
 ) {
@@ -60,6 +63,23 @@ fun StorageSettingsSection(
             subtitle = state.voiceDirectory.subtitle(notSetLabel),
             icon = Icons.Default.Audiotrack,
             onClick = onSelectVoiceRoot,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_sync_inbox_enabled),
+            subtitle = stringResource(R.string.settings_sync_inbox_enabled_subtitle),
+            icon = Icons.Outlined.Sync,
+            checked = state.syncInboxEnabled,
+            onCheckedChange = onToggleSyncInbox,
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_sync_inbox_directory),
+            subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
+            icon = Icons.Default.Folder,
+            enabled = state.syncInboxEnabled,
+            showChevron = state.syncInboxEnabled,
+            onClick = onSelectSyncInbox,
         )
         SettingsDivider()
         PreferenceItem(

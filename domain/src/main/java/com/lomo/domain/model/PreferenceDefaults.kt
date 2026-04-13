@@ -16,6 +16,7 @@ object PreferenceDefaults {
     const val THEME_MODE = "system"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true
+    const val SYNC_INBOX_ENABLED = false
     const val MEMO_SNAPSHOTS_ENABLED = true
     const val MEMO_SNAPSHOT_MAX_COUNT = 20
     const val MEMO_SNAPSHOT_MAX_AGE_DAYS = 30

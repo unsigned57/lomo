@@ -17,6 +17,8 @@ import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SyncInboxConflictResolutionResult
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -39,6 +41,7 @@ class SyncConflictResolutionUseCaseTest {
     private val gitSyncRepository: GitSyncRepository = mockk()
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
     private val s3SyncRepository: S3SyncRepository = mockk()
+    private val syncInboxRepository: SyncInboxRepository = mockk()
     private val memoRepository: MemoRepository = mockk()
 
     private val useCase =
@@ -46,6 +49,7 @@ class SyncConflictResolutionUseCaseTest {
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
             s3SyncRepository = s3SyncRepository,
+            syncInboxRepository = syncInboxRepository,
             memoRepository = memoRepository,
         )
 
@@ -188,6 +192,23 @@ class SyncConflictResolutionUseCaseTest {
             coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
             coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
             coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+        }
+
+    @Test
+    fun `inbox source resolves conflicts and refreshes memos on success`() =
+        runTest {
+            val conflictSet = conflictSet(SyncBackendType.INBOX)
+            val resolution = sampleResolution()
+            coEvery { syncInboxRepository.resolveConflicts(resolution, conflictSet) } returns SyncInboxConflictResolutionResult.Resolved
+            coEvery { memoRepository.refreshMemos() } returns Unit
+
+            useCase.resolve(conflictSet, resolution)
+
+            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+            coVerify(exactly = 1) { syncInboxRepository.resolveConflicts(resolution, conflictSet) }
             coVerify(exactly = 1) { memoRepository.refreshMemos() }
         }
 

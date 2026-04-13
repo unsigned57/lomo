@@ -28,6 +28,8 @@ data class StorageSectionState(
     val rootDirectory: DirectoryDisplayState,
     val imageDirectory: DirectoryDisplayState,
     val voiceDirectory: DirectoryDisplayState,
+    val syncInboxEnabled: Boolean,
+    val syncInboxDirectory: DirectoryDisplayState,
     val filenameFormat: String,
     val timestampFormat: String,
 )

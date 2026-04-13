@@ -100,6 +100,7 @@ class FileStorageBackendResolver
                 StorageRootType.MAIN -> dataStore.rootUri
                 StorageRootType.IMAGE -> dataStore.imageUri
                 StorageRootType.VOICE -> dataStore.voiceUri
+                StorageRootType.SYNC_INBOX -> dataStore.syncInboxUri
             }
 
         private fun readRootPathFlow(type: StorageRootType): Flow<String?> =
@@ -107,5 +108,6 @@ class FileStorageBackendResolver
                 StorageRootType.MAIN -> dataStore.rootDirectory
                 StorageRootType.IMAGE -> dataStore.imageDirectory
                 StorageRootType.VOICE -> dataStore.voiceDirectory
+                StorageRootType.SYNC_INBOX -> dataStore.syncInboxDirectory
             }
     }

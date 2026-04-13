@@ -52,6 +52,7 @@ class SettingsRepositoryImplTest {
                         memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
                         securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
                         shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
+                        syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
                         draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),
                     ),
             )
@@ -103,5 +104,27 @@ class SettingsRepositoryImplTest {
             repository.setAppLockEnabled(true)
 
             coVerify(exactly = 1) { dataStore.updateAppLockEnabled(true) }
+        }
+
+    @Test
+    fun `applyLocation updates sync inbox workspace location`() =
+        runTest {
+            coEvery { dataSource.setRoot(type = StorageRootType.SYNC_INBOX, pathOrUri = "/tmp/inbox") } just runs
+
+            repository.applyLocation(StorageAreaUpdate(StorageArea.SYNC_INBOX, StorageLocation("/tmp/inbox")))
+
+            coVerify(exactly = 1) {
+                dataSource.setRoot(type = StorageRootType.SYNC_INBOX, pathOrUri = "/tmp/inbox")
+            }
+        }
+
+    @Test
+    fun `setSyncInboxEnabled delegates to datastore`() =
+        runTest {
+            coEvery { dataStore.updateSyncInboxEnabled(true) } just runs
+
+            repository.setSyncInboxEnabled(true)
+
+            coVerify(exactly = 1) { dataStore.updateSyncInboxEnabled(true) }
         }
 }

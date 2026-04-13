@@ -43,8 +43,19 @@ interface MediaDirectorySettingsRepository :
     fun observeVoiceDisplayName(): Flow<String?> = observeDisplayName(StorageArea.VOICE)
 }
 
+interface SyncInboxDirectorySettingsRepository :
+    DirectoryLocationRepository,
+    DirectoryDisplayNameRepository {
+    fun observeSyncInboxLocation(): Flow<StorageLocation?> = observeLocation(StorageArea.SYNC_INBOX)
+
+    suspend fun currentSyncInboxLocation(): StorageLocation? = currentLocation(StorageArea.SYNC_INBOX)
+
+    fun observeSyncInboxDisplayName(): Flow<String?> = observeDisplayName(StorageArea.SYNC_INBOX)
+}
+
 interface DirectorySettingsRepository :
     DirectoryLocationRepository,
     DirectoryDisplayNameRepository,
     RootDirectorySettingsRepository,
-    MediaDirectorySettingsRepository
+    MediaDirectorySettingsRepository,
+    SyncInboxDirectorySettingsRepository

@@ -131,6 +131,18 @@ class SettingsStorageFeatureViewModel(
         scope.launch { appConfigCoordinator.updateVoiceUri(uriString) }
     }
 
+    fun updateSyncInboxDirectory(path: String) {
+        scope.launch { appConfigCoordinator.updateSyncInboxDirectory(path) }
+    }
+
+    fun updateSyncInboxUri(uriString: String) {
+        scope.launch { appConfigCoordinator.updateSyncInboxUri(uriString) }
+    }
+
+    fun updateSyncInboxEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateSyncInboxEnabled(enabled) }
+    }
+
     fun updateStorageFilenameFormat(format: String) {
         scope.launch { appConfigCoordinator.updateStorageFilenameFormat(format) }
     }

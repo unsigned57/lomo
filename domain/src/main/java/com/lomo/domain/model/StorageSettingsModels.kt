@@ -4,6 +4,7 @@ enum class StorageArea {
     ROOT,
     IMAGE,
     VOICE,
+    SYNC_INBOX,
 }
 
 data class StorageAreaUpdate(

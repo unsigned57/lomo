@@ -9,6 +9,9 @@
     <string name="settings_not_set">未设置</string>
     <string name="settings_image_storage">图片存储</string>
     <string name="settings_voice_storage">语音存储</string>
+    <string name="settings_sync_inbox_enabled">同步收件箱文件夹</string>
+    <string name="settings_sync_inbox_enabled_subtitle">刷新前自动处理此目录中的 markdown、图片和音频并合并到当前主线</string>
+    <string name="settings_sync_inbox_directory">同步收件箱目录</string>
     <string name="settings_filename_format">文件名格式</string>
     <string name="settings_timestamp_format">时间戳格式</string>
     

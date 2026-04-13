@@ -79,6 +79,12 @@ interface ShareCardPreferencesRepository {
     suspend fun setShareCardShowBrand(enabled: Boolean)
 }
 
+interface SyncInboxPreferencesRepository {
+    fun isSyncInboxEnabled(): Flow<Boolean>
+
+    suspend fun setSyncInboxEnabled(enabled: Boolean)
+}
+
 interface MemoSnapshotPreferencesRepository {
     fun isMemoSnapshotsEnabled(): Flow<Boolean>
 
@@ -106,4 +112,5 @@ interface PreferencesRepository :
     MemoActionPreferencesRepository,
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,
+    SyncInboxPreferencesRepository,
     DraftPreferencesRepository

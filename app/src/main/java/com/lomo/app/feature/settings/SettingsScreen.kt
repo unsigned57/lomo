@@ -69,6 +69,7 @@ data class StoragePickerActions(
     val openRoot: () -> Unit,
     val openImage: () -> Unit,
     val openVoice: () -> Unit,
+    val openSyncInbox: () -> Unit,
     val openS3LocalSyncDirectory: () -> Unit,
 )
 

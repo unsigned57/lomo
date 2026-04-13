@@ -9,12 +9,15 @@ import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SyncInboxConflictResolutionResult
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 
 class SyncConflictResolutionUseCase(
     private val gitSyncRepository: GitSyncRepository,
     private val webDavSyncRepository: WebDavSyncRepository,
     private val s3SyncRepository: S3SyncRepository,
+    private val syncInboxRepository: SyncInboxRepository,
     private val memoRepository: MemoRepository,
 ) {
     suspend fun resolve(
@@ -35,6 +38,11 @@ class SyncConflictResolutionUseCase(
 
             SyncBackendType.S3 ->
                 s3SyncRepository
+                    .resolveConflicts(resolution, conflictSet)
+                    .toResolutionResult()
+
+            SyncBackendType.INBOX ->
+                syncInboxRepository
                     .resolveConflicts(resolution, conflictSet)
                     .toResolutionResult()
 
@@ -93,4 +101,10 @@ private fun com.lomo.domain.model.S3SyncResult.toResolutionResult(): SyncConflic
         is com.lomo.domain.model.S3SyncResult.Conflict ->
             SyncConflictResolutionResult.Pending(conflicts)
         else -> SyncConflictResolutionResult.Resolved
+    }
+
+private fun SyncInboxConflictResolutionResult.toResolutionResult(): SyncConflictResolutionResult =
+    when (this) {
+        is SyncInboxConflictResolutionResult.Pending -> SyncConflictResolutionResult.Pending(conflictSet)
+        SyncInboxConflictResolutionResult.Resolved -> SyncConflictResolutionResult.Resolved
     }

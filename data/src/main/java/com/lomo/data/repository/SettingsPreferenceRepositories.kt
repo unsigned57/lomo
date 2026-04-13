@@ -13,6 +13,7 @@ import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareCardPreferencesRepository
 import com.lomo.domain.repository.StoragePreferencesRepository
+import com.lomo.domain.repository.SyncInboxPreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
@@ -45,6 +46,7 @@ class PreferencesRepositoryImpl
         memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
         securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
         shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
+        syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
         draftPreferencesRepository: DraftPreferencesRepositoryImpl,
     ) : PreferencesRepository,
         DateTimePreferencesRepository by dateTimePreferencesRepository,
@@ -53,6 +55,7 @@ class PreferencesRepositoryImpl
         MemoActionPreferencesRepository by memoActionPreferencesRepository,
         SecurityPreferencesRepository by securityPreferencesRepository,
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
+        SyncInboxPreferencesRepository by syncInboxPreferencesRepository,
         DraftPreferencesRepository by draftPreferencesRepository
 
 @Singleton
@@ -204,6 +207,19 @@ class DraftPreferencesRepositoryImpl
 
         override suspend fun setDraftText(text: String?) {
             dataStore.updateDraftText(text)
+        }
+    }
+
+@Singleton
+class SyncInboxPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : SyncInboxPreferencesRepository {
+        override fun isSyncInboxEnabled(): Flow<Boolean> = dataStore.syncInboxEnabled
+
+        override suspend fun setSyncInboxEnabled(enabled: Boolean) {
+            dataStore.updateSyncInboxEnabled(enabled)
         }
     }
 

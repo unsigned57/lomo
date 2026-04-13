@@ -86,6 +86,7 @@ class MainViewModelInitialImportStateTest {
     private lateinit var mediaRepository: MediaRepository
     private lateinit var webDavSyncRepository: WebDavSyncRepository
     private lateinit var s3SyncRepository: S3SyncRepository
+    private lateinit var syncInboxRepository: com.lomo.domain.repository.SyncInboxRepository
     private lateinit var syncPolicyRepository: SyncPolicyRepository
     private lateinit var appVersionRepository: AppVersionRepository
     private lateinit var memoVersionRepository: MemoVersionRepository
@@ -107,6 +108,7 @@ class MainViewModelInitialImportStateTest {
         mediaRepository = mockk(relaxed = true)
         webDavSyncRepository = mockk(relaxed = true)
         s3SyncRepository = mockk(relaxed = true)
+        syncInboxRepository = mockk(relaxed = true)
         syncPolicyRepository = mockk(relaxed = true)
         appVersionRepository = mockk(relaxed = true)
         memoVersionRepository = mockk(relaxed = true)
@@ -359,6 +361,7 @@ class MainViewModelInitialImportStateTest {
                                 gitSyncRepo,
                                 webDavSyncRepository,
                                 s3SyncRepository,
+                                syncInboxRepository,
                                 syncPolicyRepository,
                             ),
                         ),
@@ -377,8 +380,10 @@ class MainViewModelInitialImportStateTest {
                                     gitSyncRepo,
                                     webDavSyncRepository,
                                     s3SyncRepository,
+                                    syncInboxRepository,
                                     syncPolicyRepository,
                                 ),
+                            syncInboxRepository = syncInboxRepository,
                             appVersionRepository = appVersionRepository,
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),

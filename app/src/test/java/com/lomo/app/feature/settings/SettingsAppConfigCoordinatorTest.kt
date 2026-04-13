@@ -34,12 +34,14 @@ class SettingsAppConfigCoordinatorTest {
     private val rootDisplayFlow = MutableSharedFlow<String?>(replay = 1)
     private val imageDisplayFlow = MutableSharedFlow<String?>(replay = 1)
     private val voiceDisplayFlow = MutableSharedFlow<String?>(replay = 1)
+    private val syncInboxDisplayFlow = MutableSharedFlow<String?>(replay = 1)
 
     @Before
     fun setUp() {
         every { appConfigRepository.observeRootDisplayName() } returns rootDisplayFlow
         every { appConfigRepository.observeImageDisplayName() } returns imageDisplayFlow
         every { appConfigRepository.observeVoiceDisplayName() } returns voiceDisplayFlow
+        every { appConfigRepository.observeSyncInboxDisplayName() } returns syncInboxDisplayFlow
 
         every { appConfigRepository.getDateFormat() } returns flowOf(PreferenceDefaults.DATE_FORMAT)
         every { appConfigRepository.getTimeFormat() } returns flowOf(PreferenceDefaults.TIME_FORMAT)
@@ -81,6 +83,7 @@ class SettingsAppConfigCoordinatorTest {
         every {
             appConfigRepository.isShareCardShowBrandEnabled()
         } returns flowOf(PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
+        every { appConfigRepository.isSyncInboxEnabled() } returns flowOf(false)
     }
 
     @Test
@@ -91,6 +94,7 @@ class SettingsAppConfigCoordinatorTest {
             assertEquals(DirectoryDisplayState.Loading, coordinator.rootDirectory.value)
             assertEquals(DirectoryDisplayState.Loading, coordinator.imageDirectory.value)
             assertEquals(DirectoryDisplayState.Loading, coordinator.voiceDirectory.value)
+            assertEquals(DirectoryDisplayState.Loading, coordinator.syncInboxDirectory.value)
             assertEquals(PreferenceDefaults.DATE_FORMAT, coordinator.dateFormat.value)
             assertEquals(PreferenceDefaults.TIME_FORMAT, coordinator.timeFormat.value)
             assertEquals(ThemeMode.SYSTEM, coordinator.themeMode.value)
@@ -103,10 +107,12 @@ class SettingsAppConfigCoordinatorTest {
             backgroundScope.launch { coordinator.rootDirectory.collect {} }
             backgroundScope.launch { coordinator.imageDirectory.collect {} }
             backgroundScope.launch { coordinator.voiceDirectory.collect {} }
+            backgroundScope.launch { coordinator.syncInboxDirectory.collect {} }
 
             rootDisplayFlow.emit("/workspace/root")
             imageDisplayFlow.emit(null)
             voiceDisplayFlow.emit("/workspace/voice")
+            syncInboxDisplayFlow.emit("/workspace/inbox")
 
             assertEquals(
                 DirectoryDisplayState.Resolved("/workspace/root"),
@@ -119,6 +125,10 @@ class SettingsAppConfigCoordinatorTest {
             assertEquals(
                 DirectoryDisplayState.Resolved("/workspace/voice"),
                 coordinator.voiceDirectory.first { it !is DirectoryDisplayState.Loading },
+            )
+            assertEquals(
+                DirectoryDisplayState.Resolved("/workspace/inbox"),
+                coordinator.syncInboxDirectory.first { it !is DirectoryDisplayState.Loading },
             )
         }
 
@@ -171,6 +181,26 @@ class SettingsAppConfigCoordinatorTest {
         }
 
     @Test
+    fun `updateSyncInbox locations build expected storage-area updates`() =
+        runTest {
+            val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
+
+            coordinator.updateSyncInboxDirectory("/sync-inbox")
+            coordinator.updateSyncInboxUri("content://tree/sync-inbox")
+
+            coVerify(exactly = 1) {
+                appConfigRepository.applyLocation(
+                    StorageAreaUpdate(StorageArea.SYNC_INBOX, StorageLocation("/sync-inbox")),
+                )
+            }
+            coVerify(exactly = 1) {
+                appConfigRepository.applyLocation(
+                    StorageAreaUpdate(StorageArea.SYNC_INBOX, StorageLocation("content://tree/sync-inbox")),
+                )
+            }
+        }
+
+    @Test
     fun `updateDoubleTapEditEnabled enforces free-text-copy off only when enabling`() =
         runTest {
             val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
@@ -213,6 +243,7 @@ class SettingsAppConfigCoordinatorTest {
             coordinator.updateCheckUpdatesOnStartup(false)
             coordinator.updateShareCardShowTime(false)
             coordinator.updateShareCardShowBrand(false)
+            coordinator.updateSyncInboxEnabled(true)
 
             coVerify(exactly = 1) { appConfigRepository.setDateFormat("MM/dd/yyyy") }
             coVerify(exactly = 1) { appConfigRepository.setTimeFormat("HH:mm") }
@@ -226,5 +257,6 @@ class SettingsAppConfigCoordinatorTest {
             coVerify(exactly = 1) { appConfigRepository.setCheckUpdatesOnStartup(false) }
             coVerify(exactly = 1) { appConfigRepository.setShareCardShowTime(false) }
             coVerify(exactly = 1) { appConfigRepository.setShareCardShowBrand(false) }
+            coVerify(exactly = 1) { appConfigRepository.setSyncInboxEnabled(true) }
         }
 }

@@ -39,6 +39,11 @@ class SettingsAppConfigCoordinator(
             .observeVoiceDisplayName()
             .asDirectoryDisplayState(scope)
 
+    val syncInboxDirectory: StateFlow<DirectoryDisplayState> =
+        appConfigRepository
+            .observeSyncInboxDisplayName()
+            .asDirectoryDisplayState(scope)
+
     val dateFormat: StateFlow<String> =
         appConfigRepository
             .getDateFormat()
@@ -118,6 +123,11 @@ class SettingsAppConfigCoordinator(
             .isShareCardShowBrandEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
 
+    val syncInboxEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isSyncInboxEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SYNC_INBOX_ENABLED)
+
     val memoSnapshotsEnabled: StateFlow<Boolean> =
         memoSnapshotPreferencesRepository
             .isMemoSnapshotsEnabled()
@@ -183,6 +193,26 @@ class SettingsAppConfigCoordinator(
             )
         }
 
+    val updateSyncInboxDirectory: suspend (String) -> Unit =
+        { path ->
+            appConfigRepository.applyLocation(
+                StorageAreaUpdate(
+                    area = StorageArea.SYNC_INBOX,
+                    location = StorageLocation(path),
+                ),
+            )
+        }
+
+    val updateSyncInboxUri: suspend (String) -> Unit =
+        { uriString ->
+            appConfigRepository.applyLocation(
+                StorageAreaUpdate(
+                    area = StorageArea.SYNC_INBOX,
+                    location = StorageLocation(uriString),
+                ),
+            )
+        }
+
     val updateDateFormat: suspend (String) -> Unit =
         { format -> appConfigRepository.setDateFormat(format) }
 
@@ -237,6 +267,9 @@ class SettingsAppConfigCoordinator(
 
     val updateShareCardShowBrand: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setShareCardShowBrand(enabled) }
+
+    val updateSyncInboxEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setSyncInboxEnabled(enabled) }
 
     val updateMemoSnapshotsEnabled: suspend (Boolean) -> Unit =
         { enabled ->

@@ -7,4 +7,5 @@ enum class StorageRootType {
     MAIN,
     IMAGE,
     VOICE,
+    SYNC_INBOX,
 }

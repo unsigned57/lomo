@@ -53,6 +53,12 @@ internal class MediaLocationStoreImpl(
     override val voiceDirectory: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.VOICE_DIRECTORY, "voiceDirectory")
 
+    override val syncInboxUri: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_URI, "syncInboxUri")
+
+    override val syncInboxDirectory: Flow<String?> =
+        dataStore.nullableStringFlow(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, "syncInboxDirectory")
+
     override suspend fun updateImageUri(uri: String?) {
         dataStore.editPreferences {
             if (uri != null) {
@@ -81,6 +87,21 @@ internal class MediaLocationStoreImpl(
 
     override suspend fun updateVoiceDirectory(path: String?) {
         dataStore.setOrRemove(LomoDataStoreKeys.VOICE_DIRECTORY, path)
+    }
+
+    override suspend fun updateSyncInboxUri(uri: String?) {
+        dataStore.editPreferences {
+            if (uri != null) {
+                this[LomoDataStoreKeys.SYNC_INBOX_URI] = uri
+                remove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY)
+            } else {
+                remove(LomoDataStoreKeys.SYNC_INBOX_URI)
+            }
+        }
+    }
+
+    override suspend fun updateSyncInboxDirectory(path: String?) {
+        dataStore.setOrRemove(LomoDataStoreKeys.SYNC_INBOX_DIRECTORY, path)
     }
 }
 
@@ -290,6 +311,13 @@ internal class LanSharePreferencesStoreImpl(
             default = PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
         )
 
+    override val syncInboxEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SYNC_INBOX_ENABLED,
+            flowName = "syncInboxEnabled",
+            default = PreferenceKeys.Defaults.SYNC_INBOX_ENABLED,
+        )
+
     override suspend fun updateLanSharePairingKeyHex(keyHex: String?) {
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_PAIRING_KEY_HEX, keyHex)
     }
@@ -308,6 +336,10 @@ internal class LanSharePreferencesStoreImpl(
 
     override suspend fun updateShareCardShowBrand(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SHARE_CARD_SHOW_BRAND] = enabled }
+    }
+
+    override suspend fun updateSyncInboxEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
     }
 }
 

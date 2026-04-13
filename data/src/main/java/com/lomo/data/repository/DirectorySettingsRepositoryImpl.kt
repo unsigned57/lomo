@@ -30,6 +30,7 @@ class DirectorySettingsRepositoryImpl
                 StorageArea.ROOT -> dataStore.rootUri.first() ?: dataStore.rootDirectory.first()
                 StorageArea.IMAGE -> dataStore.imageUri.first() ?: dataStore.imageDirectory.first()
                 StorageArea.VOICE -> dataStore.voiceUri.first() ?: dataStore.voiceDirectory.first()
+                StorageArea.SYNC_INBOX -> dataStore.syncInboxUri.first() ?: dataStore.syncInboxDirectory.first()
             }?.let(::StorageLocation)
 
         override fun observeDisplayName(area: StorageArea): Flow<String?> =
@@ -48,4 +49,5 @@ internal fun StorageArea.toStorageRootType(): StorageRootType =
         StorageArea.ROOT -> StorageRootType.MAIN
         StorageArea.IMAGE -> StorageRootType.IMAGE
         StorageArea.VOICE -> StorageRootType.VOICE
+        StorageArea.SYNC_INBOX -> StorageRootType.SYNC_INBOX
     }

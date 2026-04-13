@@ -11,6 +11,7 @@ import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import kotlinx.coroutines.CancellationException
@@ -22,9 +23,12 @@ class SyncAndRebuildUseCase
         private val gitSyncRepository: GitSyncRepository,
         private val webDavSyncRepository: WebDavSyncRepository,
         private val s3SyncRepository: S3SyncRepository,
+        private val syncInboxRepository: SyncInboxRepository,
         private val syncPolicyRepository: SyncPolicyRepository,
     ) {
         suspend operator fun invoke(forceSync: Boolean = false) {
+            syncInboxRepository.processPendingInbox()
+
             if (forceSync) {
                 val syncFailure = syncFailureOrNull(activeBackend())
 
@@ -58,6 +62,10 @@ class SyncAndRebuildUseCase
                     }
                 }
 
+                SyncBackendType.INBOX -> {
+                    Unit
+                }
+
                 SyncBackendType.NONE -> {
                     Unit
                 }
@@ -74,6 +82,7 @@ class SyncAndRebuildUseCase
                     SyncBackendType.GIT -> gitResultToException(gitSyncRepository.sync())
                     SyncBackendType.WEBDAV -> webDavResultToException(webDavSyncRepository.sync())
                     SyncBackendType.S3 -> s3ResultToException(s3SyncRepository.syncForRefresh())
+                    SyncBackendType.INBOX -> null
                     SyncBackendType.NONE -> null
                 }
             }

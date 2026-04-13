@@ -75,6 +75,13 @@ class SettingsStateProvider(
         val s3: S3SectionState,
     )
 
+    private data class StorageDirectoryInputs(
+        val rootDirectory: DirectoryDisplayState,
+        val imageDirectory: DirectoryDisplayState,
+        val voiceDirectory: DirectoryDisplayState,
+        val syncInboxEnabled: Boolean,
+    )
+
     val pairingCodeError: StateFlow<String?> = lanShareCoordinator.pairingCodeError
     val connectionTestState: StateFlow<SettingsGitConnectionTestState> = gitCoordinator.connectionTestState
     val webDavConnectionTestState: StateFlow<SettingsWebDavConnectionTestState> = webDavCoordinator.connectionTestState
@@ -83,13 +90,32 @@ class SettingsStateProvider(
 
     private val storageState: StateFlow<StorageSectionState> =
         combine(
-            appConfigCoordinator.rootDirectory,
-            appConfigCoordinator.imageDirectory,
-            appConfigCoordinator.voiceDirectory,
+            combine(
+                appConfigCoordinator.rootDirectory,
+                appConfigCoordinator.imageDirectory,
+                appConfigCoordinator.voiceDirectory,
+                appConfigCoordinator.syncInboxEnabled,
+            ) { rootDirectory, imageDirectory, voiceDirectory, syncInboxEnabled ->
+                StorageDirectoryInputs(
+                    rootDirectory = rootDirectory,
+                    imageDirectory = imageDirectory,
+                    voiceDirectory = voiceDirectory,
+                    syncInboxEnabled = syncInboxEnabled,
+                )
+            },
+            appConfigCoordinator.syncInboxDirectory,
             appConfigCoordinator.storageFilenameFormat,
             appConfigCoordinator.storageTimestampFormat,
-        ) { rootDirectory, imageDirectory, voiceDirectory, filenameFormat, timestampFormat ->
-            StorageSectionState(rootDirectory, imageDirectory, voiceDirectory, filenameFormat, timestampFormat)
+        ) { directories, syncInboxDirectory, filenameFormat, timestampFormat ->
+            StorageSectionState(
+                rootDirectory = directories.rootDirectory,
+                imageDirectory = directories.imageDirectory,
+                voiceDirectory = directories.voiceDirectory,
+                syncInboxEnabled = directories.syncInboxEnabled,
+                syncInboxDirectory = syncInboxDirectory,
+                filenameFormat = filenameFormat,
+                timestampFormat = timestampFormat,
+            )
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
@@ -98,6 +124,8 @@ class SettingsStateProvider(
                     rootDirectory = appConfigCoordinator.rootDirectory.value,
                     imageDirectory = appConfigCoordinator.imageDirectory.value,
                     voiceDirectory = appConfigCoordinator.voiceDirectory.value,
+                    syncInboxEnabled = appConfigCoordinator.syncInboxEnabled.value,
+                    syncInboxDirectory = appConfigCoordinator.syncInboxDirectory.value,
                     filenameFormat = appConfigCoordinator.storageFilenameFormat.value,
                     timestampFormat = appConfigCoordinator.storageTimestampFormat.value,
                 ),

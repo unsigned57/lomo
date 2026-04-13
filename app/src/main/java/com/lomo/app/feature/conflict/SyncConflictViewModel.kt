@@ -159,7 +159,11 @@ class SyncConflictViewModel
         private fun buildSuggestedChoices(
             conflictSet: SyncConflictSet,
         ): ImmutableMap<String, SyncConflictResolutionChoice> {
-            if (conflictSet.source != SyncBackendType.S3 && conflictSet.source != SyncBackendType.WEBDAV) {
+            if (
+                conflictSet.source != SyncBackendType.S3 &&
+                conflictSet.source != SyncBackendType.WEBDAV &&
+                conflictSet.source != SyncBackendType.INBOX
+            ) {
                 return persistentHashMapOf()
             }
             return conflictSet.files.mapNotNull { file ->

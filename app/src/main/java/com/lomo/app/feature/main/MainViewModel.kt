@@ -271,7 +271,14 @@ class MainViewModel
                 // Step 1.5: Delay non-critical startup warmups to avoid blocking first render.
                 viewModelScope.launch {
                     kotlinx.coroutines.delay(DEFERRED_STARTUP_DELAY_MILLIS)
-                    startupCoordinator.runDeferredStartupTasks(initialDir)
+                    try {
+                        startupCoordinator.runDeferredStartupTasks(initialDir)
+                    } catch (throwable: Throwable) {
+                        handleRefreshFailure(
+                            throwable = throwable,
+                            fallbackMessage = "Failed to finish startup sync",
+                        )
+                    }
                 }
 
                 // Step 2: Listen for subsequent updates (drop first to avoid duplicate)

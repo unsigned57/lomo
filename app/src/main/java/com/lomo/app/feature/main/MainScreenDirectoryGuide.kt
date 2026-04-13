@@ -19,6 +19,7 @@ enum class DirectorySetupType(
 ) {
     Image(R.string.settings_image_storage, "images"),
     Voice(R.string.settings_voice_storage, "voice"),
+    SyncInbox(R.string.settings_sync_inbox_directory, "sync-inbox"),
 }
 
 @Stable

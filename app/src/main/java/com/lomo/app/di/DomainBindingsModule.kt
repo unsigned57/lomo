@@ -13,6 +13,7 @@ import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
@@ -108,6 +109,7 @@ object DomainMemoBindingsModule {
         gitSyncRepository: GitSyncRepository,
         webDavSyncRepository: WebDavSyncRepository,
         s3SyncRepository: S3SyncRepository,
+        syncInboxRepository: SyncInboxRepository,
         syncPolicyRepository: SyncPolicyRepository,
     ): SyncAndRebuildUseCase =
         SyncAndRebuildUseCase(
@@ -115,6 +117,7 @@ object DomainMemoBindingsModule {
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
             s3SyncRepository = s3SyncRepository,
+            syncInboxRepository = syncInboxRepository,
             syncPolicyRepository = syncPolicyRepository,
         )
 
@@ -231,14 +234,17 @@ object DomainWorkspaceBindingsModule {
         mediaRepository: MediaRepository,
         initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,
+        syncInboxRepository: SyncInboxRepository,
         appVersionRepository: AppVersionRepository,
     ): StartupMaintenanceUseCase =
         StartupMaintenanceUseCase(
             mediaRepository = mediaRepository,
             initializeWorkspaceUseCase = initializeWorkspaceUseCase,
             syncAndRebuildUseCase = syncAndRebuildUseCase,
+            syncInboxRepository = syncInboxRepository,
             appVersionRepository = appVersionRepository,
         )
+
 }
 
 @Module
@@ -370,12 +376,14 @@ object DomainSyncBindingsModule {
         gitSyncRepository: GitSyncRepository,
         webDavSyncRepository: WebDavSyncRepository,
         s3SyncRepository: S3SyncRepository,
+        syncInboxRepository: SyncInboxRepository,
         memoRepository: MemoRepository,
     ): SyncConflictResolutionUseCase =
         SyncConflictResolutionUseCase(
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
             s3SyncRepository = s3SyncRepository,
+            syncInboxRepository = syncInboxRepository,
             memoRepository = memoRepository,
         )
 }

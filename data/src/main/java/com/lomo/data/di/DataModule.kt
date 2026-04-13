@@ -49,6 +49,7 @@ import com.lomo.data.repository.SettingsRepositoryImpl
 import com.lomo.data.repository.ShareImageRepositoryImpl
 import com.lomo.data.repository.S3SyncRepositoryImpl
 import com.lomo.data.repository.SyncPolicyRepositoryImpl
+import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.RefreshingWorkspaceStateResolver
 import com.lomo.data.repository.WorkspaceMediaAccess
@@ -74,6 +75,7 @@ import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
@@ -413,6 +415,10 @@ object CoreRepositoryModule {
     @Provides
     @Singleton
     fun provideMediaRepository(impl: MediaRepositoryImpl): MediaRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSyncInboxRepository(impl: SyncInboxRepositoryImpl): SyncInboxRepository = impl
 
     @Provides
     @Singleton

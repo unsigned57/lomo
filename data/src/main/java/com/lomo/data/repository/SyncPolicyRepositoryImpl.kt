@@ -79,6 +79,12 @@ class SyncPolicyRepositoryImpl
                     dataStore.updateWebDavSyncEnabled(false)
                     dataStore.updateS3SyncEnabled(true)
                 }
+
+                SyncBackendType.INBOX -> {
+                    dataStore.updateGitSyncEnabled(false)
+                    dataStore.updateWebDavSyncEnabled(false)
+                    dataStore.updateS3SyncEnabled(false)
+                }
             }
         }
 
@@ -106,6 +112,12 @@ class SyncPolicyRepositoryImpl
                     gitSyncScheduler.cancel()
                     webDavSyncScheduler.cancel()
                     s3SyncScheduler.reschedule()
+                }
+
+                SyncBackendType.INBOX -> {
+                    gitSyncScheduler.cancel()
+                    webDavSyncScheduler.cancel()
+                    s3SyncScheduler.cancel()
                 }
             }
         }

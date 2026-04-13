@@ -8,6 +8,9 @@
     <string name="settings_not_set">Not set</string>
     <string name="settings_image_storage">Image Storage</string>
     <string name="settings_voice_storage">Voice Storage</string>
+    <string name="settings_sync_inbox_enabled">Sync inbox folder</string>
+    <string name="settings_sync_inbox_enabled_subtitle">Automatically merge incoming markdown, images, and audio from this folder before refresh</string>
+    <string name="settings_sync_inbox_directory">Sync inbox directory</string>
     <string name="settings_filename_format">Filename Format</string>
     <string name="settings_timestamp_format">Timestamp Format</string>
     

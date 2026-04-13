@@ -41,6 +41,12 @@ internal fun rememberStoragePickerActions(
                 snackbarHostState = snackbarHostState,
                 unknownErrorMessage = unknownErrorMessage,
             ),
+        openSyncInbox =
+            rememberTreePickerAction(
+                onUriSelected = storageFeature::updateSyncInboxUri,
+                snackbarHostState = snackbarHostState,
+                unknownErrorMessage = unknownErrorMessage,
+            ),
         openS3LocalSyncDirectory =
             rememberTreePickerAction(
                 onUriSelected = s3Feature.updateLocalSyncDirectory,

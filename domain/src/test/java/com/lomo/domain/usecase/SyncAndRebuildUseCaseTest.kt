@@ -14,6 +14,7 @@ import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.S3SyncRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import io.mockk.coEvery
@@ -43,6 +44,7 @@ class SyncAndRebuildUseCaseTest {
     private val gitSyncRepository: GitSyncRepository = mockk()
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
     private val s3SyncRepository: S3SyncRepository = mockk()
+    private val syncInboxRepository: SyncInboxRepository = mockk(relaxed = true)
     private val syncPolicyRepository: SyncPolicyRepository = mockk()
     private val useCase =
         SyncAndRebuildUseCase(
@@ -50,6 +52,7 @@ class SyncAndRebuildUseCaseTest {
             gitSyncRepository = gitSyncRepository,
             webDavSyncRepository = webDavSyncRepository,
             s3SyncRepository = s3SyncRepository,
+            syncInboxRepository = syncInboxRepository,
             syncPolicyRepository = syncPolicyRepository,
         )
 

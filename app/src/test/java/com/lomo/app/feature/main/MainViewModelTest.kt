@@ -13,6 +13,8 @@ import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.usecase.DeleteMemoUseCase
@@ -37,6 +39,7 @@ import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -80,6 +83,7 @@ class MainViewModelTest {
     private lateinit var mediaRepository: com.lomo.domain.repository.MediaRepository
     private lateinit var webDavSyncRepository: com.lomo.domain.repository.WebDavSyncRepository
     private lateinit var s3SyncRepository: com.lomo.domain.repository.S3SyncRepository
+    private lateinit var syncInboxRepository: com.lomo.domain.repository.SyncInboxRepository
     private lateinit var syncPolicyRepository: com.lomo.domain.repository.SyncPolicyRepository
     private lateinit var appVersionRepository: com.lomo.domain.repository.AppVersionRepository
     private lateinit var memoVersionRepository: com.lomo.domain.repository.MemoVersionRepository
@@ -100,6 +104,7 @@ class MainViewModelTest {
         mediaRepository = mockk(relaxed = true)
         webDavSyncRepository = mockk(relaxed = true)
         s3SyncRepository = mockk(relaxed = true)
+        syncInboxRepository = mockk(relaxed = true)
         syncPolicyRepository = mockk(relaxed = true)
         appVersionRepository = mockk(relaxed = true)
         memoVersionRepository = mockk(relaxed = true)
@@ -652,6 +657,38 @@ class MainViewModelTest {
             assertEquals("Failed to create directories: mkdir failed", viewModel.errorMessage.value)
         }
 
+    @Test
+    fun `startup sync inbox conflict is emitted as sync conflict event`() =
+        runTest {
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
+            val conflicts =
+                SyncConflictSet(
+                    source = SyncBackendType.INBOX,
+                    files =
+                        listOf(
+                            SyncConflictFile(
+                                relativePath = "inbox/2026_04_13.md",
+                                localContent = "local",
+                                remoteContent = "remote",
+                                isBinary = false,
+                            ),
+                        ),
+                    timestamp = 123L,
+                )
+            coEvery { syncInboxRepository.processPendingInbox() } throws com.lomo.domain.usecase.SyncConflictException(conflicts)
+
+            val viewModel = createViewModel()
+            val event = async { viewModel.syncConflictEvent.first() }
+
+            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceTimeBy(350L)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(conflicts, event.await())
+            assertNull(viewModel.errorMessage.value)
+        }
+
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             memoUiCoordinator = MemoUiCoordinator(repository),
@@ -681,6 +718,7 @@ class MainViewModelTest {
                                 gitSyncRepo,
                                 webDavSyncRepository,
                                 s3SyncRepository,
+                                syncInboxRepository,
                                 syncPolicyRepository,
                             ),
                         ),
@@ -699,8 +737,10 @@ class MainViewModelTest {
                                     gitSyncRepo,
                                     webDavSyncRepository,
                                     s3SyncRepository,
+                                    syncInboxRepository,
                                     syncPolicyRepository,
                                 ),
+                            syncInboxRepository = syncInboxRepository,
                             appVersionRepository = appVersionRepository,
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
