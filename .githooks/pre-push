@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
-quality_script="$repo_root/quality/scripts/ai_quality_check.sh"
-
-if [ ! -x "$quality_script" ]; then
-  echo "pre-push: quality script not found or not executable: $quality_script" >&2
-  exit 1
-fi
-
-echo "pre-push: running repository quality gate..."
-"$quality_script"
+echo "pre-push: repository quality gate now runs during pre-commit; skipping duplicate push-time check."

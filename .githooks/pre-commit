@@ -4,15 +4,12 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 gradlew="$repo_root/gradlew"
 meaningful_test_script="$repo_root/quality/scripts/check_meaningful_tests.sh"
+quality_script="$repo_root/quality/scripts/ai_quality_check.sh"
 
 staged_kotlin_files=()
 while IFS= read -r -d '' file; do
   staged_kotlin_files+=("$file")
 done < <(git -C "$repo_root" diff --cached --name-only --diff-filter=ACMR -z -- '*.kt' '*.kts')
-
-if [ ${#staged_kotlin_files[@]} -eq 0 ]; then
-  exit 0
-fi
 
 if [ ! -x "$gradlew" ]; then
   echo "pre-commit: gradle wrapper not found or not executable: $gradlew" >&2
@@ -42,41 +39,45 @@ clear_stale_wrapper_locks() {
 
 clear_stale_wrapper_locks
 
-printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
-unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-detekt-git-hook-$$.diff")"
-unstaged_diff_reversed=0
+if [ ${#staged_kotlin_files[@]} -gt 0 ]; then
+  printf -v staged_kotlin_git_filter '%s\n' "${staged_kotlin_files[@]}"
+  unstaged_diff="$(git -C "$repo_root" rev-parse --git-path "unstaged-detekt-git-hook-$$.diff")"
+  unstaged_diff_reversed=0
 
-cleanup() {
-  local exit_code=$?
-  trap - EXIT INT TERM
-  if [ "$unstaged_diff_reversed" -eq 1 ] && [ -f "$unstaged_diff" ] && [ -s "$unstaged_diff" ]; then
-    git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff"
+  cleanup() {
+    local exit_code=$?
+    trap - EXIT INT TERM
+    if [ "$unstaged_diff_reversed" -eq 1 ] && [ -f "$unstaged_diff" ] && [ -s "$unstaged_diff" ]; then
+      git -C "$repo_root" apply --ignore-whitespace "$unstaged_diff"
+    fi
+    rm -f "$unstaged_diff"
+    exit "$exit_code"
+  }
+
+  trap cleanup EXIT INT TERM
+
+  git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" > "$unstaged_diff"
+  if [ -s "$unstaged_diff" ]; then
+    git -C "$repo_root" apply -R "$unstaged_diff"
+    unstaged_diff_reversed=1
   fi
-  rm -f "$unstaged_diff"
-  exit "$exit_code"
-}
 
-trap cleanup EXIT INT TERM
+  echo "pre-commit: running $gradlew detektFormatStaged on staged Kotlin files..."
+  echo "pre-commit: using repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
+  GRADLE_USER_HOME="$hook_gradle_user_home" \
+    "$gradlew" --project-dir "$repo_root" --no-daemon --no-configuration-cache --quiet \
+    detektFormatStaged "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
+  echo "pre-commit: detektFormatStaged finished"
 
-git -C "$repo_root" diff --binary --color=never -- "${staged_kotlin_files[@]}" > "$unstaged_diff"
-if [ -s "$unstaged_diff" ]; then
-  git -C "$repo_root" apply -R "$unstaged_diff"
-  unstaged_diff_reversed=1
+  # Re-stage files that were modified by formatter.
+  for file in "${staged_kotlin_files[@]}"; do
+    if [ -f "$repo_root/$file" ]; then
+      git -C "$repo_root" add -- "$file"
+    fi
+  done
+else
+  echo "pre-commit: no staged Kotlin files; skipping detektFormatStaged."
 fi
-
-echo "pre-commit: running $gradlew detektFormatStaged on staged Kotlin files..."
-echo "pre-commit: using repo-local GRADLE_USER_HOME at $hook_gradle_user_home"
-GRADLE_USER_HOME="$hook_gradle_user_home" \
-  "$gradlew" --project-dir "$repo_root" --no-daemon --no-configuration-cache --quiet \
-  detektFormatStaged "-PinternalDetektGitFilter=$staged_kotlin_git_filter"
-echo "pre-commit: detektFormatStaged finished"
-
-# Re-stage files that were modified by formatter.
-for file in "${staged_kotlin_files[@]}"; do
-  if [ -f "$repo_root/$file" ]; then
-    git -C "$repo_root" add -- "$file"
-  fi
-done
 
 if [ ! -x "$meaningful_test_script" ]; then
   echo "pre-commit: meaningful test check script not found or not executable: $meaningful_test_script" >&2
@@ -85,3 +86,11 @@ fi
 
 echo "pre-commit: checking meaningful test contracts on staged tests..."
 MEANINGFUL_TEST_CHECK_MODE=staged "$meaningful_test_script"
+
+if [ ! -x "$quality_script" ]; then
+  echo "pre-commit: quality script not found or not executable: $quality_script" >&2
+  exit 1
+fi
+
+echo "pre-commit: running repository quality gate before commit..."
+"$quality_script"

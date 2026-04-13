@@ -61,6 +61,9 @@ Policy notes:
 
 - AGENTS/prompt/doc-policy changes belong on the static AI verification path, not the fast test/docs path.
 - Docs-only work may intentionally skip verification, but the final summary must say so explicitly.
+- Commits are stricter than handoff drafts: before the first commit in a code-change batch, run a full `qualityCheck`.
+- If you split one unchanged, already-verified batch into multiple consecutive commits, you may reuse that same successful `qualityCheck` for the later commits in the batch.
+- If any code changes are made after that successful `qualityCheck`, the result is stale and another full `qualityCheck` is required before committing again.
 
 Execution defaults:
 

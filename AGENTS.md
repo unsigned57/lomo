@@ -36,6 +36,8 @@ Default navigation rules:
   - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./quality/scripts/ai_static_quality_check.sh`
 - Final verifier before handoff:
   - `env GRADLE_USER_HOME="$PWD/.gradle/task-inspect" ./gradlew --no-daemon --no-configuration-cache --console=plain qualityCheck`
+- Before creating any commit, the AI must ensure there has been one successful full `qualityCheck` run after the latest code changes that will be included in that commit.
+- If the AI is splitting one already-verified batch into several consecutive commits without introducing further code changes between commits, that single successful `qualityCheck` may be reused for the later commits in the same batch.
 - Run repository commands from the repo root, or pass `--project-dir "$repo_root"` explicitly.
 - Do not run Gradle from `/tmp` or another throwaway working directory.
 - Prefer repo-local Gradle state such as `GRADLE_USER_HOME="$PWD/.gradle/task-inspect"` so wrapper distributions and caches are reused across runs.
@@ -45,6 +47,7 @@ Default navigation rules:
   - quality tasks or scripts
   - coverage wiring
   - dependency or plugin wiring
+- Treat the successful `qualityCheck` run as stale as soon as additional code changes are made afterward; another full run is then required before the next commit.
 - Docs-only changes may skip verification, but the AI must say that it intentionally skipped it.
 - Never run multiple Gradle invocations in parallel in this repository.
 - Assume other people may be editing the tree. Do not overwrite, revert, or reformat their changes unless explicitly asked.
@@ -98,6 +101,7 @@ Use these local indexes before doing broad source search:
 
 ## 6. AI Code Rules
 
+- Assume every AI-authored code change will be reviewed by Claude. Write with review-grade clarity, correctness, and maintainability so the change can withstand adversarial scrutiny.
 - Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in newly generated or modified code.
 - Existing suppressions are not precedent for new code.
 - If a static check complains, prefer one of:
