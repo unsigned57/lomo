@@ -15,8 +15,8 @@ import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.domain.model.SyncInboxConflictResolutionResult
 import com.lomo.domain.repository.PreferencesRepository
-import com.lomo.domain.repository.SyncInboxConflictResolutionResult
 import com.lomo.domain.repository.SyncInboxRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers

@@ -11,13 +11,13 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
+import com.lomo.domain.model.SyncInboxConflictResolutionResult
 import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.S3SyncRepository
-import com.lomo.domain.repository.SyncInboxConflictResolutionResult
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import io.mockk.coEvery
