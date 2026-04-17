@@ -49,6 +49,7 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.ImmutableList
@@ -66,6 +67,7 @@ private data class SearchScreenUiSnapshot(
     val shareCardSignatureText: String,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val singleTapDetailEnabled: Boolean,
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
@@ -130,6 +132,7 @@ fun SearchScreen(
                 timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
+                singleTapDetailEnabled = uiState.singleTapDetailEnabled,
                 padding = padding,
                 onOpenEditor = openEditor,
                 onShowMenu = onShowSearchMenu,
@@ -160,6 +163,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         shareCardSignatureText = appPreferences.shareCardSignatureText,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+        singleTapDetailEnabled = appPreferences.singleTapDetailEnabled,
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },
@@ -339,6 +343,7 @@ private fun SearchScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    singleTapDetailEnabled: Boolean,
     padding: PaddingValues,
     onOpenEditor: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
@@ -371,23 +376,28 @@ private fun SearchScreenContent(
             }
 
             else -> {
-                MemoCardList(
-                    memos = searchResults,
-                    dateFormat = dateFormat,
-                    timeFormat = timeFormat,
-                    doubleTapEditEnabled = doubleTapEditEnabled,
-                    freeTextCopyEnabled = freeTextCopyEnabled,
-                    onMemoEdit = onOpenEditor,
-                    onShowMenu = onShowMenu,
-                    animation = MemoCardListAnimation.None,
-                    contentPadding =
-                        PaddingValues(
-                            top = AppSpacing.Medium,
-                            start = AppSpacing.Medium,
-                            end = AppSpacing.Medium,
-                            bottom = AppSpacing.Medium,
-                        ),
-                )
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalSearchHighlightQuery provides query,
+                ) {
+                    MemoCardList(
+                        memos = searchResults,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        doubleTapEditEnabled = doubleTapEditEnabled,
+                        freeTextCopyEnabled = freeTextCopyEnabled,
+                        singleTapDetailEnabled = singleTapDetailEnabled,
+                        onMemoEdit = onOpenEditor,
+                        onShowMenu = onShowMenu,
+                        animation = MemoCardListAnimation.None,
+                        contentPadding =
+                            PaddingValues(
+                                top = AppSpacing.Medium,
+                                start = AppSpacing.Medium,
+                                end = AppSpacing.Medium,
+                                bottom = AppSpacing.Medium,
+                            ),
+                    )
+                }
             }
         }
     }
