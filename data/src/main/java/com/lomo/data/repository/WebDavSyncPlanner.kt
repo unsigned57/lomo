@@ -9,6 +9,7 @@ import kotlin.math.abs
 data class LocalWebDavFile(
     val path: String,
     val lastModified: Long,
+    val localFingerprint: String? = null,
 )
 
 data class RemoteWebDavFile(
@@ -35,12 +36,19 @@ class WebDavSyncPlanner(
         localFiles: Map<String, LocalWebDavFile>,
         remoteFiles: Map<String, RemoteWebDavFile>,
         metadata: Map<String, WebDavSyncMetadataEntity>,
+        preResolvedActionsByPath: Map<String, WebDavSyncAction> = emptyMap(),
+        suppressedPaths: Set<String> = emptySet(),
     ): WebDavSyncPlan {
         val actions =
             buildList {
                 (localFiles.keys + remoteFiles.keys + metadata.keys)
                     .sorted()
                     .forEach { path ->
+                        if (path in suppressedPaths) return@forEach
+                        preResolvedActionsByPath[path]?.let { preResolved ->
+                            add(preResolved)
+                            return@forEach
+                        }
                         createAction(
                             path = path,
                             local = localFiles[path],
@@ -79,8 +87,8 @@ class WebDavSyncPlanner(
             return WebDavSyncAction(path, WebDavSyncDirection.CONFLICT, WebDavSyncReason.CONFLICT)
         }
 
-        val localChanged = changed(local.lastModified, metadata.localLastModified)
-        val remoteChanged = changed(remote.lastModified, metadata.remoteLastModified) || remote.etag != metadata.etag
+        val localChanged = localChanged(local, metadata)
+        val remoteChanged = remoteChanged(remote, metadata)
 
         return when {
             !localChanged && !remoteChanged -> null
@@ -104,18 +112,11 @@ class WebDavSyncPlanner(
                 WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)
             }
 
-            !changed(local.lastModified, metadata.localLastModified) -> {
+            !localChanged(local, metadata) -> {
                 WebDavSyncAction(path, WebDavSyncDirection.DELETE_LOCAL, WebDavSyncReason.REMOTE_DELETED)
             }
 
-            else -> {
-                val remoteReference = metadata.remoteLastModified ?: metadata.lastSyncedAt
-                if (local.lastModified >= remoteReference) {
-                    WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_NEWER)
-                } else {
-                    WebDavSyncAction(path, WebDavSyncDirection.DELETE_LOCAL, WebDavSyncReason.REMOTE_DELETED)
-                }
-            }
+            else -> WebDavSyncAction(path, WebDavSyncDirection.CONFLICT, WebDavSyncReason.CONFLICT)
         }
 
     private fun handleRemoteOnly(
@@ -128,31 +129,31 @@ class WebDavSyncPlanner(
                 WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_ONLY)
             }
 
-            !changed(remote.lastModified, metadata.remoteLastModified) && remote.etag == metadata.etag -> {
+            !remoteChanged(remote, metadata) -> {
                 WebDavSyncAction(path, WebDavSyncDirection.DELETE_REMOTE, WebDavSyncReason.LOCAL_DELETED)
             }
 
-            else -> {
-                val localReference = metadata.localLastModified ?: metadata.lastSyncedAt
-                if ((remote.lastModified ?: 0L) >= localReference) {
-                    WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_NEWER)
-                } else {
-                    WebDavSyncAction(path, WebDavSyncDirection.DELETE_REMOTE, WebDavSyncReason.LOCAL_DELETED)
-                }
-            }
+            else -> WebDavSyncAction(path, WebDavSyncDirection.CONFLICT, WebDavSyncReason.CONFLICT)
         }
 
-    private fun newerWins(
-        path: String,
-        localTimestamp: Long,
-        remoteTimestamp: Long,
-    ): WebDavSyncAction =
-        if (abs(localTimestamp - remoteTimestamp) <= timestampToleranceMs) {
-            WebDavSyncAction(path, WebDavSyncDirection.NONE, WebDavSyncReason.SAME_TIMESTAMP)
-        } else if (localTimestamp > remoteTimestamp) {
-            WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_NEWER)
-        } else {
-            WebDavSyncAction(path, WebDavSyncDirection.DOWNLOAD, WebDavSyncReason.REMOTE_NEWER)
+    private fun localChanged(
+        local: LocalWebDavFile,
+        metadata: WebDavSyncMetadataEntity,
+    ): Boolean =
+        when {
+            local.localFingerprint != null && metadata.localFingerprint != null ->
+                local.localFingerprint != metadata.localFingerprint
+
+            else -> changed(local.lastModified, metadata.localLastModified)
+        }
+
+    private fun remoteChanged(
+        remote: RemoteWebDavFile,
+        metadata: WebDavSyncMetadataEntity,
+    ): Boolean =
+        when {
+            remote.etag != null && metadata.etag != null -> remote.etag != metadata.etag
+            else -> changed(remote.lastModified, metadata.remoteLastModified)
         }
 
     private fun changed(
