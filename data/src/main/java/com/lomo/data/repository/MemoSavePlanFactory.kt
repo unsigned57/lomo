@@ -38,6 +38,7 @@ class MemoSavePlanFactory
             existingFileContent: String,
             precomputedSameTimestampCount: Int? = null,
             precomputedCollisionCount: Int? = null,
+            geoLocation: String? = null,
         ): MemoSavePlan {
             val instant = Instant.ofEpochMilli(timestamp)
             val zoneId = ZoneId.systemDefault()
@@ -90,6 +91,7 @@ class MemoSavePlanFactory
                     tags = textProcessor.extractTags(content),
                     imageUrls = textProcessor.extractImages(content),
                     isDeleted = false,
+                    geoLocation = geoLocation,
                 )
 
             return MemoSavePlan(

@@ -47,11 +47,13 @@ interface MemoSaveMutationOperations {
     suspend fun saveMemo(
         content: String,
         timestamp: Long,
+        geoLocation: String? = null,
     )
 
     suspend fun saveMemoInDb(
         content: String,
         timestamp: Long,
+        geoLocation: String? = null,
     ): SaveDbResult
 
     suspend fun flushSavedMemoToFile(savePlan: MemoSavePlan)

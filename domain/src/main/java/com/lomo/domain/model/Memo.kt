@@ -14,6 +14,7 @@ data class Memo(
     val imageUrls: List<String> = emptyList(),
     val isPinned: Boolean = false,
     val isDeleted: Boolean = false,
+    val geoLocation: String? = null, // "lat,lng" coordinate pair
 ) {
     /**
      * Domain-facing alias for raw source text persisted for this memo.

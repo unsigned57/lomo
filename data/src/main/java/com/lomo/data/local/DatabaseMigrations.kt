@@ -31,6 +31,7 @@ const val SCHEMA_VERSION_43 = 43
 const val SCHEMA_VERSION_44 = 44
 const val SCHEMA_VERSION_45 = 45
 const val SCHEMA_VERSION_46 = 46
+const val SCHEMA_VERSION_47 = 47
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -277,6 +278,13 @@ val MIGRATION_45_46: Migration =
         }
     }
 
+val MIGRATION_46_47: Migration =
+    object : Migration(SCHEMA_VERSION_46, SCHEMA_VERSION_47) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            addGeoLocationColumn(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -328,6 +336,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_43_44,
             MIGRATION_44_45,
             MIGRATION_45_46,
+            MIGRATION_46_47,
         )
 
 /**
@@ -355,6 +364,8 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase Q: Apply v42→v43 changes (richer shard scheduling telemetry).
  * Phase R: Apply v43→v44 changes (pending sync conflict persistence).
  * Phase S: Apply v44→v45 changes (persisted S3 metadata sizes and fingerprints).
+ * Phase T: Apply v45→v46 changes (persisted WebDAV local fingerprints).
+ * Phase U: Apply v46→v47 changes (geo-location column on memos).
  *
  * When adding a new schema version, append a new Phase here.
  */
@@ -450,6 +461,9 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase T: v45 → v46 (persisted WebDAV local fingerprints) ─────────
     normalizeWebDavSyncMetadataTable(db)
+
+    // ── Phase U: v46 → v47 (geo-location column on memos) ──────────────
+    addGeoLocationColumn(db)
 }
 
 private fun normalizeS3SyncMetadataTable(db: SupportSQLiteDatabase) {
@@ -644,4 +658,11 @@ private fun createPendingSyncConflictTable(db: SupportSQLiteDatabase) {
         )
         """.trimIndent(),
     )
+}
+
+private fun addGeoLocationColumn(db: SupportSQLiteDatabase) {
+    val columns = db.tableColumns("Lomo")
+    if ("geoLocation" !in columns) {
+        db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `geoLocation` TEXT DEFAULT NULL")
+    }
 }

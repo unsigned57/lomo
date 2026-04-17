@@ -17,8 +17,9 @@ internal class SaveMemoMutationDelegate(
     override suspend fun saveMemo(
         content: String,
         timestamp: Long,
+        geoLocation: String?,
     ) {
-        val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp)
+        val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp, geoLocation)
         persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(savePlan.memo))
         flushSavedMemoToFile(savePlan)
         runtime.memoVersionRecorder.enqueueLocalRevision(
@@ -31,8 +32,9 @@ internal class SaveMemoMutationDelegate(
     override suspend fun saveMemoInDb(
         content: String,
         timestamp: Long,
+        geoLocation: String?,
     ): SaveDbResult {
-        val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp)
+        val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp, geoLocation)
         val outboxId =
             persistMemoWithOutbox(
                 daoBundle = runtime.daoBundle,
@@ -61,6 +63,7 @@ internal suspend fun createSavePlan(
     storageFormatProvider: MemoStorageFormatProvider,
     content: String,
     timestamp: Long,
+    geoLocation: String? = null,
 ): MemoSavePlan {
     val settings = storageFormatProvider.current()
     val filenameFormat = settings.filenameFormat
@@ -93,6 +96,7 @@ internal suspend fun createSavePlan(
         existingFileContent = "",
         precomputedSameTimestampCount = precomputedSameTimestampCount,
         precomputedCollisionCount = precomputedCollisionCount,
+        geoLocation = geoLocation,
     )
 }
 

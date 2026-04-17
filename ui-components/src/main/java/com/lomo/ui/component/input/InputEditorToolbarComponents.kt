@@ -19,6 +19,7 @@ import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.automirrored.rounded.Redo
@@ -44,6 +45,7 @@ internal fun inputToolbarToolIds(): List<String> =
         "camera",
         "image",
         "record",
+        "location",
         "tag",
         "todo",
         "underline",
@@ -66,6 +68,8 @@ internal fun InputEditorToolbar(
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
+    onLocationClick: () -> Unit,
+    hasAttachedLocation: Boolean,
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
@@ -97,6 +101,8 @@ internal fun InputEditorToolbar(
                 onCameraClick = onCameraClick,
                 onImageClick = onImageClick,
                 onStartRecording = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
+                onLocationClick = onLocationClick,
+                hasAttachedLocation = hasAttachedLocation,
                 onToggleTagSelector = onToggleTagSelector,
                 onInsertTodo = onInsertTodo,
                 onInsertUnderline = onInsertUnderline,
@@ -127,6 +133,8 @@ private fun InputToolbarScrollableTools(
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
+    onLocationClick: () -> Unit,
+    hasAttachedLocation: Boolean,
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
@@ -183,6 +191,21 @@ private fun InputToolbarScrollableTools(
                         contentDescription = stringResource(R.string.cd_add_voice_memo),
                         enabled = enabled,
                         onClick = onStartRecording,
+                        haptic = haptic,
+                    )
+
+                "location" ->
+                    InputToolbarIconButton(
+                        icon = Icons.Rounded.LocationOn,
+                        contentDescription = stringResource(R.string.cd_attach_location),
+                        tint =
+                            if (hasAttachedLocation) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        enabled = enabled,
+                        onClick = onLocationClick,
                         haptic = haptic,
                     )
 

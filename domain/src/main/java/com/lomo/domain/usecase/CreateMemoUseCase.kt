@@ -11,11 +11,12 @@ class CreateMemoUseCase
         suspend operator fun invoke(
             content: String,
             timestampMillis: Long = System.currentTimeMillis(),
+            geoLocation: String? = null,
         ) {
             checkNotNull(initializeWorkspaceUseCase.currentRootLocation()) {
                 "Please select a folder first"
             }
             validator.requireValidForCreate(content)
-            memoRepository.saveMemo(content, timestampMillis)
+            memoRepository.saveMemo(content, timestampMillis, geoLocation)
         }
     }

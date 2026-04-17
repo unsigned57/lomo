@@ -70,10 +70,15 @@ class MemoEditorViewModel
         fun createMemo(
             content: String,
             onSuccess: (() -> Unit)? = null,
+            geoLocation: String? = null,
         ) {
             viewModelScope.launch {
                 runCatching {
-                    createMemoUseCase(content = content, timestampMillis = System.currentTimeMillis())
+                    createMemoUseCase(
+                        content = content,
+                        timestampMillis = System.currentTimeMillis(),
+                        geoLocation = geoLocation,
+                    )
                     onSuccess?.invoke()
                     clearTrackedImages()
                     clearDraft()

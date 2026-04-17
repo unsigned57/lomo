@@ -1,5 +1,10 @@
 package com.lomo.app.feature.main
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.location.LocationManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.MutableTransitionState
@@ -18,7 +23,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -205,7 +212,10 @@ private fun MainScreenPendingNewMemoCreationEffect(
                     val consumedRequest =
                         latestDependencies.value.mainViewModel.consumePendingNewMemoCreationRequest(request.requestId)
                     if (consumedRequest != null) {
-                        latestDependencies.value.editorViewModel.createMemo(consumedRequest.content)
+                        latestDependencies.value.editorViewModel.createMemo(
+                            consumedRequest.content,
+                            geoLocation = consumedRequest.geoLocation,
+                        )
                     }
                 },
             )
@@ -285,6 +295,7 @@ internal data class MainScreenUiSnapshot(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
@@ -313,7 +324,7 @@ internal typealias MainScreenInteractionContent =
     @Composable ((MemoMenuState) -> Unit, (Memo) -> Unit) -> Unit
 
 private data class MainScreenInteractionCallbacks(
-    val onCreateMemo: (String) -> Unit,
+    val onCreateMemo: (String, String?) -> Unit,
     val onCameraCaptureError: (Throwable) -> Unit,
     val onStartRecording: () -> Unit,
     val onStopRecording: () -> Unit,
@@ -421,6 +432,21 @@ internal fun MainScreenInteractionBindings(
     val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val inputHints = rememberInputHints(showInputHints = showInputHints)
+    var attachedGeoLocation by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+
+    val locationPermissionLauncher =
+        rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions(),
+        ) { permissions ->
+            val granted = permissions.values.any { it }
+            if (granted) {
+                fetchLastKnownLocation(context) { location ->
+                    attachedGeoLocation = location
+                }
+            }
+        }
+
     val interactionCallbacks =
         rememberMainScreenInteractionCallbacks(
             dependencies = dependencies,
@@ -459,6 +485,30 @@ internal fun MainScreenInteractionBindings(
         onStartRecording = interactionCallbacks.onStartRecording,
         onCancelRecording = dependencies.recordingViewModel::cancelRecording,
         onStopRecording = interactionCallbacks.onStopRecording,
+        onLocationClick = {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                if (attachedGeoLocation != null) {
+                    attachedGeoLocation = null
+                } else {
+                    fetchLastKnownLocation(context) { location ->
+                        attachedGeoLocation = location
+                    }
+                }
+            } else {
+                locationPermissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                )
+            }
+        },
+        onClearLocation = { attachedGeoLocation = null },
+        attachedGeoLocation = attachedGeoLocation,
         hints = inputHints,
         onVersionHistory = interactionCallbacks.onVersionHistory,
         onTogglePin = dependencies.mainViewModel.setMemoPinned,
@@ -498,8 +548,8 @@ private fun rememberMainScreenInteractionCallbacks(
         unknownErrorMessage,
     ) {
         MainScreenInteractionCallbacks(
-            onCreateMemo = { contentText ->
-                dependencies.mainViewModel.requestPendingNewMemoCreation(contentText)
+            onCreateMemo = { contentText, geoLocation ->
+                dependencies.mainViewModel.requestPendingNewMemoCreation(contentText, geoLocation)
             },
             onCameraCaptureError = { error ->
                 scope.launch {
@@ -619,6 +669,30 @@ private fun VersionHistoryOverlay(
 
         MainVersionHistoryState.Hidden -> {
             Unit
+        }
+    }
+}
+
+private fun fetchLastKnownLocation(
+    context: android.content.Context,
+    onResult: (String) -> Unit,
+) {
+    val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? LocationManager
+        ?: return
+    val hasPermission = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED || ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+    ) == PackageManager.PERMISSION_GRANTED
+    if (!hasPermission) return
+    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+    for (provider in providers) {
+        val location = runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
+        if (location != null) {
+            onResult("${location.latitude},${location.longitude}")
+            return
         }
     }
 }

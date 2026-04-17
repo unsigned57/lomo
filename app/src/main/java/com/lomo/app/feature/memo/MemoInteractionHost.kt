@@ -33,7 +33,7 @@ fun MemoInteractionHost(
     ) -> Unit,
     rootPath: String? = null,
     imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
-    onCreateMemo: ((String) -> Unit)? = null,
+    onCreateMemo: ((String, String?) -> Unit)? = null,
     controller: MemoEditorController = rememberMemoEditorController(),
     quickSaveOnBackEnabled: Boolean = false,
     onTogglePin: ((Memo, Boolean) -> Unit)? = null,
@@ -51,6 +51,9 @@ fun MemoInteractionHost(
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
+    onLocationClick: () -> Unit = {},
+    onClearLocation: () -> Unit = {},
+    attachedGeoLocation: String? = null,
     hints: ImmutableList<String> = persistentListOf(),
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
     showJump: Boolean = false,
@@ -92,7 +95,7 @@ fun MemoInteractionHost(
                 if (memo != null) {
                     onUpdateMemo(memo, content)
                 } else {
-                    onCreateMemo?.invoke(content)
+                    onCreateMemo?.invoke(content, attachedGeoLocation)
                 }
             },
             onDismiss = onDismiss,
@@ -108,6 +111,9 @@ fun MemoInteractionHost(
             onStartRecording = onStartRecording,
             onStopRecording = onStopRecording,
             onCancelRecording = onCancelRecording,
+            onLocationClick = onLocationClick,
+            onClearLocation = onClearLocation,
+            attachedGeoLocation = attachedGeoLocation,
             hints = hints,
         )
     }
