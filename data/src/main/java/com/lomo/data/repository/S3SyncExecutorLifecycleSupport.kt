@@ -282,4 +282,5 @@ internal fun buildS3SyncResult(
             )
     }
 
-internal const val S3_ACTION_CONCURRENCY = 4
+internal const val S3_ACTION_CONCURRENCY = 8
+internal const val S3_VERIFICATION_CONCURRENCY = 8

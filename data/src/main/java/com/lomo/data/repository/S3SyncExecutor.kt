@@ -13,6 +13,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class S3SyncExecutor
@@ -396,18 +397,40 @@ class S3SyncExecutor
                 }
             val verifiedRemoteFiles = initial.remoteFiles.toMutableMap()
             val missingRemoteVerificationByPath = mutableMapOf<String, S3RemoteVerificationLevel>()
-            candidatePaths.forEach { path ->
-                val remotePath =
-                    initial.remoteFiles[path]?.remotePath
-                        ?: indexedEntriesByPath[path]?.remotePath
-                        ?: initial.metadataByPath[path]?.remotePath
-                        ?: return@forEach
-                val remoteObject = client.getObjectMetadata(remotePath)
-                if (remoteObject == null) {
-                    verifiedRemoteFiles.remove(path)
-                    missingRemoteVerificationByPath[path] = S3RemoteVerificationLevel.VERIFIED_REMOTE
+
+            data class VerificationResult(
+                val path: String,
+                val remoteObject: com.lomo.data.s3.S3RemoteObject?,
+                val skipped: Boolean,
+            )
+
+            val verificationLimiter = Semaphore(S3_VERIFICATION_CONCURRENCY)
+            val results = coroutineScope {
+                candidatePaths.map { path ->
+                    async {
+                        val remotePath =
+                            initial.remoteFiles[path]?.remotePath
+                                ?: indexedEntriesByPath[path]?.remotePath
+                                ?: initial.metadataByPath[path]?.remotePath
+                        if (remotePath == null) {
+                            VerificationResult(path = path, remoteObject = null, skipped = true)
+                        } else {
+                            verificationLimiter.withPermit {
+                                val remoteObject = client.getObjectMetadata(remotePath)
+                                VerificationResult(path = path, remoteObject = remoteObject, skipped = false)
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            for (result in results) {
+                if (result.skipped) continue
+                if (result.remoteObject == null) {
+                    verifiedRemoteFiles.remove(result.path)
+                    missingRemoteVerificationByPath[result.path] = S3RemoteVerificationLevel.VERIFIED_REMOTE
                 } else {
-                    verifiedRemoteFiles[path] = remoteObject.toVerifiedRemoteFile(path, encodingSupport)
+                    verifiedRemoteFiles[result.path] =
+                        result.remoteObject.toVerifiedRemoteFile(result.path, encodingSupport)
                 }
             }
             val initialPlan =
