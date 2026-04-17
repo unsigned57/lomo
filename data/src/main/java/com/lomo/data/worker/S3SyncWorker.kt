@@ -21,30 +21,18 @@ class S3SyncWorker
         private val s3SyncRepository: S3SyncRepository,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
-            Timber.d("S3SyncWorker started")
+            Timber.d("%s started", WORKER_NAME)
             val policy = resolveScanPolicy(inputData)
             return when (val result = s3SyncRepository.sync(policy)) {
-                is S3SyncResult.Success -> {
-                    Timber.d("S3SyncWorker success: ${result.message}")
-                    Result.success()
-                }
-
-                is S3SyncResult.Error -> {
-                    Timber.e("S3SyncWorker error: ${result.message}")
-                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
-                }
-
-                is S3SyncResult.Conflict -> {
-                    Timber.w("S3SyncWorker conflict detected: ${result.message}")
-                    Result.success()
-                }
-
-                S3SyncResult.NotConfigured -> Result.success()
+                is S3SyncResult.Success -> successWorkResult(WORKER_NAME, result.message)
+                is S3SyncResult.Error -> errorWorkResult(WORKER_NAME, result.message)
+                is S3SyncResult.Conflict -> conflictWorkResult(WORKER_NAME, result.message)
+                S3SyncResult.NotConfigured -> skipWorkResult(WORKER_NAME, result)
             }
         }
 
         companion object {
-            private const val MAX_RETRY_ATTEMPTS = 3
+            private const val WORKER_NAME = "S3SyncWorker"
             const val WORK_NAME = "com.lomo.data.worker.S3SyncWorker"
             const val RECONCILE_WORK_NAME = "com.lomo.data.worker.S3SyncWorker.RECONCILE"
             const val RECONCILE_CATCH_UP_WORK_NAME = "com.lomo.data.worker.S3SyncWorker.RECONCILE_CATCH_UP"

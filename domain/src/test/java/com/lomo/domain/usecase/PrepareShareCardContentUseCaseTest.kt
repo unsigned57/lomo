@@ -5,6 +5,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: PrepareShareCardContentUseCase
+ * - Behavior focus: share-card tag extraction preserves user-facing tags and removes inline tags from body text.
+ * - Observable outcomes: extracted tag list and final body text content.
+ * - Red phase: Fails before the fix when inline emoji tags are ignored and remain in the body text.
+ * - Excludes: presentation-layer truncation, typography, and UI rendering details.
+ */
 class PrepareShareCardContentUseCaseTest {
     private val useCase = PrepareShareCardContentUseCase()
 
@@ -53,5 +61,19 @@ class PrepareShareCardContentUseCaseTest {
             )
 
         assertEquals("line1  line2\n\n\nline3", result.bodyText)
+    }
+
+    @Test
+    fun `invoke extracts inline emoji tags and removes them from body text`() {
+        val result =
+            useCase(
+                ShareCardTextInput(
+                    content = "计划 #😀工作 和 #🎉",
+                    sourceTags = emptyList(),
+                ),
+            )
+
+        assertEquals(listOf("😀工作", "🎉"), result.tags)
+        assertEquals("计划 和", result.bodyText)
     }
 }

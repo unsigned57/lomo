@@ -6,112 +6,10 @@ import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3SyncErrorCode
-import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.WebDavSyncErrorCode
-import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
 
 object SettingsErrorPresenter {
-    @Composable
-    fun gitSyncNowSubtitle(
-        state: SyncEngineState,
-        lastSyncTime: Long,
-    ): String =
-        when (state) {
-            is SyncEngineState.Syncing.Pulling ->
-                stringResource(R.string.settings_git_sync_status_pulling)
-            is SyncEngineState.Syncing.Committing ->
-                stringResource(R.string.settings_git_sync_status_committing)
-            is SyncEngineState.Syncing.Pushing ->
-                stringResource(R.string.settings_git_sync_status_pushing)
-            is SyncEngineState.Initializing ->
-                stringResource(R.string.settings_git_sync_status_initializing)
-            is SyncEngineState.Error ->
-                stringResource(
-                    R.string.settings_git_sync_status_error,
-                    gitSyncErrorMessage(state.code, state.message),
-                )
-            is SyncEngineState.NotConfigured ->
-                stringResource(R.string.settings_git_sync_status_not_configured)
-            else ->
-                relativeSyncSubtitle(
-                    lastSyncTime,
-                    R.string.settings_git_sync_now_subtitle,
-                    R.string.settings_git_sync_never,
-                )
-        }
-
-    @Composable
-    fun webDavSyncNowSubtitle(
-        state: WebDavSyncState,
-        lastSyncTime: Long,
-    ): String =
-        when (state) {
-            WebDavSyncState.Connecting ->
-                stringResource(R.string.settings_webdav_sync_status_connecting)
-            WebDavSyncState.Listing ->
-                stringResource(R.string.settings_webdav_sync_status_listing)
-            WebDavSyncState.Uploading ->
-                stringResource(R.string.settings_webdav_sync_status_uploading)
-            WebDavSyncState.Downloading ->
-                stringResource(R.string.settings_webdav_sync_status_downloading)
-            WebDavSyncState.Deleting ->
-                stringResource(R.string.settings_webdav_sync_status_deleting)
-            WebDavSyncState.Initializing ->
-                stringResource(R.string.settings_webdav_sync_status_initializing)
-            is WebDavSyncState.Error ->
-                stringResource(
-                    R.string.settings_webdav_sync_status_error,
-                    webDavSyncErrorMessage(state.code, state.message),
-                )
-            WebDavSyncState.NotConfigured ->
-                stringResource(R.string.settings_webdav_sync_status_not_configured)
-            else ->
-                relativeSyncSubtitle(
-                    lastSyncTime,
-                    R.string.settings_webdav_sync_now_subtitle,
-                    R.string.settings_webdav_sync_never,
-                )
-        }
-
-    @Composable
-    fun s3SyncNowSubtitle(
-        state: S3SyncState,
-        lastSyncTime: Long,
-    ): String =
-        when (state) {
-            S3SyncState.Connecting ->
-                stringResource(R.string.settings_s3_sync_status_connecting)
-            S3SyncState.Listing ->
-                stringResource(R.string.settings_s3_sync_status_listing)
-            S3SyncState.Uploading ->
-                stringResource(R.string.settings_s3_sync_status_uploading)
-            S3SyncState.Downloading ->
-                stringResource(R.string.settings_s3_sync_status_downloading)
-            S3SyncState.Deleting ->
-                stringResource(R.string.settings_s3_sync_status_deleting)
-            S3SyncState.Initializing ->
-                stringResource(R.string.settings_s3_sync_status_initializing)
-            is S3SyncState.Error ->
-                stringResource(
-                    R.string.settings_s3_sync_status_error,
-                    s3SyncErrorMessage(state.code, state.message),
-                )
-            S3SyncState.NotConfigured ->
-                stringResource(R.string.settings_s3_sync_status_not_configured)
-            is S3SyncState.PreviewingInitialSync ->
-                stringResource(R.string.settings_s3_sync_status_initial_preview)
-            is S3SyncState.ConflictDetected ->
-                stringResource(R.string.settings_s3_sync_status_conflict)
-            else ->
-                relativeSyncSubtitle(
-                    lastSyncTime,
-                    R.string.settings_s3_sync_now_subtitle,
-                    R.string.settings_s3_sync_never,
-                )
-        }
-
     @Composable
     fun pairingCodeMessage(raw: String): String =
         when (LanSharePairingCodePolicy.userMessageKey(raw)) {
@@ -177,7 +75,7 @@ object SettingsErrorPresenter {
         }
 
     @Composable
-    private fun relativeSyncSubtitle(
+    internal fun relativeSyncSubtitle(
         lastSyncTime: Long,
         syncedResId: Int,
         neverResId: Int,

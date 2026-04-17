@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
+import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import kotlinx.collections.immutable.ImmutableMap
 
@@ -40,7 +41,8 @@ internal fun GitSyncSettingsSectionContainer(
         state = state,
         syncIntervalLabel = gitSyncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
         syncNowSubtitle =
-            SettingsErrorPresenter.gitSyncNowSubtitle(
+            unifiedSyncNowSubtitle(
+                provider = SyncBackendType.GIT,
                 state = state.syncState,
                 lastSyncTime = state.lastSyncTime,
             ),
@@ -84,7 +86,8 @@ internal fun WebDavSyncSettingsSectionContainer(
         providerLabel = webDavProviderLabels[state.provider] ?: state.provider.name,
         syncIntervalLabel = gitSyncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
         syncNowSubtitle =
-            SettingsErrorPresenter.webDavSyncNowSubtitle(
+            unifiedSyncNowSubtitle(
+                provider = SyncBackendType.WEBDAV,
                 state = state.syncState,
                 lastSyncTime = state.lastSyncTime,
             ),
@@ -137,7 +140,8 @@ internal fun S3SyncSettingsSectionContainer(
             rcloneFilenameEncodingLabels[state.rcloneFilenameEncoding] ?: state.rcloneFilenameEncoding.name,
         syncIntervalLabel = syncIntervalLabels[state.autoSyncInterval] ?: state.autoSyncInterval,
         syncNowSubtitle =
-            SettingsErrorPresenter.s3SyncNowSubtitle(
+            unifiedSyncNowSubtitle(
+                provider = SyncBackendType.S3,
                 state = state.syncState,
                 lastSyncTime = state.lastSyncTime,
             ),

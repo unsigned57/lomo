@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.ui.component.settings.PreferenceItem
-import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 
 @Composable
@@ -35,35 +34,33 @@ fun GitSyncSettingsSection(
     onTestConnection: () -> Unit,
     onOpenResetDialog: () -> Unit,
 ) {
-    SettingsGroup(title = stringResource(R.string.settings_group_git_sync)) {
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_git_sync_enable),
-            subtitle = stringResource(R.string.settings_git_sync_enable_subtitle),
-            icon = Icons.Outlined.Sync,
-            checked = state.enabled,
-            onCheckedChange = onToggleEnabled,
+    SwitchPreferenceItem(
+        title = stringResource(R.string.settings_git_sync_enable),
+        subtitle = stringResource(R.string.settings_git_sync_enable_subtitle),
+        icon = Icons.Outlined.Sync,
+        checked = state.enabled,
+        onCheckedChange = onToggleEnabled,
+    )
+    SettingsExpandableContent(
+        visible = state.enabled,
+        label = "GitSyncAdvancedVisibility",
+    ) {
+        GitSyncAdvancedContent(
+            state = state,
+            syncIntervalLabel = syncIntervalLabel,
+            syncNowSubtitle = syncNowSubtitle,
+            connectionSubtitle = connectionSubtitle,
+            onOpenRemoteUrlDialog = onOpenRemoteUrlDialog,
+            onOpenPatDialog = onOpenPatDialog,
+            onOpenAuthorNameDialog = onOpenAuthorNameDialog,
+            onOpenAuthorEmailDialog = onOpenAuthorEmailDialog,
+            onToggleAutoSync = onToggleAutoSync,
+            onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
+            onToggleSyncOnRefresh = onToggleSyncOnRefresh,
+            onSyncNow = onSyncNow,
+            onTestConnection = onTestConnection,
+            onOpenResetDialog = onOpenResetDialog,
         )
-        SettingsExpandableContent(
-            visible = state.enabled,
-            label = "GitSyncAdvancedVisibility",
-        ) {
-            GitSyncAdvancedContent(
-                state = state,
-                syncIntervalLabel = syncIntervalLabel,
-                syncNowSubtitle = syncNowSubtitle,
-                connectionSubtitle = connectionSubtitle,
-                onOpenRemoteUrlDialog = onOpenRemoteUrlDialog,
-                onOpenPatDialog = onOpenPatDialog,
-                onOpenAuthorNameDialog = onOpenAuthorNameDialog,
-                onOpenAuthorEmailDialog = onOpenAuthorEmailDialog,
-                onToggleAutoSync = onToggleAutoSync,
-                onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
-                onToggleSyncOnRefresh = onToggleSyncOnRefresh,
-                onSyncNow = onSyncNow,
-                onTestConnection = onTestConnection,
-                onOpenResetDialog = onOpenResetDialog,
-            )
-        }
     }
 }
 

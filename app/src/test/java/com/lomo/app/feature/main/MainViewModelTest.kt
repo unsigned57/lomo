@@ -17,20 +17,27 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
+import com.lomo.domain.usecase.GitUnifiedSyncProvider
+import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
+import com.lomo.domain.usecase.S3UnifiedSyncProvider
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
+import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
+import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -130,6 +137,12 @@ class MainViewModelTest {
         every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
         every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
         every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+        coEvery {
+            syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+        } returns UnifiedSyncResult.Success(
+            provider = SyncBackendType.INBOX,
+            message = "processed",
+        )
         every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
         coEvery { appConfigRepository.currentRootLocation() } returns null
         every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
@@ -676,7 +689,13 @@ class MainViewModelTest {
                         ),
                     timestamp = 123L,
                 )
-            coEvery { syncInboxRepository.processPendingInbox() } throws com.lomo.domain.usecase.SyncConflictException(conflicts)
+            coEvery {
+                syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+            } returns UnifiedSyncResult.Conflict(
+                provider = SyncBackendType.INBOX,
+                message = "conflict",
+                conflicts = conflicts,
+            )
 
             val viewModel = createViewModel()
             val event = async { viewModel.syncConflictEvent.first() }
@@ -714,12 +733,9 @@ class MainViewModelTest {
                     refreshMemosUseCase =
                         RefreshMemosUseCase(
                             SyncAndRebuildUseCase(
-                                repository,
-                                gitSyncRepo,
-                                webDavSyncRepository,
-                                s3SyncRepository,
-                                syncInboxRepository,
-                                syncPolicyRepository,
+                                memoRepository = repository,
+                                syncProviderRegistry = syncProviderRegistry(),
+                                syncPolicyRepository = syncPolicyRepository,
                             ),
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
@@ -733,14 +749,11 @@ class MainViewModelTest {
                             initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                             syncAndRebuildUseCase =
                                 SyncAndRebuildUseCase(
-                                    repository,
-                                    gitSyncRepo,
-                                    webDavSyncRepository,
-                                    s3SyncRepository,
-                                    syncInboxRepository,
-                                    syncPolicyRepository,
+                                    memoRepository = repository,
+                                    syncProviderRegistry = syncProviderRegistry(),
+                                    syncPolicyRepository = syncPolicyRepository,
                                 ),
-                            syncInboxRepository = syncInboxRepository,
+                            syncProviderRegistry = syncProviderRegistry(),
                             appVersionRepository = appVersionRepository,
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
@@ -749,6 +762,17 @@ class MainViewModelTest {
             applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase(),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
         ).also(createdViewModels::add)
+
+    private fun syncProviderRegistry(): SyncProviderRegistry =
+        SyncProviderRegistry(
+            providers =
+                listOf(
+                    GitUnifiedSyncProvider(gitSyncRepo),
+                    WebDavUnifiedSyncProvider(webDavSyncRepository),
+                    S3UnifiedSyncProvider(s3SyncRepository),
+                    InboxUnifiedSyncProvider(syncInboxRepository, mockk(relaxed = true)),
+                ),
+        )
 
     private fun clearViewModel(viewModel: MainViewModel) {
         ViewModel::class.java.getDeclaredMethod("clear\$lifecycle_viewmodel").invoke(viewModel)

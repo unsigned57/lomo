@@ -72,35 +72,28 @@ class WebDavConflictResolver
             client: WebDavClient,
             layout: SyncDirectoryLayout,
         ): WebDavAppliedConflictResolution {
-            val unresolvedFiles = mutableListOf<com.lomo.domain.model.SyncConflictFile>()
-            val actionOutcomes =
-                mutableMapOf<
-                    String,
-                    Pair<
-                        com.lomo.domain.model.WebDavSyncDirection,
-                        com.lomo.domain.model.WebDavSyncReason,
-                    >,
-                >()
-            conflictSet.files.forEach { file ->
-                val choice =
-                    resolution.perFileChoices[file.relativePath]
-                        ?: SyncConflictResolutionChoice.KEEP_LOCAL
-                if (choice == SyncConflictResolutionChoice.SKIP_FOR_NOW) {
-                    unresolvedFiles += file
-                    return@forEach
+            val batch =
+                applyFileConflictChoices(
+                    conflictSet = conflictSet,
+                    resolution = resolution,
+                    defaultChoice = SyncConflictResolutionChoice.KEEP_LOCAL,
+                ) { file, choice ->
+                    applyChoice(
+                        file = file,
+                        choice = choice,
+                        client = client,
+                        layout = layout,
+                    )?.let { FileConflictApplication.Applied(it) }
+                        ?: FileConflictApplication.Unresolved as FileConflictApplication<
+                            Pair<
+                                com.lomo.domain.model.WebDavSyncDirection,
+                                com.lomo.domain.model.WebDavSyncReason,
+                            >
+                        >
                 }
-                applyChoice(
-                    file = file,
-                    choice = choice,
-                    client = client,
-                    layout = layout,
-                )?.let { outcome ->
-                    actionOutcomes[file.relativePath] = outcome
-                }
-            }
             return WebDavAppliedConflictResolution(
-                unresolvedFiles = unresolvedFiles,
-                actionOutcomes = actionOutcomes,
+                unresolvedFiles = batch.unresolvedFiles,
+                actionOutcomes = batch.appliedChoices.associate { applied -> applied.path to applied.value },
             )
         }
 
@@ -129,65 +122,111 @@ class WebDavConflictResolver
             com.lomo.domain.model.WebDavSyncDirection,
             com.lomo.domain.model.WebDavSyncReason,
         >? {
-            when (choice) {
-                SyncConflictResolutionChoice.KEEP_LOCAL -> {
-                    val content = file.localContent ?: return null
-                    client.put(
-                        path = file.relativePath,
-                        bytes = content.toByteArray(StandardCharsets.UTF_8),
-                        contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
-                    )
-                    return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
-                        com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
-                }
+            val isMemoPath =
+                fileBridge.isMemoPath(file.relativePath, layout) ||
+                    file.relativePath.endsWith(WEBDAV_MEMO_SUFFIX)
+            return when (choice) {
+                SyncConflictResolutionChoice.KEEP_LOCAL ->
+                    keepLocalChoice(file, client, layout, isMemoPath)
 
-                SyncConflictResolutionChoice.KEEP_REMOTE -> {
-                    val content = file.remoteContent ?: return null
-                    if (fileBridge.isMemoPath(file.relativePath, layout)) {
-                        runtime.markdownStorageDataSource.saveFileIn(
-                            directory = MemoDirectoryType.MAIN,
-                            filename = fileBridge.extractMemoFilename(file.relativePath, layout),
-                            content = content,
-                        )
-                    } else {
-                        runtime.localMediaSyncStore.writeBytes(
-                            file.relativePath,
-                            content.toByteArray(StandardCharsets.UTF_8),
-                            layout,
-                        )
-                    }
-                    return com.lomo.domain.model.WebDavSyncDirection.DOWNLOAD to
-                        com.lomo.domain.model.WebDavSyncReason.REMOTE_NEWER
-                }
+                SyncConflictResolutionChoice.KEEP_REMOTE ->
+                    keepRemoteChoice(file, client, layout, isMemoPath)
 
-                SyncConflictResolutionChoice.MERGE_TEXT -> {
-                    val content =
-                        SyncConflictTextMerge.merge(file.localContent, file.remoteContent)
-                            ?: error("Unable to merge conflict for ${file.relativePath}")
-                    if (fileBridge.isMemoPath(file.relativePath, layout)) {
-                        runtime.markdownStorageDataSource.saveFileIn(
-                            directory = MemoDirectoryType.MAIN,
-                            filename = fileBridge.extractMemoFilename(file.relativePath, layout),
-                            content = content,
-                        )
-                    } else {
-                        runtime.localMediaSyncStore.writeBytes(
-                            file.relativePath,
-                            content.toByteArray(StandardCharsets.UTF_8),
-                            layout,
-                        )
-                    }
-                    client.put(
-                        path = file.relativePath,
-                        bytes = content.toByteArray(StandardCharsets.UTF_8),
-                        contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
-                    )
-                    return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
-                        com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
-                }
+                SyncConflictResolutionChoice.MERGE_TEXT ->
+                    mergeTextChoice(file, client, layout, isMemoPath)
 
-                SyncConflictResolutionChoice.SKIP_FOR_NOW -> return null
+                SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
             }
+        }
+
+        private suspend fun keepLocalChoice(
+            file: com.lomo.domain.model.SyncConflictFile,
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+            isMemoPath: Boolean,
+        ): Pair<
+            com.lomo.domain.model.WebDavSyncDirection,
+            com.lomo.domain.model.WebDavSyncReason,
+        >? {
+            val localBytes =
+                if (!isMemoPath) {
+                    file.localContent?.toByteArray(StandardCharsets.UTF_8)
+                        ?: runtime.localMediaSyncStore.readBytes(file.relativePath, layout)
+                } else {
+                    val content = file.localContent ?: return null
+                    content.toByteArray(StandardCharsets.UTF_8)
+                }
+            client.put(
+                path = file.relativePath,
+                bytes = localBytes,
+                contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
+            )
+            return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
+                com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
+        }
+
+        private suspend fun keepRemoteChoice(
+            file: com.lomo.domain.model.SyncConflictFile,
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+            isMemoPath: Boolean,
+        ): Pair<
+            com.lomo.domain.model.WebDavSyncDirection,
+            com.lomo.domain.model.WebDavSyncReason,
+        >? {
+            if (!isMemoPath) {
+                val remoteBytes =
+                    file.remoteContent?.toByteArray(StandardCharsets.UTF_8)
+                        ?: client.get(file.relativePath).bytes
+                runtime.localMediaSyncStore.writeBytes(
+                    file.relativePath,
+                    remoteBytes,
+                    layout,
+                )
+            } else {
+                val content = file.remoteContent ?: return null
+                runtime.markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = fileBridge.extractMemoFilename(file.relativePath, layout),
+                    content = content,
+                )
+            }
+            return com.lomo.domain.model.WebDavSyncDirection.DOWNLOAD to
+                com.lomo.domain.model.WebDavSyncReason.REMOTE_NEWER
+        }
+
+        private suspend fun mergeTextChoice(
+            file: com.lomo.domain.model.SyncConflictFile,
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+            isMemoPath: Boolean,
+        ): Pair<
+            com.lomo.domain.model.WebDavSyncDirection,
+            com.lomo.domain.model.WebDavSyncReason,
+        >? {
+            if (!isMemoPath) {
+                return null
+            }
+            val content =
+                SyncConflictTextMerge.merge(
+                    localText = file.localContent,
+                    remoteText = file.remoteContent,
+                    localLastModified = file.localLastModified,
+                    remoteLastModified = file.remoteLastModified,
+                )
+                    ?: error("Unable to merge conflict for ${file.relativePath}")
+            runtime.markdownStorageDataSource.saveFileIn(
+                directory = MemoDirectoryType.MAIN,
+                filename = fileBridge.extractMemoFilename(file.relativePath, layout),
+                content = content,
+            )
+            client.put(
+                path = file.relativePath,
+                bytes = content.toByteArray(StandardCharsets.UTF_8),
+                contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
+            )
+            return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
+                com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
         }
 
         private suspend fun refreshAfterResolution() {

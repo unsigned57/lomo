@@ -11,6 +11,7 @@ import org.junit.Test
  * - Behavior focus: centered-body layout policy and body text size thresholds for share-card rendering.
  * - Observable outcomes: Boolean decision to use centered body for a given ShareCardRenderInput and ShareBodyLine list, plus the selected body text size.
  * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Test Change Justification: reason category = pure refactor preserved behavior; removed the obsolete activeDayCountText constructor argument after recorded-days footer content was deleted. Coverage is preserved by keeping the same centered-body and text-size assertions. This is not fitting the test to the implementation because the assertions remain identical and only the input shape changed.
  * - Excludes: bitmap drawing, text paint construction, and Android typography/resource lookups.
  */
 class ShareCardBitmapRendererTextTest {
@@ -23,7 +24,6 @@ class ShareCardBitmapRendererTextTest {
                 safeText = "Short reflective note",
                 imagePlaceholder = "[Image]",
                 createdAtText = "2026-03-25 12:00",
-                activeDayCountText = "",
                 textLengthWithoutMarkers = 21,
                 hasImages = false,
             )
@@ -46,7 +46,6 @@ class ShareCardBitmapRendererTextTest {
                 safeText = "Centered candidate",
                 imagePlaceholder = "[Image]",
                 createdAtText = "2026-03-25 12:00",
-                activeDayCountText = "",
                 textLengthWithoutMarkers = 18,
                 hasImages = false,
             )

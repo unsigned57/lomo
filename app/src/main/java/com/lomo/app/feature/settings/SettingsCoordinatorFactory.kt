@@ -4,6 +4,7 @@ import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.LanShareService
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -22,6 +23,7 @@ class SettingsCoordinatorFactory
         private val switchRootStorageUseCase: SwitchRootStorageUseCase,
         private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository,
         private val memoVersionRepository: MemoVersionRepository,
+        private val syncInboxRepository: SyncInboxRepository? = null,
     ) {
         fun createAppConfigCoordinator(scope: CoroutineScope): SettingsAppConfigCoordinator =
             SettingsAppConfigCoordinator(
@@ -30,6 +32,7 @@ class SettingsCoordinatorFactory
                 scope = scope,
                 memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
                 memoVersionRepository = memoVersionRepository,
+                syncInboxRepository = syncInboxRepository,
             )
 
         fun createLanShareCoordinator(scope: CoroutineScope): SettingsLanShareCoordinator =

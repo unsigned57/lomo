@@ -60,7 +60,6 @@ fun TagFilterScreen(
 ) {
     val memos by viewModel.uiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDir.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDir.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
@@ -77,7 +76,8 @@ fun TagFilterScreen(
 
     MemoInteractionHost(
         shareCardShowTime = appPreferences.shareCardShowTime,
-        activeDayCount = activeDayCount,
+        shareCardShowSignature = appPreferences.shareCardShowBrand,
+        shareCardSignatureText = appPreferences.shareCardSignatureText,
         rootPath = rootDirectory,
         imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,

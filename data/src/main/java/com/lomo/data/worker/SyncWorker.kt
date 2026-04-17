@@ -18,23 +18,21 @@ class SyncWorker
         private val memoSynchronizer: com.lomo.data.repository.MemoSynchronizer,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
-            Timber.d("SyncWorker started")
-            return runNonFatalCatching {
+            Timber.d("%s started", WORKER_NAME)
+            return runNonFatalCatching<Result> {
                 memoSynchronizer.refresh()
-                Timber.d("SyncWorker success")
-                Result.success()
+                successWorkResult(WORKER_NAME)
             }.getOrElse { error ->
-                Timber.e(error, "SyncWorker failed")
-                if (runAttemptCount < MAX_RETRY_ATTEMPTS) {
-                    Result.retry()
-                } else {
-                    Result.failure()
-                }
+                errorWorkResult(
+                    workerName = WORKER_NAME,
+                    message = "memo refresh failed",
+                    throwable = error,
+                )
             }
         }
 
         companion object {
-            private const val MAX_RETRY_ATTEMPTS = 3
+            private const val WORKER_NAME = "SyncWorker"
             const val WORK_NAME = "com.lomo.data.worker.SyncWorker"
         }
     }

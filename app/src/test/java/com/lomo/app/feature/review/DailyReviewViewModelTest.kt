@@ -7,12 +7,14 @@ import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
+import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -34,6 +36,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 /*
  * Test Contract:
@@ -54,6 +57,7 @@ class DailyReviewViewModelTest {
     private lateinit var updateMemoContentUseCase: UpdateMemoContentUseCase
     private lateinit var saveImageUseCase: SaveImageUseCase
     private lateinit var dailyReviewQueryUseCase: DailyReviewQueryUseCase
+    private lateinit var dailyReviewSessionUseCase: DailyReviewSessionUseCase
 
     @Before
     fun setUp() {
@@ -66,6 +70,7 @@ class DailyReviewViewModelTest {
         updateMemoContentUseCase = mockk(relaxed = true)
         saveImageUseCase = mockk(relaxed = true)
         dailyReviewQueryUseCase = mockk(relaxed = true)
+        dailyReviewSessionUseCase = mockk(relaxed = true)
 
         every { memoRepository.getActiveDayCount() } returns flowOf(0)
 
@@ -84,7 +89,10 @@ class DailyReviewViewModelTest {
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
 
-        coEvery { dailyReviewQueryUseCase() } returns emptyList()
+        coEvery {
+            dailyReviewSessionUseCase.prepareSession()
+        } returns DailyReviewSession(LocalDate.of(2026, 4, 16), seed = 1L, pageIndex = 0)
+        coEvery { dailyReviewQueryUseCase(1L) } returns emptyList()
         coEvery { deleteMemoUseCase(any()) } returns Unit
         coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
         coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
@@ -110,7 +118,7 @@ class DailyReviewViewModelTest {
     @Test
     fun `initial load failure publishes ui error`() =
         runTest {
-            coEvery { dailyReviewQueryUseCase() } throws IllegalStateException("query failed")
+            coEvery { dailyReviewQueryUseCase(1L) } throws IllegalStateException("query failed")
 
             val viewModel = createViewModel()
             advanceUntilIdle()
@@ -139,7 +147,7 @@ class DailyReviewViewModelTest {
     fun `updateMemo success reloads daily review`() =
         runTest {
             val memo = sampleMemo(id = "memo-update-success")
-            coEvery { dailyReviewQueryUseCase() } throws IllegalStateException("initial failed") andThen emptyList()
+            coEvery { dailyReviewQueryUseCase(1L) } throws IllegalStateException("initial failed") andThen emptyList()
             val viewModel = createViewModel()
             advanceUntilIdle()
             assertTrue(viewModel.uiState.value is UiState.Error)
@@ -169,7 +177,7 @@ class DailyReviewViewModelTest {
     fun `deleteMemo success reloads daily review`() =
         runTest {
             val memo = sampleMemo(id = "memo-delete-success")
-            coEvery { dailyReviewQueryUseCase() } throws IllegalStateException("initial failed") andThen emptyList()
+            coEvery { dailyReviewQueryUseCase(1L) } throws IllegalStateException("initial failed") andThen emptyList()
             val viewModel = createViewModel()
             advanceUntilIdle()
             assertTrue(viewModel.uiState.value is UiState.Error)
@@ -251,16 +259,41 @@ class DailyReviewViewModelTest {
             assertNull(viewModel.errorMessage.value)
         }
 
+    @Test
+    fun `loadMore appends new memos to the current random walk list`() =
+        runTest {
+            val firstBatch = listOf(sampleMemo("memo-1", "first"), sampleMemo("memo-2", "second"))
+            val secondBatch = listOf(sampleMemo("memo-3", "third"))
+            coEvery { dailyReviewQueryUseCase(1L) } returns firstBatch
+            coEvery {
+                dailyReviewQueryUseCase.loadMore(
+                    excludeIds = setOf("memo-1", "memo-2"),
+                    batchSize = any(),
+                    seed = 1L,
+                )
+            } returns secondBatch
+
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.loadMore()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value as UiState.Success
+            assertEquals(listOf("memo-1", "memo-2", "memo-3"), state.data.map { it.memo.id })
+        }
+
     private fun createViewModel(): DailyReviewViewModel =
         DailyReviewViewModel(
             memoUiCoordinator = MemoUiCoordinator(memoRepository),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
-            memoUiMapper = MemoUiMapper(),
+            memoUiMapper = MemoUiMapper(testDispatcher),
             deleteMemoUseCase = deleteMemoUseCase,
             updateMemoContentUseCase = updateMemoContentUseCase,
             saveImageUseCase = saveImageUseCase,
             dailyReviewQueryUseCase = dailyReviewQueryUseCase,
+            dailyReviewSessionUseCase = dailyReviewSessionUseCase,
         )
 
     private fun sampleMemo(

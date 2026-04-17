@@ -19,6 +19,7 @@ fun SyncConflictDialogHost(controller: SyncConflictDialogController) {
                 onFileChoiceChanged = controller.onFileChoiceChanged,
                 onAllChoicesChanged = controller.onAllChoicesChanged,
                 onAcceptSuggestions = controller.onAcceptSuggestions,
+                onAutoResolveSafeConflicts = controller.onAutoResolveSafeConflicts,
                 onToggleExpanded = controller.onToggleExpanded,
                 onApply = controller.onApply,
                 onDismiss = controller.onDismiss,

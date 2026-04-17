@@ -4,11 +4,10 @@ import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.WebDavSyncState
 
 sealed interface DirectoryDisplayState {
     data object Loading : DirectoryDisplayState
@@ -50,6 +49,7 @@ data class LanShareSectionState(
 data class ShareCardSectionState(
     val showTime: Boolean,
     val showBrand: Boolean,
+    val signatureText: String = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT,
 )
 
 data class SnapshotSectionState(
@@ -68,7 +68,7 @@ data class GitSectionState(
     val autoSyncInterval: String,
     val syncOnRefreshEnabled: Boolean,
     val lastSyncTime: Long,
-    val syncState: SyncEngineState,
+    val syncState: UnifiedSyncState,
     val connectionTestState: SettingsGitConnectionTestState,
     val resetInProgress: Boolean,
 )
@@ -84,7 +84,7 @@ data class WebDavSectionState(
     val autoSyncInterval: String,
     val syncOnRefreshEnabled: Boolean,
     val lastSyncTime: Long,
-    val syncState: WebDavSyncState,
+    val syncState: UnifiedSyncState,
     val connectionTestState: SettingsWebDavConnectionTestState,
 )
 
@@ -111,7 +111,7 @@ data class S3SectionState(
     val autoSyncInterval: String,
     val syncOnRefreshEnabled: Boolean,
     val lastSyncTime: Long,
-    val syncState: S3SyncState,
+    val syncState: UnifiedSyncState,
     val connectionTestState: SettingsS3ConnectionTestState,
 )
 
@@ -123,6 +123,7 @@ data class InteractionSectionState(
     val memoActionAutoReorderEnabled: Boolean,
     val appLockEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
+    val scrollbarEnabled: Boolean,
 )
 
 data class SystemSectionState(

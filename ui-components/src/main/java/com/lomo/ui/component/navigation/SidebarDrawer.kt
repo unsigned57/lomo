@@ -19,10 +19,9 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.outlined.Dashboard
+import androidx.compose.material.icons.outlined.Analytics
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -103,6 +102,8 @@ sealed interface SidebarDestination {
 
     data object Gallery : SidebarDestination
 
+    data object Statistics : SidebarDestination
+
     data class Tag(
         val fullPath: String,
     ) : SidebarDestination
@@ -116,10 +117,10 @@ fun SidebarDrawer(
     tags: ImmutableList<SidebarTag>,
     modifier: Modifier = Modifier,
     currentDestination: SidebarDestination = SidebarDestination.Memo,
-    onMemoClick: () -> Unit = {},
     onTrashClick: () -> Unit = {},
     onDailyReviewClick: () -> Unit = {},
     onGalleryClick: () -> Unit = {},
+    onStatisticsClick: () -> Unit = {},
     onTagClick: (String) -> Unit = {},
     onHeatmapDateLongPress: (LocalDate) -> Unit = {},
     onSettingsClick: () -> Unit = {},
@@ -127,14 +128,13 @@ fun SidebarDrawer(
     trashAnchorTag: String? = null,
     tagAnchorForPath: (String) -> String? = { null },
 ) {
-    val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val tagTree = remember(tags) { buildTagTree(tags) }
     val expandedNodes = remember { mutableStateMapOf<String, Boolean>() }
     val selectedTagPath = (currentDestination as? SidebarDestination.Tag)?.fullPath
-    val isMemoSelected = currentDestination == SidebarDestination.Memo
     val isTrashSelected = currentDestination == SidebarDestination.Trash
     val isDailyReviewSelected = currentDestination == SidebarDestination.DailyReview
     val isGallerySelected = currentDestination == SidebarDestination.Gallery
+    val isStatisticsSelected = currentDestination == SidebarDestination.Statistics
 
     LazyColumn(
         modifier = modifier.fillMaxHeight(),
@@ -152,14 +152,14 @@ fun SidebarDrawer(
             onDateLongPress = onHeatmapDateLongPress,
         )
         sidebarDestinations(
-            isMemoSelected = isMemoSelected,
             isTrashSelected = isTrashSelected,
             isDailyReviewSelected = isDailyReviewSelected,
             isGallerySelected = isGallerySelected,
-            onMemoClick = onMemoClick,
+            isStatisticsSelected = isStatisticsSelected,
             onTrashClick = onTrashClick,
             onDailyReviewClick = onDailyReviewClick,
             onGalleryClick = onGalleryClick,
+            onStatisticsClick = onStatisticsClick,
             trashAnchorTag = trashAnchorTag,
         )
         sidebarTags(
@@ -285,24 +285,16 @@ private fun LazyListScope.sidebarHeatmap(
 }
 
 private fun LazyListScope.sidebarDestinations(
-    isMemoSelected: Boolean,
     isTrashSelected: Boolean,
     isDailyReviewSelected: Boolean,
     isGallerySelected: Boolean,
-    onMemoClick: () -> Unit,
+    isStatisticsSelected: Boolean,
     onTrashClick: () -> Unit,
     onDailyReviewClick: () -> Unit,
     onGalleryClick: () -> Unit,
+    onStatisticsClick: () -> Unit,
     trashAnchorTag: String?,
 ) {
-    item {
-        NavigationItem(
-            icon = if (isMemoSelected) Icons.Filled.Dashboard else Icons.Outlined.Dashboard,
-            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_memo),
-            isSelected = isMemoSelected,
-            onClick = onMemoClick,
-        )
-    }
     item {
         NavigationItem(
             icon = if (isTrashSelected) Icons.Filled.Delete else Icons.Outlined.Delete,
@@ -326,6 +318,14 @@ private fun LazyListScope.sidebarDestinations(
             label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_gallery),
             isSelected = isGallerySelected,
             onClick = onGalleryClick,
+        )
+    }
+    item {
+        NavigationItem(
+            icon = Icons.Outlined.Analytics,
+            label = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_statistics),
+            isSelected = isStatisticsSelected,
+            onClick = onStatisticsClick,
         )
     }
     item { HorizontalDivider(modifier = Modifier.padding(vertical = AppSpacing.Small)) }

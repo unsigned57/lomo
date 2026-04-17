@@ -106,6 +106,7 @@ internal fun createWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
             `etag` TEXT,
             `remote_last_modified` INTEGER,
             `local_last_modified` INTEGER,
+            `local_fingerprint` TEXT,
             `last_synced_at` INTEGER NOT NULL,
             `last_resolved_direction` TEXT NOT NULL,
             `last_resolved_reason` TEXT NOT NULL,

@@ -14,7 +14,8 @@ import kotlinx.coroutines.flow.StateFlow
 @Composable
 fun MemoInteractionHost(
     shareCardShowTime: Boolean,
-    activeDayCount: Int,
+    shareCardShowSignature: Boolean,
+    shareCardSignatureText: String,
     imageDirectory: String?,
     onDeleteMemo: (Memo) -> Unit,
     onUpdateMemo: (
@@ -64,7 +65,8 @@ fun MemoInteractionHost(
 ) {
     MemoMenuBinder(
         shareCardShowTime = shareCardShowTime,
-        activeDayCount = activeDayCount,
+        shareCardShowSignature = shareCardShowSignature,
+        shareCardSignatureText = shareCardSignatureText,
         onEditMemo = controller::openForEdit,
         onDeleteMemo = onDeleteMemo,
         onLanShare = onLanShare,

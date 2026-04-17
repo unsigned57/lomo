@@ -10,9 +10,11 @@ import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
+import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
+import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
@@ -24,7 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -42,12 +44,20 @@ class DailyReviewViewModel
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
         private val saveImageUseCase: SaveImageUseCase,
         private val dailyReviewQueryUseCase: DailyReviewQueryUseCase,
+        private val dailyReviewSessionUseCase: DailyReviewSessionUseCase,
     ) : ViewModel() {
         private val _uiState = MutableStateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>>(UiState.Loading)
         val uiState: StateFlow<UiState<List<com.lomo.app.feature.main.MemoUiModel>>> = _uiState.asStateFlow()
+        private val rawMemos = MutableStateFlow<List<Memo>?>(null)
+        private val _isLoadingMore = MutableStateFlow(false)
+        val isLoadingMore: StateFlow<Boolean> = _isLoadingMore.asStateFlow()
+        private val _restoredPageIndex = MutableStateFlow(0)
+        val restoredPageIndex: StateFlow<Int> = _restoredPageIndex.asStateFlow()
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
         private var loadJob: Job? = null
+        private var canLoadMore = true
+        private var currentSession: DailyReviewSession? = null
 
         val appPreferences: StateFlow<AppPreferencesState> =
             appConfigUiCoordinator
@@ -80,52 +90,114 @@ class DailyReviewViewModel
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
         init {
+            observeMappedUiModels()
             loadDailyReview()
         }
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+        private fun observeMappedUiModels() {
+            viewModelScope.launch {
+                combine(
+                    rawMemos.filterNotNull(),
+                    rootDirectory,
+                    imageDirectory,
+                    imageMapProvider.imageMap,
+                ) { memos, rootDir, imageDir, currentImageMap ->
+                    UiMemoMappingInput(
+                        memos = memos,
+                        rootDirectory = rootDir,
+                        imageDirectory = imageDir,
+                        imageMap = currentImageMap,
+                    )
+                }.distinctUntilChanged()
+                    .mapLatest { input ->
+                        memoUiMapper.mapToUiModels(
+                            memos = input.memos,
+                            rootPath = input.rootDirectory,
+                            imagePath = input.imageDirectory,
+                            imageMap = input.imageMap,
+                        )
+                    }.collect { uiModels ->
+                        _uiState.value = UiState.Success(uiModels)
+                    }
+            }
+        }
+
         private fun loadDailyReview() {
             loadJob?.cancel()
             loadJob =
                 viewModelScope.launch {
                     _uiState.value = UiState.Loading
+                    canLoadMore = true
                     runCatching {
-                        val rawMemos = dailyReviewQueryUseCase()
-
-                        if (rawMemos.isEmpty()) {
-                            _uiState.value = UiState.Success(emptyList())
-                            return@launch
-                        }
-
-                        combine(rootDirectory, imageDirectory, imageMapProvider.imageMap) {
-                            rootDir,
-                            imageDir,
-                            currentImageMap,
-                            ->
-                            UiMemoMappingInput(
-                                memos = rawMemos,
-                                rootDirectory = rootDir,
-                                imageDirectory = imageDir,
-                                imageMap = currentImageMap,
-                            )
-                        }.distinctUntilChanged()
-                            .mapLatest { input ->
-                                memoUiMapper.mapToUiModels(
-                                    memos = input.memos,
-                                    rootPath = input.rootDirectory,
-                                    imagePath = input.imageDirectory,
-                                    imageMap = input.imageMap,
-                                )
-                            }.collect { uiModels ->
-                                _uiState.value = UiState.Success(uiModels)
-                            }
+                        val session = dailyReviewSessionUseCase.prepareSession()
+                        val memos = dailyReviewQueryUseCase(session.seed)
+                        session to memos
                     }.onFailure { throwable ->
                         if (throwable is kotlinx.coroutines.CancellationException) {
                             throw throwable
                         }
                         _uiState.value = UiState.Error("Failed to load daily review", throwable)
+                    }.onSuccess { (session, memos) ->
+                        currentSession = session
+                        rawMemos.value = memos
+                        canLoadMore = memos.isNotEmpty()
+                        val clampedPageIndex = session.pageIndex.coerceIn(0, memos.lastIndex.coerceAtLeast(0))
+                        _restoredPageIndex.value = clampedPageIndex
+                        if (clampedPageIndex != session.pageIndex) {
+                            currentSession = session.copy(pageIndex = clampedPageIndex)
+                            dailyReviewSessionUseCase.updateCurrentPage(
+                                seed = session.seed,
+                                pageIndex = clampedPageIndex,
+                            )
+                        }
                     }
                 }
+        }
+
+        fun loadMore() {
+            val currentMemos = rawMemos.value ?: return
+            val session = currentSession ?: return
+            if (!canLoadMore || loadJob?.isActive == true || _isLoadingMore.value) {
+                return
+            }
+
+            loadJob =
+                viewModelScope.launch {
+                    _isLoadingMore.value = true
+                    runCatching {
+                        dailyReviewQueryUseCase.loadMore(
+                            excludeIds = currentMemos.mapTo(linkedSetOf()) { it.id },
+                            batchSize = DailyReviewQueryUseCase.DEFAULT_DAILY_REVIEW_LIMIT,
+                            seed = session.seed,
+                        )
+                    }.onFailure { throwable ->
+                        if (throwable is kotlinx.coroutines.CancellationException) {
+                            throw throwable
+                        }
+                        _errorMessage.value = throwable.toUserMessage("Failed to load more memos")
+                    }.onSuccess { newMemos ->
+                        if (newMemos.isEmpty()) {
+                            canLoadMore = false
+                        } else {
+                            rawMemos.value = currentMemos + newMemos
+                        }
+                    }
+                    _isLoadingMore.value = false
+                }
+        }
+
+        fun onPageChanged(pageIndex: Int) {
+            val session = currentSession ?: return
+            val normalizedPageIndex = pageIndex.coerceAtLeast(0)
+            _restoredPageIndex.value = normalizedPageIndex
+            currentSession = session.copy(pageIndex = normalizedPageIndex)
+            viewModelScope.launch {
+                dailyReviewSessionUseCase.updateCurrentPage(
+                    seed = session.seed,
+                    pageIndex = normalizedPageIndex,
+                )
+            }
         }
 
         fun updateMemo(

@@ -21,6 +21,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.automirrored.rounded.Redo
+import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -37,6 +39,18 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.AppHapticFeedback
 
+internal fun inputToolbarToolIds(): List<String> =
+    listOf(
+        "camera",
+        "image",
+        "record",
+        "tag",
+        "todo",
+        "underline",
+        "undo",
+        "redo",
+    )
+
 @Composable
 internal fun InputEditorToolbar(
     toggleIcon: InputEditorToggleIcon,
@@ -45,6 +59,10 @@ internal fun InputEditorToolbar(
     isSubmitEnabled: Boolean,
     enabled: Boolean,
     onToggleExpanded: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
@@ -72,6 +90,10 @@ internal fun InputEditorToolbar(
             InputToolbarScrollableTools(
                 showTagSelector = showTagSelector,
                 enabled = enabled,
+                onUndo = onUndo,
+                onRedo = onRedo,
+                canUndo = canUndo,
+                canRedo = canRedo,
                 onCameraClick = onCameraClick,
                 onImageClick = onImageClick,
                 onStartRecording = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) },
@@ -98,6 +120,10 @@ internal fun InputEditorToolbar(
 private fun InputToolbarScrollableTools(
     showTagSelector: Boolean,
     enabled: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
     onStartRecording: () -> Unit,
@@ -106,17 +132,7 @@ private fun InputToolbarScrollableTools(
     onInsertUnderline: () -> Unit,
     haptic: AppHapticFeedback,
 ) {
-    val toolIds =
-        remember(showTagSelector) {
-            listOf(
-                "camera",
-                "image",
-                "record",
-                "tag",
-                "todo",
-                "underline",
-            )
-        }
+    val toolIds = remember(showTagSelector) { inputToolbarToolIds() }
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -125,6 +141,24 @@ private fun InputToolbarScrollableTools(
     ) {
         items(toolIds, key = { it }) { toolId ->
             when (toolId) {
+                "undo" ->
+                    InputToolbarIconButton(
+                        icon = Icons.AutoMirrored.Rounded.Undo,
+                        contentDescription = stringResource(R.string.cd_undo),
+                        enabled = enabled && canUndo,
+                        onClick = onUndo,
+                        haptic = haptic,
+                    )
+
+                "redo" ->
+                    InputToolbarIconButton(
+                        icon = Icons.AutoMirrored.Rounded.Redo,
+                        contentDescription = stringResource(R.string.cd_redo),
+                        enabled = enabled && canRedo,
+                        onClick = onRedo,
+                        haptic = haptic,
+                    )
+
                 "camera" ->
                     InputToolbarIconButton(
                         icon = Icons.Rounded.PhotoCamera,

@@ -97,6 +97,7 @@ fun SettingsScreen(
                 onFileChoiceChanged = conflictViewModel::setFileChoice,
                 onAllChoicesChanged = conflictViewModel::setAllChoices,
                 onAcceptSuggestions = conflictViewModel::acceptSuggestedChoices,
+                onAutoResolveSafeConflicts = conflictViewModel::autoResolveSafeConflicts,
                 onToggleExpanded = conflictViewModel::toggleExpandedFile,
                 onApply = conflictViewModel::applyResolution,
                 onDismiss = conflictViewModel::dismiss,

@@ -32,6 +32,7 @@ import com.lomo.data.repository.AppRuntimeInfoRepositoryImpl
 import com.lomo.data.repository.AppUpdateDownloadRepositoryImpl
 import com.lomo.data.repository.AppUpdateRepositoryImpl
 import com.lomo.data.repository.AppVersionRepositoryImpl
+import com.lomo.data.repository.DailyReviewSessionRepositoryImpl
 import com.lomo.data.repository.DefaultWorkspaceMediaAccess
 import com.lomo.data.repository.GitSyncRepositoryImpl
 import com.lomo.data.repository.MediaRepositoryImpl
@@ -63,6 +64,7 @@ import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
@@ -427,6 +429,12 @@ object InboxRepositoryModule {
     @Provides
     @Singleton
     fun provideSyncInboxRepository(impl: SyncInboxRepositoryImpl): SyncInboxRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideDailyReviewSessionRepository(
+        impl: DailyReviewSessionRepositoryImpl,
+    ): DailyReviewSessionRepository = impl
 }
 
 @Module

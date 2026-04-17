@@ -6,6 +6,7 @@ import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
+import com.lomo.domain.repository.InteractionBehaviorPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
@@ -43,6 +44,7 @@ class PreferencesRepositoryImpl
         dateTimePreferencesRepository: DateTimePreferencesRepositoryImpl,
         storagePreferencesRepository: StoragePreferencesRepositoryImpl,
         interactionPreferencesRepository: InteractionPreferencesRepositoryImpl,
+        interactionBehaviorPreferencesRepository: InteractionBehaviorPreferencesRepositoryImpl,
         memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
         securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
         shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
@@ -52,6 +54,7 @@ class PreferencesRepositoryImpl
         DateTimePreferencesRepository by dateTimePreferencesRepository,
         StoragePreferencesRepository by storagePreferencesRepository,
         InteractionPreferencesRepository by interactionPreferencesRepository,
+        InteractionBehaviorPreferencesRepository by interactionBehaviorPreferencesRepository,
         MemoActionPreferencesRepository by memoActionPreferencesRepository,
         SecurityPreferencesRepository by securityPreferencesRepository,
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
@@ -131,11 +134,25 @@ class InteractionPreferencesRepositoryImpl
         override suspend fun setFreeTextCopyEnabled(enabled: Boolean) {
             dataStore.updateFreeTextCopyEnabled(enabled)
         }
+    }
+
+@Singleton
+class InteractionBehaviorPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : InteractionBehaviorPreferencesRepository {
 
         override fun isQuickSaveOnBackEnabled(): Flow<Boolean> = dataStore.quickSaveOnBackEnabled
 
         override suspend fun setQuickSaveOnBackEnabled(enabled: Boolean) {
             dataStore.updateQuickSaveOnBackEnabled(enabled)
+        }
+
+        override fun isScrollbarEnabled(): Flow<Boolean> = dataStore.scrollbarEnabled
+
+        override suspend fun setScrollbarEnabled(enabled: Boolean) {
+            dataStore.updateScrollbarEnabled(enabled)
         }
     }
 
@@ -194,6 +211,12 @@ class ShareCardPreferencesRepositoryImpl
 
         override suspend fun setShareCardShowBrand(enabled: Boolean) {
             dataStore.updateShareCardShowBrand(enabled)
+        }
+
+        override fun getShareCardSignatureText(): Flow<String> = dataStore.shareCardSignatureText
+
+        override suspend fun setShareCardSignatureText(text: String) {
+            dataStore.updateShareCardSignatureText(text)
         }
     }
 

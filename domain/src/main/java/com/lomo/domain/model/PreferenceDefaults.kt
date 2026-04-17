@@ -11,11 +11,13 @@ object PreferenceDefaults {
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = true
     const val MEMO_ACTION_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
+    const val SCROLLBAR_ENABLED = true
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
     const val SHARE_CARD_SHOW_TIME = true
     const val SHARE_CARD_SHOW_BRAND = true
+    const val SHARE_CARD_SIGNATURE_TEXT = "Lomo"
     const val SYNC_INBOX_ENABLED = false
     const val MEMO_SNAPSHOTS_ENABLED = true
     const val MEMO_SNAPSHOT_MAX_COUNT = 20

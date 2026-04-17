@@ -15,25 +15,26 @@ import org.junit.Test
  * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
  *   revision dedupe and paging, retires the removed legacy workspace-history schema, compacts
  *   memo-revision rows down to lightweight previews, normalizes sync metadata / protocol-state tables
- *   for supported remotes, and persists shard-level remote reconcile state plus telemetry for S3.
+ *   for supported remotes, persists shard-level remote reconcile state plus telemetry for S3,
+ *   and upgrades WebDAV metadata to carry a stable local fingerprint baseline.
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
  *   plus direct-migration coverage to the current target version.
  * - Red phase: Fails before the fix because the schema target assertion still stops before the persisted
- *   S3 metadata fingerprint schema and no test locks the 44->45 metadata-column addition contract.
+ *   WebDAV fingerprint schema and no test locks the 45->46 metadata normalization contract.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
     /*
      * Test Change Justification:
      * - Reason category: product/domain contract changed.
-     * - Replaced assertion/setup: schema target locked at version 43 without any coverage for pending sync conflict persistence.
-     * - The previous assertion is no longer correct because the Room schema now includes a new table and migration at version 44.
-     * - Retained/new coverage: version-target assertion still guards the current schema, and a new migration test locks the 43->44 table creation contract.
+     * - Replaced assertion/setup: schema target locked at version 45 for S3 metadata persistence only.
+     * - The previous assertion is no longer correct because the Room schema now includes a version 46 WebDAV metadata normalization migration.
+     * - Retained/new coverage: version-target assertion still guards the current schema, and a new migration test locks the 45->46 WebDAV fingerprint-column contract.
      * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
      */
     @Test
-    fun `database version advances to 45 for persisted s3 metadata fingerprints`() {
-        assertEquals(45, MEMO_DATABASE_VERSION)
+    fun `database version advances to 46 for webdav metadata fingerprints`() {
+        assertEquals(46, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -271,6 +272,57 @@ class DatabaseMigrationsTest {
         }
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `s3_sync_metadata` ADD COLUMN `local_fingerprint` TEXT")
+        }
+    }
+
+    @Test
+    fun `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val legacyColumns =
+            setOf(
+                "relative_path",
+                "remote_path",
+                "etag",
+                "remote_last_modified",
+                "local_last_modified",
+                "last_synced_at",
+                "last_resolved_direction",
+                "last_resolved_reason",
+            )
+        every { db.query(any<String>()) } answers {
+            val sql = args[0] as String
+            when {
+                sql.contains("sqlite_master") -> mockCursor(true)
+                sql.contains("PRAGMA table_info(`webdav_sync_metadata_legacy_v46`)") -> mockColumnsCursor(legacyColumns)
+                sql.contains("PRAGMA table_info(`webdav_sync_metadata`)") -> mockColumnsCursor(legacyColumns)
+                else -> mockCursor(false)
+            }
+        }
+
+        MIGRATION_45_46.migrate(db)
+
+        verify(exactly = 1) {
+            db.execSQL("ALTER TABLE `webdav_sync_metadata` RENAME TO `webdav_sync_metadata_legacy_v46`")
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `webdav_sync_metadata`") &&
+                        it.contains("`local_fingerprint` TEXT")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR REPLACE INTO `webdav_sync_metadata`") &&
+                        it.contains("NULL") &&
+                        it.contains("FROM `webdav_sync_metadata_legacy_v46`")
+                },
+            )
+        }
+        verify(exactly = 2) {
+            db.execSQL("DROP TABLE IF EXISTS `webdav_sync_metadata_legacy_v46`")
         }
     }
 

@@ -170,6 +170,7 @@ internal fun createMemoInputEditText(
         imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN
         overScrollMode = View.OVER_SCROLL_NEVER
         isVerticalScrollBarEnabled = true
+        isScrollbarFadingEnabled = true
         highlightColor = selectionHighlightColor
         applySelectionHandleColor(selectionHandleColor)
         onFocusChangeListener =
@@ -217,6 +218,7 @@ internal fun updateMemoInputEditText(
     cursorColor: Int,
     selectionHighlightColor: Int,
     selectionHandleColor: Int,
+    usePlatformScrollbars: Boolean,
     onEditorReady: (MemoInputEditText) -> Unit,
 ) {
     onEditorReady(editText)
@@ -224,7 +226,8 @@ internal fun updateMemoInputEditText(
     editText.isUpdatingFromModel = true
     editText.minimumHeight = minimumContentHeightPx
     editText.maxLines = INPUT_EDITOR_PLATFORM_MAX_LINES
-    editText.isVerticalScrollBarEnabled = true
+    editText.isVerticalScrollBarEnabled = usePlatformScrollbars
+    editText.isScrollbarFadingEnabled = usePlatformScrollbars
     if (editText.lastAppliedHighlightColor != selectionHighlightColor) {
         editText.highlightColor = selectionHighlightColor
         editText.lastAppliedHighlightColor = selectionHighlightColor
@@ -252,6 +255,10 @@ internal fun updateMemoInputEditText(
         editText.lastAppliedParagraphSpacingPx = paragraphSpacingPx
         editText.lastAppliedStyle = displayStyle
         editText.lastAppliedDensity = density
+        // setText() inside applyMemoInputParagraphTextStyle resets the cursor to 0.
+        // Restore selection immediately so syncWith sees it as already applied
+        // and does not skip it due to the hasFocus() guard.
+        editText.restoreSelection(inputValue.selection, inputValue.text.length)
     } else if (styleChanged) {
         editText.applyMemoInputParagraphAppearance(
             text = editText.text ?: "",
@@ -275,7 +282,7 @@ internal fun updateMemoInputEditText(
     editText.isUpdatingFromModel = false
 }
 
-private fun MemoInputEditText.restoreSelection(
+internal fun MemoInputEditText.restoreSelection(
     selection: TextRange,
     textLength: Int,
 ) {

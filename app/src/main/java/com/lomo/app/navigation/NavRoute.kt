@@ -37,6 +37,9 @@ sealed interface NavRoute {
     data object Gallery : NavRoute
 
     @Serializable
+    data object Statistics : NavRoute
+
+    @Serializable
     data class Share(
         val payloadKey: String,
         val memoTimestamp: Long,

@@ -1,16 +1,12 @@
 package com.lomo.data.worker
 
 import android.content.Context
-import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.data.local.datastore.LomoDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,15 +27,8 @@ class WebDavSyncScheduler
             }
 
             val interval = dataStore.webDavAutoSyncInterval.first()
-            val duration = parseInterval(interval)
-            val request =
-                PeriodicWorkRequestBuilder<WebDavSyncWorker>(duration)
-                    .setConstraints(
-                        Constraints
-                            .Builder()
-                            .setRequiredNetworkType(NetworkType.CONNECTED)
-                            .build(),
-                    ).build()
+            val duration = parseRemoteAutoSyncInterval(interval)
+            val request = buildPeriodicSyncWorkRequest<WebDavSyncWorker>(duration, connectedNetworkConstraints())
 
             workManager.enqueueUniquePeriodicWork(
                 WebDavSyncWorker.WORK_NAME,
@@ -52,20 +41,5 @@ class WebDavSyncScheduler
         fun cancel() {
             WorkManager.getInstance(context).cancelUniqueWork(WebDavSyncWorker.WORK_NAME)
             Timber.d("WebDAV auto-sync cancelled")
-        }
-
-        private fun parseInterval(interval: String): Duration =
-            AUTO_SYNC_INTERVALS[interval] ?: DEFAULT_AUTO_SYNC_INTERVAL
-
-        private companion object {
-            private val AUTO_SYNC_INTERVALS =
-                mapOf(
-                    "30min" to Duration.ofMinutes(30),
-                    "1h" to Duration.ofHours(1),
-                    "6h" to Duration.ofHours(6),
-                    "12h" to Duration.ofHours(12),
-                    "24h" to Duration.ofHours(24),
-                )
-            private val DEFAULT_AUTO_SYNC_INTERVAL = Duration.ofHours(1)
         }
     }

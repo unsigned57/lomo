@@ -13,7 +13,6 @@ import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.ui.component.settings.PreferenceItem
-import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 
 @Composable
@@ -35,36 +34,34 @@ fun WebDavSyncSettingsSection(
     onSyncNow: () -> Unit,
     onTestConnection: () -> Unit,
 ) {
-    SettingsGroup(title = stringResource(R.string.settings_group_webdav_sync)) {
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_webdav_sync_enable),
-            subtitle = stringResource(R.string.settings_webdav_sync_enable_subtitle),
-            icon = Icons.Outlined.Sync,
-            checked = state.enabled,
-            onCheckedChange = onToggleEnabled,
+    SwitchPreferenceItem(
+        title = stringResource(R.string.settings_webdav_sync_enable),
+        subtitle = stringResource(R.string.settings_webdav_sync_enable_subtitle),
+        icon = Icons.Outlined.Sync,
+        checked = state.enabled,
+        onCheckedChange = onToggleEnabled,
+    )
+    SettingsExpandableContent(
+        visible = state.enabled,
+        label = "WebDavSyncAdvancedVisibility",
+    ) {
+        WebDavSyncAdvancedContent(
+            state = state,
+            providerLabel = providerLabel,
+            syncIntervalLabel = syncIntervalLabel,
+            syncNowSubtitle = syncNowSubtitle,
+            connectionSubtitle = connectionSubtitle,
+            onOpenProviderDialog = onOpenProviderDialog,
+            onOpenBaseUrlDialog = onOpenBaseUrlDialog,
+            onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
+            onOpenUsernameDialog = onOpenUsernameDialog,
+            onOpenPasswordDialog = onOpenPasswordDialog,
+            onToggleAutoSync = onToggleAutoSync,
+            onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
+            onToggleSyncOnRefresh = onToggleSyncOnRefresh,
+            onSyncNow = onSyncNow,
+            onTestConnection = onTestConnection,
         )
-        SettingsExpandableContent(
-            visible = state.enabled,
-            label = "WebDavSyncAdvancedVisibility",
-        ) {
-            WebDavSyncAdvancedContent(
-                state = state,
-                providerLabel = providerLabel,
-                syncIntervalLabel = syncIntervalLabel,
-                syncNowSubtitle = syncNowSubtitle,
-                connectionSubtitle = connectionSubtitle,
-                onOpenProviderDialog = onOpenProviderDialog,
-                onOpenBaseUrlDialog = onOpenBaseUrlDialog,
-                onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
-                onOpenUsernameDialog = onOpenUsernameDialog,
-                onOpenPasswordDialog = onOpenPasswordDialog,
-                onToggleAutoSync = onToggleAutoSync,
-                onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
-                onToggleSyncOnRefresh = onToggleSyncOnRefresh,
-                onSyncNow = onSyncNow,
-                onTestConnection = onTestConnection,
-            )
-        }
     }
 }
 

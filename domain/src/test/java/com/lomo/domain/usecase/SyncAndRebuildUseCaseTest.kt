@@ -9,10 +9,13 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.S3SyncErrorCode
 import com.lomo.domain.model.S3SyncFailureException
 import com.lomo.domain.model.S3SyncResult
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -25,6 +28,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -45,16 +49,38 @@ class SyncAndRebuildUseCaseTest {
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
     private val s3SyncRepository: S3SyncRepository = mockk()
     private val syncInboxRepository: SyncInboxRepository = mockk(relaxed = true)
+    private val preferencesRepository: PreferencesRepository = mockk(relaxed = true)
     private val syncPolicyRepository: SyncPolicyRepository = mockk()
+    private val syncProviderRegistry =
+        SyncProviderRegistry(
+            providers =
+                listOf(
+                    GitUnifiedSyncProvider(gitSyncRepository),
+                    WebDavUnifiedSyncProvider(webDavSyncRepository),
+                    S3UnifiedSyncProvider(s3SyncRepository),
+                    InboxUnifiedSyncProvider(
+                        syncInboxRepository = syncInboxRepository,
+                        preferencesRepository = preferencesRepository,
+                    ),
+                ),
+        )
     private val useCase =
         SyncAndRebuildUseCase(
             memoRepository = memoRepository,
-            gitSyncRepository = gitSyncRepository,
-            webDavSyncRepository = webDavSyncRepository,
-            s3SyncRepository = s3SyncRepository,
-            syncInboxRepository = syncInboxRepository,
+            syncProviderRegistry = syncProviderRegistry,
             syncPolicyRepository = syncPolicyRepository,
         )
+
+    @Before
+    fun setUp() {
+        every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+        coEvery {
+            syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+        } returns UnifiedSyncResult.Success(
+            provider = SyncBackendType.INBOX,
+            message = "processed",
+        )
+    }
 
     @Test
     fun `non-force git sync cancellation is rethrown and refresh is skipped`() =
@@ -265,16 +291,16 @@ class SyncAndRebuildUseCaseTest {
     /*
      * Test Change Justification:
      * - Reason category: product/domain contract changed
-     * - Replaced assertion: force-refresh S3 branch previously verified `s3SyncRepository.sync()`
-     * - Previous assertion is no longer correct because refresh-triggered S3 sync now routes through `syncForRefresh()` to apply the foreground/catch-up policy split
+     * - Replaced assertion: force-refresh S3 branch previously verified `s3SyncRepository.syncForRefresh()`
+     * - Previous assertion is no longer correct because `forceSync=true` is the manual-sync path and the unified provider routes manual S3 sync through `sync()`, while only refresh-triggered sync uses `syncForRefresh()`
      * - Retained coverage: still verifies refresh ordering, mapped not-configured failure, and that memo refresh happens before the exception is rethrown
-     * - Why this is not changing the test to fit the implementation: the new assertion matches the intended refresh contract introduced for manual refresh behavior, not a convenience detail
+     * - Why this is not changing the test to fit the implementation: the corrected assertion matches the domain contract split between manual sync and refresh sync
      */
     @Test
     fun `force sync s3 not configured refreshes then throws mapped failure`() =
         runTest {
             every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.S3)
-            coEvery { s3SyncRepository.syncForRefresh() } returns S3SyncResult.NotConfigured
+            coEvery { s3SyncRepository.sync() } returns S3SyncResult.NotConfigured
             coEvery { memoRepository.refreshMemos() } returns Unit
 
             val thrown = runCatching { useCase(forceSync = true) }.exceptionOrNull()
@@ -283,7 +309,7 @@ class SyncAndRebuildUseCaseTest {
             assertEquals(S3SyncErrorCode.NOT_CONFIGURED, (thrown as S3SyncFailureException).code)
             assertEquals("S3 sync is not configured", thrown.message)
             coVerifyOrder {
-                s3SyncRepository.syncForRefresh()
+                s3SyncRepository.sync()
                 memoRepository.refreshMemos()
             }
         }

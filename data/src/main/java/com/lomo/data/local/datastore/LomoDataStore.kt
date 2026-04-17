@@ -93,6 +93,7 @@ interface LomoInteractionPreferencesStore {
     val memoActionAutoReorderEnabled: Flow<Boolean>
     val memoActionOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
+    val scrollbarEnabled: Flow<Boolean>
 
     suspend fun updateHapticFeedbackEnabled(enabled: Boolean)
 
@@ -107,6 +108,8 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateMemoActionOrder(order: String)
 
     suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean)
+
+    suspend fun updateScrollbarEnabled(enabled: Boolean)
 }
 
 interface LomoAppSecurityStore {
@@ -124,6 +127,7 @@ interface LomoLanSharePreferencesStore {
     val lanShareDeviceName: Flow<String?>
     val shareCardShowTime: Flow<Boolean>
     val shareCardShowBrand: Flow<Boolean>
+    val shareCardSignatureText: Flow<String>
     val syncInboxEnabled: Flow<Boolean>
 
     suspend fun updateLanSharePairingKeyHex(keyHex: String?)
@@ -136,7 +140,21 @@ interface LomoLanSharePreferencesStore {
 
     suspend fun updateShareCardShowBrand(enabled: Boolean)
 
+    suspend fun updateShareCardSignatureText(text: String)
+
     suspend fun updateSyncInboxEnabled(enabled: Boolean)
+}
+
+interface LomoDailyReviewSessionStore {
+    val dailyReviewSessionDate: Flow<String?>
+    val dailyReviewSessionSeed: Flow<Long?>
+    val dailyReviewSessionPageIndex: Flow<Int?>
+
+    suspend fun updateDailyReviewSession(
+        date: String?,
+        seed: Long?,
+        pageIndex: Int?,
+    )
 }
 
 interface LomoSnapshotPreferencesStore {
@@ -312,6 +330,7 @@ class LomoDataStore private constructor(
     LomoInteractionPreferencesStore by InteractionPreferencesStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
+    LomoDailyReviewSessionStore by DailyReviewSessionStoreImpl(dataStore),
     LomoSnapshotPreferencesStore by SnapshotPreferencesStoreImpl(dataStore),
     LomoAppVersionStore by AppVersionStoreImpl(dataStore),
     LomoGitSyncBehaviorStore by GitSyncBehaviorStoreImpl(dataStore),
@@ -351,13 +370,18 @@ internal object LomoDataStoreKeys {
         booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
     val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
     val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
+    val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
     val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
     val SHARE_CARD_SHOW_TIME = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_TIME)
     val SHARE_CARD_SHOW_BRAND = booleanPreferencesKey(PreferenceKeys.SHARE_CARD_SHOW_BRAND)
+    val SHARE_CARD_SIGNATURE_TEXT = stringPreferencesKey(PreferenceKeys.SHARE_CARD_SIGNATURE_TEXT)
     val SYNC_INBOX_ENABLED = booleanPreferencesKey(PreferenceKeys.SYNC_INBOX_ENABLED)
+    val DAILY_REVIEW_SESSION_DATE = stringPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_DATE)
+    val DAILY_REVIEW_SESSION_SEED = longPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_SEED)
+    val DAILY_REVIEW_SESSION_PAGE_INDEX = intPreferencesKey(PreferenceKeys.DAILY_REVIEW_SESSION_PAGE_INDEX)
     val MEMO_SNAPSHOTS_ENABLED = booleanPreferencesKey(PreferenceKeys.MEMO_SNAPSHOTS_ENABLED)
     val MEMO_SNAPSHOT_MAX_COUNT = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_COUNT)
     val MEMO_SNAPSHOT_MAX_AGE_DAYS = intPreferencesKey(PreferenceKeys.MEMO_SNAPSHOT_MAX_AGE_DAYS)
@@ -466,32 +490,6 @@ internal suspend fun DataStore<Preferences>.editPreferences(
     block: MutablePreferences.() -> Unit,
 ) {
     edit { prefs -> prefs.block() }
-}
-
-internal suspend fun DataStore<Preferences>.setOrRemove(
-    key: Preferences.Key<String>,
-    value: String?,
-) {
-    editPreferences {
-        if (value != null) {
-            this[key] = value
-        } else {
-            remove(key)
-        }
-    }
-}
-
-internal suspend fun DataStore<Preferences>.setOrRemoveIfBlank(
-    key: Preferences.Key<String>,
-    value: String?,
-) {
-    editPreferences {
-        if (value.isNullOrBlank()) {
-            remove(key)
-        } else {
-            this[key] = value
-        }
-    }
 }
 
 internal fun <T> Flow<T>.catchOnlyIOException(

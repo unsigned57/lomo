@@ -2,100 +2,83 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
-import java.time.LocalDate
 import kotlin.random.Random
 
 /**
- * Picks a deterministic "daily review" random sample from the memo stream.
- *
- * For a given [seedDate], the same random order is produced so results are stable within that day,
- * while still sampling from the entire memo set instead of a contiguous window.
- *
- * Uses repository paging/count contracts to avoid materializing the full list in memory when
- * storage can provide indexed access efficiently.
+ * Picks non-deterministic random-walk batches from the memo stream without materializing the
+ * entire list in memory.
  */
-class DailyReviewQueryUseCase
-(
-        private val repository: MemoRepository,
+class DailyReviewQueryUseCase(
+    private val repository: MemoRepository,
+) {
+    suspend operator fun invoke(seed: Long = Random.Default.nextLong()): List<Memo> =
+        loadMore(
+            excludeIds = emptySet(),
+            batchSize = DEFAULT_DAILY_REVIEW_LIMIT,
+            seed = seed,
+        )
+
+    suspend fun loadMore(
+        excludeIds: Set<String>,
+        batchSize: Int,
+        seed: Long = Random.Default.nextLong(),
+    ): List<Memo> {
+        val totalMemoCount = if (batchSize > 0) repository.getMemoCount() else 0
+        if (batchSize <= 0 || totalMemoCount <= 0) {
+            return emptyList()
+        }
+
+        val randomIndexCursor = RandomIndexCursor(totalMemoCount, Random(seed))
+        val pageCache = HashMap<Int, List<Memo>>()
+        val seenIds = excludeIds.toHashSet()
+        val randomWalkBatch = ArrayList<Memo>(batchSize.coerceAtMost(totalMemoCount))
+
+        while (randomIndexCursor.hasNext() && randomWalkBatch.size < batchSize) {
+            val index = randomIndexCursor.next()
+            val pageIndex = index / DAILY_REVIEW_PAGE_SIZE
+            val pageOffset = pageIndex * DAILY_REVIEW_PAGE_SIZE
+            val pageMemos =
+                pageCache[pageIndex] ?: repository
+                    .getMemosPage(limit = DAILY_REVIEW_PAGE_SIZE, offset = pageOffset)
+                    .also { pageCache[pageIndex] = it }
+            val memo = pageMemos.getOrNull(index - pageOffset) ?: continue
+
+            if (seenIds.add(memo.id)) {
+                randomWalkBatch += memo
+            }
+        }
+
+        return randomWalkBatch
+    }
+
+    /**
+     * Generates a random permutation lazily with a partial Fisher-Yates walk so callers can
+     * stop once the requested batch has been filled.
+     */
+    private class RandomIndexCursor(
+        private val populationSize: Int,
+        private val random: Random,
     ) {
-        suspend operator fun invoke(): List<Memo> =
-            invoke(
-                limit = DEFAULT_DAILY_REVIEW_LIMIT,
-                seedDate = LocalDate.now(),
-            )
+        private val swaps = HashMap<Int, Int>()
+        private var nextPosition = 0
 
-        suspend operator fun invoke(
-            limit: Int,
-            seedDate: LocalDate,
-        ): List<Memo> {
-            val totalMemoCount = if (limit > 0) repository.getMemoCount() else 0
-            val safeLimit = limit.coerceAtMost(totalMemoCount)
-            if (safeLimit <= 0) return emptyList()
+        fun hasNext(): Boolean = nextPosition < populationSize
 
-            val sampledIndices =
-                if (safeLimit == totalMemoCount) {
-                    IntArray(totalMemoCount) { it }
-                } else {
-                    val dailyRandom = Random(seedDate.toEpochDay())
-                    sampleIndicesWithoutReplacement(totalMemoCount, safeLimit, dailyRandom)
-                }
+        fun next(): Int {
+            val currentPosition = nextPosition
+            val randomPosition = random.nextInt(currentPosition, populationSize)
+            val valueAtCurrentPosition = swaps[currentPosition] ?: currentPosition
+            val valueAtRandomPosition = swaps[randomPosition] ?: randomPosition
 
-            return if (sampledIndices.isEmpty()) {
-                emptyList()
-            } else {
-                fetchMemosByIndices(sampledIndices)
-            }
-        }
-
-        private suspend fun fetchMemosByIndices(indices: IntArray): List<Memo> {
-            val selectionsByPage =
-                indices.withIndex().groupBy(
-                    keySelector = { indexedValue -> indexedValue.value / DAILY_REVIEW_PAGE_SIZE },
-                )
-            val sampledMemos = arrayOfNulls<Memo>(indices.size)
-
-            for (pageIndex in selectionsByPage.keys.sorted()) {
-                val pageOffset = pageIndex * DAILY_REVIEW_PAGE_SIZE
-                val pageMemos = repository.getMemosPage(limit = DAILY_REVIEW_PAGE_SIZE, offset = pageOffset)
-                val pageSelections = selectionsByPage[pageIndex].orEmpty()
-
-                for (selection in pageSelections) {
-                    val indexWithinPage = selection.value - pageOffset
-                    if (indexWithinPage in pageMemos.indices) {
-                        sampledMemos[selection.index] = pageMemos[indexWithinPage]
-                    }
-                }
-            }
-
-            return sampledMemos.filterNotNull()
-        }
-
-        /**
-         * Deterministic partial Fisher-Yates sampling.
-         *
-         * Selects [sampleSize] unique indices in O(sampleSize) expected space/time without
-         * allocating/reordering the entire source list.
-         */
-        private fun sampleIndicesWithoutReplacement(
-            populationSize: Int,
-            sampleSize: Int,
-            random: Random,
-        ): IntArray {
-            val swaps = HashMap<Int, Int>(sampleSize * 2)
-
-            return IntArray(sampleSize) { i ->
-                val j = random.nextInt(i, populationSize)
-                val valueAtI = swaps[i] ?: i
-                val valueAtJ = swaps[j] ?: j
-
-                swaps[i] = valueAtJ
-                swaps[j] = valueAtI
-                valueAtJ
-            }
-        }
-
-        private companion object {
-            private const val DEFAULT_DAILY_REVIEW_LIMIT = 10
-            private const val DAILY_REVIEW_PAGE_SIZE = 64
+            swaps[currentPosition] = valueAtRandomPosition
+            swaps[randomPosition] = valueAtCurrentPosition
+            nextPosition += 1
+            return valueAtRandomPosition
         }
     }
+
+    companion object {
+        const val DEFAULT_DAILY_REVIEW_LIMIT = 20
+        private const val DAILY_REVIEW_PAGE_SIZE = 64
+    }
+}

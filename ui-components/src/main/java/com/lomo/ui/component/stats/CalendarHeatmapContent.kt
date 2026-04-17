@@ -200,14 +200,53 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapMonthLab
     layout: HeatmapLayout,
     textPaint: Paint,
 ) {
-    layout.monthLabels.forEach { label ->
+    resolveMonthLabelPlacements(
+        labels = layout.monthLabels,
+        weekWidth = layout.weekWidth,
+        totalWidth = size.width,
+        minimumSpacingPx = 6.dp.toPx(),
+        textWidth = { text -> textPaint.measureText(text) },
+    ).forEach { label ->
         drawContext.canvas.nativeCanvas.drawText(
             label.text,
-            label.week * layout.weekWidth,
+            label.drawX,
             layout.monthLabelHeightPx - 4.dp.toPx(),
             textPaint,
         )
     }
+}
+
+internal data class ResolvedMonthLabelPlacement(
+    val text: String,
+    val drawX: Float,
+    val widthPx: Float,
+)
+
+internal fun resolveMonthLabelPlacements(
+    labels: List<MonthLabel>,
+    weekWidth: Float,
+    totalWidth: Float,
+    minimumSpacingPx: Float,
+    textWidth: (String) -> Float,
+): List<ResolvedMonthLabelPlacement> {
+    var previousRight = Float.NEGATIVE_INFINITY
+    val placements = mutableListOf<ResolvedMonthLabelPlacement>()
+    labels.forEach { label ->
+        val widthPx = textWidth(label.text).coerceAtLeast(0f)
+        val anchoredX = label.week * weekWidth
+        val drawX = maxOf(anchoredX, previousRight + minimumSpacingPx)
+        val drawRight = drawX + widthPx
+        if (drawRight <= totalWidth) {
+            placements +=
+                ResolvedMonthLabelPlacement(
+                    text = label.text,
+                    drawX = drawX,
+                    widthPx = widthPx,
+                )
+            previousRight = drawRight
+        }
+    }
+    return placements
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawHeatmapCells(

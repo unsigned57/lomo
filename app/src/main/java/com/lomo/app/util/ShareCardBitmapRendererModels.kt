@@ -29,7 +29,6 @@ internal const val MIN_CARD_HEIGHT_DP = 330f
 internal const val FOOTER_DIVIDER_TOP_SPACING_DP = 20f
 internal const val FOOTER_DIVIDER_STROKE_DP = 1f
 internal const val FOOTER_ROW_TOP_SPACING_DP = 14f
-
 internal const val TAG_TEXT_SIZE_SP = 11.5f
 internal const val TITLE_TEXT_SIZE_SP = 13.5f
 internal const val FOOTER_TEXT_SIZE_SP = 12f
@@ -74,6 +73,7 @@ internal const val QUOTE_PREFIX = "│ "
 internal const val BULLET_PREFIX = "• "
 internal const val UNCHECKED_TODO_PREFIX = "☐"
 internal const val CHECKED_TODO_PREFIX = "☑"
+internal const val DEFAULT_SHARE_CARD_SIGNATURE = "Lomo"
 
 internal const val IMAGE_MARKER_PREFIX = "\uFFFCIMG"
 internal const val IMAGE_MARKER_SUFFIX = "\uFFFC"
@@ -94,17 +94,24 @@ internal data class ShareCardRenderInput(
     val safeText: String,
     val imagePlaceholder: String,
     val createdAtText: String,
-    val activeDayCountText: String,
+    val signatureText: String = DEFAULT_SHARE_CARD_SIGNATURE,
     val textLengthWithoutMarkers: Int,
     val hasImages: Boolean,
 )
 
 internal data class ShareCardFooterContent(
     val showFooter: Boolean,
-    val showTime: Boolean,
-    val createdAtText: String,
-    val activeDayCountText: String,
+    val row: ShareCardFooterRow? = null,
 )
+
+internal data class ShareCardFooterRow(
+    val startText: String = "",
+    val centerText: String = "",
+    val endText: String = "",
+) {
+    val isVisible: Boolean
+        get() = startText.isNotBlank() || centerText.isNotBlank() || endText.isNotBlank()
+}
 
 internal data class ShareCardLayoutSpec(
     val canvasWidth: Int,

@@ -213,7 +213,7 @@ class MemoTextProcessor
         }
 
         companion object {
-            private val TAG_PATTERN = Regex("""(?:^|\s)#([\p{L}\p{N}_][\p{L}\p{N}_/]*)""")
+            private val TAG_PATTERN = Regex("""(?:^|\s)#([\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*)""")
             private val MD_IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
             private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
             private val AUDIO_LINK_PATTERN =

@@ -62,9 +62,10 @@ private data class SearchScreenUiSnapshot(
     val dateFormat: String,
     val timeFormat: String,
     val shareCardShowTime: Boolean,
+    val shareCardShowSignature: Boolean,
+    val shareCardSignatureText: String,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val activeDayCount: Int,
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
@@ -95,7 +96,8 @@ fun SearchScreen(
 
     MemoInteractionHost(
         shareCardShowTime = uiState.shareCardShowTime,
-        activeDayCount = uiState.activeDayCount,
+        shareCardShowSignature = uiState.shareCardShowSignature,
+        shareCardSignatureText = uiState.shareCardSignatureText,
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,
@@ -142,7 +144,6 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     val showLoading by viewModel.showLoading.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
@@ -155,9 +156,10 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
         shareCardShowTime = appPreferences.shareCardShowTime,
+        shareCardShowSignature = appPreferences.shareCardShowBrand,
+        shareCardSignatureText = appPreferences.shareCardSignatureText,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-        activeDayCount = activeDayCount,
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },

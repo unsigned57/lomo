@@ -6,7 +6,6 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Vibration
-import androidx.compose.material.icons.outlined.Sync
 import androidx.compose.material.icons.outlined.AccessTime
 import androidx.compose.material.icons.outlined.Brightness6
 import androidx.compose.material.icons.outlined.CalendarToday
@@ -18,6 +17,7 @@ import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Tag
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -37,8 +37,6 @@ fun StorageSettingsSection(
     onSelectRoot: () -> Unit,
     onSelectImageRoot: () -> Unit,
     onSelectVoiceRoot: () -> Unit,
-    onToggleSyncInbox: (Boolean) -> Unit,
-    onSelectSyncInbox: () -> Unit,
     onOpenFilenameFormatDialog: () -> Unit,
     onOpenTimestampFormatDialog: () -> Unit,
 ) {
@@ -63,23 +61,6 @@ fun StorageSettingsSection(
             subtitle = state.voiceDirectory.subtitle(notSetLabel),
             icon = Icons.Default.Audiotrack,
             onClick = onSelectVoiceRoot,
-        )
-        SettingsDivider()
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_sync_inbox_enabled),
-            subtitle = stringResource(R.string.settings_sync_inbox_enabled_subtitle),
-            icon = Icons.Outlined.Sync,
-            checked = state.syncInboxEnabled,
-            onCheckedChange = onToggleSyncInbox,
-        )
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.settings_sync_inbox_directory),
-            subtitle = state.syncInboxDirectory.subtitle(notSetLabel),
-            icon = Icons.Default.Folder,
-            enabled = state.syncInboxEnabled,
-            showChevron = state.syncInboxEnabled,
-            onClick = onSelectSyncInbox,
         )
         SettingsDivider()
         PreferenceItem(
@@ -144,6 +125,7 @@ fun ShareCardSettingsSection(
     state: ShareCardSectionState,
     onToggleShowTime: (Boolean) -> Unit,
     onToggleShowBrand: (Boolean) -> Unit,
+    onOpenSignatureDialog: () -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_share_card)) {
         SwitchPreferenceItem(
@@ -161,6 +143,15 @@ fun ShareCardSettingsSection(
             checked = state.showBrand,
             onCheckedChange = onToggleShowBrand,
         )
+        if (state.showBrand) {
+            SettingsDivider()
+            PreferenceItem(
+                title = stringResource(R.string.settings_share_card_signature_text),
+                subtitle = state.signatureText.ifBlank { stringResource(R.string.app_name) },
+                icon = Icons.Outlined.Tag,
+                onClick = onOpenSignatureDialog,
+            )
+        }
     }
 }
 
@@ -210,6 +201,7 @@ fun InteractionSettingsSection(
     onToggleMemoActionAutoReorder: (Boolean) -> Unit,
     onToggleAppLock: (Boolean) -> Unit,
     onToggleQuickSaveOnBack: (Boolean) -> Unit,
+    onToggleScrollbar: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
         SwitchPreferenceItem(
@@ -267,21 +259,13 @@ fun InteractionSettingsSection(
             checked = state.quickSaveOnBackEnabled,
             onCheckedChange = onToggleQuickSaveOnBack,
         )
-    }
-}
-
-@Composable
-fun SystemSettingsSection(
-    state: SystemSectionState,
-    onToggleCheckUpdates: (Boolean) -> Unit,
-) {
-    SettingsGroup(title = stringResource(R.string.settings_group_system)) {
+        SettingsDivider()
         SwitchPreferenceItem(
-            title = stringResource(R.string.settings_check_updates),
-            subtitle = stringResource(R.string.settings_check_updates_subtitle),
-            icon = Icons.Outlined.Schedule,
-            checked = state.checkUpdatesOnStartup,
-            onCheckedChange = onToggleCheckUpdates,
+            title = stringResource(R.string.settings_scrollbar),
+            subtitle = stringResource(R.string.settings_scrollbar_subtitle),
+            icon = Icons.Outlined.Info,
+            checked = state.scrollbarEnabled,
+            onCheckedChange = onToggleScrollbar,
         )
     }
 }
@@ -289,7 +273,9 @@ fun SystemSettingsSection(
 @Composable
 fun AboutSettingsSection(
     state: AboutSectionState,
+    systemState: SystemSectionState,
     onCheckUpdates: () -> Unit,
+    onToggleCheckUpdatesOnStartup: (Boolean) -> Unit,
     onPreviewDebugUpdate: () -> Unit,
     onOpenGithub: () -> Unit,
 ) {
@@ -301,6 +287,14 @@ fun AboutSettingsSection(
                     ?: stringResource(R.string.settings_current_version_unknown),
             icon = Icons.Outlined.Info,
             showChevron = false,
+        )
+        SettingsDivider()
+        SwitchPreferenceItem(
+            title = stringResource(R.string.settings_check_updates),
+            subtitle = stringResource(R.string.settings_check_updates_subtitle),
+            icon = Icons.Outlined.Schedule,
+            checked = systemState.checkUpdatesOnStartup,
+            onCheckedChange = onToggleCheckUpdatesOnStartup,
         )
         SettingsDivider()
         PreferenceItem(

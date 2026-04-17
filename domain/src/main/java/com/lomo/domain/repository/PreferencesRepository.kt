@@ -43,10 +43,16 @@ interface InteractionPreferencesRepository {
     fun isFreeTextCopyEnabled(): Flow<Boolean>
 
     suspend fun setFreeTextCopyEnabled(enabled: Boolean)
+}
 
+interface InteractionBehaviorPreferencesRepository {
     fun isQuickSaveOnBackEnabled(): Flow<Boolean>
 
     suspend fun setQuickSaveOnBackEnabled(enabled: Boolean)
+
+    fun isScrollbarEnabled(): Flow<Boolean>
+
+    suspend fun setScrollbarEnabled(enabled: Boolean)
 }
 
 interface MemoActionPreferencesRepository {
@@ -77,6 +83,10 @@ interface ShareCardPreferencesRepository {
     fun isShareCardShowBrandEnabled(): Flow<Boolean>
 
     suspend fun setShareCardShowBrand(enabled: Boolean)
+
+    fun getShareCardSignatureText(): Flow<String>
+
+    suspend fun setShareCardSignatureText(text: String)
 }
 
 interface SyncInboxPreferencesRepository {
@@ -109,6 +119,7 @@ interface PreferencesRepository :
     DateTimePreferencesRepository,
     StoragePreferencesRepository,
     InteractionPreferencesRepository,
+    InteractionBehaviorPreferencesRepository,
     MemoActionPreferencesRepository,
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,

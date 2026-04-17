@@ -29,6 +29,8 @@ import com.lomo.app.feature.memo.MemoEditorController
 import com.lomo.app.feature.memo.MemoEditorViewModel
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.MemoVersionHistoryUiMapper
+import com.lomo.app.feature.memo.appendImageMarkdown
+import com.lomo.app.feature.memo.appendMarkdownBlock
 import com.lomo.app.util.activityHiltViewModel
 import com.lomo.app.util.injectedHiltViewModel
 import com.lomo.domain.model.Memo
@@ -68,6 +70,7 @@ fun MainScreen(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     viewModel: MainViewModel = activityHiltViewModel(),
     sidebarViewModel: SidebarViewModel = injectedHiltViewModel(),
@@ -140,6 +143,7 @@ fun MainScreen(
         onNavigateToImage = onNavigateToImage,
         onNavigateToDailyReview = onNavigateToDailyReview,
         onNavigateToGallery = onNavigateToGallery,
+        onNavigateToStatistics = onNavigateToStatistics,
         onNavigateToShare = onNavigateToShare,
     )
 }
@@ -284,7 +288,10 @@ internal data class MainScreenUiSnapshot(
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
+    val scrollbarEnabled: Boolean,
     val shareCardShowTime: Boolean,
+    val shareCardShowSignature: Boolean,
+    val shareCardSignatureText: String,
     val uiState: MainViewModel.MainScreenState,
     val pendingNewMemoCreationRequest: PendingNewMemoCreationRequest?,
 )
@@ -396,6 +403,8 @@ internal fun MainScreenInteractionBindings(
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
     shareCardShowTime: Boolean,
+    shareCardShowSignature: Boolean,
+    shareCardSignatureText: String,
     quickSaveOnBackEnabled: Boolean,
     memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: ImmutableList<String>,
@@ -404,7 +413,6 @@ internal fun MainScreenInteractionBindings(
     onNavigateToShare: (String, Long) -> Unit,
     content: MainScreenInteractionContent,
 ) {
-    val activeDayCount by dependencies.mainViewModel.activeDayCount.collectAsStateWithLifecycle()
     val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()
     val versionHistoryState by dependencies.mainViewModel.versionHistoryState.collectAsStateWithLifecycle()
     val rootDirectory by dependencies.mainViewModel.rootDirectory.collectAsStateWithLifecycle()
@@ -426,7 +434,8 @@ internal fun MainScreenInteractionBindings(
 
     MemoInteractionHost(
         shareCardShowTime = shareCardShowTime,
-        activeDayCount = activeDayCount,
+        shareCardShowSignature = shareCardShowSignature,
+        shareCardSignatureText = shareCardSignatureText,
         imageDirectory = imageDirectory,
         rootPath = rootDirectory,
         imageMap = stableImageMap,

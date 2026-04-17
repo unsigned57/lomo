@@ -1058,6 +1058,18 @@ class S3SyncIncrementalExecutorTest {
                         )
                     },
                 )
+            coEvery {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = any(),
+                    content = any(),
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, any())
+            } returns null
             val executor =
                 createExecutor(
                     client = client,

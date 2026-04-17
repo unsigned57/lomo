@@ -31,8 +31,10 @@ class AppPreferencesMemoActionStateTest {
             every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
             every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
             every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
+            every { preferencesRepository.isScrollbarEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
+            every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
             every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
 

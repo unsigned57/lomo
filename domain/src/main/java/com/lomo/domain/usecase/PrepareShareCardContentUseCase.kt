@@ -55,7 +55,7 @@ class PrepareShareCardContentUseCase {
             explicitTags.forEach { tag ->
                 val escaped = Regex.escape(tag)
                 stripped =
-                    stripped.replace(Regex("(^|\\s)#$escaped(?=\\s|$)")) { match ->
+                    stripped.replace(Regex("(^|\\s)#$escaped(?:\\s|$)")) { match ->
                         if (match.value.startsWith(" ") || match.value.startsWith("\t")) {
                             " "
                         } else {
@@ -76,7 +76,9 @@ class PrepareShareCardContentUseCase {
         }
 
         private companion object {
-            val inlineTagPattern = Regex("""(?:^|\s)#([\p{L}\p{N}_][\p{L}\p{N}_/]*)""")
-            val genericInlineTagPattern = Regex("""(^|\s)#[\p{L}\p{N}_][\p{L}\p{N}_/]*""")
+            val inlineTagPattern =
+                Regex("""(?:^|\s)#([\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*)""")
+            val genericInlineTagPattern =
+                Regex("""(^|\s)#[\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*(?:\s|$)""")
         }
 }

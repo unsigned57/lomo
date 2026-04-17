@@ -107,6 +107,31 @@ class WebDavSyncPlannerTest {
     }
 
     @Test
+    fun `remote delete with local modification reports conflict instead of deleting local file`() {
+        val metadata =
+            WebDavSyncMetadataEntity(
+                relativePath = "memo.md",
+                remotePath = "memo.md",
+                etag = "1",
+                remoteLastModified = 200L,
+                localLastModified = 100L,
+                lastSyncedAt = 100L,
+                lastResolvedDirection = "NONE",
+                lastResolvedReason = "UNCHANGED",
+            )
+
+        val plan =
+            planner.plan(
+                localFiles = mapOf("memo.md" to LocalWebDavFile("memo.md", 150L)),
+                remoteFiles = emptyMap(),
+                metadata = mapOf("memo.md" to metadata),
+            )
+
+        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
+        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
+    }
+
+    @Test
     fun `local delete removes unchanged remote file`() {
         val metadata =
             WebDavSyncMetadataEntity(
@@ -129,5 +154,30 @@ class WebDavSyncPlannerTest {
 
         assertEquals(WebDavSyncDirection.DELETE_REMOTE, plan.actions.single().direction)
         assertEquals(WebDavSyncReason.LOCAL_DELETED, plan.actions.single().reason)
+    }
+
+    @Test
+    fun `local delete with remote modification reports conflict instead of downloading remote file`() {
+        val metadata =
+            WebDavSyncMetadataEntity(
+                relativePath = "memo.md",
+                remotePath = "memo.md",
+                etag = "1",
+                remoteLastModified = 100L,
+                localLastModified = 200L,
+                lastSyncedAt = 100L,
+                lastResolvedDirection = "NONE",
+                lastResolvedReason = "UNCHANGED",
+            )
+
+        val plan =
+            planner.plan(
+                localFiles = emptyMap(),
+                remoteFiles = mapOf("memo.md" to RemoteWebDavFile("memo.md", etag = "2", lastModified = 250L)),
+                metadata = mapOf("memo.md" to metadata),
+            )
+
+        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
+        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
     }
 }

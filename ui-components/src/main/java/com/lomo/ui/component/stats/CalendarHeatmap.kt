@@ -1,29 +1,11 @@
 package com.lomo.ui.component.stats
 
 import android.graphics.Paint
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -31,24 +13,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
-import com.lomo.ui.theme.MotionTokens
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
@@ -60,7 +35,7 @@ import kotlin.math.roundToInt
 
 private val HEATMAP_CELL_SIZE = 10.dp
 private val HEATMAP_CELL_SPACING = 3.dp
-private val HEATMAP_MONTH_LABEL_HEIGHT = 14.dp
+internal val HEATMAP_MONTH_LABEL_HEIGHT = 14.dp
 private val HEATMAP_CELL_CORNER_RADIUS = 2.dp
 private const val HEATMAP_EMPTY_ALPHA = 0.5f
 private const val HEATMAP_LEVEL_THREE_ALPHA = 0.7f
@@ -107,7 +82,6 @@ fun CalendarHeatmap(
     val latestOnDateLongPress by rememberUpdatedState(onDateLongPress)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val horizontalScrollState = rememberScrollState()
-
     LaunchedEffect(horizontalScrollState.maxValue, layout.totalWeeks) {
         if (horizontalScrollState.maxValue > 0 && horizontalScrollState.value < horizontalScrollState.maxValue) {
             horizontalScrollState.scrollTo(horizontalScrollState.maxValue)
@@ -314,6 +288,7 @@ internal data class HeatmapCellHit(
 internal data class MonthLabel(
     val week: Int,
     val text: String,
+    val year: Int,
 )
 
 internal data class HeatmapCell(
@@ -323,7 +298,7 @@ internal data class HeatmapCell(
     val count: Int,
 )
 
-private fun buildMonthLabels(
+internal fun buildMonthLabels(
     startDay: LocalDate,
     totalWeeks: Int,
 ): List<MonthLabel> {
@@ -339,7 +314,8 @@ private fun buildMonthLabels(
             ) {
                 labels += MonthLabel(
                     week = week,
-                    text = dateOfWeekStart.month.getDisplayName(TextStyle.SHORT, Locale.getDefault()),
+                    text = formatHeatmapMonthLabel(dateOfWeekStart, isFirstVisibleLabel = labels.isEmpty()),
+                    year = dateOfWeekStart.year,
                 )
             }
             currentMonth = month
@@ -370,6 +346,18 @@ private fun buildHeatmapCells(
         }
     }
     return cells
+}
+
+private fun formatHeatmapMonthLabel(
+    date: LocalDate,
+    isFirstVisibleLabel: Boolean,
+): String {
+    val monthText = date.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    return if (isFirstVisibleLabel || date.monthValue == 1) {
+        "${date.year} $monthText"
+    } else {
+        monthText
+    }
 }
 
 internal class HeatmapPopupPositionProvider(

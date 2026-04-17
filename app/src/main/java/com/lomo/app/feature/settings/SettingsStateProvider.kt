@@ -1,7 +1,7 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.domain.model.WebDavProvider
-import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -30,7 +30,7 @@ class SettingsStateProvider(
         val autoSyncInterval: String,
         val syncOnRefreshEnabled: Boolean,
         val lastSyncTime: Long,
-        val syncState: com.lomo.domain.model.SyncEngineState,
+        val syncState: UnifiedSyncState,
     )
 
     private data class WebDavIdentityState(
@@ -47,7 +47,7 @@ class SettingsStateProvider(
         val autoSyncInterval: String,
         val syncOnRefreshEnabled: Boolean,
         val lastSyncTime: Long,
-        val syncState: WebDavSyncState,
+        val syncState: UnifiedSyncState,
     )
 
     private data class InteractionPrimaryState(
@@ -173,8 +173,9 @@ class SettingsStateProvider(
         combine(
             appConfigCoordinator.shareCardShowTime,
             appConfigCoordinator.shareCardShowBrand,
-        ) { showTime, showBrand ->
-            ShareCardSectionState(showTime, showBrand)
+            appConfigCoordinator.shareCardSignatureText,
+        ) { showTime, showBrand, signatureText ->
+            ShareCardSectionState(showTime, showBrand, signatureText)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
@@ -182,6 +183,7 @@ class SettingsStateProvider(
                 ShareCardSectionState(
                     appConfigCoordinator.shareCardShowTime.value,
                     appConfigCoordinator.shareCardShowBrand.value,
+                    appConfigCoordinator.shareCardSignatureText.value,
                 ),
         )
 
@@ -445,13 +447,16 @@ class SettingsStateProvider(
             appConfigCoordinator.freeTextCopyEnabled,
             appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
-            appConfigCoordinator.quickSaveOnBackEnabled,
+            combine(
+                appConfigCoordinator.quickSaveOnBackEnabled,
+                appConfigCoordinator.scrollbarEnabled,
+            ) { quickSave, scrollbar -> quickSave to scrollbar },
         ) {
                 primary,
                 freeTextCopyEnabled,
                 memoActionAutoReorderEnabled,
                 appLockEnabled,
-                quickSaveOnBackEnabled,
+                quickSaveAndScrollbar,
             ->
             InteractionSectionState(
                 hapticEnabled = primary.hapticEnabled,
@@ -460,7 +465,8 @@ class SettingsStateProvider(
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 appLockEnabled = appLockEnabled,
-                quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+                quickSaveOnBackEnabled = quickSaveAndScrollbar.first,
+                scrollbarEnabled = quickSaveAndScrollbar.second,
             )
         }.stateIn(
             scope = scope,
@@ -474,6 +480,7 @@ class SettingsStateProvider(
                     memoActionAutoReorderEnabled = appConfigCoordinator.memoActionAutoReorderEnabled.value,
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
+                    scrollbarEnabled = appConfigCoordinator.scrollbarEnabled.value,
                 ),
         )
 

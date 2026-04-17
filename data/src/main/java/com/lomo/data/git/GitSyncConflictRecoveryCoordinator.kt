@@ -194,7 +194,12 @@ internal class GitSyncConflictRecoveryCoordinator
                                 SyncConflictResolutionChoice.KEEP_LOCAL -> file.localContent
                                 SyncConflictResolutionChoice.KEEP_REMOTE -> file.remoteContent
                                 SyncConflictResolutionChoice.MERGE_TEXT ->
-                                    SyncConflictTextMerge.merge(file.localContent, file.remoteContent)
+                                    SyncConflictTextMerge.merge(
+                                        localText = file.localContent,
+                                        remoteText = file.remoteContent,
+                                        localLastModified = file.localLastModified,
+                                        remoteLastModified = file.remoteLastModified,
+                                    )
                                         ?: error("Unable to merge conflict for ${file.relativePath}")
                                 SyncConflictResolutionChoice.SKIP_FOR_NOW ->
                                     return@withContext GitSyncResult.Error(

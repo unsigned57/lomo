@@ -54,6 +54,10 @@ fun SettingsDialogHost(
         dialogState = dialogState,
         options = options,
     )
+    ShareCardPreferenceDialogs(
+        shareCardFeature = features.shareCard,
+        dialogState = dialogState,
+    )
     SnapshotPreferenceDialogs(
         uiState = uiState,
         features = features,

@@ -206,29 +206,40 @@ private fun SettingsBody(
             features = features,
             dialogOptions = dialogOptions,
         )
-        GitSyncSettingsSectionContainer(
-            state = uiState.git,
-            dialogState = dialogState,
-            gitFeature = features.git,
-            gitSyncIntervalLabels = gitSyncIntervalLabels,
-        )
-        WebDavSyncSettingsSectionContainer(
-            state = uiState.webDav,
-            dialogState = dialogState,
-            webDavFeature = features.webDav,
-            gitSyncIntervalLabels = gitSyncIntervalLabels,
-            webDavProviderLabels = webDavProviderLabels,
-        )
-        S3SyncSettingsSectionContainer(
-            state = uiState.s3,
-            dialogState = dialogState,
-            s3Feature = features.s3,
-            onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
-            syncIntervalLabels = gitSyncIntervalLabels,
-            pathStyleLabels = s3PathStyleLabels,
-            encryptionModeLabels = s3EncryptionModeLabels,
-            rcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
-            rcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
+        SyncSettingsSection(
+            storageState = uiState.storage,
+            onToggleSyncInbox = features.storage::updateSyncInboxEnabled,
+            onSelectSyncInbox = storagePickers.openSyncInbox,
+            gitContent = {
+                GitSyncSettingsSectionContainer(
+                    state = uiState.git,
+                    dialogState = dialogState,
+                    gitFeature = features.git,
+                    gitSyncIntervalLabels = gitSyncIntervalLabels,
+                )
+            },
+            webDavContent = {
+                WebDavSyncSettingsSectionContainer(
+                    state = uiState.webDav,
+                    dialogState = dialogState,
+                    webDavFeature = features.webDav,
+                    gitSyncIntervalLabels = gitSyncIntervalLabels,
+                    webDavProviderLabels = webDavProviderLabels,
+                )
+            },
+            s3Content = {
+                S3SyncSettingsSectionContainer(
+                    state = uiState.s3,
+                    dialogState = dialogState,
+                    s3Feature = features.s3,
+                    onSelectLocalSyncDirectory = storagePickers.openS3LocalSyncDirectory,
+                    syncIntervalLabels = gitSyncIntervalLabels,
+                    pathStyleLabels = s3PathStyleLabels,
+                    encryptionModeLabels = s3EncryptionModeLabels,
+                    rcloneFilenameEncryptionLabels = s3RcloneFilenameEncryptionLabels,
+                    rcloneFilenameEncodingLabels = s3RcloneFilenameEncodingLabels,
+                )
+            },
         )
         FooterSettingsSections(
             uiState = uiState,
@@ -256,8 +267,6 @@ private fun PrimarySettingsSections(
         onSelectRoot = storagePickers.openRoot,
         onSelectImageRoot = storagePickers.openImage,
         onSelectVoiceRoot = storagePickers.openVoice,
-        onToggleSyncInbox = features.storage::updateSyncInboxEnabled,
-        onSelectSyncInbox = storagePickers.openSyncInbox,
         onOpenFilenameFormatDialog = { dialogState.showFilenameDialog = true },
         onOpenTimestampFormatDialog = { dialogState.showTimestampDialog = true },
     )
@@ -280,6 +289,10 @@ private fun PrimarySettingsSections(
         state = uiState.shareCard,
         onToggleShowTime = features.shareCard::updateShareCardShowTime,
         onToggleShowBrand = features.shareCard::updateShareCardShowBrand,
+        onOpenSignatureDialog = {
+            dialogState.shareCardSignatureInput = uiState.shareCard.signatureText
+            dialogState.showShareCardSignatureDialog = true
+        },
     )
     SnapshotSettingsSection(
         state = uiState.snapshot,
@@ -315,13 +328,11 @@ private fun FooterSettingsSections(
         onToggleMemoActionAutoReorder = interactionFeature::updateMemoActionAutoReorderEnabled,
         onToggleAppLock = interactionFeature::updateAppLockEnabled,
         onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
-    )
-    SystemSettingsSection(
-        state = uiState.system,
-        onToggleCheckUpdates = systemFeature::updateCheckUpdatesOnStartup,
+        onToggleScrollbar = interactionFeature::updateScrollbarEnabled,
     )
     AboutSettingsSection(
         state = aboutState,
+        systemState = uiState.system,
         onCheckUpdates = {
             val updateState = aboutState.manualUpdateState
             if (updateState is SettingsManualUpdateState.UpdateAvailable) {
@@ -330,6 +341,7 @@ private fun FooterSettingsSections(
                 systemFeature.checkForUpdatesManually()
             }
         },
+        onToggleCheckUpdatesOnStartup = systemFeature::updateCheckUpdatesOnStartup,
         onPreviewDebugUpdate = onPreviewDebugUpdate,
         onOpenGithub = { uriHandler.openUri(GITHUB_URL) },
     )

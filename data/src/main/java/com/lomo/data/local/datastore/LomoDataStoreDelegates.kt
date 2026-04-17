@@ -7,6 +7,7 @@ import com.lomo.domain.model.SnapshotPreferenceOptions
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
 internal class RootLocationStoreImpl(
     private val dataStore: DataStore<Preferences>,
@@ -226,6 +227,13 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.QUICK_SAVE_ON_BACK_ENABLED,
         )
 
+    override val scrollbarEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SCROLLBAR_ENABLED,
+            flowName = "scrollbarEnabled",
+            default = PreferenceKeys.Defaults.SCROLLBAR_ENABLED,
+        )
+
     override suspend fun updateHapticFeedbackEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.HAPTIC_FEEDBACK_ENABLED] = enabled }
     }
@@ -252,6 +260,10 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.QUICK_SAVE_ON_BACK_ENABLED] = enabled }
+    }
+
+    override suspend fun updateScrollbarEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SCROLLBAR_ENABLED] = enabled }
     }
 }
 
@@ -311,6 +323,13 @@ internal class LanSharePreferencesStoreImpl(
             default = PreferenceKeys.Defaults.SHARE_CARD_SHOW_BRAND,
         )
 
+    override val shareCardSignatureText: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SHARE_CARD_SIGNATURE_TEXT,
+            flowName = "shareCardSignatureText",
+            default = PreferenceKeys.Defaults.SHARE_CARD_SIGNATURE_TEXT,
+        )
+
     override val syncInboxEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.SYNC_INBOX_ENABLED,
@@ -338,8 +357,44 @@ internal class LanSharePreferencesStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.SHARE_CARD_SHOW_BRAND] = enabled }
     }
 
+    override suspend fun updateShareCardSignatureText(text: String) {
+        dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.SHARE_CARD_SIGNATURE_TEXT, text)
+    }
+
     override suspend fun updateSyncInboxEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_INBOX_ENABLED] = enabled }
+    }
+}
+
+internal class DailyReviewSessionStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoDailyReviewSessionStore {
+    override val dailyReviewSessionDate: Flow<String?> =
+        dataStore.nullableStringFlow(
+            key = LomoDataStoreKeys.DAILY_REVIEW_SESSION_DATE,
+            flowName = "dailyReviewSessionDate",
+        )
+
+    override val dailyReviewSessionSeed: Flow<Long?> =
+        dataStore.data
+            .map { prefs -> prefs[LomoDataStoreKeys.DAILY_REVIEW_SESSION_SEED] }
+            .catchOnlyIOException("dailyReviewSessionSeed", null)
+
+    override val dailyReviewSessionPageIndex: Flow<Int?> =
+        dataStore.data
+            .map { prefs -> prefs[LomoDataStoreKeys.DAILY_REVIEW_SESSION_PAGE_INDEX] }
+            .catchOnlyIOException("dailyReviewSessionPageIndex", null)
+
+    override suspend fun updateDailyReviewSession(
+        date: String?,
+        seed: Long?,
+        pageIndex: Int?,
+    ) {
+        dataStore.editPreferences {
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_DATE, date)
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_SEED, seed)
+            setOrRemove(LomoDataStoreKeys.DAILY_REVIEW_SESSION_PAGE_INDEX, pageIndex)
+        }
     }
 }
 

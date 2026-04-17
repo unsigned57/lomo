@@ -160,6 +160,7 @@ private fun NavGraphBuilder.addPrimaryDestinations(
                 onNavigateToImage = navigateToImage,
                 onNavigateToDailyReview = { navController.navigate(NavRoute.DailyReview) },
                 onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
+                onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
                 onNavigateToShare = navigateToShare,
             )
         }
@@ -223,6 +224,12 @@ private fun NavGraphBuilder.addSecondaryDestinations(
             onBackClick = popBackStackSafely,
             onNavigateToImage = navigateToImage,
             onNavigateToShare = navigateToShare,
+        )
+    }
+
+    composable<NavRoute.Statistics> {
+        com.lomo.app.feature.statistics.StatisticsScreen(
+            onBackClick = popBackStackSafely,
         )
     }
 

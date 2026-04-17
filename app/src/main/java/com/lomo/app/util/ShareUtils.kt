@@ -43,9 +43,10 @@ class ShareUtils
     ) {
         private data class ShareImageConfig(
             val showTime: Boolean,
+            val showSignature: Boolean,
+            val signatureText: String,
             val timestampMillis: Long?,
             val tags: List<String>,
-            val activeDayCount: Int?,
             val resolvedImagePaths: List<String>,
         )
 
@@ -54,9 +55,10 @@ class ShareUtils
             content: String,
             title: String? = null,
             showTime: Boolean = true,
+            showSignature: Boolean = true,
+            signatureText: String = DEFAULT_SHARE_CARD_SIGNATURE,
             timestamp: Long? = null,
             tags: List<String> = emptyList(),
-            activeDayCount: Int? = null,
             resolvedImagePaths: List<String> = emptyList(),
         ) {
             runCatching {
@@ -68,9 +70,10 @@ class ShareUtils
                         config =
                             ShareImageConfig(
                                 showTime = showTime,
+                                showSignature = showSignature,
+                                signatureText = signatureText,
                                 timestampMillis = timestamp,
                                 tags = tags,
-                                activeDayCount = activeDayCount,
                                 resolvedImagePaths = resolvedImagePaths,
                             ),
                     )
@@ -153,9 +156,10 @@ class ShareUtils
                         content = content,
                         title = title,
                         showTime = config.showTime,
+                        showSignature = config.showSignature,
+                        signatureText = config.signatureText,
                         timestampMillis = config.timestampMillis,
                         tags = config.tags,
-                        activeDayCount = config.activeDayCount,
                         resolvedImagePaths = config.resolvedImagePaths,
                     )
                 }

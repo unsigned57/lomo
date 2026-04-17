@@ -23,7 +23,7 @@ fun MainScreenNavigationActionHost(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onClearSidebarFilters: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onClearMainFilters: () -> Unit,
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
@@ -47,7 +47,7 @@ fun MainScreenNavigationActionHost(
             onNavigateToImage = onNavigateToImage,
             onNavigateToDailyReview = onNavigateToDailyReview,
             onNavigateToGallery = onNavigateToGallery,
-            onClearSidebarFilters = onClearSidebarFilters,
+            onNavigateToStatistics = onNavigateToStatistics,
             onClearMainFilters = onClearMainFilters,
             onOpenMemoFilterPanel = onOpenMemoFilterPanel,
             onOpenCreateMemo = onOpenCreateMemo,
@@ -72,7 +72,7 @@ fun rememberMainScreenActions(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
-    onClearSidebarFilters: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onClearMainFilters: () -> Unit,
     onOpenMemoFilterPanel: () -> Unit,
     onOpenCreateMemo: () -> Unit,
@@ -93,7 +93,7 @@ fun rememberMainScreenActions(
         onNavigateToImage,
         onNavigateToDailyReview,
         onNavigateToGallery,
-        onClearSidebarFilters,
+        onNavigateToStatistics,
         onClearMainFilters,
         onOpenMemoFilterPanel,
         onOpenCreateMemo,
@@ -109,10 +109,6 @@ fun rememberMainScreenActions(
             onSettings = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToSettings),
             onTrash = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToTrash),
             onSearch = onNavigateToSearch,
-            onSidebarMemoClick = {
-                onClearSidebarFilters()
-                closeDrawerIfNeeded()
-            },
             onSidebarTagClick = { tag ->
                 closeDrawerIfNeeded()
                 onNavigateToTag(tag)
@@ -136,6 +132,7 @@ fun rememberMainScreenActions(
                 ),
             onDailyReviewClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToDailyReview),
             onGalleryClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToGallery),
+            onStatisticsClick = closeDrawerNavigationAction(closeDrawerIfNeeded, onNavigateToStatistics),
         )
     }
 
@@ -184,7 +181,6 @@ data class MainScreenActions(
     val onSettings: () -> Unit,
     val onTrash: () -> Unit,
     val onSearch: () -> Unit,
-    val onSidebarMemoClick: () -> Unit,
     val onSidebarTagClick: (String) -> Unit,
     val onClearFilter: () -> Unit,
     val onOpenMemoFilterPanel: () -> Unit,
@@ -194,6 +190,7 @@ data class MainScreenActions(
     val onNavigateToImage: (ImageViewerRequest) -> Unit,
     val onDailyReviewClick: () -> Unit,
     val onGalleryClick: () -> Unit,
+    val onStatisticsClick: () -> Unit,
 )
 
 private const val REFRESH_DELAY = 500L

@@ -11,17 +11,19 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncInboxConflictResolutionResult
+import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -42,14 +44,25 @@ class SyncConflictResolutionUseCaseTest {
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
     private val s3SyncRepository: S3SyncRepository = mockk()
     private val syncInboxRepository: SyncInboxRepository = mockk()
+    private val preferencesRepository: PreferencesRepository = mockk(relaxed = true)
     private val memoRepository: MemoRepository = mockk()
+    private val syncProviderRegistry =
+        SyncProviderRegistry(
+            providers =
+                listOf(
+                    GitUnifiedSyncProvider(gitSyncRepository),
+                    WebDavUnifiedSyncProvider(webDavSyncRepository),
+                    S3UnifiedSyncProvider(s3SyncRepository),
+                    InboxUnifiedSyncProvider(
+                        syncInboxRepository = syncInboxRepository,
+                        preferencesRepository = preferencesRepository,
+                    ),
+                ),
+        )
 
     private val useCase =
         SyncConflictResolutionUseCase(
-            gitSyncRepository = gitSyncRepository,
-            webDavSyncRepository = webDavSyncRepository,
-            s3SyncRepository = s3SyncRepository,
-            syncInboxRepository = syncInboxRepository,
+            syncProviderRegistry = syncProviderRegistry,
             memoRepository = memoRepository,
         )
 
@@ -200,7 +213,11 @@ class SyncConflictResolutionUseCaseTest {
         runTest {
             val conflictSet = conflictSet(SyncBackendType.INBOX)
             val resolution = sampleResolution()
-            coEvery { syncInboxRepository.resolveConflicts(resolution, conflictSet) } returns SyncInboxConflictResolutionResult.Resolved
+            every { preferencesRepository.isSyncInboxEnabled() } returns kotlinx.coroutines.flow.flowOf(true)
+            coEvery { syncInboxRepository.resolveConflicts(resolution, conflictSet) } returns UnifiedSyncResult.Success(
+                provider = SyncBackendType.INBOX,
+                message = "resolved",
+            )
             coEvery { memoRepository.refreshMemos() } returns Unit
 
             useCase.resolve(conflictSet, resolution)

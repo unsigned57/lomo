@@ -7,6 +7,7 @@ data class SyncConflictDialogController(
     val onFileChoiceChanged: (String, com.lomo.domain.model.SyncConflictResolutionChoice) -> Unit,
     val onAllChoicesChanged: (com.lomo.domain.model.SyncConflictResolutionChoice) -> Unit,
     val onAcceptSuggestions: () -> Unit,
+    val onAutoResolveSafeConflicts: () -> Unit,
     val onToggleExpanded: (String) -> Unit,
     val onApply: () -> Unit,
     val onDismiss: () -> Unit,

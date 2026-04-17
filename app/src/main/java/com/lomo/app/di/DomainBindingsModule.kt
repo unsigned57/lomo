@@ -4,6 +4,7 @@ import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
 import com.lomo.domain.repository.AppUpdateRepository
 import com.lomo.domain.repository.AppVersionRepository
+import com.lomo.domain.repository.DailyReviewSessionRepository
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.MediaRepository
@@ -24,6 +25,7 @@ import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.CheckAppUpdateUseCase
 import com.lomo.domain.usecase.CreateMemoUseCase
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
+import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.DiscardMemoDraftAttachmentsUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
@@ -35,6 +37,7 @@ import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
+import com.lomo.domain.usecase.MemoStatisticsUseCase
 import com.lomo.domain.usecase.ObserveDraftTextUseCase
 import com.lomo.domain.usecase.PersistShareImageUseCase
 import com.lomo.domain.usecase.PrepareShareCardContentUseCase
@@ -49,6 +52,11 @@ import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
+import com.lomo.domain.usecase.SyncProviderRegistry
+import com.lomo.domain.usecase.GitUnifiedSyncProvider
+import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
+import com.lomo.domain.usecase.S3UnifiedSyncProvider
+import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
@@ -91,6 +99,28 @@ object DomainCoreBindingsModule {
     fun provideGetCurrentAppVersionUseCase(
         appRuntimeInfoRepository: AppRuntimeInfoRepository,
     ): GetCurrentAppVersionUseCase = GetCurrentAppVersionUseCase(appRuntimeInfoRepository)
+
+    @Provides
+    @Singleton
+    fun provideSyncProviderRegistry(
+        gitSyncRepository: GitSyncRepository,
+        webDavSyncRepository: WebDavSyncRepository,
+        s3SyncRepository: S3SyncRepository,
+        syncInboxRepository: SyncInboxRepository,
+        preferencesRepository: PreferencesRepository,
+    ): SyncProviderRegistry =
+        SyncProviderRegistry(
+            providers =
+                listOf(
+                    GitUnifiedSyncProvider(gitSyncRepository),
+                    WebDavUnifiedSyncProvider(webDavSyncRepository),
+                    S3UnifiedSyncProvider(s3SyncRepository),
+                    InboxUnifiedSyncProvider(
+                        syncInboxRepository = syncInboxRepository,
+                        preferencesRepository = preferencesRepository,
+                    ),
+                ),
+        )
 }
 
 @Module
@@ -106,18 +136,12 @@ object DomainMemoBindingsModule {
     @Singleton
     fun provideSyncAndRebuildUseCase(
         memoRepository: MemoRepository,
-        gitSyncRepository: GitSyncRepository,
-        webDavSyncRepository: WebDavSyncRepository,
-        s3SyncRepository: S3SyncRepository,
-        syncInboxRepository: SyncInboxRepository,
+        syncProviderRegistry: SyncProviderRegistry,
         syncPolicyRepository: SyncPolicyRepository,
     ): SyncAndRebuildUseCase =
         SyncAndRebuildUseCase(
             memoRepository = memoRepository,
-            gitSyncRepository = gitSyncRepository,
-            webDavSyncRepository = webDavSyncRepository,
-            s3SyncRepository = s3SyncRepository,
-            syncInboxRepository = syncInboxRepository,
+            syncProviderRegistry = syncProviderRegistry,
             syncPolicyRepository = syncPolicyRepository,
         )
 
@@ -170,6 +194,19 @@ object DomainMemoBindingsModule {
     fun provideDailyReviewQueryUseCase(
         memoRepository: MemoRepository,
     ): DailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
+
+    @Provides
+    @Singleton
+    fun provideDailyReviewSessionUseCase(
+        dailyReviewSessionRepository: DailyReviewSessionRepository,
+    ): DailyReviewSessionUseCase =
+        DailyReviewSessionUseCase(dailyReviewSessionRepository)
+
+    @Provides
+    @Singleton
+    fun provideMemoStatisticsUseCase(
+        memoRepository: MemoRepository,
+    ): MemoStatisticsUseCase = MemoStatisticsUseCase(memoRepository)
 
     @Provides
     @Singleton
@@ -234,15 +271,17 @@ object DomainWorkspaceBindingsModule {
         mediaRepository: MediaRepository,
         initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         syncAndRebuildUseCase: SyncAndRebuildUseCase,
-        syncInboxRepository: SyncInboxRepository,
+        syncProviderRegistry: SyncProviderRegistry,
         appVersionRepository: AppVersionRepository,
+        syncInboxRepository: SyncInboxRepository,
     ): StartupMaintenanceUseCase =
         StartupMaintenanceUseCase(
             mediaRepository = mediaRepository,
             initializeWorkspaceUseCase = initializeWorkspaceUseCase,
             syncAndRebuildUseCase = syncAndRebuildUseCase,
-            syncInboxRepository = syncInboxRepository,
+            syncProviderRegistry = syncProviderRegistry,
             appVersionRepository = appVersionRepository,
+            syncInboxRepository = syncInboxRepository,
         )
 
 }
@@ -373,17 +412,11 @@ object DomainSyncBindingsModule {
     @Provides
     @Singleton
     fun provideSyncConflictResolutionUseCase(
-        gitSyncRepository: GitSyncRepository,
-        webDavSyncRepository: WebDavSyncRepository,
-        s3SyncRepository: S3SyncRepository,
-        syncInboxRepository: SyncInboxRepository,
+        syncProviderRegistry: SyncProviderRegistry,
         memoRepository: MemoRepository,
     ): SyncConflictResolutionUseCase =
         SyncConflictResolutionUseCase(
-            gitSyncRepository = gitSyncRepository,
-            webDavSyncRepository = webDavSyncRepository,
-            s3SyncRepository = s3SyncRepository,
-            syncInboxRepository = syncInboxRepository,
+            syncProviderRegistry = syncProviderRegistry,
             memoRepository = memoRepository,
         )
 }

@@ -4,8 +4,11 @@
     <string name="sidebar_memo">MEMO</string>
     <string name="sidebar_tags">Tags</string>
     <string name="sidebar_trash">Trash</string>
-    <string name="sidebar_daily_review">Daily Review</string>
+    <string name="sidebar_daily_review">Random Walk</string>
+    <string name="cd_undo">Undo</string>
+    <string name="cd_redo">Redo</string>
     <string name="sidebar_gallery">Gallery</string>
+    <string name="sidebar_statistics">Statistics</string>
     <string name="sidebar_settings">Settings</string>
     
     <!-- Stats -->
@@ -74,10 +77,23 @@
     <string name="sync_conflict_choice_keep_all_local">Keep All Local</string>
     <string name="sync_conflict_choice_keep_all_remote">Keep All Remote</string>
     <string name="sync_conflict_choice_accept_suggestions">Accept Suggestions</string>
+    <string name="sync_conflict_choice_auto_resolve_safe">Auto-resolve Safe Conflicts</string>
     <string name="sync_conflict_choice_skip_all">Skip All For Now</string>
     <string name="sync_conflict_choice_merge">Merge</string>
     <string name="sync_conflict_choice_skip">Skip</string>
-
+    <string name="sync_conflict_binary_file">Binary File</string>
+    <string name="sync_conflict_choice_local_short">Local</string>
+    <string name="sync_conflict_choice_remote_short">Remote</string>
+    <string name="sync_conflict_apply_resolution">Apply Resolution</string>
+    <string name="sync_conflict_resolving">Resolving conflicts…</string>
+    <string name="sync_conflict_no_text_diffs">No exact text differences found.</string>
+    <string name="sync_conflict_section_auto">Safe to Auto-resolve</string>
+    <string name="sync_conflict_section_manual">Manual Review Required</string>
+    <string name="sync_conflict_merge_preview">Merge Preview</string>
+    <string name="sync_conflict_backup_warning">Overwritten files will be backed up before changes are applied.</string>
+    <string name="sync_conflict_close">Close</string>
+    <string name="sync_conflict_expand">Expand</string>
+    <string name="sync_conflict_collapse">Collapse</string>
     <!-- Relative Time -->
     <string name="relative_time_just_now">Just now</string>
     <plurals name="relative_time_minutes_ago">

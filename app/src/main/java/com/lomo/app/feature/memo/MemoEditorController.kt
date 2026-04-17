@@ -38,6 +38,8 @@ enum class MemoEditorMode {
 @Stable
 class MemoEditorController
     internal constructor() {
+        private val undoRedoManager = UndoRedoManager()
+
         var isVisible by mutableStateOf(false)
             private set
 
@@ -56,9 +58,16 @@ class MemoEditorController
         var displayMode by mutableStateOf(InputEditorDisplayMode.Edit)
             private set
 
+        val canUndo: Boolean
+            get() = undoRedoManager.canUndo
+
+        val canRedo: Boolean
+            get() = undoRedoManager.canRedo
+
         fun openForCreate(initialText: String = "") {
             editingMemo = null
             inputValue = TextFieldValue(initialText, TextRange(initialText.length))
+            undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
             isVisible = true
@@ -68,25 +77,27 @@ class MemoEditorController
         fun openForEdit(memo: Memo) {
             editingMemo = memo
             inputValue = TextFieldValue(memo.content, TextRange(memo.content.length))
+            undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
             isVisible = true
             focusRequestToken += 1L
         }
 
-        fun appendMarkdownBlock(markdown: String) {
-            val current = inputValue.text
-            val newText = if (current.isEmpty()) markdown else "$current\n$markdown"
-            inputValue = TextFieldValue(newText, TextRange(newText.length))
-        }
-
-        fun appendImageMarkdown(path: String) {
-            val markdown = "![image]($path)"
-            appendMarkdownBlock(markdown)
-        }
-
         fun updateInputValue(value: TextFieldValue) {
+            undoRedoManager.recordTextChange(
+                previousValue = inputValue,
+                newValue = value,
+            )
             inputValue = value
+        }
+
+        fun undo() {
+            inputValue = undoRedoManager.undo(inputValue)
+        }
+
+        fun redo() {
+            inputValue = undoRedoManager.redo(inputValue)
         }
 
         fun ensureVisible() {
@@ -134,10 +145,26 @@ class MemoEditorController
             isVisible = false
             editingMemo = null
             inputValue = TextFieldValue("")
+            undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
         }
     }
+
+fun MemoEditorController.appendMarkdownBlock(markdown: String) {
+    val currentText = inputValue.text
+    val appendedText =
+        if (currentText.isEmpty()) {
+            markdown
+        } else {
+            "$currentText\n$markdown"
+        }
+    updateInputValue(TextFieldValue(appendedText, TextRange(appendedText.length)))
+}
+
+fun MemoEditorController.appendImageMarkdown(path: String) {
+    appendMarkdownBlock(markdown = "![image]($path)")
+}
 
 @Composable
 fun rememberMemoEditorController(): MemoEditorController = remember { MemoEditorController() }
@@ -220,11 +247,15 @@ fun MemoEditorSheetHost(
                 onToggleExpanded = controller::toggleExpanded,
                 onCollapse = { controller.setExpanded(false) },
                 onDisplayModeChange = controller::updateDisplayMode,
+                onUndo = controller::undo,
+                onRedo = controller::redo,
                 onConsumeBackPress = controller::consumeBackPress,
                 onSubmit = { content ->
                     onSubmit(controller.editingMemo, content)
                     controller.close()
                 },
+                canUndo = controller.canUndo,
+                canRedo = controller.canRedo,
                 autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
                 hasDraftPersistence = controller.editingMemo == null,
                 onImageClick = mediaActions.onImageClick,
