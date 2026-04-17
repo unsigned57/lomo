@@ -92,6 +92,7 @@ data class InputSheetState(
     val recordingDuration: Long = 0L,
     val recordingAmplitude: Int = 0,
     val hints: ImmutableList<String> = persistentListOf(),
+    val attachedGeoLocation: String? = null,
 )
 
 sealed interface InputInterceptionResult {
@@ -140,6 +141,8 @@ data class InputSheetCallbacks(
     val inputInterceptor: InputInterceptor = passThroughInputInterceptor(),
     val autoSubmitOnDismiss: Boolean = false,
     val hasDraftPersistence: Boolean = false,
+    val onLocationClick: () -> Unit = {},
+    val onClearLocation: () -> Unit = {},
 )
 
 data class InputSheetSlots(

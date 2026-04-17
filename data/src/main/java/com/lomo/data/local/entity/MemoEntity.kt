@@ -24,6 +24,7 @@ data class MemoEntity(
     val date: String,
     val tags: String, // Comma separated for simplicity or JSON
     val imageUrls: String, // Comma separated
+    val geoLocation: String? = null, // "lat,lng" coordinate pair
 ) {
     fun toDomain(isPinned: Boolean = false): Memo =
         StoredMemoRecovery.recoverOrNull(
@@ -44,6 +45,7 @@ data class MemoEntity(
             imageUrls = if (imageUrls.isEmpty()) emptyList() else imageUrls.split(","),
             isPinned = isPinned,
             isDeleted = false,
+            geoLocation = geoLocation,
         )
         }
 
@@ -58,6 +60,7 @@ data class MemoEntity(
                 date = memo.dateKey,
                 tags = memo.tags.joinToString(","),
                 imageUrls = memo.imageUrls.joinToString(","),
+                geoLocation = memo.geoLocation,
             )
     }
 }

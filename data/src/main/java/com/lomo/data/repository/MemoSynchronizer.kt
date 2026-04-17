@@ -80,14 +80,16 @@ class MemoSynchronizer
         suspend fun saveMemo(
             content: String,
             timestamp: Long,
-        ) = mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.saveMemo(content, timestamp) } }
+            geoLocation: String? = null,
+        ) = mutex.withLock { withContext(Dispatchers.IO) { mutationHandler.saveMemo(content, timestamp, geoLocation) } }
 
         suspend fun saveMemoAsync(
             content: String,
             timestamp: Long,
+            geoLocation: String? = null,
         ) = withContext(Dispatchers.IO) {
             mutex.withLock {
-                mutationHandler.saveMemoInDb(content, timestamp)
+                mutationHandler.saveMemoInDb(content, timestamp, geoLocation)
             }
             outboxCoordinator.requestOutboxDrain()
         }

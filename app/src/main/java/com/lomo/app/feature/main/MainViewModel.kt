@@ -359,9 +359,9 @@ class MainViewModel
             appActionQueue.consume(eventId)
         }
 
-        internal val requestPendingNewMemoCreation: (String) -> Boolean = { content ->
-            pendingNewMemoCreationCoordinator
-                .submit(content)
+        internal fun requestPendingNewMemoCreation(content: String, geoLocation: String? = null): Boolean {
+            return pendingNewMemoCreationCoordinator
+                .submit(content, geoLocation)
                 ?.also { request ->
                     _pendingNewMemoCreationRequest.value = request
                 } != null

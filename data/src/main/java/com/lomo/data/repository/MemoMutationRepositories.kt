@@ -24,8 +24,9 @@ class MemoMutationRepositoryImpl
         override suspend fun saveMemo(
             content: String,
             timestamp: Long,
+            geoLocation: String?,
         ) {
-            synchronizer.saveMemo(content, timestamp)
+            synchronizer.saveMemo(content, timestamp, geoLocation)
         }
 
         override suspend fun updateMemo(

@@ -198,6 +198,9 @@ fun MemoEditorSheetHost(
     onStartRecording: () -> Unit = {},
     onStopRecording: () -> Unit = {},
     onCancelRecording: () -> Unit = {},
+    onLocationClick: () -> Unit = {},
+    onClearLocation: () -> Unit = {},
+    attachedGeoLocation: String? = null,
     hints: ImmutableList<String> = persistentListOf(),
 ) {
     if (!controller.isVisible) return
@@ -236,6 +239,7 @@ fun MemoEditorSheetHost(
                 recordingDuration = recordingDurationValue,
                 recordingAmplitude = recordingAmplitudeValue,
                 hints = hints,
+                attachedGeoLocation = attachedGeoLocation,
             ),
         callbacks =
             com.lomo.ui.component.input.InputSheetCallbacks(
@@ -263,6 +267,8 @@ fun MemoEditorSheetHost(
                 onStartRecording = onStartRecording,
                 onStopRecording = onStopRecording,
                 onCancelRecording = onCancelRecording,
+                onLocationClick = onLocationClick,
+                onClearLocation = onClearLocation,
             ),
         benchmarkRootTag = BenchmarkAnchorContract.INPUT_SHEET_ROOT,
         benchmarkEditorTag = BenchmarkAnchorContract.INPUT_EDITOR,

@@ -33,8 +33,8 @@ class DatabaseMigrationsTest {
      * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
      */
     @Test
-    fun `database version advances to 46 for webdav metadata fingerprints`() {
-        assertEquals(46, MEMO_DATABASE_VERSION)
+    fun `database version advances to 47 for geo-location column`() {
+        assertEquals(47, MEMO_DATABASE_VERSION)
     }
 
     @Test

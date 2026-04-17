@@ -49,6 +49,7 @@ interface MemoMutationRepository {
     suspend fun saveMemo(
         content: String,
         timestamp: Long,
+        geoLocation: String? = null,
     )
 
     suspend fun updateMemo(

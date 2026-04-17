@@ -71,6 +71,7 @@
     <string name="cd_cancel_recording">Cancel recording</string>
     <string name="cd_stop_recording">Stop recording</string>
     <string name="cd_add_voice_memo">Voice Memo</string>
+    <string name="cd_attach_location">Attach Location</string>
     <string name="action_history">History</string>
     <string name="sync_conflict_title_standard">Resolve Sync Conflicts</string>
     <string name="sync_conflict_title_initial_preview">Review First Sync Differences</string>
