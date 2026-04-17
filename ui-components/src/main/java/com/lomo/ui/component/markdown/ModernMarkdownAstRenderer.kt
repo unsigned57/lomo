@@ -15,7 +15,12 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -38,11 +43,26 @@ internal fun ModernMarkdownRenderPlanContent(
     enableTextSelection: Boolean = false,
 ) {
     val tokenSpec = rememberModernMarkdownTokenSpec()
+    val totalItems = plan.items.size
+    val needsProgressive = totalItems > PROGRESSIVE_RENDER_INITIAL_BATCH
+    var visibleCount by remember(plan) {
+        mutableIntStateOf(
+            if (needsProgressive) PROGRESSIVE_RENDER_INITIAL_BATCH else totalItems,
+        )
+    }
+
+    if (needsProgressive && visibleCount < totalItems) {
+        LaunchedEffect(plan, visibleCount) {
+            withFrameNanos { }
+            visibleCount = (visibleCount + PROGRESSIVE_RENDER_INCREMENT).coerceAtMost(totalItems)
+        }
+    }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(tokenSpec.blockSpacing),
     ) {
-        plan.items.forEach { item ->
+        plan.items.asSequence().take(visibleCount).forEach { item ->
             when (item) {
                 is ModernMarkdownRenderItem.Block -> {
                     ModernMarkdownBlock(
@@ -66,6 +86,9 @@ internal fun ModernMarkdownRenderPlanContent(
         }
     }
 }
+
+private const val PROGRESSIVE_RENDER_INITIAL_BATCH = 20
+private const val PROGRESSIVE_RENDER_INCREMENT = 30
 
 @Composable
 internal fun ModernMarkdownBlock(
