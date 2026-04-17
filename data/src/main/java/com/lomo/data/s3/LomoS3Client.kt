@@ -24,6 +24,11 @@ import com.lomo.data.repository.S3ResolvedConfig
 import com.lomo.domain.model.S3PathStyle
 import java.io.File
 import javax.inject.Inject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 data class S3RemoteObject(
     val key: String,
@@ -52,6 +57,7 @@ data class S3RemoteListPage(
 
 internal const val S3_MULTIPART_UPLOAD_THRESHOLD_BYTES: Long = 8L * 1024L * 1024L
 internal const val S3_MULTIPART_UPLOAD_PART_SIZE_BYTES: Long = 8L * 1024L * 1024L
+internal const val S3_MULTIPART_PART_CONCURRENCY = 4
 
 fun interface LomoS3ClientFactory {
     fun create(config: S3ResolvedConfig): LomoS3Client
@@ -373,31 +379,53 @@ internal class AwsSdkS3Client(
         file: File,
         uploadId: String,
     ): List<CompletedPart> {
-        val completedParts = mutableListOf<CompletedPart>()
-        var offset = 0L
-        var partNumber = 1
-        while (offset < file.length()) {
-            val partSize = minOf(S3_MULTIPART_UPLOAD_PART_SIZE_BYTES, file.length() - offset)
-            val endInclusive = offset + partSize - 1
+        val totalParts = ((file.length() + S3_MULTIPART_UPLOAD_PART_SIZE_BYTES - 1) /
+            S3_MULTIPART_UPLOAD_PART_SIZE_BYTES).toInt()
+        if (totalParts <= 1) {
+            val partSize = minOf(S3_MULTIPART_UPLOAD_PART_SIZE_BYTES, file.length())
             val response =
                 client.uploadPart(
                     UploadPartRequest {
                         bucket = config.bucket
                         this.key = key
                         this.uploadId = uploadId
-                        this.partNumber = partNumber
-                        body = file.asByteStream(offset, endInclusive)
+                        partNumber = 1
+                        body = file.asByteStream(0L, partSize - 1)
                     },
                 )
-            completedParts +=
+            return listOf(
                 CompletedPart {
-                    this.partNumber = partNumber
+                    partNumber = 1
                     eTag = response.eTag
-                }
-            offset += partSize
-            partNumber += 1
+                },
+            )
         }
-        return completedParts
+        val limiter = Semaphore(S3_MULTIPART_PART_CONCURRENCY)
+        return coroutineScope {
+            (1..totalParts).map { partNum ->
+                async {
+                    limiter.withPermit {
+                        val offset = (partNum - 1).toLong() * S3_MULTIPART_UPLOAD_PART_SIZE_BYTES
+                        val partSize = minOf(S3_MULTIPART_UPLOAD_PART_SIZE_BYTES, file.length() - offset)
+                        val endInclusive = offset + partSize - 1
+                        val response =
+                            client.uploadPart(
+                                UploadPartRequest {
+                                    bucket = config.bucket
+                                    this.key = key
+                                    this.uploadId = uploadId
+                                    partNumber = partNum
+                                    body = file.asByteStream(offset, endInclusive)
+                                },
+                            )
+                        CompletedPart {
+                            partNumber = partNum
+                            eTag = response.eTag
+                        }
+                    }
+                }
+            }.awaitAll()
+        }
     }
 
     override suspend fun deleteObject(key: String) {

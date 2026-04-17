@@ -370,5 +370,5 @@ internal class S3SyncFileBridgeScope(
     }
 }
 
-private const val S3_FULL_SCAN_LIST_CONCURRENCY = 3
+private const val S3_FULL_SCAN_LIST_CONCURRENCY = 6
 private const val S3_FULL_SCAN_PAGE_SIZE = 500
