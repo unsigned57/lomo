@@ -33,7 +33,7 @@
     <issue id="ComposeCompositionLocalUsage" severity="error">
         <option
             name="allowed-composition-locals"
-            value="LocalAppHapticFeedback,LocalAudioPlayerManager,LocalBenchmarkAnchorConfig,LocalSharedTransitionScope,LocalAnimatedVisibilityScope"
+            value="LocalAppHapticFeedback,LocalAudioPlayerManager,LocalBenchmarkAnchorConfig,LocalSharedTransitionScope,LocalAnimatedVisibilityScope,LocalSearchHighlightQuery"
         />
     </issue>
     <issue id="ComposeModifierMissing" severity="error" />

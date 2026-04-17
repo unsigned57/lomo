@@ -98,6 +98,14 @@ private fun PlatformMemoParagraphText(
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
+    val searchQuery = LocalSearchHighlightQuery.current
+    val tertiaryColor = MaterialTheme.colorScheme.tertiary
+    val searchHighlightColor = android.graphics.Color.argb(
+        SEARCH_HIGHLIGHT_ALPHA,
+        (tertiaryColor.red * COLOR_COMPONENT_MAX).toInt(),
+        (tertiaryColor.green * COLOR_COMPONENT_MAX).toInt(),
+        (tertiaryColor.blue * COLOR_COMPONENT_MAX).toInt(),
+    )
 
     AndroidView(
         modifier = modifier,
@@ -112,8 +120,14 @@ private fun PlatformMemoParagraphText(
             }
         },
         update = { textView ->
+            val highlightedText =
+                if (searchQuery.isNotBlank()) {
+                    text.applySearchHighlight(searchQuery, searchHighlightColor)
+                } else {
+                    text
+                }
             textView.applyMemoParagraphTextStyle(
-                text = text,
+                text = highlightedText,
                 style = style,
                 density = density,
                 maxLines = maxLines,
@@ -125,6 +139,9 @@ private fun PlatformMemoParagraphText(
         },
     )
 }
+
+private const val SEARCH_HIGHLIGHT_ALPHA = 153
+private const val COLOR_COMPONENT_MAX = 255f
 
 internal fun TextView.applyMemoParagraphTextStyle(
     text: CharSequence,
