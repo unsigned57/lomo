@@ -40,6 +40,7 @@ class AppPreferencesStateTest {
             every {
                 preferencesRepository.getMemoActionOrder()
             } returns flowOf(listOf("history", "copy").toImmutableList())
+            every { preferencesRepository.isSingleTapDetailEnabled() } returns flowOf(false)
 
             val state = preferencesRepository.observeAppPreferences().first()
 
@@ -52,6 +53,7 @@ class AppPreferencesStateTest {
                     showInputHints = true,
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
+                    singleTapDetailEnabled = false,
                     memoActionAutoReorderEnabled = true,
                     memoActionOrder = listOf("history", "copy").toImmutableList(),
                     quickSaveOnBackEnabled = false,

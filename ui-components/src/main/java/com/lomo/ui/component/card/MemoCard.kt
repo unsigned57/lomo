@@ -74,6 +74,7 @@ fun MemoCard(
     timeFormat: String = "HH:mm",
     isPinned: Boolean = false,
     allowFreeTextCopy: Boolean = false,
+    expandOnClick: Boolean = false,
     onDoubleClick: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
@@ -94,11 +95,19 @@ fun MemoCard(
         )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
+    val effectiveOnClick: () -> Unit = if (expandOnClick && shouldShowExpand) {
+        {
+            isExpanded = !isExpanded
+            onClick()
+        }
+    } else {
+        onClick
+    }
     val interactionModifier =
         Modifier.rememberMemoCardInteractionModifier(
             allowFreeTextCopy = allowFreeTextCopy,
             haptic = haptic,
-            onClick = onClick,
+            onClick = effectiveOnClick,
             onDoubleClick = onDoubleClick,
             onMenuClick = onMenuClick,
         )

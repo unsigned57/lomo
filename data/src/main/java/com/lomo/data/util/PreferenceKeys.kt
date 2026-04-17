@@ -34,6 +34,7 @@ object PreferenceKeys {
     const val SHOW_INPUT_HINTS = "show_input_hints"
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
+    const val SINGLE_TAP_DETAIL_ENABLED = "single_tap_detail_enabled"
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
     const val MEMO_ACTION_ORDER = "memo_action_order"
     const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
@@ -94,6 +95,9 @@ object PreferenceKeys {
     // Draft
     const val DRAFT_TEXT = "draft_text"
 
+    // Location
+    const val ATTACH_LOCATION_ENABLED = "attach_location_enabled"
+
     // Default values
     object Defaults {
         const val DATE_FORMAT = PreferenceDefaults.DATE_FORMAT
@@ -103,6 +107,7 @@ object PreferenceKeys {
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
+        const val SINGLE_TAP_DETAIL_ENABLED = PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED
         const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
         const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
@@ -148,5 +153,6 @@ object PreferenceKeys {
         const val S3_AUTO_SYNC_ENABLED = PreferenceDefaults.S3_AUTO_SYNC_ENABLED
         const val S3_AUTO_SYNC_INTERVAL = PreferenceDefaults.S3_AUTO_SYNC_INTERVAL
         const val S3_SYNC_ON_REFRESH = PreferenceDefaults.S3_SYNC_ON_REFRESH
+        const val ATTACH_LOCATION_ENABLED = PreferenceDefaults.ATTACH_LOCATION_ENABLED
     }
 }

@@ -60,6 +60,7 @@ internal fun collectMainScreenUiSnapshot(
         showInputHints = appPreferences.showInputHints,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+        singleTapDetailEnabled = appPreferences.singleTapDetailEnabled,
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
         memoActionOrder = appPreferences.memoActionOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,

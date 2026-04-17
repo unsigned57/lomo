@@ -223,6 +223,14 @@ class SettingsInteractionFeatureViewModel(
         scope.launch { appConfigCoordinator.updateFreeTextCopyEnabled(enabled) }
     }
 
+    fun updateSingleTapDetailEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateSingleTapDetailEnabled(enabled) }
+    }
+
+    fun updateAttachLocationEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateAttachLocationEnabled(enabled) }
+    }
+
     fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateMemoActionAutoReorderEnabled(enabled) }
     }

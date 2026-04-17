@@ -8,6 +8,7 @@ import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
 import com.lomo.domain.repository.InteractionBehaviorPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
+import com.lomo.domain.repository.LocationPreferencesRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
@@ -50,6 +51,7 @@ class PreferencesRepositoryImpl
         shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
         syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
         draftPreferencesRepository: DraftPreferencesRepositoryImpl,
+        locationPreferencesRepository: LocationPreferencesRepositoryImpl,
     ) : PreferencesRepository,
         DateTimePreferencesRepository by dateTimePreferencesRepository,
         StoragePreferencesRepository by storagePreferencesRepository,
@@ -59,7 +61,8 @@ class PreferencesRepositoryImpl
         SecurityPreferencesRepository by securityPreferencesRepository,
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
         SyncInboxPreferencesRepository by syncInboxPreferencesRepository,
-        DraftPreferencesRepository by draftPreferencesRepository
+        DraftPreferencesRepository by draftPreferencesRepository,
+        com.lomo.domain.repository.LocationPreferencesRepository by locationPreferencesRepository
 
 @Singleton
 class DateTimePreferencesRepositoryImpl
@@ -133,6 +136,12 @@ class InteractionPreferencesRepositoryImpl
 
         override suspend fun setFreeTextCopyEnabled(enabled: Boolean) {
             dataStore.updateFreeTextCopyEnabled(enabled)
+        }
+
+        override fun isSingleTapDetailEnabled(): Flow<Boolean> = dataStore.singleTapDetailEnabled
+
+        override suspend fun setSingleTapDetailEnabled(enabled: Boolean) {
+            dataStore.updateSingleTapDetailEnabled(enabled)
         }
     }
 
@@ -268,5 +277,19 @@ class MemoSnapshotPreferencesRepositoryImpl
 
         override suspend fun setMemoSnapshotMaxAgeDays(days: Int) {
             dataStore.updateMemoSnapshotMaxAgeDays(days)
+        }
+    }
+
+@Singleton
+class LocationPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : LocationPreferencesRepository {
+        override fun isAttachLocationEnabled(): Flow<Boolean> =
+            dataStore.attachLocationEnabled
+
+        override suspend fun setAttachLocationEnabled(enabled: Boolean) {
+            dataStore.updateAttachLocationEnabled(enabled)
         }
     }

@@ -57,6 +57,7 @@ class SettingsRepositoryImplTest {
                         shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
                         syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),
                         draftPreferencesRepository = DraftPreferencesRepositoryImpl(dataStore),
+                        locationPreferencesRepository = LocationPreferencesRepositoryImpl(dataStore),
                     ),
             )
     }

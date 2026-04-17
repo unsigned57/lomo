@@ -81,6 +81,16 @@ class SettingsAppConfigCoordinator(
             .isFreeTextCopyEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
 
+    val singleTapDetailEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isSingleTapDetailEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED)
+
+    val attachLocationEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isAttachLocationEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.ATTACH_LOCATION_ENABLED)
+
     val memoActionAutoReorderEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isMemoActionAutoReorderEnabled()
@@ -263,6 +273,12 @@ class SettingsAppConfigCoordinator(
                 appConfigRepository.setDoubleTapEditEnabled(false)
             }
         }
+
+    val updateSingleTapDetailEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setSingleTapDetailEnabled(enabled) }
+
+    val updateAttachLocationEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setAttachLocationEnabled(enabled) }
 
     val updateMemoActionAutoReorderEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setMemoActionAutoReorderEnabled(enabled) }

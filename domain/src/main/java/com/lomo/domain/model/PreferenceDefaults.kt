@@ -12,6 +12,7 @@ object PreferenceDefaults {
     const val MEMO_ACTION_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
     const val SCROLLBAR_ENABLED = true
+    const val SINGLE_TAP_DETAIL_ENABLED = true
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
@@ -47,4 +48,5 @@ object PreferenceDefaults {
     const val S3_AUTO_SYNC_ENABLED = false
     const val S3_AUTO_SYNC_INTERVAL = "1h"
     const val S3_SYNC_ON_REFRESH = false
+    const val ATTACH_LOCATION_ENABLED = false
 }
