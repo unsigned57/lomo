@@ -1,26 +1,53 @@
 package com.lomo.ui.component.stats
 
 import android.graphics.Paint
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.R
+import com.lomo.ui.theme.MotionTokens
 import java.time.DayOfWeek
 import java.time.format.TextStyle
 import java.util.Locale
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.toImmutableList
 
 private val CELL_SIZE = 10.dp
 private val CELL_SPACING = 3.dp
@@ -34,6 +61,14 @@ private const val LEVEL_TWO_MAX_RATIO = 0.50f
 private const val LEVEL_THREE_MAX_RATIO = 0.75f
 private const val EMPTY_ALPHA = 0.5f
 private const val LEVEL_THREE_ALPHA = 0.7f
+private const val SELECTION_STROKE_WIDTH = 2f
+
+private data class WeeklyHeatmapCellHit(
+    val dayIndex: Int,
+    val hour: Int,
+    val day: DayOfWeek,
+    val count: Int,
+)
 
 @Composable
 fun WeeklyHourHeatmap(
@@ -56,10 +91,10 @@ fun WeeklyHourHeatmap(
         listOf(
             DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY,
             DayOfWeek.THURSDAY, DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY,
-        )
+        ).toImmutableList()
     }
     val dayLabels = remember {
-        dayOrder.map { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }
+        dayOrder.map { it.getDisplayName(TextStyle.SHORT, Locale.getDefault()) }.toImmutableList()
     }
 
     val maxCount = remember(weeklyHourDistribution) {
@@ -74,12 +109,97 @@ fun WeeklyHourHeatmap(
     val hourLabelHeightPx = with(density) { LABEL_FONT_SIZE.toPx() } + spacingPx
     val totalHeight = hourLabelHeightPx + DAYS_IN_WEEK * cellStep
 
-    Canvas(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(with(density) { totalHeight.toDp() }),
+    var selectedHit by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
+    var popupOffset by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
     ) {
-        // Hour labels along top
+        WeeklyHeatmapCanvas(
+            weeklyHourDistribution = weeklyHourDistribution,
+            dayOrder = dayOrder,
+            dayLabels = dayLabels,
+            maxCount = maxCount,
+            colors = colors,
+            textPaint = textPaint,
+            cellSizePx = cellSizePx,
+            spacingPx = spacingPx,
+            cornerRadiusPx = cornerRadiusPx,
+            cellStep = cellStep,
+            leftMarginPx = leftMarginPx,
+            hourLabelHeightPx = hourLabelHeightPx,
+            totalHeight = totalHeight,
+            selectedHit = selectedHit,
+            density = density,
+            onTap = { hit, offset ->
+                if (hit == null) {
+                    selectedHit = null
+                } else if (selectedHit?.dayIndex == hit.dayIndex && selectedHit?.hour == hit.hour) {
+                    selectedHit = null
+                } else {
+                    selectedHit = hit
+                    popupOffset = offset
+                }
+            },
+        )
+
+        WeeklyHeatmapSelectionPopup(
+            selectedHit = selectedHit,
+            popupOffset = popupOffset,
+            density = density,
+            onDismiss = { selectedHit = null },
+        )
+    }
+}
+
+@Composable
+private fun WeeklyHeatmapCanvas(
+    weeklyHourDistribution: ImmutableMap<DayOfWeek, ImmutableMap<Int, Int>>,
+    dayOrder: ImmutableList<DayOfWeek>,
+    dayLabels: ImmutableList<String>,
+    maxCount: Int,
+    colors: WeeklyHeatmapColors,
+    textPaint: Paint,
+    cellSizePx: Float,
+    spacingPx: Float,
+    cornerRadiusPx: Float,
+    cellStep: Float,
+    leftMarginPx: Float,
+    hourLabelHeightPx: Float,
+    totalHeight: Float,
+    selectedHit: WeeklyHeatmapCellHit?,
+    density: androidx.compose.ui.unit.Density,
+    onTap: (WeeklyHeatmapCellHit?, Offset) -> Unit,
+) {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(with(density) { totalHeight.toDp() })
+            .pointerInput(weeklyHourDistribution, leftMarginPx, cellStep, hourLabelHeightPx) {
+                detectTapGestures(
+                    onTap = { offset ->
+                        val hit = resolveWeeklyHeatmapHit(
+                            offset = offset,
+                            leftMarginPx = leftMarginPx,
+                            cellStep = cellStep,
+                            hourLabelHeightPx = hourLabelHeightPx,
+                            dayOrder = dayOrder,
+                            weeklyHourDistribution = weeklyHourDistribution,
+                        )
+                        val popupPos = if (hit != null) {
+                            Offset(
+                                leftMarginPx + hit.hour * cellStep + cellSizePx / 2,
+                                hourLabelHeightPx + hit.dayIndex * cellStep,
+                            )
+                        } else {
+                            Offset.Zero
+                        }
+                        onTap(hit, popupPos)
+                    },
+                )
+            },
+    ) {
         for (hour in 0 until HOURS_IN_DAY) {
             if (hour % HOUR_LABEL_INTERVAL == 0) {
                 val label = "$hour"
@@ -93,7 +213,6 @@ fun WeeklyHourHeatmap(
             }
         }
 
-        // Day labels and cells
         for ((dayIndex, day) in dayOrder.withIndex()) {
             val rowY = hourLabelHeightPx + dayIndex * cellStep
             val textHeight = textPaint.descent() - textPaint.ascent()
@@ -114,9 +233,122 @@ fun WeeklyHourHeatmap(
                     size = Size(cellSizePx, cellSizePx),
                     cornerRadius = CornerRadius(cornerRadiusPx),
                 )
+
+                val current = selectedHit
+                if (current != null && current.dayIndex == dayIndex && current.hour == hour) {
+                    drawRoundRect(
+                        color = colors.level4,
+                        topLeft = Offset(x, rowY),
+                        size = Size(cellSizePx, cellSizePx),
+                        cornerRadius = CornerRadius(cornerRadiusPx),
+                        style = Stroke(width = SELECTION_STROKE_WIDTH.dp.toPx()),
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun WeeklyHeatmapSelectionPopup(
+    selectedHit: WeeklyHeatmapCellHit?,
+    popupOffset: Offset,
+    density: androidx.compose.ui.unit.Density,
+    onDismiss: () -> Unit,
+) {
+    var activeData by remember { mutableStateOf<WeeklyHeatmapCellHit?>(null) }
+    var isVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedHit, popupOffset) {
+        if (selectedHit != null) {
+            activeData = selectedHit
+            isVisible = true
+        } else {
+            isVisible = false
+        }
+    }
+
+    val data = activeData ?: return
+    val transition = updateTransition(targetState = isVisible, label = "WeeklyPopupVisibility")
+
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.currentState && !transition.targetState) {
+            activeData = null
+        }
+    }
+    if (!transition.currentState && !transition.targetState) return
+
+    val dayLabel = remember(data.day) {
+        data.day.getDisplayName(TextStyle.SHORT, Locale.getDefault())
+    }
+    val hourLabel = "%d:00".format(data.hour)
+    val countLabel = pluralStringResource(R.plurals.calendar_heatmap_memo_count, data.count, data.count)
+
+    val positionProvider = remember(popupOffset, density) {
+        HeatmapPopupPositionProvider(popupOffset, density)
+    }
+
+    androidx.compose.ui.window.Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+    ) {
+        transition.AnimatedVisibility(
+            visible = { it },
+            enter = fadeIn(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                scaleIn(initialScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
+            exit = fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                scaleOut(targetScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(HEATMAP_POPUP_SHAPE),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = HEATMAP_POPUP_ELEVATION,
+                shadowElevation = HEATMAP_POPUP_ELEVATION,
+                modifier = Modifier.padding(HEATMAP_POPUP_MARGIN),
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        horizontal = HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING,
+                        vertical = HEATMAP_POPUP_CONTENT_VERTICAL_PADDING,
+                    ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = "$dayLabel $hourLabel",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(HEATMAP_POPUP_TEXT_SPACING))
+                    Text(
+                        text = countLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun resolveWeeklyHeatmapHit(
+    offset: Offset,
+    leftMarginPx: Float,
+    cellStep: Float,
+    hourLabelHeightPx: Float,
+    dayOrder: List<DayOfWeek>,
+    weeklyHourDistribution: ImmutableMap<DayOfWeek, ImmutableMap<Int, Int>>,
+): WeeklyHeatmapCellHit? {
+    val x = offset.x - leftMarginPx
+    val y = offset.y - hourLabelHeightPx
+    if (x < 0 || y < 0) return null
+
+    val hour = (x / cellStep).toInt()
+    val dayIndex = (y / cellStep).toInt()
+    if (hour !in 0 until HOURS_IN_DAY || dayIndex !in 0 until DAYS_IN_WEEK) return null
+
+    val day = dayOrder[dayIndex]
+    val count = weeklyHourDistribution[day]?.get(hour) ?: 0
+    return WeeklyHeatmapCellHit(dayIndex = dayIndex, hour = hour, day = day, count = count)
 }
 
 private data class WeeklyHeatmapColors(

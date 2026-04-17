@@ -1,22 +1,47 @@
 package com.lomo.ui.component.stats
 
 import android.graphics.Paint
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.R
+import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableMap
 
 private const val HOURS_IN_DAY = 24
@@ -30,6 +55,12 @@ private val LABEL_FONT_SIZE = 9.sp
 private val CHART_AREA_HEIGHT = 100.dp
 private const val EMPTY_ALPHA = 0.5f
 private const val LEVEL_THREE_ALPHA = 0.7f
+private const val SELECTION_STROKE_WIDTH = 2f
+
+private data class HourlyBarHit(
+    val hour: Int,
+    val count: Int,
+)
 
 @Composable
 fun HourlyActivityChart(
@@ -55,48 +86,170 @@ fun HourlyActivityChart(
 
     val totalHeight = chartHeightPx + labelAreaHeight
 
-    Canvas(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(with(density) { totalHeight.toDp() }),
+    var selectedHit by remember { mutableStateOf<HourlyBarHit?>(null) }
+    var popupOffset by remember { mutableStateOf(Offset.Zero) }
+
+    Box(
+        modifier = modifier,
+        contentAlignment = Alignment.Center,
     ) {
-        val barStep = size.width / HOURS_IN_DAY
-        val barWidth = barStep - spacingPx
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(with(density) { totalHeight.toDp() })
+                .pointerInput(hourlyDistribution) {
+                    detectTapGestures(
+                        onTap = { offset ->
+                            val barStep = size.width.toFloat() / HOURS_IN_DAY
+                            val hour = (offset.x / barStep).toInt()
+                            if (hour in 0 until HOURS_IN_DAY && offset.y <= chartHeightPx) {
+                                val count = hourlyDistribution[hour] ?: 0
+                                if (selectedHit?.hour == hour) {
+                                    selectedHit = null
+                                } else {
+                                    selectedHit = HourlyBarHit(hour = hour, count = count)
+                                    popupOffset = Offset(
+                                        hour * barStep + barStep / 2,
+                                        0f,
+                                    )
+                                }
+                            } else {
+                                selectedHit = null
+                            }
+                        },
+                    )
+                },
+        ) {
+            val barStep = size.width / HOURS_IN_DAY
+            val barWidth = barStep - spacingPx
 
-        for (hour in 0 until HOURS_IN_DAY) {
-            val count = hourlyDistribution[hour] ?: 0
-            val x = hour * barStep + spacingPx / 2
+            for (hour in 0 until HOURS_IN_DAY) {
+                val count = hourlyDistribution[hour] ?: 0
+                val x = hour * barStep + spacingPx / 2
 
-            // Empty bar background
-            drawRoundRect(
-                color = colors.empty,
-                topLeft = Offset(x, 0f),
-                size = Size(barWidth, chartHeightPx),
-                cornerRadius = CornerRadius(cornerRadiusPx),
-            )
-
-            // Filled bar
-            if (count > 0 && maxCount > 0) {
-                val fillHeight = (count.toFloat() / maxCount) * chartHeightPx
-                val fillColor = resolveBarColor(count, maxCount, colors)
                 drawRoundRect(
-                    color = fillColor,
-                    topLeft = Offset(x, chartHeightPx - fillHeight),
-                    size = Size(barWidth, fillHeight),
+                    color = colors.empty,
+                    topLeft = Offset(x, 0f),
+                    size = Size(barWidth, chartHeightPx),
                     cornerRadius = CornerRadius(cornerRadiusPx),
                 )
-            }
 
-            // Hour labels
-            if (hour % HOUR_LABEL_INTERVAL == 0) {
-                val label = "${hour}h"
-                val textWidth = textPaint.measureText(label)
-                drawContext.canvas.nativeCanvas.drawText(
-                    label,
-                    x + barWidth / 2 - textWidth / 2,
-                    chartHeightPx + labelAreaHeight - spacingPx,
-                    textPaint,
-                )
+                if (count > 0 && maxCount > 0) {
+                    val fillHeight = (count.toFloat() / maxCount) * chartHeightPx
+                    val fillColor = resolveBarColor(count, maxCount, colors)
+                    drawRoundRect(
+                        color = fillColor,
+                        topLeft = Offset(x, chartHeightPx - fillHeight),
+                        size = Size(barWidth, fillHeight),
+                        cornerRadius = CornerRadius(cornerRadiusPx),
+                    )
+                }
+
+                if (selectedHit?.hour == hour) {
+                    drawRoundRect(
+                        color = colors.level4,
+                        topLeft = Offset(x, 0f),
+                        size = Size(barWidth, chartHeightPx),
+                        cornerRadius = CornerRadius(cornerRadiusPx),
+                        style = Stroke(width = SELECTION_STROKE_WIDTH.dp.toPx()),
+                    )
+                }
+
+                if (hour % HOUR_LABEL_INTERVAL == 0) {
+                    val label = "${hour}h"
+                    val textWidth = textPaint.measureText(label)
+                    drawContext.canvas.nativeCanvas.drawText(
+                        label,
+                        x + barWidth / 2 - textWidth / 2,
+                        chartHeightPx + labelAreaHeight - spacingPx,
+                        textPaint,
+                    )
+                }
+            }
+        }
+
+        HourlyBarSelectionPopup(
+            selectedHit = selectedHit,
+            popupOffset = popupOffset,
+            density = density,
+            onDismiss = { selectedHit = null },
+        )
+    }
+}
+
+@Composable
+private fun HourlyBarSelectionPopup(
+    selectedHit: HourlyBarHit?,
+    popupOffset: Offset,
+    density: androidx.compose.ui.unit.Density,
+    onDismiss: () -> Unit,
+) {
+    var activeData by remember { mutableStateOf<HourlyBarHit?>(null) }
+    var isVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedHit, popupOffset) {
+        if (selectedHit != null) {
+            activeData = selectedHit
+            isVisible = true
+        } else {
+            isVisible = false
+        }
+    }
+
+    val data = activeData ?: return
+    val transition = updateTransition(targetState = isVisible, label = "HourlyPopupVisibility")
+
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.currentState && !transition.targetState) {
+            activeData = null
+        }
+    }
+    if (!transition.currentState && !transition.targetState) return
+
+    val hourLabel = "%d:00".format(data.hour)
+    val countLabel = pluralStringResource(R.plurals.calendar_heatmap_memo_count, data.count, data.count)
+
+    val positionProvider = remember(popupOffset, density) {
+        HeatmapPopupPositionProvider(popupOffset, density)
+    }
+
+    androidx.compose.ui.window.Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+    ) {
+        transition.AnimatedVisibility(
+            visible = { it },
+            enter = fadeIn(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                scaleIn(initialScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
+            exit = fadeOut(animationSpec = tween(durationMillis = MotionTokens.DurationShort4)) +
+                scaleOut(targetScale = 0.8f, animationSpec = tween(durationMillis = MotionTokens.DurationShort4)),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(HEATMAP_POPUP_SHAPE),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = HEATMAP_POPUP_ELEVATION,
+                shadowElevation = HEATMAP_POPUP_ELEVATION,
+                modifier = Modifier.padding(HEATMAP_POPUP_MARGIN),
+            ) {
+                Column(
+                    modifier = Modifier.padding(
+                        horizontal = HEATMAP_POPUP_CONTENT_HORIZONTAL_PADDING,
+                        vertical = HEATMAP_POPUP_CONTENT_VERTICAL_PADDING,
+                    ),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = hourLabel,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(modifier = Modifier.height(HEATMAP_POPUP_TEXT_SPACING))
+                    Text(
+                        text = countLabel,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }
