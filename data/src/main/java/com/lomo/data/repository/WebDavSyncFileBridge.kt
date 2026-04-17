@@ -11,6 +11,12 @@ import com.lomo.domain.model.WebDavSyncReason
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class WebDavSyncFileBridge
@@ -31,41 +37,55 @@ class WebDavSyncFileBridge
 
         suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalWebDavFile> {
             val memoPrefix = memoRemotePrefix(layout)
-            val memoFiles =
+            val memoMetadataList =
                 runtime.markdownStorageDataSource
                     .listMetadataIn(MemoDirectoryType.MAIN)
                     .filter { it.filename.endsWith(WEBDAV_MEMO_SUFFIX) }
-                    .associate { metadata ->
-                        val content =
-                            runtime.markdownStorageDataSource.readFileIn(
-                                MemoDirectoryType.MAIN,
-                                metadata.filename,
-                            )
-                        val remotePath = "$memoPrefix${metadata.filename}"
-                        remotePath to
-                            LocalWebDavFile(
-                                path = remotePath,
-                                lastModified = metadata.lastModified,
-                                localFingerprint =
-                                    content
-                                        ?.toByteArray(StandardCharsets.UTF_8)
-                                        ?.md5Hex(),
-                            )
+            val fingerprintLimiter = Semaphore(WEBDAV_FINGERPRINT_CONCURRENCY)
+            val memoFiles = coroutineScope {
+                memoMetadataList.map { metadata ->
+                    async(Dispatchers.IO) {
+                        fingerprintLimiter.withPermit {
+                            val content =
+                                runtime.markdownStorageDataSource.readFileIn(
+                                    MemoDirectoryType.MAIN,
+                                    metadata.filename,
+                                )
+                            val remotePath = "$memoPrefix${metadata.filename}"
+                            remotePath to
+                                LocalWebDavFile(
+                                    path = remotePath,
+                                    lastModified = metadata.lastModified,
+                                    localFingerprint =
+                                        content
+                                            ?.toByteArray(StandardCharsets.UTF_8)
+                                            ?.md5Hex(),
+                                )
+                        }
                     }
-            val mediaFiles =
+                }.awaitAll().toMap()
+            }
+            val mediaEntries =
                 runtime.localMediaSyncStore
                     .listFiles(layout)
                     .mapKeys { (path, _) -> "$WEBDAV_ROOT/$path" }
-                    .mapValues { (path, metadata) ->
-                        LocalWebDavFile(
-                            path = path,
-                            lastModified = metadata.lastModified,
-                            localFingerprint =
-                                runNonFatalCatching {
-                                    runtime.localMediaSyncStore.readBytes(path, layout).md5Hex()
-                                }.getOrNull(),
-                        )
+            val mediaFiles = coroutineScope {
+                mediaEntries.map { (path, metadata) ->
+                    async(Dispatchers.IO) {
+                        fingerprintLimiter.withPermit {
+                            path to
+                                LocalWebDavFile(
+                                    path = path,
+                                    lastModified = metadata.lastModified,
+                                    localFingerprint =
+                                        runNonFatalCatching {
+                                            runtime.localMediaSyncStore.readBytes(path, layout).md5Hex()
+                                        }.getOrNull(),
+                                )
+                        }
                     }
+                }.awaitAll().toMap()
+            }
             return memoFiles + mediaFiles
         }
 
@@ -103,21 +123,16 @@ class WebDavSyncFileBridge
         unresolvedPaths: Set<String> = emptySet(),
         completeSnapshot: Boolean = true,
     ) {
-        val syncedLocalFiles = if (localChanged) localFiles(layout) else localFiles
-        val syncedRemoteFiles =
-            if (remoteChanged) {
-                runNonFatalCatching {
-                        remoteFiles(client, layout)
-                    }.getOrElse { error ->
-                        val message = error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE
-                        throw IllegalStateException(
-                            "Failed to reload remote WebDAV files after sync: $message",
-                            error,
-                        )
-                    }
-                } else {
-                    remoteFiles
-                }
+        val syncedLocalFiles =
+            if (localChanged && completeSnapshot) localFiles(layout) else localFiles
+        val syncedRemoteFiles = resolveRemoteSnapshot(
+            client = client,
+            layout = layout,
+            remoteFiles = remoteFiles,
+            actionOutcomes = actionOutcomes,
+            remoteChanged = remoteChanged,
+            completeSnapshot = completeSnapshot,
+        )
         val now = System.currentTimeMillis()
         val intersectionPaths = syncedLocalFiles.keys.intersect(syncedRemoteFiles.keys)
         val candidatePaths =
@@ -207,3 +222,47 @@ class WebDavSyncFileBridge
 
         private fun remoteFolderPath(folder: String): String = "$WEBDAV_ROOT/$folder"
     }
+
+private fun WebDavSyncFileBridge.resolveRemoteSnapshot(
+    client: WebDavClient,
+    layout: SyncDirectoryLayout,
+    remoteFiles: Map<String, RemoteWebDavFile>,
+    actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
+    remoteChanged: Boolean,
+    completeSnapshot: Boolean,
+): Map<String, RemoteWebDavFile> {
+    if (!remoteChanged) return remoteFiles
+    if (completeSnapshot) {
+        return runNonFatalCatching {
+            remoteFiles(client, layout)
+        }.getOrElse { error ->
+            val message = error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE
+            throw IllegalStateException(
+                "Failed to reload remote WebDAV files after sync: $message",
+                error,
+            )
+        }
+    }
+    val changedPaths = actionOutcomes.keys
+    val foldersToRefresh = changedPaths.mapNotNullTo(mutableSetOf()) { path ->
+        val lastSlash = path.lastIndexOf('/')
+        if (lastSlash > 0) path.substring(0, lastSlash) else null
+    }
+    val changedRemote = mutableMapOf<String, RemoteWebDavFile>()
+    foldersToRefresh.forEach { folder ->
+        runNonFatalCatching {
+            client.list(folder)
+                .filterNot(WebDavRemoteResource::isDirectory)
+                .forEach { resource ->
+                    if (resource.path in changedPaths) {
+                        changedRemote[resource.path] = RemoteWebDavFile(
+                            path = resource.path,
+                            etag = resource.etag,
+                            lastModified = resource.lastModified,
+                        )
+                    }
+                }
+        }
+    }
+    return remoteFiles + changedRemote
+}

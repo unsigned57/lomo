@@ -377,36 +377,45 @@ class WebDavSyncExecutor
             layout: SyncDirectoryLayout,
             localFiles: Map<String, LocalWebDavFile>,
             remoteFiles: Map<String, RemoteWebDavFile>,
-        ): List<SyncConflictFile> =
-            actions.map { action ->
-                val localContent =
-                    if (fileBridge.isMemoPath(action.path, layout)) {
-                        runtime.markdownStorageDataSource.readFileIn(
-                            MemoDirectoryType.MAIN,
-                            fileBridge.extractMemoFilename(action.path, layout),
-                        )
-                    } else {
-                        null
-                    }
-                val remoteContent =
-                    if (fileBridge.isMemoPath(action.path, layout)) {
-                        try {
-                            String(client.get(action.path).bytes, StandardCharsets.UTF_8)
-                        } catch (_: Exception) {
-                            null
+        ): List<SyncConflictFile> {
+            val conflictLimiter = Semaphore(WEBDAV_CONFLICT_CONCURRENCY)
+            return coroutineScope {
+                actions.map { action ->
+                    async {
+                        conflictLimiter.withPermit {
+                            val isMemo = fileBridge.isMemoPath(action.path, layout)
+                            val localContent =
+                                if (isMemo) {
+                                    runtime.markdownStorageDataSource.readFileIn(
+                                        MemoDirectoryType.MAIN,
+                                        fileBridge.extractMemoFilename(action.path, layout),
+                                    )
+                                } else {
+                                    null
+                                }
+                            val remoteContent =
+                                if (isMemo) {
+                                    try {
+                                        String(client.get(action.path).bytes, StandardCharsets.UTF_8)
+                                    } catch (_: Exception) {
+                                        null
+                                    }
+                                } else {
+                                    null
+                                }
+                            SyncConflictFile(
+                                relativePath = action.path,
+                                localContent = localContent,
+                                remoteContent = remoteContent,
+                                isBinary = !action.path.endsWith(WEBDAV_MEMO_SUFFIX),
+                                localLastModified = localFiles[action.path]?.lastModified,
+                                remoteLastModified = remoteFiles[action.path]?.lastModified,
+                            )
                         }
-                    } else {
-                        null
                     }
-                SyncConflictFile(
-                    relativePath = action.path,
-                    localContent = localContent,
-                    remoteContent = remoteContent,
-                    isBinary = !action.path.endsWith(WEBDAV_MEMO_SUFFIX),
-                    localLastModified = localFiles[action.path]?.lastModified,
-                    remoteLastModified = remoteFiles[action.path]?.lastModified,
-                )
+                }.awaitAll()
             }
+        }
 
         private suspend fun applyActionsConcurrently(
             actions: List<WebDavSyncAction>,
@@ -497,10 +506,18 @@ class WebDavSyncExecutor
                     WebDavMemoRefreshPlan.Full ->
                         runtime.memoSynchronizer.refreshImportedSync()
 
-                    is WebDavMemoRefreshPlan.Targets ->
-                        memoRefreshPlan.filenames.sorted().forEach { targetFilename ->
-                            runtime.memoSynchronizer.refreshImportedSync(targetFilename)
+                    is WebDavMemoRefreshPlan.Targets -> {
+                        val refreshLimiter = Semaphore(WEBDAV_ACTION_CONCURRENCY)
+                        coroutineScope {
+                            memoRefreshPlan.filenames.sorted().map { targetFilename ->
+                                async {
+                                    refreshLimiter.withPermit {
+                                        runtime.memoSynchronizer.refreshImportedSync(targetFilename)
+                                    }
+                                }
+                            }.awaitAll()
                         }
+                    }
                 }
                 val now = System.currentTimeMillis()
                 runtime.dataStore.updateWebDavLastSyncTime(now)
@@ -861,4 +878,5 @@ private fun WebDavSyncResult.outcomesForRefreshFailure() =
         WebDavSyncResult.NotConfigured -> emptyList()
     }
 
-private const val WEBDAV_ACTION_CONCURRENCY = 4
+private const val WEBDAV_ACTION_CONCURRENCY = 8
+private const val WEBDAV_CONFLICT_CONCURRENCY = 4
