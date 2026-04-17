@@ -223,7 +223,6 @@ private fun NavGraphBuilder.addSecondaryDestinations(
         GalleryScreen(
             onBackClick = popBackStackSafely,
             onNavigateToImage = navigateToImage,
-            onNavigateToShare = navigateToShare,
         )
     }
 
