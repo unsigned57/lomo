@@ -1,10 +1,13 @@
 package com.lomo.app.feature.review
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -25,7 +28,9 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -40,8 +45,9 @@ import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.domain.model.Memo
-import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
+import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
@@ -59,18 +65,21 @@ fun DailyReviewScreen(
     viewModel: DailyReviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isLoadingMore by viewModel.isLoadingMore.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
     val shareCardShowTime = appPreferences.shareCardShowTime
+    val shareCardShowSignature = appPreferences.shareCardShowBrand
+    val shareCardSignatureText = appPreferences.shareCardSignatureText
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val restoredPageIndex by viewModel.restoredPageIndex.collectAsStateWithLifecycle()
     val haptic = LocalAppHapticFeedback.current
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -84,7 +93,8 @@ fun DailyReviewScreen(
 
     MemoInteractionHost(
         shareCardShowTime = shareCardShowTime,
-        activeDayCount = activeDayCount,
+        shareCardShowSignature = shareCardShowSignature,
+        shareCardSignatureText = shareCardSignatureText,
         rootPath = rootDirectory,
         imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,
@@ -107,6 +117,8 @@ fun DailyReviewScreen(
         ) { scaffoldPadding ->
             DailyReviewScreenContent(
                 uiState = uiState,
+                restoredPageIndex = restoredPageIndex,
+                isLoadingMore = isLoadingMore,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
@@ -115,6 +127,9 @@ fun DailyReviewScreen(
                 onShowMenu = showMenu,
                 onOpenEditor = openEditor,
                 onNavigateToImage = onNavigateToImage,
+                onLoadMore = viewModel::loadMore,
+                onPageChanged = viewModel::onPageChanged,
+                haptic = haptic,
             )
         }
     }
@@ -163,6 +178,8 @@ private fun DailyReviewScreenScaffold(
 @Composable
 private fun DailyReviewScreenContent(
     uiState: UiState<List<com.lomo.app.feature.main.MemoUiModel>>,
+    restoredPageIndex: Int,
+    isLoadingMore: Boolean,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
@@ -171,6 +188,9 @@ private fun DailyReviewScreenContent(
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
+    onLoadMore: () -> Unit,
+    onPageChanged: (Int) -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
 ) {
     Box(
         modifier =
@@ -201,6 +221,8 @@ private fun DailyReviewScreenContent(
                 } else {
                     DailyReviewPager(
                         memos = remember(memos) { memos.toImmutableList() },
+                        restoredPageIndex = restoredPageIndex,
+                        isLoadingMore = isLoadingMore,
                         dateFormat = dateFormat,
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
@@ -208,6 +230,9 @@ private fun DailyReviewScreenContent(
                         onShowMenu = onShowMenu,
                         onOpenEditor = onOpenEditor,
                         onNavigateToImage = onNavigateToImage,
+                        onRequestMore = onLoadMore,
+                        onPageChanged = onPageChanged,
+                        haptic = haptic,
                     )
                 }
             }
@@ -220,6 +245,8 @@ private fun DailyReviewScreenContent(
 @Composable
 private fun DailyReviewPager(
     memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    restoredPageIndex: Int,
+    isLoadingMore: Boolean,
     dateFormat: String,
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
@@ -227,8 +254,33 @@ private fun DailyReviewPager(
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
+    onRequestMore: () -> Unit,
+    onPageChanged: (Int) -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
 ) {
-    val pagerState = rememberPagerState(pageCount = { memos.size })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { memos.size })
+    var previousPage by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(restoredPageIndex, memos.size) {
+        if (memos.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val targetPage = restoredPageIndex.coerceIn(0, memos.lastIndex)
+        if (pagerState.currentPage != targetPage) {
+            pagerState.scrollToPage(targetPage)
+        }
+    }
+
+    LaunchedEffect(pagerState.currentPage, memos.size) {
+        if (pagerState.currentPage != previousPage) {
+            previousPage = pagerState.currentPage
+            haptic.light()
+        }
+        onPageChanged(pagerState.currentPage)
+        if (pagerState.currentPage > 0 && pagerState.currentPage == memos.lastIndex) {
+            onRequestMore()
+        }
+    }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         HorizontalPager(
@@ -253,6 +305,11 @@ private fun DailyReviewPager(
                 onNavigateToImage = onNavigateToImage,
             )
         }
+        if (isLoadingMore) {
+            ExpressiveContainedLoadingIndicator(
+                modifier = Modifier.padding(top = AppSpacing.Small),
+            )
+        }
     }
 }
 
@@ -269,6 +326,7 @@ private fun DailyReviewPagerPage(
     onOpenEditor: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
 ) {
+    val scrollState = rememberScrollState()
     val onMemoImageClick =
         remember(memo.imageUrls, onNavigateToImage) {
             { url: String ->
@@ -285,34 +343,43 @@ private fun DailyReviewPagerPage(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = AppSpacing.ExtraLarge)
-                    .verticalScroll(rememberScrollState()),
+        WithDraggableScrollbar(
+            state = scrollState,
+            modifier = Modifier.fillMaxSize(),
         ) {
-            MemoCardEntry(
-                uiModel = memo,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
-                onMemoEdit = onOpenEditor,
-                onShowMenu = onShowMenu,
-                onImageClick = onMemoImageClick,
-            )
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = maxHeight)
+                            .padding(bottom = AppSpacing.ExtraLarge)
+                            .verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    MemoCardEntry(
+                        uiModel = memo,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        doubleTapEditEnabled = doubleTapEditEnabled,
+                        freeTextCopyEnabled = freeTextCopyEnabled,
+                        onMemoEdit = onOpenEditor,
+                        onShowMenu = onShowMenu,
+                        onImageClick = onMemoImageClick,
+                    )
 
-            Text(
-                text = "${page + 1} / $totalPages",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(top = AppSpacing.Medium),
-                textAlign = TextAlign.Center,
-            )
+                    Text(
+                        text = "${page + 1} / $totalPages",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(top = AppSpacing.Medium),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
         }
     }
 }

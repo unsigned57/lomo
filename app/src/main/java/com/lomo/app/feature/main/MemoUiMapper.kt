@@ -9,6 +9,7 @@ import com.lomo.ui.component.card.shouldShowMemoCardExpand
 import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
 import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -19,8 +20,12 @@ import java.time.ZoneId
 import javax.inject.Inject
 
 class MemoUiMapper
-    @Inject
-    constructor() {
+    internal constructor(
+        private val backgroundDispatcher: CoroutineDispatcher,
+    ) {
+        @Inject
+        constructor() : this(Dispatchers.Default)
+
         private val imageContentResolver = MemoUiImageContentResolver()
 
         suspend fun mapToUiModels(
@@ -30,7 +35,7 @@ class MemoUiMapper
             imageMap: Map<String, Uri>,
             prioritizedMemoIds: Set<String> = emptySet(),
         ): List<MemoUiModel> =
-            withContext(Dispatchers.Default) {
+            withContext(backgroundDispatcher) {
                 if (memos.isEmpty()) {
                     return@withContext emptyList()
                 }

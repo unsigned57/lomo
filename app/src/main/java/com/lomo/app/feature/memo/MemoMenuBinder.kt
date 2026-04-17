@@ -16,7 +16,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun MemoMenuBinder(
     shareCardShowTime: Boolean,
-    activeDayCount: Int,
+    shareCardShowSignature: Boolean,
+    shareCardSignatureText: String,
     onEditMemo: (Memo) -> Unit,
     onDeleteMemo: (Memo) -> Unit,
     onLanShare: (
@@ -47,7 +48,8 @@ fun MemoMenuBinder(
                     context = context,
                     shareUtils = shareUtils,
                     shareCardShowTime = shareCardShowTime,
-                    activeDayCount = activeDayCount,
+                    shareCardShowSignature = shareCardShowSignature,
+                    shareCardSignatureText = shareCardSignatureText,
                 )
             }
         },
@@ -91,16 +93,18 @@ private suspend fun shareMemoAsImage(
     context: android.content.Context,
     shareUtils: com.lomo.app.util.ShareUtils,
     shareCardShowTime: Boolean,
-    activeDayCount: Int,
+    shareCardShowSignature: Boolean,
+    shareCardSignatureText: String,
 ) {
     val memo = state.memo as? Memo
     shareUtils.shareMemoAsImage(
         context = context,
         content = state.content,
         showTime = shareCardShowTime,
+        showSignature = shareCardShowSignature,
+        signatureText = shareCardSignatureText,
         timestamp = memo?.timestamp,
         tags = memo?.tags.orEmpty(),
-        activeDayCount = activeDayCount,
         resolvedImagePaths = state.imageUrls,
     )
 }

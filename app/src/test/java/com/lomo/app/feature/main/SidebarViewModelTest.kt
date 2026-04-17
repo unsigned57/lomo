@@ -10,7 +10,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -25,7 +24,8 @@ import java.time.LocalDate
  * - Unit under test: SidebarViewModel
  * - Behavior focus: sidebar aggregate projection and reachable search-filter delegation.
  * - Observable outcomes: stats counts, parsed date map, sorted tags, and propagated search filter state.
- * - Red phase: Not applicable - unreachable selectedTag refactor; production change removes dead API without altering reachable behavior.
+ * - Red phase: Not applicable - contract restoration for unshipped tag pinning removal; no new production branch is introduced.
+ * - Test Change Justification: reason category = product contract changed; removed pinned-tag assertions and toggle coverage because tag pinning is being rolled back before ship, while the original aggregation, ordering, and filter-delegation risks remain covered by the retained assertions below.
  * - Excludes: Compose sidebar rendering, calendar drawing behavior, and repository implementation details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -105,7 +105,6 @@ class SidebarViewModelTest {
                 )
 
             viewModel.onSearch("meeting")
-            advanceUntilIdle()
 
             assertEquals("meeting", viewModel.searchQuery.value)
         }
@@ -120,10 +119,8 @@ class SidebarViewModelTest {
                 )
 
             viewModel.onSearch("meeting")
-            advanceUntilIdle()
 
             viewModel.clearFilters()
-            advanceUntilIdle()
 
             assertEquals("", viewModel.searchQuery.value)
         }

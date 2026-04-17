@@ -19,28 +19,18 @@ class GitSyncWorker
         private val gitSyncRepository: GitSyncRepository,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
-            Timber.d("GitSyncWorker started")
+            Timber.d("%s started", WORKER_NAME)
             return when (val result = gitSyncRepository.sync()) {
-                is GitSyncResult.Success -> {
-                    Timber.d("GitSyncWorker success: ${result.message}")
-                    Result.success()
-                }
-
-                is GitSyncResult.Error -> {
-                    Timber.e("GitSyncWorker error: ${result.message}")
-                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
-                }
+                is GitSyncResult.Success -> successWorkResult(WORKER_NAME, result.message)
+                is GitSyncResult.Error -> errorWorkResult(WORKER_NAME, result.message)
 
                 // NotConfigured or DirectPathRequired — nothing to do
-                else -> {
-                    Timber.d("GitSyncWorker skipped: $result")
-                    Result.success()
-                }
+                else -> skipWorkResult(WORKER_NAME, result)
             }
         }
 
         companion object {
-            private const val MAX_RETRY_ATTEMPTS = 3
+            private const val WORKER_NAME = "GitSyncWorker"
             const val WORK_NAME = "com.lomo.data.worker.GitSyncWorker"
         }
     }

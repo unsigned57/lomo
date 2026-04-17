@@ -39,7 +39,7 @@ import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 45
+const val MEMO_DATABASE_VERSION = 46
 
 @Database(
     entities =

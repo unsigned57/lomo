@@ -55,7 +55,7 @@ internal fun buildShareCardComposition(
     spec: ShareCardLayoutSpec,
     paintSet: ShareCardPaintSet,
     loadedImages: Map<Int, Bitmap>,
-    showFooter: Boolean,
+    footer: ShareCardFooterContent,
     shouldUseCenteredBody: Boolean,
 ): ShareCardComposition {
     val tagLayout =
@@ -86,7 +86,7 @@ internal fun buildShareCardComposition(
         (tagLayout?.height?.toFloat()?.plus(spec.tagBottomSpacing) ?: 0f) +
             (titleLayout?.height?.toFloat()?.plus(spec.titleBottomSpacing) ?: 0f) +
             bodyContentHeight
-    val footerBlockHeight = measureFooterBlockHeight(paintSet.footerPaint, spec, showFooter)
+    val footerBlockHeight = measureFooterBlockHeight(paintSet.footerPaint, spec, footer)
     val cardHeight =
         max(spec.minCardHeight, contentHeight + footerBlockHeight + spec.cardPadding * 2)
             .coerceAtMost(MAX_SHARE_BITMAP_HEIGHT_PX - spec.outerPadding * 2)
@@ -181,14 +181,21 @@ private fun createRenderLine(
 private fun measureFooterBlockHeight(
     footerPaint: android.text.TextPaint,
     spec: ShareCardLayoutSpec,
-    showFooter: Boolean,
+    footer: ShareCardFooterContent,
 ): Float {
-    if (!showFooter) {
+    if (!footer.showFooter) {
         return 0f
     }
-
+    if (footer.row?.isVisible != true) {
+        return 0f
+    }
     val footerTextHeight = footerPaint.fontMetrics.descent - footerPaint.fontMetrics.ascent
-    return spec.dividerTopSpacing + spec.dividerStrokeWidth + spec.footerRowTopSpacing + footerTextHeight
+    return (
+        spec.dividerTopSpacing +
+            spec.dividerStrokeWidth +
+            spec.footerRowTopSpacing +
+            footerTextHeight
+    )
 }
 
 private fun drawBackgroundAndCard(
@@ -352,6 +359,7 @@ private fun drawFooter(
     footer: ShareCardFooterContent,
     palette: ShareCardPalette,
 ) {
+    val row = footer.row ?: return
     val dividerY = footerTop + spec.dividerTopSpacing
     val dividerPaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -362,14 +370,23 @@ private fun drawFooter(
 
     val rowTop = dividerY + spec.footerRowTopSpacing
     val baseline = rowTop - footerPaint.fontMetrics.ascent
-    if (footer.showTime) {
-        canvas.drawText(footer.createdAtText, contentLeft, baseline, footerPaint)
+    if (row.startText.isNotBlank()) {
+        canvas.drawText(row.startText, contentLeft, baseline, footerPaint)
     }
-    if (footer.activeDayCountText.isNotBlank()) {
-        val textWidth = footerPaint.measureText(footer.activeDayCountText)
+    if (row.centerText.isNotBlank()) {
+        val centerWidth = footerPaint.measureText(row.centerText)
         canvas.drawText(
-            footer.activeDayCountText,
-            contentLeft + spec.contentWidth - textWidth,
+            row.centerText,
+            contentLeft + (spec.contentWidth - centerWidth) / 2f,
+            baseline,
+            footerPaint,
+        )
+    }
+    if (row.endText.isNotBlank()) {
+        val endWidth = footerPaint.measureText(row.endText)
+        canvas.drawText(
+            row.endText,
+            contentLeft + spec.contentWidth - endWidth,
             baseline,
             footerPaint,
         )

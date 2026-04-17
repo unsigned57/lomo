@@ -2,8 +2,8 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.ui.component.navigation.SidebarStats
@@ -66,6 +66,6 @@ class SidebarViewModel
         }
 
         fun clearFilters() {
-            stateHolder.clearFilters()
+            stateHolder.updateSearchQuery("")
         }
     }

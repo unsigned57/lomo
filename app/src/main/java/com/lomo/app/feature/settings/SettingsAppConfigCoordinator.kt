@@ -8,6 +8,7 @@ import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
+import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -23,6 +24,7 @@ class SettingsAppConfigCoordinator(
     private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository =
         NoOpMemoSnapshotPreferencesRepository,
     private val memoVersionRepository: MemoVersionRepository? = null,
+    private val syncInboxRepository: SyncInboxRepository? = null,
 ) {
     val rootDirectory: StateFlow<DirectoryDisplayState> =
         appConfigRepository
@@ -93,6 +95,11 @@ class SettingsAppConfigCoordinator(
             .isQuickSaveOnBackEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
 
+    val scrollbarEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isScrollbarEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
+
     val appLockEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isAppLockEnabled()
@@ -122,6 +129,11 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .isShareCardShowBrandEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SHOW_BRAND)
+
+    val shareCardSignatureText: StateFlow<String> =
+        appConfigRepository
+            .getShareCardSignatureText()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT)
 
     val syncInboxEnabled: StateFlow<Boolean> =
         appConfigRepository
@@ -201,6 +213,7 @@ class SettingsAppConfigCoordinator(
                     location = StorageLocation(path),
                 ),
             )
+            syncInboxRepository?.ensureDirectoryStructure()
         }
 
     val updateSyncInboxUri: suspend (String) -> Unit =
@@ -211,6 +224,7 @@ class SettingsAppConfigCoordinator(
                     location = StorageLocation(uriString),
                 ),
             )
+            syncInboxRepository?.ensureDirectoryStructure()
         }
 
     val updateDateFormat: suspend (String) -> Unit =
@@ -256,6 +270,9 @@ class SettingsAppConfigCoordinator(
     val updateQuickSaveOnBackEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setQuickSaveOnBackEnabled(enabled) }
 
+    val updateScrollbarEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setScrollbarEnabled(enabled) }
+
     val updateAppLockEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setAppLockEnabled(enabled) }
 
@@ -267,6 +284,9 @@ class SettingsAppConfigCoordinator(
 
     val updateShareCardShowBrand: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setShareCardShowBrand(enabled) }
+
+    val updateShareCardSignatureText: suspend (String) -> Unit =
+        { text -> appConfigRepository.setShareCardSignatureText(text) }
 
     val updateSyncInboxEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setSyncInboxEnabled(enabled) }

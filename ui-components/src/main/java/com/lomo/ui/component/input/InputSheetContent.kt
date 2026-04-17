@@ -59,11 +59,15 @@ internal fun InputSheetContent(
         },
         onToggleExpanded = callbacks.onToggleExpanded,
         onDisplayModeChange = callbacks.onDisplayModeChange,
+        onUndo = callbacks.onUndo,
+        onRedo = callbacks.onRedo,
+        canUndo = callbacks.canUndo,
+        canRedo = callbacks.canRedo,
         onToggleTagSelector = { sessionState.showTagSelector = !sessionState.showTagSelector },
         onCameraClick = callbacks.onCameraClick,
         onImageClick = callbacks.onImageClick,
         onStartRecording = callbacks.onStartRecording,
-        onInsertTodo = { callbacks.onInputValueChange(buildTodoInsertionValue(inputValue.text)) },
+        onInsertTodo = { callbacks.onInputValueChange(buildTodoInsertionValue(inputValue)) },
         onInsertUnderline = { callbacks.onInputValueChange(buildUnderlineInsertionValue(inputValue)) },
         onSubmit = {
             if (inputValue.text.isNotBlank()) {
@@ -103,6 +107,10 @@ private fun InputSheetBody(
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
     onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
     onToggleTagSelector: () -> Unit,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
@@ -175,6 +183,10 @@ private fun InputSheetBody(
                     onTagSelected = onTagSelected,
                     onToggleExpanded = onToggleExpanded,
                     onDisplayModeChange = onDisplayModeChange,
+                    onUndo = onUndo,
+                    onRedo = onRedo,
+                    canUndo = canUndo,
+                    canRedo = canRedo,
                     onToggleTagSelector = onToggleTagSelector,
                     onCameraClick = onCameraClick,
                     onImageClick = onImageClick,
@@ -200,9 +212,16 @@ private fun buildTagInsertionValue(
     return TextFieldValue(newText, TextRange(newText.length))
 }
 
-private fun buildTodoInsertionValue(inputText: String): TextFieldValue {
-    val newText = if (inputText.isEmpty()) "- [ ] " else "$inputText\n- [ ] "
-    return TextFieldValue(newText, TextRange(newText.length))
+private fun buildTodoInsertionValue(inputValue: TextFieldValue): TextFieldValue {
+    val cursorPos = inputValue.selection.start.coerceIn(0, inputValue.text.length)
+    val prefix = inputValue.text.substring(0, cursorPos)
+    val suffix = inputValue.text.substring(cursorPos)
+    val todoMarker = "- [ ] "
+    val needsNewline = prefix.isNotEmpty() && !prefix.endsWith('\n')
+    val insertion = if (needsNewline) "\n$todoMarker" else todoMarker
+    val newText = prefix + insertion + suffix
+    val cursorTarget = cursorPos + insertion.length
+    return TextFieldValue(newText, TextRange(cursorTarget))
 }
 
 internal fun buildUnderlineInsertionValue(inputValue: TextFieldValue): TextFieldValue =

@@ -15,6 +15,8 @@ import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.GitSyncRepository
@@ -26,16 +28,21 @@ import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
+import com.lomo.domain.usecase.GitUnifiedSyncProvider
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
+import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
+import com.lomo.domain.usecase.S3UnifiedSyncProvider
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
 import com.lomo.domain.usecase.SyncAndRebuildUseCase
+import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
+import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -135,6 +142,12 @@ class MainViewModelInitialImportStateTest {
         every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
         every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
         every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+        coEvery {
+            syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+        } returns UnifiedSyncResult.Success(
+            provider = SyncBackendType.INBOX,
+            message = "processed",
+        )
         every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns rootLocationFlow
         coEvery { appConfigRepository.currentRootLocation() } coAnswers { rootLocationFlow.value }
         every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
@@ -357,12 +370,9 @@ class MainViewModelInitialImportStateTest {
                     refreshMemosUseCase =
                         RefreshMemosUseCase(
                             SyncAndRebuildUseCase(
-                                repository,
-                                gitSyncRepo,
-                                webDavSyncRepository,
-                                s3SyncRepository,
-                                syncInboxRepository,
-                                syncPolicyRepository,
+                                memoRepository = repository,
+                                syncProviderRegistry = syncProviderRegistry(),
+                                syncPolicyRepository = syncPolicyRepository,
                             ),
                         ),
                     switchRootStorageUseCase = switchRootStorageUseCase,
@@ -376,14 +386,11 @@ class MainViewModelInitialImportStateTest {
                             initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                             syncAndRebuildUseCase =
                                 SyncAndRebuildUseCase(
-                                    repository,
-                                    gitSyncRepo,
-                                    webDavSyncRepository,
-                                    s3SyncRepository,
-                                    syncInboxRepository,
-                                    syncPolicyRepository,
+                                    memoRepository = repository,
+                                    syncProviderRegistry = syncProviderRegistry(),
+                                    syncPolicyRepository = syncPolicyRepository,
                                 ),
-                            syncInboxRepository = syncInboxRepository,
+                            syncProviderRegistry = syncProviderRegistry(),
                             appVersionRepository = appVersionRepository,
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
@@ -391,6 +398,17 @@ class MainViewModelInitialImportStateTest {
                 ),
             applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase(),
             resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
+        )
+
+    private fun syncProviderRegistry(): SyncProviderRegistry =
+        SyncProviderRegistry(
+            providers =
+                listOf(
+                    GitUnifiedSyncProvider(gitSyncRepo),
+                    WebDavUnifiedSyncProvider(webDavSyncRepository),
+                    S3UnifiedSyncProvider(s3SyncRepository),
+                    InboxUnifiedSyncProvider(syncInboxRepository, mockk(relaxed = true)),
+                ),
         )
 
     private fun memo(

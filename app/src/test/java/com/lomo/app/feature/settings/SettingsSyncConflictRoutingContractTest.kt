@@ -8,8 +8,8 @@ import java.io.File
  * Test Contract:
  * - Unit under test: settings sync-conflict routing wiring across SettingsScreen and SettingsScreenSupport.
  * - Behavior focus: Git, WebDAV, and S3 conflict states must all route into the shared SyncConflictDialog flow so users can resolve detected sync conflicts from settings instead of being left in a stuck status state.
- * - Observable outcomes: source-level wiring for SettingsScreen handler installation and SettingsScreenSupport conflict-dialog dispatch for WebDAV/S3.
- * - Red phase: Fails before the fix because SettingsScreen only wires Git conflict handling, so S3/WebDAV can report ConflictDetected without ever opening the shared resolution dialog.
+ * - Observable outcomes: source-level wiring for SettingsScreen handler installation and SettingsScreenSupport conflict-dialog dispatch for WebDAV/S3 under the unified sync state baseline.
+ * - Red phase: Fails before the fix because the settings layer still checks backend-specific state classes, so S3/WebDAV can report UnifiedSyncState.ConflictDetected without opening the shared resolution dialog.
  * - Excludes: Compose dialog rendering, repository conflict resolution internals, and transport-specific sync execution.
  */
 class SettingsSyncConflictRoutingContractTest {
@@ -43,15 +43,17 @@ class SettingsSyncConflictRoutingContractTest {
 
         assertTrue(
             """
-            SettingsScreenSupport must open the shared conflict dialog for WebDAV and S3 ConflictDetected states.
+            SettingsScreenSupport must open the shared conflict dialog for WebDAV and S3 unified conflict states.
             Expected HandleWebDavConflictState / HandleS3ConflictState to call
             onShowConflictDialog(conflictState.conflicts) in:
             ${settingsSupportSource.path}
             """.trimIndent(),
             content.contains("internal fun HandleWebDavConflictState(") &&
-                content.contains("syncState as? WebDavSyncState.ConflictDetected") &&
+                content.contains("syncState as? UnifiedSyncState.ConflictDetected") &&
+                content.contains("if (conflictState.provider != SyncBackendType.WEBDAV)") &&
                 content.contains("internal fun HandleS3ConflictState(") &&
-                content.contains("syncState as? S3SyncState.ConflictDetected") &&
+                content.contains("syncState as? UnifiedSyncState.ConflictDetected") &&
+                content.contains("if (conflictState.provider != SyncBackendType.S3)") &&
                 content.contains("onShowConflictDialog(conflictState.conflicts)"),
         )
     }

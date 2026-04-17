@@ -1,12 +1,8 @@
 package com.lomo.data.worker
 
 import android.content.Context
-import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.repository.S3RefreshCatchUpScheduler
@@ -38,24 +34,17 @@ class S3SyncScheduler
             val interval = dataStore.s3AutoSyncInterval.first()
             val schedulePlan = reconcileScheduler.buildSchedulePlan(interval)
             val fastRequest =
-                PeriodicWorkRequestBuilder<S3SyncWorker>(schedulePlan.fastInterval)
-                    .setInputData(S3SyncWorker.inputData(S3SyncScanPolicy.FAST_ONLY))
-                    .setConstraints(
-                        Constraints
-                            .Builder()
-                            .setRequiredNetworkType(NetworkType.CONNECTED)
-                            .build(),
-                    ).build()
+                buildPeriodicSyncWorkRequest<S3SyncWorker>(
+                    interval = schedulePlan.fastInterval,
+                    constraints = connectedNetworkConstraints(),
+                    inputData = S3SyncWorker.inputData(S3SyncScanPolicy.FAST_ONLY),
+                )
             val reconcileRequest =
-                PeriodicWorkRequestBuilder<S3SyncWorker>(schedulePlan.reconcileInterval)
-                    .setInputData(S3SyncWorker.inputData(S3SyncScanPolicy.FULL_RECONCILE))
-                    .setConstraints(
-                        Constraints
-                            .Builder()
-                            .setRequiredNetworkType(NetworkType.UNMETERED)
-                            .setRequiresCharging(true)
-                            .build(),
-                    ).build()
+                buildPeriodicSyncWorkRequest<S3SyncWorker>(
+                    interval = schedulePlan.reconcileInterval,
+                    constraints = unmeteredChargingConstraints(),
+                    inputData = S3SyncWorker.inputData(S3SyncScanPolicy.FULL_RECONCILE),
+                )
 
             workManager.enqueueUniquePeriodicWork(
                 S3SyncWorker.WORK_NAME,
@@ -71,10 +60,10 @@ class S3SyncScheduler
                 workManager.enqueueUniqueWork(
                     S3SyncWorker.RECONCILE_CATCH_UP_WORK_NAME,
                     ExistingWorkPolicy.REPLACE,
-                    OneTimeWorkRequestBuilder<S3SyncWorker>()
-                        .setInputData(S3SyncWorker.inputData(policy))
-                        .setConstraints(catchUpConstraints(policy))
-                        .build(),
+                    buildOneTimeSyncWorkRequest<S3SyncWorker>(
+                        constraints = catchUpConstraints(policy),
+                        inputData = S3SyncWorker.inputData(policy),
+                    ),
                 )
             }
             Timber.d("S3 auto-sync scheduled with interval: %s", interval)
@@ -91,29 +80,20 @@ class S3SyncScheduler
             WorkManager.getInstance(context).enqueueUniqueWork(
                 S3SyncWorker.RECONCILE_CATCH_UP_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
-                OneTimeWorkRequestBuilder<S3SyncWorker>()
-                    .setInputData(S3SyncWorker.inputData(policy))
-                    .setConstraints(catchUpConstraints(policy))
-                    .build(),
+                buildOneTimeSyncWorkRequest<S3SyncWorker>(
+                    constraints = catchUpConstraints(policy),
+                    inputData = S3SyncWorker.inputData(policy),
+                ),
             )
         }
 
-        private fun catchUpConstraints(policy: S3SyncScanPolicy): Constraints =
+        private fun catchUpConstraints(policy: S3SyncScanPolicy): androidx.work.Constraints =
             when (policy) {
-                S3SyncScanPolicy.FULL_RECONCILE ->
-                    Constraints
-                        .Builder()
-                        .setRequiredNetworkType(NetworkType.UNMETERED)
-                        .setRequiresCharging(true)
-                        .build()
+                S3SyncScanPolicy.FULL_RECONCILE -> unmeteredChargingConstraints()
 
                 S3SyncScanPolicy.FAST_ONLY,
                 S3SyncScanPolicy.FAST_THEN_RECONCILE,
-                ->
-                    Constraints
-                        .Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build()
+                -> connectedNetworkConstraints()
             }
 
     }

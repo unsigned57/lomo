@@ -434,11 +434,13 @@ private fun buildConflictFiles(
     readFileFromRef: (Repository, String, String) -> String?,
 ): List<SyncConflictFile> =
     conflictingPaths.map { path ->
+        val localFile = File(rootDir, path)
         SyncConflictFile(
             relativePath = path,
             localContent = readLocalFile(rootDir, path),
             remoteContent = readFileFromRef(repository, remoteBranch, path),
             isBinary = !path.endsWith(".md"),
+            localLastModified = localFile.takeIf(File::exists)?.lastModified(),
         )
     }
 

@@ -8,7 +8,10 @@ import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncResult
 import com.lomo.domain.model.S3SyncState
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.usecase.S3SyncSettingsUseCase
+import com.lomo.domain.usecase.toUnifiedState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -141,10 +144,11 @@ class SettingsS3Coordinator(
             .map { it ?: 0L }
             .stateIn(scope, settingsWhileSubscribed(), 0L)
 
-    val s3SyncState: StateFlow<S3SyncState> =
+    val s3SyncState: StateFlow<UnifiedSyncState> =
         s3SyncSettingsUseCase
             .observeSyncState()
-            .stateIn(scope, settingsWhileSubscribed(), S3SyncState.Idle)
+            .map { state -> state.toUnifiedState(SyncBackendType.S3) }
+            .stateIn(scope, settingsWhileSubscribed(), UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsS3ConnectionTestState>(SettingsS3ConnectionTestState.Idle)

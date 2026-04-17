@@ -235,6 +235,15 @@ class MemoTextProcessorTest {
     }
 
     @Test
+    fun `extractTags should keep emoji tags intact`() {
+        val content = "#😀工作 update #🎉/ #😀工作"
+
+        val tags = processor.extractTags(content)
+
+        assertEquals(listOf("😀工作", "🎉"), tags)
+    }
+
+    @Test
     fun `extractAudioLinks should include markdown audio links`() {
         val content = "[audio](voice_001.m4a)\n[text](doc.txt)\n[clip](music.MP3)"
 

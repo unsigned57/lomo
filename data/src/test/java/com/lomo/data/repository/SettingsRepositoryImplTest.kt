@@ -26,7 +26,8 @@ import org.junit.Test
  * - Unit under test: SettingsRepositoryImpl
  * - Behavior focus: workspace-location writes, failure propagation, and datastore-backed preference delegation.
  * - Observable outcomes: repository return values, thrown exceptions, and collaborator interactions.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Red phase: Not applicable - constructor wiring mechanically narrowed after tag-pinning rollback; no behavior change.
+ * - Test Change Justification: reason category = pure refactor preserved behavior; removed the unshipped pinned-tag preference dependency from test setup because the production preferences aggregate no longer exposes that repository, while the retained assertions still cover workspace writes, failure propagation, and delegated preference mutations.
  * - Excludes: concrete datastore implementation details and Compose/UI rendering.
  */
 class SettingsRepositoryImplTest {
@@ -49,6 +50,8 @@ class SettingsRepositoryImplTest {
                         dateTimePreferencesRepository = DateTimePreferencesRepositoryImpl(dataStore),
                         storagePreferencesRepository = StoragePreferencesRepositoryImpl(dataStore),
                         interactionPreferencesRepository = InteractionPreferencesRepositoryImpl(dataStore),
+                        interactionBehaviorPreferencesRepository =
+                            InteractionBehaviorPreferencesRepositoryImpl(dataStore),
                         memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
                         securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
                         shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),

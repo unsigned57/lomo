@@ -150,8 +150,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 38
-        versionName = "1.2.1"
+        versionCode = 39
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -227,6 +227,10 @@ android {
 
 baselineProfile {
     dexLayoutOptimization = true
+}
+
+hilt {
+    disableCrossCompilationRootValidation = true
 }
 
 kover {
@@ -327,6 +331,7 @@ dependencies {
     implementation(libs.androidx.profileinstaller)
 
     testImplementation(libs.junit)
+    testImplementation(libs.hilt.android.testing)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
@@ -362,6 +367,7 @@ dependencies {
 
     // Baseline Profile
     baselineProfile(project(":benchmark"))
+    add("kspTest", libs.hilt.compiler)
 }
 
 kotlin {

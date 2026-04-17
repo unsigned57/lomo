@@ -2,12 +2,15 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncErrorCode
 import com.lomo.domain.model.WebDavSyncFailureException
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.usecase.WebDavSyncSettingsUseCase
+import com.lomo.domain.usecase.toUnifiedState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -103,10 +106,11 @@ class SettingsWebDavCoordinator(
             .map { it ?: 0L }
             .stateIn(scope, settingsWhileSubscribed(), 0L)
 
-    val webDavSyncState: StateFlow<WebDavSyncState> =
+    val webDavSyncState: StateFlow<UnifiedSyncState> =
         webDavSyncSettingsUseCase
             .observeSyncState()
-            .stateIn(scope, settingsWhileSubscribed(), WebDavSyncState.Idle)
+            .map { state -> state.toUnifiedState(SyncBackendType.WEBDAV) }
+            .stateIn(scope, settingsWhileSubscribed(), UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsWebDavConnectionTestState>(SettingsWebDavConnectionTestState.Idle)

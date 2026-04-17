@@ -63,7 +63,10 @@ internal fun collectMainScreenUiSnapshot(
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
         memoActionOrder = appPreferences.memoActionOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
+        scrollbarEnabled = appPreferences.scrollbarEnabled,
         shareCardShowTime = appPreferences.shareCardShowTime,
+        shareCardShowSignature = appPreferences.shareCardShowBrand,
+        shareCardSignatureText = appPreferences.shareCardSignatureText,
         uiState = uiState,
         pendingNewMemoCreationRequest = pendingNewMemoCreationRequest,
     )
@@ -129,6 +132,7 @@ internal fun MainScreenConflictHost(
                 onFileChoiceChanged = dependencies.conflictViewModel::setFileChoice,
                 onAllChoicesChanged = dependencies.conflictViewModel::setAllChoices,
                 onAcceptSuggestions = dependencies.conflictViewModel::acceptSuggestedChoices,
+                onAutoResolveSafeConflicts = dependencies.conflictViewModel::autoResolveSafeConflicts,
                 onToggleExpanded = dependencies.conflictViewModel::toggleExpandedFile,
                 onApply = dependencies.conflictViewModel::applyResolution,
                 onDismiss = dependencies.conflictViewModel::dismiss,
@@ -158,6 +162,7 @@ internal fun MainScreenContentHost(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit,
 ) {
     val allTags =
@@ -173,6 +178,8 @@ internal fun MainScreenContentHost(
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         shareCardShowTime = screenState.shareCardShowTime,
+        shareCardShowSignature = screenState.shareCardShowSignature,
+        shareCardSignatureText = screenState.shareCardSignatureText,
         quickSaveOnBackEnabled = screenState.quickSaveOnBackEnabled,
         memoActionAutoReorderEnabled = screenState.memoActionAutoReorderEnabled,
         memoActionOrder = screenState.memoActionOrder,
@@ -193,6 +200,7 @@ internal fun MainScreenContentHost(
             onNavigateToImage = onNavigateToImage,
             onNavigateToDailyReview = onNavigateToDailyReview,
             onNavigateToGallery = onNavigateToGallery,
+            onNavigateToStatistics = onNavigateToStatistics,
             onShowMemoMenu = showMenu,
             onOpenEditor = openEditor,
         )
@@ -229,6 +237,7 @@ private fun MainScreenNavigationContent(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToDailyReview: () -> Unit,
     onNavigateToGallery: () -> Unit,
+    onNavigateToStatistics: () -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
 ) {
@@ -262,7 +271,7 @@ private fun MainScreenNavigationContent(
         onNavigateToImage = onNavigateToImage,
         onNavigateToDailyReview = onNavigateToDailyReview,
         onNavigateToGallery = onNavigateToGallery,
-        onClearSidebarFilters = dependencies.sidebarViewModel::clearFilters,
+        onNavigateToStatistics = onNavigateToStatistics,
         onClearMainFilters = clearMainFilters,
         onOpenMemoFilterPanel = { isMemoFilterSheetVisible = true },
         onOpenCreateMemo = {

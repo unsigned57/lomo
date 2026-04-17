@@ -60,12 +60,13 @@ class WebDavSyncActionApplierTest {
             val path = "lomo/memos/note.md"
             val action = action(path, WebDavSyncDirection.UPLOAD)
             val localFiles = mapOf(path to LocalWebDavFile(path = path, lastModified = 123L))
+            val remoteFiles = mapOf(path to RemoteWebDavFile(path = path, etag = "etag-1", lastModified = 120L))
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "note.md"
             every { fileBridge.contentTypeForPath(path, layout) } returns WEBDAV_MARKDOWN_CONTENT_TYPE
             coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") } returns "memo body"
 
-            val result = applier.applyAction(action, client, layout, localFiles)
+            val result = applier.applyAction(action, client, layout, localFiles, remoteFiles)
 
             assertEquals(ActionExecutionState.Applied(localChanged = false, remoteChanged = true), result)
             assertEquals(WebDavSyncState.Uploading, stateHolder.state.value)
@@ -75,6 +76,8 @@ class WebDavSyncActionApplierTest {
                     bytes = "memo body".toByteArray(Charsets.UTF_8),
                     contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
                     lastModifiedHint = 123L,
+                    expectedEtag = "etag-1",
+                    requireAbsent = false,
                 )
             }
             coVerify(exactly = 0) { localMediaSyncStore.readBytes(any(), any()) }
@@ -90,7 +93,7 @@ class WebDavSyncActionApplierTest {
             every { fileBridge.contentTypeForPath(path, layout) } returns "image/png"
             coEvery { localMediaSyncStore.readBytes(path, layout) } returns bytes
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = false, remoteChanged = true), result)
             assertEquals(WebDavSyncState.Uploading, stateHolder.state.value)
@@ -100,6 +103,8 @@ class WebDavSyncActionApplierTest {
                     bytes = bytes,
                     contentType = "image/png",
                     lastModifiedHint = null,
+                    expectedEtag = null,
+                    requireAbsent = true,
                 )
             }
             coVerify(exactly = 0) { markdownStorageDataSource.readFileIn(any(), any()) }
@@ -114,10 +119,10 @@ class WebDavSyncActionApplierTest {
             every { fileBridge.extractMemoFilename(path, layout) } returns "missing.md"
             coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "missing.md") } returns null
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Skipped, result)
-            verify(exactly = 0) { client.put(any(), any(), any(), any()) }
+            verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
         }
 
     @Test
@@ -129,7 +134,7 @@ class WebDavSyncActionApplierTest {
             every { fileBridge.extractMemoFilename(path, layout) } returns "download.md"
             every { client.get(path) } returns WebDavRemoteFile(path, "remote memo".toByteArray(), "etag", 200L)
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = true, remoteChanged = false), result)
             assertEquals(WebDavSyncState.Downloading, stateHolder.state.value)
@@ -152,7 +157,7 @@ class WebDavSyncActionApplierTest {
             every { fileBridge.isMemoPath(path, layout) } returns false
             every { client.get(path) } returns WebDavRemoteFile(path, bytes, "etag", 300L)
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = true, remoteChanged = false), result)
             assertEquals(WebDavSyncState.Downloading, stateHolder.state.value)
@@ -168,7 +173,7 @@ class WebDavSyncActionApplierTest {
             every { fileBridge.isMemoPath(path, layout) } returns true
             every { fileBridge.extractMemoFilename(path, layout) } returns "deleted.md"
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = true, remoteChanged = false), result)
             assertEquals(WebDavSyncState.Deleting, stateHolder.state.value)
@@ -185,7 +190,7 @@ class WebDavSyncActionApplierTest {
             val action = action(path, WebDavSyncDirection.DELETE_LOCAL)
             every { fileBridge.isMemoPath(path, layout) } returns false
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = true, remoteChanged = false), result)
             assertEquals(WebDavSyncState.Deleting, stateHolder.state.value)
@@ -198,12 +203,13 @@ class WebDavSyncActionApplierTest {
         runTest {
             val path = "lomo/memos/remove-remote.md"
             val action = action(path, WebDavSyncDirection.DELETE_REMOTE)
+            val remoteFiles = mapOf(path to RemoteWebDavFile(path = path, etag = "etag-2", lastModified = 300L))
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), remoteFiles)
 
             assertEquals(ActionExecutionState.Applied(localChanged = false, remoteChanged = true), result)
             assertEquals(WebDavSyncState.Deleting, stateHolder.state.value)
-            verify(exactly = 1) { client.delete(path) }
+            verify(exactly = 1) { client.delete(path, "etag-2") }
         }
 
     @Test
@@ -212,14 +218,14 @@ class WebDavSyncActionApplierTest {
             val noneAction = action("lomo/memos/none.md", WebDavSyncDirection.NONE)
             val conflictAction = action("lomo/memos/conflict.md", WebDavSyncDirection.CONFLICT)
 
-            val noneResult = applier.applyAction(noneAction, client, layout, emptyMap())
-            val conflictResult = applier.applyAction(conflictAction, client, layout, emptyMap())
+            val noneResult = applier.applyAction(noneAction, client, layout, emptyMap(), emptyMap())
+            val conflictResult = applier.applyAction(conflictAction, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Skipped, noneResult)
             assertEquals(ActionExecutionState.Skipped, conflictResult)
             verify(exactly = 0) { client.get(any()) }
-            verify(exactly = 0) { client.put(any(), any(), any(), any()) }
-            verify(exactly = 0) { client.delete(any()) }
+            verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
+            verify(exactly = 0) { client.delete(any(), any()) }
             coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(any(), any(), any()) }
         }
@@ -229,9 +235,9 @@ class WebDavSyncActionApplierTest {
         runTest {
             val path = "lomo/memos/boom.md"
             val action = action(path, WebDavSyncDirection.DELETE_REMOTE)
-            every { client.delete(path) } throws IllegalStateException("boom")
+            every { client.delete(path, any()) } throws IllegalStateException("boom")
 
-            val result = applier.applyAction(action, client, layout, emptyMap())
+            val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertTrue(result is ActionExecutionState.Failed)
             assertEquals(path, (result as ActionExecutionState.Failed).path)

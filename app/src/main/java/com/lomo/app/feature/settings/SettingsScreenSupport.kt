@@ -10,9 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.platform.LocalContext
-import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncEngineState
-import com.lomo.domain.model.WebDavSyncState
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -120,55 +119,57 @@ internal fun HandleSettingsOperationError(
 
 @Composable
 internal fun HandleGitConflictState(
-    syncState: SyncEngineState,
+    syncState: UnifiedSyncState,
     gitFeature: SettingsGitFeatureViewModel,
     dialogState: SettingsDialogState,
     onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
-        val errorState = syncState as? SyncEngineState.Error
+        val errorState = syncState as? UnifiedSyncState.Error
         if (errorState != null) {
+            if (errorState.error.provider != SyncBackendType.GIT) return@LaunchedEffect
+            val gitErrorCode =
+                enumValueOf<com.lomo.domain.model.GitSyncErrorCode>(
+                    errorState.error.providerCode ?: com.lomo.domain.model.GitSyncErrorCode.UNKNOWN.name,
+                )
             if (
-                gitFeature.shouldShowGitConflictDialog(errorState.code) &&
+                gitFeature.shouldShowGitConflictDialog(gitErrorCode) &&
                 !dialogState.showGitConflictResolutionDialog
             ) {
                 dialogState.gitConflictError =
                     SettingsOperationError.GitSync(
-                        code = errorState.code,
-                        detail = errorState.message,
+                        code = gitErrorCode,
+                        detail = errorState.error.message,
                     )
                 dialogState.showGitConflictResolutionDialog = true
             }
             return@LaunchedEffect
         }
-        val conflictState = syncState as? SyncEngineState.ConflictDetected ?: return@LaunchedEffect
+        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
         onShowConflictDialog(conflictState.conflicts)
     }
 }
 
 @Composable
 internal fun HandleWebDavConflictState(
-    syncState: WebDavSyncState,
+    syncState: UnifiedSyncState,
     onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
-        val conflictState = syncState as? WebDavSyncState.ConflictDetected ?: return@LaunchedEffect
+        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
+        if (conflictState.provider != SyncBackendType.WEBDAV) return@LaunchedEffect
         onShowConflictDialog(conflictState.conflicts)
     }
 }
 
 @Composable
 internal fun HandleS3ConflictState(
-    syncState: S3SyncState,
+    syncState: UnifiedSyncState,
     onShowConflictDialog: (com.lomo.domain.model.SyncConflictSet) -> Unit,
 ) {
     LaunchedEffect(syncState) {
-        val previewState = syncState as? S3SyncState.PreviewingInitialSync
-        if (previewState != null) {
-            onShowConflictDialog(previewState.conflicts)
-            return@LaunchedEffect
-        }
-        val conflictState = syncState as? S3SyncState.ConflictDetected ?: return@LaunchedEffect
+        val conflictState = syncState as? UnifiedSyncState.ConflictDetected ?: return@LaunchedEffect
+        if (conflictState.provider != SyncBackendType.S3) return@LaunchedEffect
         onShowConflictDialog(conflictState.conflicts)
     }
 }

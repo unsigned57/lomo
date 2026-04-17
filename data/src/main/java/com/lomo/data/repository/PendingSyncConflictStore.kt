@@ -86,6 +86,8 @@ private fun SyncConflictSet.toEntity(json: Json): PendingSyncConflictEntity =
                                 localContent = file.localContent,
                                 remoteContent = file.remoteContent,
                                 isBinary = file.isBinary,
+                                localLastModified = file.localLastModified,
+                                remoteLastModified = file.remoteLastModified,
                             )
                         },
                 ),
@@ -103,6 +105,8 @@ private fun PendingSyncConflictEntity.toConflictSet(json: Json): SyncConflictSet
                     localContent = file.localContent,
                     remoteContent = file.remoteContent,
                     isBinary = file.isBinary,
+                    localLastModified = file.localLastModified,
+                    remoteLastModified = file.remoteLastModified,
                 )
             },
         timestamp = timestamp,
@@ -121,4 +125,6 @@ private data class PendingSyncConflictFilePayload(
     val localContent: String?,
     val remoteContent: String?,
     val isBinary: Boolean,
+    val localLastModified: Long? = null,
+    val remoteLastModified: Long? = null,
 )

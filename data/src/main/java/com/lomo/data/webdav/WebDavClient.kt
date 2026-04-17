@@ -12,9 +12,14 @@ interface WebDavClient {
         bytes: ByteArray,
         contentType: String,
         lastModifiedHint: Long? = null,
+        expectedEtag: String? = null,
+        requireAbsent: Boolean = false,
     )
 
-    fun delete(path: String)
+    fun delete(
+        path: String,
+        expectedEtag: String? = null,
+    )
 
     fun testConnection()
 }

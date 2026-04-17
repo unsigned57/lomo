@@ -17,6 +17,8 @@ data class SyncConflictFile(
     val localContent: String?,
     val remoteContent: String?,
     val isBinary: Boolean,
+    val localLastModified: Long? = null,
+    val remoteLastModified: Long? = null,
 )
 
 data class SyncConflictSet(
@@ -29,3 +31,6 @@ data class SyncConflictSet(
 data class SyncConflictResolution(
     val perFileChoices: Map<String, SyncConflictResolutionChoice>,
 )
+
+fun SyncBackendType.supportsDeferredConflictResolution(): Boolean =
+    this == SyncBackendType.S3 || this == SyncBackendType.WEBDAV || this == SyncBackendType.INBOX

@@ -3,8 +3,11 @@
     <string name="sidebar_memo">备忘录</string>
     <string name="sidebar_tags">标签</string>
     <string name="sidebar_trash">回收站</string>
-    <string name="sidebar_daily_review">每日回顾</string>
+    <string name="sidebar_daily_review">随机漫步</string>
+    <string name="cd_undo">撤销</string>
+    <string name="cd_redo">重做</string>
     <string name="sidebar_gallery">画廊</string>
+    <string name="sidebar_statistics">统计</string>
     <string name="sidebar_settings">设置</string>
     
     <string name="stat_memo">记录</string>
@@ -70,10 +73,23 @@
     <string name="sync_conflict_choice_keep_all_local">全部保留本地</string>
     <string name="sync_conflict_choice_keep_all_remote">全部保留远端</string>
     <string name="sync_conflict_choice_accept_suggestions">接受建议</string>
+    <string name="sync_conflict_choice_auto_resolve_safe">自动处理安全冲突</string>
     <string name="sync_conflict_choice_skip_all">全部暂后处理</string>
     <string name="sync_conflict_choice_merge">合并</string>
     <string name="sync_conflict_choice_skip">暂后处理</string>
-
+    <string name="sync_conflict_binary_file">二进制文件</string>
+    <string name="sync_conflict_choice_local_short">本地</string>
+    <string name="sync_conflict_choice_remote_short">远端</string>
+    <string name="sync_conflict_apply_resolution">应用并保存</string>
+    <string name="sync_conflict_resolving">正在解决冲突…</string>
+    <string name="sync_conflict_no_text_diffs">未发现明确的文本差异。</string>
+    <string name="sync_conflict_section_auto">可自动处理</string>
+    <string name="sync_conflict_section_manual">需要手动检查</string>
+    <string name="sync_conflict_merge_preview">合并预览</string>
+    <string name="sync_conflict_backup_warning">覆盖文件前将自动备份当前版本。</string>
+    <string name="sync_conflict_close">关闭</string>
+    <string name="sync_conflict_expand">展开</string>
+    <string name="sync_conflict_collapse">收起</string>
     <!-- Relative Time -->
     <string name="relative_time_just_now">刚刚</string>
     <plurals name="relative_time_minutes_ago">

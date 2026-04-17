@@ -1,32 +1,33 @@
 package com.lomo.data.repository
 
 import android.content.Context
-import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
-import com.lomo.data.repository.WorkspaceMediaCategory.IMAGE
-import com.lomo.data.repository.WorkspaceMediaCategory.VOICE
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
+import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.SyncConflictTextMerge
-import com.lomo.domain.model.SyncInboxConflictResolutionResult
+import com.lomo.domain.model.UnifiedSyncError
+import com.lomo.domain.model.UnifiedSyncOperation
+import com.lomo.domain.model.UnifiedSyncPhase
+import com.lomo.domain.model.UnifiedSyncResult
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.IOException
-import java.security.MessageDigest
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val INBOX_PREFIX = "inbox/"
 
 @Singleton
 class SyncInboxRepositoryImpl
@@ -38,319 +39,294 @@ class SyncInboxRepositoryImpl
         private val markdownStorageDataSource: MarkdownStorageDataSource,
         private val workspaceMediaAccess: WorkspaceMediaAccess,
         private val memoSynchronizer: MemoSynchronizer,
+        private val pendingConflictStore: PendingSyncConflictStore,
     ) : SyncInboxRepository {
-        override suspend fun processPendingInbox() {
-            if (!preferencesRepository.isSyncInboxEnabled().first()) return
+    private val state = MutableStateFlow<UnifiedSyncState>(UnifiedSyncState.Idle)
 
-            val inboxRoot = workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX).first() ?: return
-            val inboxFiles = listInboxMarkdownFiles(context, inboxRoot)
-            inboxFiles.forEach { file ->
+    override fun syncState(): Flow<UnifiedSyncState> = state
+
+    override suspend fun ensureDirectoryStructure() {
+        val inboxRoot = workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX).first() ?: return
+        ensureInboxDirectoryStructure(
+            context = context,
+            inboxRoot = inboxRoot,
+        )
+    }
+
+    override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
+        when (operation) {
+            UnifiedSyncOperation.MANUAL_SYNC,
+            UnifiedSyncOperation.REFRESH_SYNC,
+            UnifiedSyncOperation.PROCESS_PENDING_CHANGES,
+            -> processPendingInbox()
+        }
+
+    override suspend fun resolveConflicts(
+        resolution: SyncConflictResolution,
+        conflictSet: SyncConflictSet,
+    ): UnifiedSyncResult {
+        state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
+        val inboxRoot =
+            workspaceConfigSource
+                .getRootFlow(StorageRootType.SYNC_INBOX)
+                .first()
+                ?: return notConfiguredResult()
+
+        val remaining = applyInboxConflictResolution(inboxRoot, conflictSet, resolution)
+        return if (remaining.isEmpty()) {
+            pendingConflictStore.clear(SyncBackendType.INBOX)
+            val success =
+                UnifiedSyncResult.Success(
+                    provider = SyncBackendType.INBOX,
+                    message = "Sync inbox conflicts resolved",
+                )
+            state.value =
+                UnifiedSyncState.Success(
+                    provider = SyncBackendType.INBOX,
+                    timestamp = System.currentTimeMillis(),
+                    summary = success.message,
+                )
+            success
+        } else {
+            val pendingConflictSet =
+                conflictSet.copy(
+                    files = remaining,
+                    sessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
+                )
+            pendingConflictStore.write(pendingConflictSet)
+            state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, pendingConflictSet)
+            UnifiedSyncResult.Conflict(
+                provider = SyncBackendType.INBOX,
+                message = "Pending conflicts remain",
+                conflicts = pendingConflictSet,
+            )
+        }
+    }
+
+    private suspend fun processPendingInbox(): UnifiedSyncResult {
+        if (!preferencesRepository.isSyncInboxEnabled().first()) {
+            state.value = UnifiedSyncState.Idle
+            return UnifiedSyncResult.Success(
+                provider = SyncBackendType.INBOX,
+                message = "Sync inbox is disabled",
+            )
+        }
+
+        val inboxRoot = workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX).first()
+        if (inboxRoot == null) {
+            return notConfiguredResult()
+        }
+        ensureInboxDirectoryStructure(context = context, inboxRoot = inboxRoot)
+
+        pendingConflictStore.read(SyncBackendType.INBOX)?.let { pendingConflict ->
+            state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.INITIALIZING)
+            val remainingPending = reprocessPendingConflictSet(inboxRoot, pendingConflict)
+            if (remainingPending != null) {
+                state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, remainingPending)
+                return UnifiedSyncResult.Conflict(
+                    provider = SyncBackendType.INBOX,
+                    message = "Pending conflicts remain",
+                    conflicts = remainingPending,
+                )
+            }
+        }
+
+        state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.LISTING)
+        return runCatching {
+            val conflicts = mutableListOf<SyncConflictFile>()
+            listInboxMarkdownFiles(context, inboxRoot).forEach { file ->
                 processMarkdownFile(
                     inboxRoot = inboxRoot,
-                    relativePath = file.relativePath,
-                    content = file.content,
-                )
+                    inboxFile = file,
+                )?.let(conflicts::add)
             }
-        }
-
-        override suspend fun resolveConflicts(
-            resolution: SyncConflictResolution,
-            conflictSet: SyncConflictSet,
-        ): SyncInboxConflictResolutionResult {
-            val inboxRoot =
-                workspaceConfigSource
-                    .getRootFlow(StorageRootType.SYNC_INBOX)
-                    .first()
-                    ?: return SyncInboxConflictResolutionResult.Resolved
-            val remaining = mutableListOf<SyncConflictFile>()
-            conflictSet.files.forEach { conflictFile ->
-                val choice =
-                    resolution.perFileChoices[conflictFile.relativePath]
-                        ?: SyncConflictResolutionChoice.SKIP_FOR_NOW
-                if (choice == SyncConflictResolutionChoice.SKIP_FOR_NOW) {
-                    remaining += conflictFile
-                    return@forEach
-                }
-                val relativePath = conflictFile.relativePath.removePrefix(INBOX_PREFIX)
-                val inboxContent = readInboxTextFile(context, inboxRoot, relativePath) ?: return@forEach
-                val targetContent =
-                    when (choice) {
-                        SyncConflictResolutionChoice.KEEP_LOCAL -> conflictFile.localContent
-                        SyncConflictResolutionChoice.KEEP_REMOTE -> conflictFile.remoteContent
-                        SyncConflictResolutionChoice.MERGE_TEXT ->
-                            SyncConflictTextMerge.merge(conflictFile.localContent, conflictFile.remoteContent)
-                        SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
-                    } ?: run {
-                        remaining += conflictFile
-                        return@forEach
-                    }
-                commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
-            }
-            return if (remaining.isEmpty()) {
-                SyncInboxConflictResolutionResult.Resolved
-            } else {
-                SyncInboxConflictResolutionResult.Pending(
-                    conflictSet.copy(files = remaining),
-                )
-            }
-        }
-
-        private suspend fun processMarkdownFile(
-            inboxRoot: String,
-            relativePath: String,
-            content: String,
-        ) {
-            val imported = importMediaReferences(inboxRoot, relativePath, content)
-            val targetFilename = relativePath.substringAfterLast('/')
-            val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
-            val resolvedContent =
-                when {
-                    localContent == null -> imported.rewrittenMarkdown
-                    localContent == imported.rewrittenMarkdown -> imported.rewrittenMarkdown
-                    else -> SyncConflictTextMerge.merge(localContent, imported.rewrittenMarkdown)
-                }
-            if (resolvedContent == null) {
-                throw com.lomo.domain.usecase.SyncConflictException(
+            if (conflicts.isNotEmpty()) {
+                val conflictSet =
                     SyncConflictSet(
                         source = SyncBackendType.INBOX,
-                        files =
-                            listOf(
-                                SyncConflictFile(
-                                    relativePath = INBOX_PREFIX + relativePath,
-                                    localContent = localContent,
-                                    remoteContent = imported.rewrittenMarkdown,
-                                    isBinary = false,
-                                ),
-                            ),
+                        files = conflicts,
                         timestamp = System.currentTimeMillis(),
-                    ),
+                    )
+                pendingConflictStore.write(conflictSet)
+                state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, conflictSet)
+                return@runCatching UnifiedSyncResult.Conflict(
+                    provider = SyncBackendType.INBOX,
+                    message = "Sync inbox conflict detected",
+                    conflicts = conflictSet,
                 )
             }
-            commitImportedFile(inboxRoot, relativePath, content, resolvedContent)
-        }
-
-        private suspend fun commitImportedFile(
-            inboxRoot: String,
-            relativePath: String,
-            originalMarkdown: String,
-            targetContent: String,
-        ) {
-            val imported = importMediaReferences(inboxRoot, relativePath, originalMarkdown)
-            val finalContent = if (targetContent == imported.rewrittenMarkdown) targetContent else targetContent
-            val targetFilename = relativePath.substringAfterLast('/')
-            markdownStorageDataSource.saveFileIn(
-                directory = MemoDirectoryType.MAIN,
-                filename = targetFilename,
-                content = finalContent,
-                append = false,
-            )
-            memoSynchronizer.refreshImportedSync(targetFilename)
-            deleteInboxFile(inboxRoot, relativePath)
-            imported.importedAttachments.forEach { attachment ->
-                deleteInboxFile(inboxRoot, attachment)
-            }
-        }
-
-        private suspend fun importMediaReferences(
-            inboxRoot: String,
-            relativePath: String,
-            markdown: String,
-        ): ImportedInboxContent {
-            var rewritten = markdown
-            val importedAttachments = mutableListOf<String>()
-            extractLocalAttachmentPaths(markdown).forEach { rawPath ->
-                val normalized = normalizeAttachmentPath(rawPath) ?: return@forEach
-                val category =
-                    when {
-                        normalized.startsWith("images/") -> IMAGE
-                        normalized.startsWith("voice/") -> VOICE
-                        else -> return@forEach
-                    }
-                val sourceBytes = readInboxBinaryFile(context, inboxRoot, normalized) ?: return@forEach
-                val destinationFilename = stableImportedFilename(relativePath, normalized)
-                workspaceMediaAccess.writeFile(category, destinationFilename, sourceBytes)
-                rewritten = rewritten.replace(rawPath, destinationFilename)
-                importedAttachments += normalized
-            }
-            return ImportedInboxContent(
-                rewrittenMarkdown = rewritten,
-                importedAttachments = importedAttachments.distinct(),
+            val result =
+                UnifiedSyncResult.Success(
+                    provider = SyncBackendType.INBOX,
+                    message = "Sync inbox processed",
+                )
+            state.value =
+                UnifiedSyncState.Success(
+                    provider = SyncBackendType.INBOX,
+                    timestamp = System.currentTimeMillis(),
+                    summary = result.message,
+                )
+            result
+        }.getOrElse { throwable ->
+            val error =
+                UnifiedSyncError(
+                    provider = SyncBackendType.INBOX,
+                    message = throwable.message ?: "Sync inbox failed",
+                    cause = throwable,
+                )
+            state.value =
+                UnifiedSyncState.Error(
+                    error = error,
+                    timestamp = System.currentTimeMillis(),
+                )
+            UnifiedSyncResult.Error(
+                provider = SyncBackendType.INBOX,
+                error = error,
             )
         }
+    }
 
-        private suspend fun deleteInboxFile(
-            inboxRoot: String,
-            relativePath: String,
-        ) {
-            if (isContentUriRoot(inboxRoot)) {
-                deleteSafFile(context, inboxRoot, relativePath)
-            } else {
-                withContext(Dispatchers.IO) {
-                    val target = File(inboxRoot, relativePath)
-                    if (target.exists() && !target.delete()) {
-                        throw IOException("Failed to delete inbox file ${target.absolutePath}")
-                    }
-                }
+    private fun notConfiguredResult(): UnifiedSyncResult.NotConfigured {
+        val error =
+            UnifiedSyncError(
+                provider = SyncBackendType.INBOX,
+                message = "Sync inbox is not configured",
+            )
+        state.value = UnifiedSyncState.NotConfigured(SyncBackendType.INBOX)
+        return UnifiedSyncResult.NotConfigured(
+            provider = SyncBackendType.INBOX,
+            error = error,
+        )
+    }
+
+    private suspend fun processMarkdownFile(
+        inboxRoot: String,
+        inboxFile: InboxMarkdownFile,
+    ): SyncConflictFile? {
+        val imported =
+            previewInboxMediaReferences(
+                relativePath = inboxFile.relativePath,
+                markdown = inboxFile.content,
+            )
+        val relativePath = inboxFile.relativePath
+        val targetFilename = relativePath.substringAfterLast('/')
+        val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
+        val localLastModified =
+            markdownStorageDataSource
+                .getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
+                ?.lastModified
+        val conflictFile =
+            SyncConflictFile(
+                relativePath = INBOX_PREFIX + relativePath,
+                localContent = localContent,
+                remoteContent = imported.rewrittenMarkdown,
+                isBinary = false,
+                localLastModified = localLastModified,
+                remoteLastModified = inboxFile.lastModified,
+            )
+        val resolvedContent =
+            when {
+                localContent == null -> imported.rewrittenMarkdown
+                localContent == imported.rewrittenMarkdown -> imported.rewrittenMarkdown
+                else -> safeAutoResolvedContent(conflictFile)
             }
+        if (resolvedContent == null) {
+            return conflictFile
         }
+        commitImportedFile(inboxRoot, relativePath, inboxFile.content, resolvedContent)
+        return null
+    }
 
-        private fun extractLocalAttachmentPaths(content: String): List<String> {
-            val markdownImages = IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            val wikiImages = WIKI_IMAGE_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            val audioLinks = AUDIO_PATTERN.findAll(content).mapNotNull { it.groupValues.getOrNull(1) }
-            return (markdownImages + wikiImages + audioLinks)
-                .map(String::trim)
-                .filter { it.isNotEmpty() && !it.startsWith("http://") && !it.startsWith("https://") }
-                .distinct()
-                .toList()
-        }
-
-        private fun normalizeAttachmentPath(path: String): String? =
-            path
-                .replace('\\', '/')
-                .removePrefix("./")
-                .takeIf { normalized ->
-                    normalized.startsWith("images/") || normalized.startsWith("voice/")
+    private suspend fun reprocessPendingConflictSet(
+        inboxRoot: String,
+        pendingConflict: SyncConflictSet,
+    ): SyncConflictSet? {
+        val safeChoices =
+            pendingConflict.files.mapNotNull { conflictFile ->
+                SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(conflictFile)?.let { choice ->
+                    conflictFile.relativePath to choice
                 }
-
-        private fun stableImportedFilename(
-            markdownRelativePath: String,
-            attachmentRelativePath: String,
-        ): String {
-            val baseName = attachmentRelativePath.substringAfterLast('/').substringBeforeLast('.')
-            val extension = attachmentRelativePath.substringAfterLast('.', "")
-            val hashInput = "$markdownRelativePath::$attachmentRelativePath"
-            val digest =
-                MessageDigest.getInstance("SHA-256")
-                    .digest(hashInput.toByteArray())
-                    .joinToString("") { byte -> "%02x".format(byte) }
-                    .take(IMPORTED_FILENAME_HASH_LENGTH)
-            return if (extension.isBlank()) "${baseName}_$digest" else "${baseName}_$digest.$extension"
+            }.toMap()
+        if (safeChoices.isEmpty()) {
+            return pendingConflict
         }
 
-        private companion object {
-            const val INBOX_PREFIX = "inbox/"
-            const val IMPORTED_FILENAME_HASH_LENGTH = 10
-            val IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
-            val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
-            val AUDIO_PATTERN =
-                Regex("""(?<!!)\[[^\]]*]\((.+?\.(?:m4a|mp3|ogg|wav|aac))\)""", RegexOption.IGNORE_CASE)
-        }
-    }
-
-private suspend fun listInboxMarkdownFiles(
-    context: Context,
-    inboxRoot: String,
-): List<InboxMarkdownFile> =
-    if (isContentUriRoot(inboxRoot)) {
-        listSafMarkdownFiles(context, inboxRoot)
-    } else {
-        listDirectMarkdownFiles(inboxRoot)
-    }
-
-private suspend fun listDirectMarkdownFiles(inboxRoot: String): List<InboxMarkdownFile> =
-    withContext(Dispatchers.IO) {
-        val root = File(inboxRoot)
-        root.listFiles()
-            ?.asSequence()
-            ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
-            ?.sortedBy { it.name }
-            ?.map { InboxMarkdownFile(relativePath = it.name, content = it.readText()) }
-            ?.toList()
-            ?: emptyList()
-    }
-
-private suspend fun listSafMarkdownFiles(
-    context: Context,
-    inboxRoot: String,
-): List<InboxMarkdownFile> =
-    withContext(Dispatchers.IO) {
-        val root = DocumentFile.fromTreeUri(context, inboxRoot.toUri()) ?: return@withContext emptyList()
-        root.listFiles()
-            .asSequence()
-            .filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
-            .sortedBy { it.name.orEmpty() }
-            .mapNotNull { file ->
-                val name = file.name ?: return@mapNotNull null
-                val content =
-                    context.contentResolver.openInputStream(file.uri)?.use { input ->
-                        input.readBytes().toString(Charsets.UTF_8)
-                    } ?: return@mapNotNull null
-                InboxMarkdownFile(relativePath = name, content = content)
-            }.toList()
-    }
-
-private suspend fun readInboxTextFile(
-    context: Context,
-    inboxRoot: String,
-    relativePath: String,
-): String? =
-    if (isContentUriRoot(inboxRoot)) {
-        readSafFileBytes(context, inboxRoot, relativePath)?.toString(Charsets.UTF_8)
-    } else {
-        withContext(Dispatchers.IO) {
-            val target = File(inboxRoot, relativePath)
-            if (target.exists() && target.isFile) target.readText() else null
+        val remaining =
+            applyInboxConflictResolution(
+                inboxRoot = inboxRoot,
+                conflictSet = pendingConflict,
+                resolution = SyncConflictResolution(safeChoices),
+            )
+        return if (remaining.isEmpty()) {
+            pendingConflictStore.clear(SyncBackendType.INBOX)
+            null
+        } else {
+            val remainingConflictSet =
+                pendingConflict.copy(
+                    files = remaining,
+                    sessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
+                )
+            pendingConflictStore.write(remainingConflictSet)
+            remainingConflictSet
         }
     }
 
-private suspend fun readInboxBinaryFile(
-    context: Context,
-    inboxRoot: String,
-    relativePath: String,
-): ByteArray? =
-    if (isContentUriRoot(inboxRoot)) {
-        readSafFileBytes(context, inboxRoot, relativePath)
-    } else {
-        withContext(Dispatchers.IO) {
-            val target = File(inboxRoot, relativePath)
-            if (target.exists() && target.isFile) target.readBytes() else null
-        }
-    }
+    private suspend fun applyInboxConflictResolution(
+        inboxRoot: String,
+        conflictSet: SyncConflictSet,
+        resolution: SyncConflictResolution,
+    ): List<SyncConflictFile> =
+        applyFileConflictChoices(
+            conflictSet = conflictSet,
+            resolution = resolution,
+            defaultChoice = SyncConflictResolutionChoice.SKIP_FOR_NOW,
+        ) { conflictFile, choice ->
+            val relativePath = conflictFile.relativePath.removePrefix(INBOX_PREFIX)
+            val inboxContent =
+                readInboxTextFile(context, inboxRoot, relativePath)
+                    ?: return@applyFileConflictChoices FileConflictApplication.Unresolved
+            val targetContent =
+                when (choice) {
+                    SyncConflictResolutionChoice.KEEP_LOCAL -> conflictFile.localContent
+                    SyncConflictResolutionChoice.KEEP_REMOTE -> conflictFile.remoteContent
+                    SyncConflictResolutionChoice.MERGE_TEXT ->
+                        SyncConflictTextMerge.merge(
+                            localText = conflictFile.localContent,
+                            remoteText = conflictFile.remoteContent,
+                            localLastModified = conflictFile.localLastModified,
+                            remoteLastModified = conflictFile.remoteLastModified,
+                        )
+                    SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
+                } ?: return@applyFileConflictChoices FileConflictApplication.Unresolved
+            commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
+            FileConflictApplication.Applied(Unit)
+        }.unresolvedFiles
 
-private suspend fun readSafFileBytes(
-    context: Context,
-    inboxRoot: String,
-    relativePath: String,
-): ByteArray? =
-    withContext(Dispatchers.IO) {
-        resolveSafFile(context, inboxRoot, relativePath)
-            ?.let { file ->
-                context.contentResolver.openInputStream(file.uri)?.use { it.readBytes() }
-            }
-    }
-
-private suspend fun deleteSafFile(
-    context: Context,
-    inboxRoot: String,
-    relativePath: String,
-) {
-    withContext(Dispatchers.IO) {
-        val target = resolveSafFile(context, inboxRoot, relativePath) ?: return@withContext
-        if (!target.delete()) {
-            throw IOException("Failed to delete inbox SAF file $relativePath")
+    private suspend fun commitImportedFile(
+        inboxRoot: String,
+        relativePath: String,
+        originalMarkdown: String,
+        targetContent: String,
+    ) {
+        val imported =
+            importInboxMediaReferences(
+                context = context,
+                workspaceMediaAccess = workspaceMediaAccess,
+                inboxRoot = inboxRoot,
+                relativePath = relativePath,
+                markdown = originalMarkdown,
+            )
+        val targetFilename = relativePath.substringAfterLast('/')
+        markdownStorageDataSource.saveFileIn(
+            directory = MemoDirectoryType.MAIN,
+            filename = targetFilename,
+            content = targetContent,
+            append = false,
+        )
+        memoSynchronizer.refreshImportedSync(targetFilename)
+        deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
+        imported.importedAttachments.forEach { attachment ->
+            deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
         }
     }
 }
-
-private fun resolveSafFile(
-    context: Context,
-    inboxRoot: String,
-    relativePath: String,
-): DocumentFile? {
-    var current = DocumentFile.fromTreeUri(context, inboxRoot.toUri()) ?: return null
-    relativePath.split('/').filter(String::isNotBlank).forEach { part ->
-        current = current.findFile(part) ?: return null
-    }
-    return current
-}
-
-private data class InboxMarkdownFile(
-    val relativePath: String,
-    val content: String,
-)
-
-private data class ImportedInboxContent(
-    val rewrittenMarkdown: String,
-    val importedAttachments: List<String>,
-)

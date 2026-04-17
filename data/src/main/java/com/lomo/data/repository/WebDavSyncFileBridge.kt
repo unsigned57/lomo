@@ -8,6 +8,7 @@ import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteResource
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
+import java.nio.charset.StandardCharsets
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -35,15 +36,35 @@ class WebDavSyncFileBridge
                     .listMetadataIn(MemoDirectoryType.MAIN)
                     .filter { it.filename.endsWith(WEBDAV_MEMO_SUFFIX) }
                     .associate { metadata ->
+                        val content =
+                            runtime.markdownStorageDataSource.readFileIn(
+                                MemoDirectoryType.MAIN,
+                                metadata.filename,
+                            )
                         val remotePath = "$memoPrefix${metadata.filename}"
-                        remotePath to LocalWebDavFile(remotePath, metadata.lastModified)
+                        remotePath to
+                            LocalWebDavFile(
+                                path = remotePath,
+                                lastModified = metadata.lastModified,
+                                localFingerprint =
+                                    content
+                                        ?.toByteArray(StandardCharsets.UTF_8)
+                                        ?.md5Hex(),
+                            )
                     }
             val mediaFiles =
                 runtime.localMediaSyncStore
                     .listFiles(layout)
                     .mapKeys { (path, _) -> "$WEBDAV_ROOT/$path" }
                     .mapValues { (path, metadata) ->
-                        LocalWebDavFile(path, metadata.lastModified)
+                        LocalWebDavFile(
+                            path = path,
+                            lastModified = metadata.lastModified,
+                            localFingerprint =
+                                runNonFatalCatching {
+                                    runtime.localMediaSyncStore.readBytes(path, layout).md5Hex()
+                                }.getOrNull(),
+                        )
                     }
             return memoFiles + mediaFiles
         }
@@ -62,6 +83,14 @@ class WebDavSyncFileBridge
             }
             return listed.associate(::toRemoteEntry)
         }
+
+        fun remoteFilesInFolder(
+            client: WebDavClient,
+            folderPath: String,
+        ): Map<String, RemoteWebDavFile> =
+            client.list(folderPath)
+                .filterNot(WebDavRemoteResource::isDirectory)
+                .associate(::toRemoteEntry)
 
     suspend fun persistMetadata(
         client: WebDavClient,
@@ -110,6 +139,7 @@ class WebDavSyncFileBridge
                         etag = remote.etag,
                         remoteLastModified = remote.lastModified,
                         localLastModified = local.lastModified,
+                        localFingerprint = local.localFingerprint,
                         lastSyncedAt = now,
                         lastResolvedDirection = outcome?.first?.name ?: WebDavSyncMetadataEntity.NONE,
                         lastResolvedReason = outcome?.second?.name ?: WebDavSyncMetadataEntity.UNCHANGED,

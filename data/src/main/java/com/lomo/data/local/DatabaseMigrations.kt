@@ -30,6 +30,7 @@ const val SCHEMA_VERSION_42 = 42
 const val SCHEMA_VERSION_43 = 43
 const val SCHEMA_VERSION_44 = 44
 const val SCHEMA_VERSION_45 = 45
+const val SCHEMA_VERSION_46 = 46
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -269,6 +270,13 @@ val MIGRATION_44_45: Migration =
         }
     }
 
+val MIGRATION_45_46: Migration =
+    object : Migration(SCHEMA_VERSION_45, SCHEMA_VERSION_46) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            normalizeWebDavSyncMetadataTable(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -319,6 +327,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_42_43,
             MIGRATION_43_44,
             MIGRATION_44_45,
+            MIGRATION_45_46,
         )
 
 /**
@@ -438,6 +447,9 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase S: v44 → v45 (persisted S3 metadata sizes and fingerprints) ──
     normalizeS3SyncMetadataTable(db)
+
+    // ── Phase T: v45 → v46 (persisted WebDAV local fingerprints) ─────────
+    normalizeWebDavSyncMetadataTable(db)
 }
 
 private fun normalizeS3SyncMetadataTable(db: SupportSQLiteDatabase) {
@@ -498,6 +510,51 @@ private fun addS3SyncMetadataPersistenceColumns(db: SupportSQLiteDatabase) {
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_size` INTEGER")
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `remote_size` INTEGER")
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_fingerprint` TEXT")
+}
+
+private fun normalizeWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
+    if (!db.tableExists(WEBDAV_SYNC_METADATA_TABLE)) {
+        createWebDavSyncMetadataTable(db)
+        return
+    }
+
+    val columns = db.tableColumns(WEBDAV_SYNC_METADATA_TABLE)
+    if ("local_fingerprint" in columns) {
+        return
+    }
+
+    val legacyTable = "${WEBDAV_SYNC_METADATA_TABLE}_legacy_v46"
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
+    db.execSQL("ALTER TABLE `$WEBDAV_SYNC_METADATA_TABLE` RENAME TO `$legacyTable`")
+    createWebDavSyncMetadataTable(db)
+    val legacyColumns = db.tableColumns(legacyTable)
+    db.execSQL(
+        """
+        INSERT OR REPLACE INTO `$WEBDAV_SYNC_METADATA_TABLE` (
+            `relative_path`,
+            `remote_path`,
+            `etag`,
+            `remote_last_modified`,
+            `local_last_modified`,
+            `local_fingerprint`,
+            `last_synced_at`,
+            `last_resolved_direction`,
+            `last_resolved_reason`
+        )
+        SELECT
+            ${pickTextExpr(legacyColumns, "relative_path", "relativePath")},
+            ${pickTextExpr(legacyColumns, "remote_path", "remotePath")},
+            ${pickNullableTextExpr(legacyColumns, "etag")},
+            ${pickNullableIntExpr(legacyColumns, "remote_last_modified", "remoteLastModified")},
+            ${pickNullableIntExpr(legacyColumns, "local_last_modified", "localLastModified")},
+            ${pickNullableTextExpr(legacyColumns, "local_fingerprint", "localFingerprint")},
+            ${pickIntExpr(legacyColumns, "last_synced_at", "lastSyncedAt")},
+            ${pickTextExpr(legacyColumns, "last_resolved_direction", "lastResolvedDirection")},
+            ${pickTextExpr(legacyColumns, "last_resolved_reason", "lastResolvedReason")}
+        FROM `$legacyTable`
+        """.trimIndent(),
+    )
+    db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
 }
 
 private fun normalizeS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {

@@ -5,6 +5,7 @@
     
     <!-- Storage Group -->
     <string name="settings_group_storage">存储</string>
+    <string name="settings_group_sync">同步</string>
     <string name="settings_memo_directory">备忘录目录</string>
     <string name="settings_not_set">未设置</string>
     <string name="settings_image_storage">图片存储</string>
@@ -27,8 +28,6 @@
     <string name="settings_app_lock">指纹/密码锁定</string>
     <string name="settings_app_lock_subtitle">启动应用时需生物识别或设备凭据解锁</string>
 
-    <!-- System Group -->
-    <string name="settings_group_system">系统</string>
     <string name="settings_show_input_hints">显示输入提示</string>
     <string name="settings_show_input_hints_subtitle">在输入框显示使用技巧</string>
     <string name="settings_double_tap_edit">双击编辑备忘录</string>
@@ -39,6 +38,8 @@
     <string name="settings_menu_auto_reorder_subtitle">根据长期使用热度逐步把常用备忘录菜单磁贴移动到前面</string>
     <string name="settings_quick_save_on_back">返回快速保存</string>
     <string name="settings_quick_save_on_back_subtitle">新建备忘录时按返回键自动保存，而非显示丢弃确认对话框</string>
+    <string name="settings_scrollbar">显示滚动条</string>
+    <string name="settings_scrollbar_subtitle">在主列表上显示可拖拽的滚动条</string>
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
     <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
     <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
@@ -73,8 +74,11 @@
     <string name="settings_group_share_card">分享卡片</string>
     <string name="settings_share_card_show_time">显示时间</string>
     <string name="settings_share_card_show_time_subtitle">在分享图片上显示分享时间</string>
-    <string name="settings_share_card_show_brand">显示应用署名</string>
-    <string name="settings_share_card_show_brand_subtitle">在分享图片上显示 Lomo 署名</string>
+    <string name="settings_share_card_show_brand">显示署名</string>
+    <string name="settings_share_card_show_brand_subtitle">在分享图片上显示署名</string>
+    <string name="settings_share_card_signature_text">署名内容</string>
+    <string name="settings_share_card_signature_dialog_title">编辑署名</string>
+    <string name="settings_share_card_signature_hint">请输入署名</string>
     <string name="settings_group_snapshots">快照</string>
     <string name="settings_memo_snapshots">Memo 回滚快照</string>
     <string name="settings_memo_snapshots_subtitle">为单条 memo 保留回滚历史。只要内容发生编辑，就会新增一个可恢复版本。</string>
@@ -96,9 +100,6 @@
     </plurals>
     <string name="settings_memo_snapshot_disable_title">关闭 memo 回滚快照？</string>
     <string name="settings_memo_snapshot_disable_message">关闭后会停止记录新的 memo 回滚快照，并永久清空现有 memo 快照历史。</string>
-    <plurals name="share_card_recorded_days">
-        <item quantity="other">累计记录 %1$d 天</item>
-    </plurals>
     <string name="share_card_placeholder_image">[图片]</string>
     <string name="share_card_placeholder_image_named">[图片: %1$s]</string>
     <string name="share_card_placeholder_audio">[音频]</string>
@@ -172,7 +173,26 @@
     <string name="settings_simplified_chinese">简体中文</string>
 
     <!-- Sidebar and Navigation -->
-    <string name="sidebar_daily_review">每日回顾</string>
+    <string name="sidebar_daily_review">随机漫步</string>
+    <string name="sidebar_statistics">统计</string>
+
+    <!-- Statistics Screen -->
+    <string name="stats_section_overview">概览</string>
+    <string name="stats_section_activity">写作活动</string>
+    <string name="stats_section_time">时间分布</string>
+    <string name="stats_section_reports">报告</string>
+    <string name="stats_section_tags">热门标签</string>
+    <string name="stats_total_memos">备忘录</string>
+    <string name="stats_total_words">字数</string>
+    <string name="stats_active_days">活跃天数</string>
+    <string name="stats_avg_words">平均字数</string>
+    <string name="stats_total_tags">标签</string>
+    <string name="stats_total_chars">字符数</string>
+    <string name="stats_current_streak">当前连续</string>
+    <string name="stats_longest_streak">最长连续</string>
+    <string name="stats_this_week">本周</string>
+    <string name="stats_this_month">本月</string>
+    <string name="stats_this_year">今年</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">菜单</string>
@@ -209,7 +229,7 @@
 
     <!-- Daily Review -->
     <string name="review_no_memos_title">未找到备忘录</string>
-    <string name="review_no_memos_desc">添加一些备忘录以开始回顾。</string>
+    <string name="review_no_memos_desc">添加一些备忘录以开始随机漫步。</string>
 
     <!-- Search Screen -->
     <string name="search_hint">搜索备忘录…</string>
@@ -293,7 +313,6 @@
     <string name="settings_github_subtitle">去 GitHub 查看源代码</string>
 
     <!-- Git Sync -->
-    <string name="settings_group_git_sync">Git 同步</string>
     <string name="settings_git_sync_enable">启用 Git 同步</string>
     <string name="settings_git_sync_enable_subtitle">将备忘录同步到 GitHub 仓库</string>
     <string name="settings_git_remote_url">仓库地址</string>
@@ -351,7 +370,6 @@
     <string name="settings_git_sync_on_refresh_subtitle">下拉刷新时触发 Git 同步</string>
 
     <!-- WebDAV Sync -->
-    <string name="settings_group_webdav_sync">WebDAV 同步</string>
     <string name="settings_webdav_sync_enable">启用 WebDAV 同步</string>
     <string name="settings_webdav_sync_enable_subtitle">使用应用密码将备忘录同步到 WebDAV 服务器</string>
     <string name="settings_webdav_provider">服务商</string>
@@ -397,7 +415,6 @@
     <string name="settings_webdav_test_connection_failed">连接失败：%1$s</string>
     <string name="settings_webdav_sync_on_refresh">刷新同步</string>
     <string name="settings_webdav_sync_on_refresh_subtitle">下拉刷新时触发 WebDAV 同步</string>
-    <string name="settings_group_s3_sync">S3 同步</string>
     <string name="settings_s3_sync_enable">启用 S3 同步</string>
     <string name="settings_s3_sync_enable_subtitle">将 Markdown 与受支持的附件同步到兼容 S3 的存储桶</string>
     <string name="settings_s3_endpoint_url">Endpoint 地址</string>

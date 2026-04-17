@@ -138,45 +138,40 @@ class S3ConflictResolver
         ): S3AppliedConflictResolution {
             val resolvedLocalFiles = mutableMapOf<String, LocalS3File>()
             val resolvedRemoteFiles = remoteFiles.toMutableMap()
-            val unresolvedFiles = mutableListOf<com.lomo.domain.model.SyncConflictFile>()
-            val actionOutcomes =
-                mutableMapOf<
-                    String,
-                    Pair<
-                        com.lomo.domain.model.S3SyncDirection,
-                        com.lomo.domain.model.S3SyncReason,
-                    >,
-                >()
-            conflictSet.files.forEach { file ->
-                val choice =
-                    resolution.perFileChoices[file.relativePath]
-                        ?: SyncConflictResolutionChoice.KEEP_LOCAL
-                if (choice == SyncConflictResolutionChoice.SKIP_FOR_NOW) {
-                    unresolvedFiles += file
-                    return@forEach
+            val batch =
+                applyFileConflictChoices(
+                    conflictSet = conflictSet,
+                    resolution = resolution,
+                    defaultChoice = SyncConflictResolutionChoice.KEEP_LOCAL,
+                ) { file, choice ->
+                    applyChoice(
+                        file = file,
+                        choice = choice,
+                        client = client,
+                        layout = layout,
+                        config = config,
+                        remoteFiles = remoteFiles,
+                        metadataByPath = metadataByPath,
+                        fileBridgeScope = fileBridgeScope,
+                        mode = mode,
+                    )?.let { FileConflictApplication.Applied(it) }
+                        ?: FileConflictApplication.Unresolved as FileConflictApplication<S3ConflictResolutionOutcome>
                 }
-                applyChoice(
-                    file = file,
-                    choice = choice,
-                    client = client,
-                    layout = layout,
-                    config = config,
-                    remoteFiles = remoteFiles,
-                    metadataByPath = metadataByPath,
-                    fileBridgeScope = fileBridgeScope,
-                    mode = mode,
-                )?.let { resolved ->
-                    resolved.localFile?.let { localFile ->
-                        resolvedLocalFiles[resolved.path] = localFile
-                    }
-                    resolvedRemoteFiles[resolved.path] = resolved.remoteFile
-                    actionOutcomes[resolved.path] = resolved.direction to resolved.reason
+            batch.appliedChoices.forEach { applied ->
+                val resolved = applied.value
+                resolved.localFile?.let { localFile ->
+                    resolvedLocalFiles[resolved.path] = localFile
                 }
+                resolvedRemoteFiles[resolved.path] = resolved.remoteFile
             }
+            val actionOutcomes =
+                batch.appliedChoices.associate { applied ->
+                    applied.path to (applied.value.direction to applied.value.reason)
+                }
             return S3AppliedConflictResolution(
                 resolvedLocalFiles = resolvedLocalFiles,
                 resolvedRemoteFiles = resolvedRemoteFiles,
-                unresolvedFiles = unresolvedFiles,
+                unresolvedFiles = batch.unresolvedFiles,
                 actionOutcomes = actionOutcomes,
             )
         }
@@ -262,7 +257,12 @@ class S3ConflictResolver
             mode: S3LocalSyncMode,
         ): S3ConflictResolutionOutcome {
             val mergedText =
-                SyncConflictTextMerge.merge(file.localContent, file.remoteContent)
+                SyncConflictTextMerge.merge(
+                    localText = file.localContent,
+                    remoteText = file.remoteContent,
+                    localLastModified = file.localLastModified,
+                    remoteLastModified = file.remoteLastModified,
+                )
                     ?: error("Unable to merge conflict for ${file.relativePath}")
             val mergedBytes = mergedText.toByteArray(Charsets.UTF_8)
             fileBridgeScope.writeLocalBytes(file.relativePath, mergedBytes, layout)

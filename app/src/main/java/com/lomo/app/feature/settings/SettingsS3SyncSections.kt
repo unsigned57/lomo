@@ -16,7 +16,6 @@ import com.lomo.app.R
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.ui.component.settings.PreferenceItem
-import com.lomo.ui.component.settings.SettingsGroup
 import com.lomo.ui.component.settings.SwitchPreferenceItem
 
 @Composable
@@ -54,52 +53,50 @@ fun S3SyncSettingsSection(
     onSyncNow: () -> Unit,
     onTestConnection: () -> Unit,
 ) {
-    SettingsGroup(title = stringResource(R.string.settings_group_s3_sync)) {
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_s3_sync_enable),
-            subtitle = stringResource(R.string.settings_s3_sync_enable_subtitle),
-            icon = Icons.Outlined.Sync,
-            checked = state.enabled,
-            onCheckedChange = onToggleEnabled,
+    SwitchPreferenceItem(
+        title = stringResource(R.string.settings_s3_sync_enable),
+        subtitle = stringResource(R.string.settings_s3_sync_enable_subtitle),
+        icon = Icons.Outlined.Sync,
+        checked = state.enabled,
+        onCheckedChange = onToggleEnabled,
+    )
+    SettingsExpandableContent(
+        visible = state.enabled,
+        label = "S3SyncAdvancedVisibility",
+    ) {
+        S3SyncAdvancedContent(
+            state = state,
+            pathStyleLabel = pathStyleLabel,
+            encryptionModeLabel = encryptionModeLabel,
+            rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
+            rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
+            syncIntervalLabel = syncIntervalLabel,
+            syncNowSubtitle = syncNowSubtitle,
+            connectionSubtitle = connectionSubtitle,
+            onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
+            onOpenRegionDialog = onOpenRegionDialog,
+            onOpenBucketDialog = onOpenBucketDialog,
+            onOpenPrefixDialog = onOpenPrefixDialog,
+            onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
+            onClearLocalSyncDirectory = onClearLocalSyncDirectory,
+            onOpenAccessKeyIdDialog = onOpenAccessKeyIdDialog,
+            onOpenSecretAccessKeyDialog = onOpenSecretAccessKeyDialog,
+            onOpenSessionTokenDialog = onOpenSessionTokenDialog,
+            onOpenPathStyleDialog = onOpenPathStyleDialog,
+            onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
+            onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
+            onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
+            onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
+            onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
+            onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
+            onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
+            onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
+            onToggleAutoSync = onToggleAutoSync,
+            onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
+            onToggleSyncOnRefresh = onToggleSyncOnRefresh,
+            onSyncNow = onSyncNow,
+            onTestConnection = onTestConnection,
         )
-        SettingsExpandableContent(
-            visible = state.enabled,
-            label = "S3SyncAdvancedVisibility",
-        ) {
-            S3SyncAdvancedContent(
-                state = state,
-                pathStyleLabel = pathStyleLabel,
-                encryptionModeLabel = encryptionModeLabel,
-                rcloneFilenameEncryptionLabel = rcloneFilenameEncryptionLabel,
-                rcloneFilenameEncodingLabel = rcloneFilenameEncodingLabel,
-                syncIntervalLabel = syncIntervalLabel,
-                syncNowSubtitle = syncNowSubtitle,
-                connectionSubtitle = connectionSubtitle,
-                onOpenEndpointUrlDialog = onOpenEndpointUrlDialog,
-                onOpenRegionDialog = onOpenRegionDialog,
-                onOpenBucketDialog = onOpenBucketDialog,
-                onOpenPrefixDialog = onOpenPrefixDialog,
-                onSelectLocalSyncDirectory = onSelectLocalSyncDirectory,
-                onClearLocalSyncDirectory = onClearLocalSyncDirectory,
-                onOpenAccessKeyIdDialog = onOpenAccessKeyIdDialog,
-                onOpenSecretAccessKeyDialog = onOpenSecretAccessKeyDialog,
-                onOpenSessionTokenDialog = onOpenSessionTokenDialog,
-                onOpenPathStyleDialog = onOpenPathStyleDialog,
-                onOpenEncryptionModeDialog = onOpenEncryptionModeDialog,
-                onOpenEncryptionPasswordDialog = onOpenEncryptionPasswordDialog,
-                onOpenEncryptionPassword2Dialog = onOpenEncryptionPassword2Dialog,
-                onOpenRcloneFilenameEncryptionDialog = onOpenRcloneFilenameEncryptionDialog,
-                onOpenRcloneFilenameEncodingDialog = onOpenRcloneFilenameEncodingDialog,
-                onToggleRcloneDirectoryNameEncryption = onToggleRcloneDirectoryNameEncryption,
-                onToggleRcloneDataEncryptionEnabled = onToggleRcloneDataEncryptionEnabled,
-                onOpenRcloneEncryptedSuffixDialog = onOpenRcloneEncryptedSuffixDialog,
-                onToggleAutoSync = onToggleAutoSync,
-                onOpenSyncIntervalDialog = onOpenSyncIntervalDialog,
-                onToggleSyncOnRefresh = onToggleSyncOnRefresh,
-                onSyncNow = onSyncNow,
-                onTestConnection = onTestConnection,
-            )
-        }
     }
 }
 

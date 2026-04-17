@@ -142,22 +142,27 @@ class Dav4jvmWebDavClient(
         bytes: ByteArray,
         contentType: String,
         lastModifiedHint: Long?,
+        expectedEtag: String?,
+        requireAbsent: Boolean,
     ) {
         val normalizedPath = normalizePath(path)
         ensureDirectory(parentPath(normalizedPath))
         val requestBody = bytes.toRequestBody(contentType.toMediaType())
         try {
-            putOnce(normalizedPath, requestBody)
+            putOnce(normalizedPath, requestBody, expectedEtag, requireAbsent)
         } catch (error: HttpException) {
             if (error.code != HTTP_NOT_FOUND) throw error
             ensureDirectory(parentPath(normalizedPath))
-            putOnce(normalizedPath, requestBody)
+            putOnce(normalizedPath, requestBody, expectedEtag, requireAbsent)
         }
     }
 
-    override fun delete(path: String) {
+    override fun delete(
+        path: String,
+        expectedEtag: String?,
+    ) {
         DavResource(httpClient, resolve(path), logger).delete(
-            null,
+            expectedEtag,
             null,
             emptyResponseCallback(),
         )
@@ -170,12 +175,14 @@ class Dav4jvmWebDavClient(
     private fun putOnce(
         path: String,
         requestBody: RequestBody,
+        expectedEtag: String?,
+        requireAbsent: Boolean,
     ) {
         DavResource(httpClient, resolve(path), logger).put(
             requestBody,
+            expectedEtag,
             null,
-            null,
-            false,
+            requireAbsent,
             emptyResponseCallback(),
         )
     }

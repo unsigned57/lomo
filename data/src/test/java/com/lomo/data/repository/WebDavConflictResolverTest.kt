@@ -9,6 +9,7 @@ import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.data.webdav.WebDavEndpointResolver
+import com.lomo.data.webdav.WebDavRemoteFile
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolution
@@ -196,6 +197,35 @@ class WebDavConflictResolverTest {
                 )
             }
             coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `resolveConflicts KEEP_REMOTE media reloads raw bytes when conflict payload has no text body`() =
+        runTest {
+            val path = "lomo/images/raw.bin"
+            val remoteBytes = byteArrayOf(0x00, 0x7f, 0x42, 0xff.toByte())
+            val file =
+                SyncConflictFile(
+                    relativePath = path,
+                    localContent = null,
+                    remoteContent = null,
+                    isBinary = true,
+                )
+            every { fileBridge.isMemoPath(path, any()) } returns false
+            every { client.get(path) } returns WebDavRemoteFile(path, remoteBytes, "etag-2", 222L)
+            val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_REMOTE))
+
+            val result = resolver.resolveConflicts(resolution, conflictSet(file))
+
+            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            verify(exactly = 1) { client.get(path) }
+            coVerify(exactly = 1) {
+                localMediaSyncStore.writeBytes(
+                    relativePath = path,
+                    bytes = remoteBytes,
+                    layout = any<SyncDirectoryLayout>(),
+                )
+            }
         }
 
     @Test

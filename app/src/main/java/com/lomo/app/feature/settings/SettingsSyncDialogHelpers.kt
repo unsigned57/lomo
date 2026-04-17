@@ -1,9 +1,5 @@
 package com.lomo.app.feature.settings
 
-import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncEngineState
-import com.lomo.domain.model.WebDavSyncState
-
 internal fun SettingsDialogState.openLanPairingDialog(
     lanShareFeature: SettingsLanShareFeatureViewModel,
 ) {
@@ -48,32 +44,3 @@ internal fun SettingsDialogState.openS3EncryptionPassword2Dialog() {
     s3EncryptionPassword2Visible = false
     showS3EncryptionPassword2Dialog = true
 }
-
-internal fun SyncEngineState.canTriggerManualSync(): Boolean =
-    this !is SyncEngineState.Syncing && this !is SyncEngineState.Initializing
-
-internal fun WebDavSyncState.canTriggerManualSync(): Boolean =
-    when (this) {
-        WebDavSyncState.Connecting,
-        WebDavSyncState.Listing,
-        WebDavSyncState.Uploading,
-        WebDavSyncState.Downloading,
-        WebDavSyncState.Deleting,
-        WebDavSyncState.Initializing,
-        -> false
-
-        else -> true
-    }
-
-internal fun S3SyncState.canTriggerManualSync(): Boolean =
-    when (this) {
-        S3SyncState.Connecting,
-        S3SyncState.Listing,
-        S3SyncState.Uploading,
-        S3SyncState.Downloading,
-        S3SyncState.Deleting,
-        S3SyncState.Initializing,
-        -> false
-
-        else -> true
-    }

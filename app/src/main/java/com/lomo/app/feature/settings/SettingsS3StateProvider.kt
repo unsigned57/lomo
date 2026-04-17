@@ -69,7 +69,7 @@ class SettingsS3StateProvider(
         val autoSyncInterval: String,
         val syncOnRefreshEnabled: Boolean,
         val lastSyncTime: Long,
-        val syncState: com.lomo.domain.model.S3SyncState,
+        val syncState: com.lomo.domain.model.UnifiedSyncState,
     )
 
     val connectionTestState: StateFlow<SettingsS3ConnectionTestState> = s3Coordinator.connectionTestState

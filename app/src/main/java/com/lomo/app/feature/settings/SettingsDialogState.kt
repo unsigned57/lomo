@@ -15,6 +15,8 @@ class SettingsDialogState {
     var showFilenameDialog by mutableStateOf(false)
     var showTimestampDialog by mutableStateOf(false)
     var showLanguageDialog by mutableStateOf(false)
+    var showShareCardSignatureDialog by mutableStateOf(false)
+    var shareCardSignatureInput by mutableStateOf("")
     var showMemoSnapshotCountDialog by mutableStateOf(false)
     var showMemoSnapshotAgeDialog by mutableStateOf(false)
     var pendingSnapshotDisableTarget by mutableStateOf<SettingsSnapshotDisableTarget?>(null)

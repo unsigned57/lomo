@@ -12,6 +12,7 @@ data class WebDavSyncMetadataEntity(
     @ColumnInfo(name = "etag") val etag: String?,
     @ColumnInfo(name = "remote_last_modified") val remoteLastModified: Long?,
     @ColumnInfo(name = "local_last_modified") val localLastModified: Long?,
+    @ColumnInfo(name = "local_fingerprint") val localFingerprint: String? = null,
     @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long,
     @ColumnInfo(name = "last_resolved_direction") val lastResolvedDirection: String,
     @ColumnInfo(name = "last_resolved_reason") val lastResolvedReason: String,

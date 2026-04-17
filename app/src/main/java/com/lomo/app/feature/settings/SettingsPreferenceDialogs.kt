@@ -1,6 +1,10 @@
 package com.lomo.app.feature.settings
 
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.res.stringResource
 import com.lomo.app.R
 import com.lomo.ui.component.dialog.SelectionDialog
@@ -90,6 +94,43 @@ internal fun StoragePreferenceDialogs(
         onSelect = {
             storageFeature.updateStorageTimestampFormat(it)
             dialogState.showTimestampDialog = false
+        },
+    )
+}
+
+@Composable
+internal fun ShareCardPreferenceDialogs(
+    shareCardFeature: SettingsShareCardFeatureViewModel,
+    dialogState: SettingsDialogState,
+) {
+    if (!dialogState.showShareCardSignatureDialog) {
+        return
+    }
+    AlertDialog(
+        onDismissRequest = { dialogState.showShareCardSignatureDialog = false },
+        title = { Text(stringResource(R.string.settings_share_card_signature_dialog_title)) },
+        text = {
+            OutlinedTextField(
+                value = dialogState.shareCardSignatureInput,
+                onValueChange = { dialogState.shareCardSignatureInput = it },
+                singleLine = true,
+                label = { Text(stringResource(R.string.settings_share_card_signature_hint)) },
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    shareCardFeature.updateShareCardSignatureText(dialogState.shareCardSignatureInput.trim())
+                    dialogState.showShareCardSignatureDialog = false
+                },
+            ) {
+                Text(stringResource(R.string.action_save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { dialogState.showShareCardSignatureDialog = false }) {
+                Text(stringResource(R.string.action_cancel))
+            }
         },
     )
 }

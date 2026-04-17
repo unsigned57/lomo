@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -22,6 +23,7 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
@@ -46,28 +48,46 @@ fun MemoCardList(
     onImageClick: (ImageViewerRequest) -> Unit = {},
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
+    showScrollbar: Boolean = false,
 ) {
-    LazyColumn(
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = modifier.fillMaxSize(),
-    ) {
-        items(
-            items = memos,
-            key = { it.memo.id },
-            contentType = { "memo" },
-        ) { uiModel ->
-            MemoCardAnimatedItem(
-                uiModel = uiModel,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
-                onMemoEdit = onMemoEdit,
-                onShowMenu = onShowMenu,
-                onImageClick = onImageClick,
-                animation = animation,
-            )
+    val listState = rememberLazyListState()
+    val listContent: @Composable () -> Unit = {
+        LazyColumn(
+            state = listState,
+            contentPadding = contentPadding,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            items(
+                items = memos,
+                key = { it.memo.id },
+                contentType = { "memo" },
+            ) { uiModel ->
+                MemoCardAnimatedItem(
+                    uiModel = uiModel,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    freeTextCopyEnabled = freeTextCopyEnabled,
+                    onMemoEdit = onMemoEdit,
+                    onShowMenu = onShowMenu,
+                    onImageClick = onImageClick,
+                    animation = animation,
+                )
+            }
+        }
+    }
+
+    if (showScrollbar) {
+        WithDraggableScrollbar(
+            state = listState,
+            modifier = modifier.fillMaxSize(),
+        ) {
+            listContent()
+        }
+    } else {
+        Box(modifier = modifier.fillMaxSize()) {
+            listContent()
         }
     }
 }

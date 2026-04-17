@@ -1,5 +1,7 @@
 package com.lomo.domain.usecase
 
+import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.SyncInboxRepository
@@ -9,8 +11,9 @@ class StartupMaintenanceUseCase
         private val mediaRepository: MediaRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
-        private val syncInboxRepository: SyncInboxRepository,
+        private val syncProviderRegistry: SyncProviderRegistry,
         private val appVersionRepository: AppVersionRepository,
+        private val syncInboxRepository: SyncInboxRepository? = null,
     ) {
         suspend fun initializeRootDirectory(): String? = initializeWorkspaceUseCase.currentRootLocation()?.raw
 
@@ -25,7 +28,12 @@ class StartupMaintenanceUseCase
 
         private suspend fun processSyncInboxOnStartup() {
             try {
-                syncInboxRepository.processPendingInbox()
+                syncInboxRepository?.ensureDirectoryStructure()
+                syncProviderRegistry
+                    .get(SyncBackendType.INBOX)
+                    ?.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+                    ?.toSyncFailureOrNull()
+                    ?.let { throw it }
             } catch (exception: SyncConflictException) {
                 throw exception
             } catch (_: Exception) {

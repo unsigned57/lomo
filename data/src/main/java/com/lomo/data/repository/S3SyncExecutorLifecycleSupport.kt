@@ -35,13 +35,19 @@ internal suspend fun buildS3ConflictSet(
                 async {
                     concurrencyLimiter.withPermit {
                         if (lightweightPreview) {
+                            val localFile = fileBridgeScope.localFile(action.path, layout)
+                            val remoteFile = remoteFiles[action.path]
                             return@withPermit SyncConflictFile(
                                 relativePath = action.path,
                                 localContent = null,
                                 remoteContent = null,
                                 isBinary = !action.path.endsWith(S3_MEMO_SUFFIX),
+                                localLastModified = localFile?.lastModified,
+                                remoteLastModified = remoteFile?.lastModified,
                             )
                         }
+                        val localFile = fileBridgeScope.localFile(action.path, layout)
+                        val remoteFile = remoteFiles[action.path]
                         val localContent =
                             if (isMemoPath(action.path, layout, mode)) {
                                 fileBridgeScope.readLocalText(action.path, layout)
@@ -62,6 +68,8 @@ internal suspend fun buildS3ConflictSet(
                             localContent = localContent,
                             remoteContent = remoteContent,
                             isBinary = !action.path.endsWith(S3_MEMO_SUFFIX),
+                            localLastModified = localFile?.lastModified,
+                            remoteLastModified = remoteFile?.lastModified,
                         )
                     }
                 }

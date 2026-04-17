@@ -1,5 +1,7 @@
 package com.lomo.ui.component.card
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -82,7 +84,7 @@ fun MemoCard(
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
     menuContent: (@Composable () -> Unit)? = null,
 ) {
-    var isExpanded by rememberSaveable(timestamp, content) { mutableStateOf(false) }
+    var isExpanded by rememberSaveable(timestamp) { mutableStateOf(false) }
     val isCollapsedPreview = shouldShowExpand && !isExpanded
     val collapsedPreviewMode =
         resolveMemoCardCollapsedPreviewMode(
@@ -285,6 +287,11 @@ private fun MemoCardBody(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = tween(
+                        durationMillis = MEMO_CARD_EXPAND_ANIMATION_DURATION_MS,
+                    ),
+                )
                 .let { base -> if (isCollapsedPreview) base.heightIn(max = 240.dp) else base }
                 .clip(AppShapes.Small),
     ) {
@@ -411,6 +418,7 @@ private fun MemoCardFooter(
 
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
+private const val MEMO_CARD_EXPAND_ANIMATION_DURATION_MS = 250
 internal const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
 private const val COLLAPSED_SUMMARY_MAX_LINES = 8
 private const val COLLAPSED_SUMMARY_MAX_CHARS = 420

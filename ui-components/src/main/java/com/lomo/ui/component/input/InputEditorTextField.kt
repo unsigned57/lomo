@@ -123,6 +123,7 @@ internal fun InputEditorTextField(
                     cursorColor = cursorColor,
                     selectionHighlightColor = selectionHighlightColor,
                     selectionHandleColor = selectionHandleColor,
+                    usePlatformScrollbars = true,
                     onEditorReady = onEditorReady,
                 )
             },

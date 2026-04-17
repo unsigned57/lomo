@@ -53,6 +53,7 @@ import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
@@ -103,6 +104,7 @@ internal fun MemoListContent(
     onMemoDoubleClick: (Memo) -> Unit = {},
     doubleTapEditEnabled: Boolean = true,
     freeTextCopyEnabled: Boolean = false,
+    scrollbarEnabled: Boolean = true,
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
@@ -129,6 +131,7 @@ internal fun MemoListContent(
         onMemoDoubleClick = onMemoDoubleClick,
         doubleTapEditEnabled = doubleTapEditEnabled,
         freeTextCopyEnabled = freeTextCopyEnabled,
+        scrollbarEnabled = scrollbarEnabled,
         onTagClick = onTagClick,
         onImageClick = onImageClick,
         onShowMemoMenu = onShowMemoMenu,
@@ -248,6 +251,7 @@ private fun MemoListBody(
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
@@ -288,6 +292,7 @@ private fun MemoListBody(
             onMemoDoubleClick = onMemoDoubleClick,
             doubleTapEditEnabled = doubleTapEditEnabled,
             freeTextCopyEnabled = freeTextCopyEnabled,
+            scrollbarEnabled = scrollbarEnabled,
             onTagClick = onTagClick,
             onImageClick = onImageClick,
             onShowMemoMenu = onShowMemoMenu,
@@ -310,80 +315,87 @@ private fun MemoListColumn(
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
-    LazyColumn(
+    WithDraggableScrollbar(
         state = listState,
-        contentPadding =
-            PaddingValues(
-                top = MEMO_LIST_TOP_PADDING,
-                start = MEMO_LIST_HORIZONTAL_PADDING,
-                end = MEMO_LIST_HORIZONTAL_PADDING,
-                bottom =
-                    WindowInsets.navigationBars
-                        .asPaddingValues()
-                        .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
-            ),
-        verticalArrangement = Arrangement.Top,
         modifier = Modifier.fillMaxSize(),
+        enabled = scrollbarEnabled,
     ) {
-        itemsIndexed(
-            items = memos,
-            key = { _, item -> item.memo.id },
-            contentType = { _, item ->
-                if (newMemoInsertAnimationState.blocksPlacementSpring) {
-                    "memo"
-                } else {
-                    item.memoListItemLayoutSignature
-                }
-            },
-        ) { index, uiModel ->
-            val deleteAnimationPolicy =
-                resolveDeleteAnimationVisualPolicy(
+        LazyColumn(
+            state = listState,
+            contentPadding =
+                PaddingValues(
+                    top = MEMO_LIST_TOP_PADDING,
+                    start = MEMO_LIST_HORIZONTAL_PADDING,
+                    end = MEMO_LIST_HORIZONTAL_PADDING,
+                    bottom =
+                        WindowInsets.navigationBars
+                            .asPaddingValues()
+                            .calculateBottomPadding() + MEMO_LIST_BOTTOM_PADDING,
+                ),
+            verticalArrangement = Arrangement.Top,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            itemsIndexed(
+                items = memos,
+                key = { _, item -> item.memo.id },
+                contentType = { _, item ->
+                    if (newMemoInsertAnimationState.blocksPlacementSpring) {
+                        "memo"
+                    } else {
+                        item.memoListItemLayoutSignature
+                    }
+                },
+            ) { index, uiModel ->
+                val deleteAnimationPolicy =
+                    resolveDeleteAnimationVisualPolicy(
+                        isDeleting = uiModel.memo.id in deletingIds,
+                    )
+                val shouldHoldNewMemoHidden =
+                    index == 0 &&
+                        newMemoInsertAnimationState.awaitingInsertedTopMemo &&
+                        uiModel.memo.id != newMemoInsertAnimationState.previousTopMemoId
+                val shouldAnimateNewMemoSpace =
+                    newMemoInsertAnimationState.blankSpaceMemoId == uiModel.memo.id
+                val shouldHoldGapReadyMemoHidden =
+                    newMemoInsertAnimationState.gapReadyMemoId == uiModel.memo.id
+                val shouldAnimateNewMemoReveal =
+                    newMemoInsertAnimationState.pendingRevealMemoId == uiModel.memo.id
+                MemoListItem(
+                    uiModel = uiModel,
                     isDeleting = uiModel.memo.id in deletingIds,
+                    isCollapsing = uiModel.memo.id in collapsingIds,
+                    shouldHoldNewMemoHidden = shouldHoldNewMemoHidden,
+                    shouldHoldGapReadyMemoHidden = shouldHoldGapReadyMemoHidden,
+                    shouldAnimateNewMemoSpace = shouldAnimateNewMemoSpace,
+                    shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
+                    bottomSpacing = if (index == memos.lastIndex) 0.dp else MEMO_LIST_ITEM_SPACING,
+                    deleteAnimationPolicy = deleteAnimationPolicy,
+                    onTodoClick = onTodoClick,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    onMemoDoubleClick = onMemoDoubleClick,
+                    doubleTapEditEnabled = doubleTapEditEnabled,
+                    freeTextCopyEnabled = freeTextCopyEnabled,
+                    onTagClick = onTagClick,
+                    onImageClick = onImageClick,
+                    onShowMemoMenu = onShowMemoMenu,
+                    onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                    onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+                    modifier =
+                        Modifier
+                            .memoListPlacementAnimation(
+                                lazyItemScope = this,
+                                deleteAnimationPolicy = deleteAnimationPolicy,
+                                newMemoInsertAnimationState = newMemoInsertAnimationState,
+                            )
+                            .fillMaxWidth(),
                 )
-            val shouldHoldNewMemoHidden =
-                index == 0 &&
-                    newMemoInsertAnimationState.awaitingInsertedTopMemo &&
-                    uiModel.memo.id != newMemoInsertAnimationState.previousTopMemoId
-            val shouldAnimateNewMemoSpace =
-                newMemoInsertAnimationState.blankSpaceMemoId == uiModel.memo.id
-            val shouldHoldGapReadyMemoHidden =
-                newMemoInsertAnimationState.gapReadyMemoId == uiModel.memo.id
-            val shouldAnimateNewMemoReveal =
-                newMemoInsertAnimationState.pendingRevealMemoId == uiModel.memo.id
-            MemoListItem(
-                uiModel = uiModel,
-                isDeleting = uiModel.memo.id in deletingIds,
-                isCollapsing = uiModel.memo.id in collapsingIds,
-                shouldHoldNewMemoHidden = shouldHoldNewMemoHidden,
-                shouldHoldGapReadyMemoHidden = shouldHoldGapReadyMemoHidden,
-                shouldAnimateNewMemoSpace = shouldAnimateNewMemoSpace,
-                shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
-                bottomSpacing = if (index == memos.lastIndex) 0.dp else MEMO_LIST_ITEM_SPACING,
-                deleteAnimationPolicy = deleteAnimationPolicy,
-                onTodoClick = onTodoClick,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                onMemoDoubleClick = onMemoDoubleClick,
-                doubleTapEditEnabled = doubleTapEditEnabled,
-                freeTextCopyEnabled = freeTextCopyEnabled,
-                onTagClick = onTagClick,
-                onImageClick = onImageClick,
-                onShowMemoMenu = onShowMemoMenu,
-                onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-                onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-                modifier =
-                    Modifier
-                        .memoListPlacementAnimation(
-                            lazyItemScope = this,
-                            deleteAnimationPolicy = deleteAnimationPolicy,
-                            newMemoInsertAnimationState = newMemoInsertAnimationState,
-                        )
-                        .fillMaxWidth(),
-            )
+            }
         }
     }
 }
@@ -412,7 +424,6 @@ private fun MemoListItem(
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val layoutSignature = uiModel.memoListItemLayoutSignature
     val deleteAlpha by animateFloatAsState(
         targetValue =
             if (isDeleting) {
@@ -481,7 +492,7 @@ private fun MemoListItem(
                 bottomSpacing = animatedBottomSpacing,
             ),
     ) {
-        key(layoutSignature) {
+        key(uiModel.memo.id) {
             MemoCardEntry(
                 uiModel = uiModel,
                 dateFormat = dateFormat,

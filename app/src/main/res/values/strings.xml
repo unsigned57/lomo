@@ -4,6 +4,7 @@
     
     <!-- Storage Group -->
     <string name="settings_group_storage">Storage</string>
+    <string name="settings_group_sync">Sync</string>
     <string name="settings_memo_directory">Memo Directory</string>
     <string name="settings_not_set">Not set</string>
     <string name="settings_image_storage">Image Storage</string>
@@ -26,8 +27,6 @@
     <string name="settings_app_lock">Fingerprint/Passcode lock</string>
     <string name="settings_app_lock_subtitle">Require biometric or device credential when app starts</string>
 
-    <!-- System Group -->
-    <string name="settings_group_system">System</string>
     <string name="settings_show_input_hints">Show input hints</string>
     <string name="settings_show_input_hints_subtitle">Display usage tips in the input box</string>
     <string name="settings_double_tap_edit">Double-tap to edit memo</string>
@@ -38,6 +37,8 @@
     <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
+    <string name="settings_scrollbar">Show scrollbar</string>
+    <string name="settings_scrollbar_subtitle">Display a draggable scrollbar on the main list</string>
     <string name="settings_check_updates">Check updates on startup</string>
     <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
     <string name="settings_check_updates_now">Check for updates</string>
@@ -72,8 +73,11 @@
     <string name="settings_group_share_card">Share Card</string>
     <string name="settings_share_card_show_time">Show timestamp</string>
     <string name="settings_share_card_show_time_subtitle">Display sharing time on the card image</string>
-    <string name="settings_share_card_show_brand">Show app signature</string>
-    <string name="settings_share_card_show_brand_subtitle">Display Lomo signature on the card image</string>
+    <string name="settings_share_card_show_brand">Show signature</string>
+    <string name="settings_share_card_show_brand_subtitle">Display a signature on the shared image</string>
+    <string name="settings_share_card_signature_text">Signature text</string>
+    <string name="settings_share_card_signature_dialog_title">Edit signature</string>
+    <string name="settings_share_card_signature_hint">Signature</string>
     <string name="settings_group_snapshots">Snapshots</string>
     <string name="settings_memo_snapshots">Memo rollback snapshots</string>
     <string name="settings_memo_snapshots_subtitle">Keep per-memo rollback history. Each content edit adds a restorable revision.</string>
@@ -99,10 +103,6 @@
     </plurals>
     <string name="settings_memo_snapshot_disable_title">Turn off memo rollback snapshots?</string>
     <string name="settings_memo_snapshot_disable_message">This stops future memo rollback snapshots and permanently clears existing memo snapshot history.</string>
-    <plurals name="share_card_recorded_days">
-        <item quantity="one">Recorded %1$d day</item>
-        <item quantity="other">Recorded %1$d days</item>
-    </plurals>
     <string name="share_card_placeholder_image">[Image]</string>
     <string name="share_card_placeholder_image_named">[Image: %1$s]</string>
     <string name="share_card_placeholder_audio">[Audio]</string>
@@ -178,7 +178,26 @@
     <string name="settings_simplified_chinese">Simplified Chinese</string>
 
     <!-- Sidebar and Navigation -->
-    <string name="sidebar_daily_review">Daily Review</string>
+    <string name="sidebar_daily_review">Random Walk</string>
+    <string name="sidebar_statistics">Statistics</string>
+
+    <!-- Statistics Screen -->
+    <string name="stats_section_overview">Overview</string>
+    <string name="stats_section_activity">Writing Activity</string>
+    <string name="stats_section_time">Time Distribution</string>
+    <string name="stats_section_reports">Reports</string>
+    <string name="stats_section_tags">Top Tags</string>
+    <string name="stats_total_memos">Memos</string>
+    <string name="stats_total_words">Words</string>
+    <string name="stats_active_days">Active Days</string>
+    <string name="stats_avg_words">Avg Words</string>
+    <string name="stats_total_tags">Tags</string>
+    <string name="stats_total_chars">Characters</string>
+    <string name="stats_current_streak">Current Streak</string>
+    <string name="stats_longest_streak">Longest Streak</string>
+    <string name="stats_this_week">This Week</string>
+    <string name="stats_this_month">This Month</string>
+    <string name="stats_this_year">This Year</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">Menu</string>
@@ -215,7 +234,7 @@
 
     <!-- Daily Review -->
     <string name="review_no_memos_title">No memos found</string>
-    <string name="review_no_memos_desc">Add some memos to start your review.</string>
+    <string name="review_no_memos_desc">Add some memos to start your random walk.</string>
 
     <!-- Search Screen -->
     <string name="search_hint">Search memos…</string>
@@ -299,7 +318,6 @@
     <string name="settings_github_subtitle">View source code on GitHub</string>
 
     <!-- Git Sync -->
-    <string name="settings_group_git_sync">Git Sync</string>
     <string name="settings_git_sync_enable">Enable Git Sync</string>
     <string name="settings_git_sync_enable_subtitle">Sync memos to a GitHub repository</string>
     <string name="settings_git_remote_url">Repository URL</string>
@@ -357,7 +375,6 @@
     <string name="settings_git_sync_on_refresh_subtitle">Trigger git sync when pulling to refresh</string>
 
     <!-- WebDAV Sync -->
-    <string name="settings_group_webdav_sync">WebDAV Sync</string>
     <string name="settings_webdav_sync_enable">Enable WebDAV Sync</string>
     <string name="settings_webdav_sync_enable_subtitle">Sync memos with a WebDAV server using app passwords</string>
     <string name="settings_webdav_provider">Provider</string>
@@ -403,7 +420,6 @@
     <string name="settings_webdav_test_connection_failed">Connection failed: %1$s</string>
     <string name="settings_webdav_sync_on_refresh">Sync on Refresh</string>
     <string name="settings_webdav_sync_on_refresh_subtitle">Trigger WebDAV sync when pulling to refresh</string>
-    <string name="settings_group_s3_sync">S3 Sync</string>
     <string name="settings_s3_sync_enable">Enable S3 Sync</string>
     <string name="settings_s3_sync_enable_subtitle">Sync markdown and supported attachments with an S3-compatible bucket</string>
     <string name="settings_s3_endpoint_url">Endpoint URL</string>

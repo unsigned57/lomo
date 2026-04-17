@@ -33,9 +33,10 @@ class ShareCardBitmapRenderer
             content: String,
             title: String?,
             showTime: Boolean,
+            showSignature: Boolean,
+            signatureText: String,
             timestampMillis: Long?,
             tags: List<String>,
-            activeDayCount: Int?,
             resolvedImagePaths: List<String> = emptyList(),
         ): Bitmap {
             val preprocessed = preprocessShareCardContent(content, resolvedImagePaths.isNotEmpty())
@@ -44,12 +45,18 @@ class ShareCardBitmapRenderer
                     context = context,
                     processedContent = preprocessed.contentForProcessing,
                     title = title,
+                    signatureText = signatureText,
                     timestampMillis = timestampMillis,
                     tags = tags,
-                    activeDayCount = activeDayCount,
                     hasImages = preprocessed.hasImages,
                 )
-            val footerContent = createFooterContent(showTime, renderInput)
+            val footerContent =
+                buildShareCardFooterContent(
+                    showTime = showTime,
+                    showSignature = showSignature,
+                    signatureText = renderInput.signatureText,
+                    createdAtText = renderInput.createdAtText,
+                )
             val palette = resolvePalette(context)
             val layoutSpec = createShareCardLayoutSpec(context.resources)
             val bodyLines = buildShareBodyLines(renderInput.safeText, renderInput.imagePlaceholder)
@@ -79,7 +86,7 @@ class ShareCardBitmapRenderer
                         spec = layoutSpec,
                         paintSet = paintSet,
                         loadedImages = loadedImages,
-                        showFooter = footerContent.showFooter,
+                        footer = footerContent,
                         shouldUseCenteredBody = shouldUseCenteredBody,
                     )
                 renderShareCardBitmap(
@@ -95,24 +102,13 @@ class ShareCardBitmapRenderer
             }
         }
 
-        private fun createFooterContent(
-            showTime: Boolean,
-            renderInput: ShareCardRenderInput,
-        ): ShareCardFooterContent =
-            ShareCardFooterContent(
-                showFooter = showTime || renderInput.activeDayCountText.isNotBlank(),
-                showTime = showTime,
-                createdAtText = renderInput.createdAtText,
-                activeDayCountText = renderInput.activeDayCountText,
-            )
-
         private fun prepareRenderInput(
             context: Context,
             processedContent: String,
             title: String?,
+            signatureText: String,
             timestampMillis: Long?,
             tags: List<String>,
-            activeDayCount: Int?,
             hasImages: Boolean,
         ): ShareCardRenderInput {
             val imagePlaceholder = context.getString(R.string.share_card_placeholder_image)
@@ -139,16 +135,6 @@ class ShareCardBitmapRenderer
                     createdAtMillis = timestampMillis ?: System.currentTimeMillis(),
                     formatter = shareCardTimeFormatter,
                 )
-            val activeDayCountText =
-                activeDayCount
-                    ?.takeIf { it > 0 }
-                    ?.let { dayCount ->
-                        context.resources.getQuantityString(
-                            R.plurals.share_card_recorded_days,
-                            dayCount,
-                            dayCount,
-                        )
-                    }.orEmpty()
 
             return ShareCardRenderInput(
                 displayTags = shareCardDisplayFormatter.formatTagsForDisplay(shareCardContent.tags),
@@ -156,7 +142,7 @@ class ShareCardBitmapRenderer
                 safeText = safeText,
                 imagePlaceholder = imagePlaceholder,
                 createdAtText = createdAtText,
-                activeDayCountText = activeDayCountText,
+                signatureText = signatureText,
                 textLengthWithoutMarkers =
                     if (hasImages) {
                         IMAGE_MARKER_PATTERN.replace(safeText, "").length
@@ -198,3 +184,28 @@ class ShareCardBitmapRenderer
                 divider = outlineVariant.toArgb(),
             )
     }
+
+internal fun buildShareCardFooterContent(
+    showTime: Boolean,
+    showSignature: Boolean,
+    signatureText: String,
+    createdAtText: String,
+): ShareCardFooterContent {
+    val resolvedSignatureText =
+        if (showSignature) {
+            signatureText.trim().ifBlank { DEFAULT_SHARE_CARD_SIGNATURE }
+        } else {
+            ""
+        }
+    val row =
+        ShareCardFooterRow(
+            startText = if (showTime) createdAtText else "",
+            centerText = if (!showTime && resolvedSignatureText.isNotBlank()) resolvedSignatureText else "",
+            endText = if (showTime) resolvedSignatureText else "",
+        ).takeIf(ShareCardFooterRow::isVisible)
+
+    return ShareCardFooterContent(
+        showFooter = row != null,
+        row = row,
+    )
+}

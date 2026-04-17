@@ -1,15 +1,12 @@
 package com.lomo.ui.component.input
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +58,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import com.lomo.ui.R
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
+import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.text.rawMemoParagraphSpacing
 import com.lomo.ui.theme.AppShapes
@@ -73,7 +71,6 @@ import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.coroutines.delay
-
 
 @Composable
 internal fun InputEditorPanel(
@@ -89,6 +86,10 @@ internal fun InputEditorPanel(
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
     onDisplayModeChange: (InputEditorDisplayMode) -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
     onToggleTagSelector: () -> Unit,
     onCameraClick: () -> Unit,
     onImageClick: () -> Unit,
@@ -174,28 +175,26 @@ internal fun InputEditorPanel(
             slots = slots,
             onTagSelected = onTagSelected,
         )
-        InputEditorChromeTransitionHost(
-            transitionState = chromeState.formattingToolbar,
-        ) { chromeModifier ->
-            InputEditorToolbar(
-                toggleIcon = chromeState.toggleIcon,
-                showTagSelector = showTagSelector,
-                isExpanded = isExpanded,
-                isSubmitEnabled = inputValue.text.isNotBlank(),
-                enabled = chromeState.formattingToolbar.isInteractive,
-                onToggleExpanded = onToggleExpanded,
-                onCameraClick = onCameraClick,
-                onImageClick = onImageClick,
-                onStartRecording = onStartRecording,
-                onToggleTagSelector = onToggleTagSelector,
-                onInsertTodo = onInsertTodo,
-                onInsertUnderline = onInsertUnderline,
-                onSubmit = onSubmit,
-                benchmarkSubmitTag = benchmarkSubmitTag,
-                haptic = haptic,
-                modifier = chromeModifier.padding(top = AppSpacing.MediumSmall),
-            )
-        }
+        InputEditorToolbarSection(
+            chromeState = chromeState,
+            showTagSelector = showTagSelector,
+            isExpanded = isExpanded,
+            isSubmitEnabled = inputValue.text.isNotBlank(),
+            onToggleExpanded = onToggleExpanded,
+            onUndo = onUndo,
+            onRedo = onRedo,
+            canUndo = canUndo,
+            canRedo = canRedo,
+            onCameraClick = onCameraClick,
+            onImageClick = onImageClick,
+            onStartRecording = onStartRecording,
+            onToggleTagSelector = onToggleTagSelector,
+            onInsertTodo = onInsertTodo,
+            onInsertUnderline = onInsertUnderline,
+            onSubmit = onSubmit,
+            benchmarkSubmitTag = benchmarkSubmitTag,
+            haptic = haptic,
+        )
     }
 }
 
@@ -250,6 +249,55 @@ private fun ColumnScope.InputEditorBodyContent(
                         .alpha(previewAlpha),
             )
         }
+    }
+}
+
+@Composable
+private fun InputEditorToolbarSection(
+    chromeState: InputEditorChromeState,
+    showTagSelector: Boolean,
+    isExpanded: Boolean,
+    isSubmitEnabled: Boolean,
+    onToggleExpanded: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onCameraClick: () -> Unit,
+    onImageClick: () -> Unit,
+    onStartRecording: () -> Unit,
+    onToggleTagSelector: () -> Unit,
+    onInsertTodo: () -> Unit,
+    onInsertUnderline: () -> Unit,
+    onSubmit: () -> Unit,
+    benchmarkSubmitTag: String?,
+    haptic: AppHapticFeedback,
+) {
+    InputEditorChromeTransitionHost(
+        transitionState = chromeState.formattingToolbar,
+    ) { chromeModifier ->
+        InputEditorToolbar(
+            toggleIcon = chromeState.toggleIcon,
+            showTagSelector = showTagSelector,
+            isExpanded = isExpanded,
+            isSubmitEnabled = isSubmitEnabled,
+            enabled = chromeState.formattingToolbar.isInteractive,
+            onToggleExpanded = onToggleExpanded,
+            onUndo = onUndo,
+            onRedo = onRedo,
+            canUndo = canUndo,
+            canRedo = canRedo,
+            onCameraClick = onCameraClick,
+            onImageClick = onImageClick,
+            onStartRecording = onStartRecording,
+            onToggleTagSelector = onToggleTagSelector,
+            onInsertTodo = onInsertTodo,
+            onInsertUnderline = onInsertUnderline,
+            onSubmit = onSubmit,
+            benchmarkSubmitTag = benchmarkSubmitTag,
+            haptic = haptic,
+            modifier = chromeModifier.padding(top = AppSpacing.MediumSmall),
+        )
     }
 }
 
@@ -453,21 +501,26 @@ private fun InputEditorPreviewContent(
                 )
             }
         } else {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .verticalScroll(scrollState)
-                        .padding(
-                            horizontal = InputEditorContainerPaddingHorizontal,
-                            vertical = InputEditorContainerPaddingVertical,
-                        ),
+            WithDraggableScrollbar(
+                state = scrollState,
+                modifier = Modifier.fillMaxSize(),
             ) {
-                MarkdownRenderer(
-                    content = content,
-                    modifier = Modifier.fillMaxWidth(),
-                    enableTextSelection = true,
-                )
+                Box(
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollState)
+                            .padding(
+                                horizontal = InputEditorContainerPaddingHorizontal,
+                                vertical = InputEditorContainerPaddingVertical,
+                            ),
+                ) {
+                    MarkdownRenderer(
+                        content = content,
+                        modifier = Modifier.fillMaxWidth(),
+                        enableTextSelection = true,
+                    )
+                }
             }
         }
     }
@@ -526,27 +579,3 @@ private fun InputEditorTagSelector(
         }
     }
 }
-
-
-internal fun fadeScaleContentTransition(): ContentTransform =
-    (
-        fadeIn(
-            animationSpec =
-                androidx.compose.animation.core
-                    .tween(MotionTokens.DurationMedium2),
-        ) +
-            scaleIn(
-                initialScale = 0.95f,
-                animationSpec =
-                    androidx.compose.animation.core.tween(
-                        MotionTokens.DurationMedium2,
-                        easing = MotionTokens.EasingEmphasizedDecelerate,
-                    ),
-            )
-    ).togetherWith(
-        fadeOut(
-            animationSpec =
-                androidx.compose.animation.core
-                    .tween(durationMillis = MotionTokens.DurationShort4),
-        ),
-    )

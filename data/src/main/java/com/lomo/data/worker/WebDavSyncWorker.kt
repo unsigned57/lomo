@@ -19,31 +19,17 @@ class WebDavSyncWorker
         private val webDavSyncRepository: WebDavSyncRepository,
     ) : CoroutineWorker(appContext, workerParams) {
         override suspend fun doWork(): Result {
-            Timber.d("WebDavSyncWorker started")
+            Timber.d("%s started", WORKER_NAME)
             return when (val result = webDavSyncRepository.sync()) {
-                is WebDavSyncResult.Success -> {
-                    Timber.d("WebDavSyncWorker success: ${result.message}")
-                    Result.success()
-                }
-
-                is WebDavSyncResult.Error -> {
-                    Timber.e("WebDavSyncWorker error: ${result.message}")
-                    if (runAttemptCount < MAX_RETRY_ATTEMPTS) Result.retry() else Result.failure()
-                }
-
-                is WebDavSyncResult.Conflict -> {
-                    Timber.w("WebDavSyncWorker conflict detected: ${result.message}")
-                    Result.success()
-                }
-
-                WebDavSyncResult.NotConfigured -> {
-                    Result.success()
-                }
+                is WebDavSyncResult.Success -> successWorkResult(WORKER_NAME, result.message)
+                is WebDavSyncResult.Error -> errorWorkResult(WORKER_NAME, result.message)
+                is WebDavSyncResult.Conflict -> conflictWorkResult(WORKER_NAME, result.message)
+                WebDavSyncResult.NotConfigured -> skipWorkResult(WORKER_NAME, result)
             }
         }
 
         companion object {
-            private const val MAX_RETRY_ATTEMPTS = 3
+            private const val WORKER_NAME = "WebDavSyncWorker"
             const val WORK_NAME = "com.lomo.data.worker.WebDavSyncWorker"
         }
     }

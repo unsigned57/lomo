@@ -28,8 +28,10 @@ data class AppPreferencesState(
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
+    val scrollbarEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
+    val shareCardSignatureText: String = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT,
 ) {
     companion object {
         fun defaults(): AppPreferencesState =
@@ -44,8 +46,10 @@ data class AppPreferencesState(
                 memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
                 memoActionOrder = persistentListOf(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
+                scrollbarEnabled = PreferenceDefaults.SCROLLBAR_ENABLED,
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
+                shareCardSignatureText = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT,
             )
     }
 }
@@ -88,7 +92,8 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             },
             isQuickSaveOnBackEnabled(),
             isShareCardShowTimeEnabled(),
-        ) { memoAction, quickSaveOnBackEnabled, shareCardShowTime ->
+            isScrollbarEnabled(),
+        ) { memoAction, quickSaveOnBackEnabled, shareCardShowTime, scrollbarEnabled ->
             SharePreferences(
                 doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
                 freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
@@ -96,10 +101,12 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
                 memoActionOrder = memoAction.memoActionOrder,
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
                 shareCardShowTime = shareCardShowTime,
+                scrollbarEnabled = scrollbarEnabled,
             )
         },
         isShareCardShowBrandEnabled(),
-    ) { base, share, shareCardShowBrand ->
+        getShareCardSignatureText(),
+    ) { base, share, shareCardShowBrand, shareCardSignatureText ->
         AppPreferencesState(
             dateFormat = base.dateFormat,
             timeFormat = base.timeFormat,
@@ -111,8 +118,10 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             memoActionAutoReorderEnabled = share.memoActionAutoReorderEnabled,
             memoActionOrder = share.memoActionOrder,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
+            scrollbarEnabled = share.scrollbarEnabled,
             shareCardShowTime = share.shareCardShowTime,
             shareCardShowBrand = shareCardShowBrand,
+            shareCardSignatureText = shareCardSignatureText,
         )
     }
 
@@ -146,4 +155,5 @@ private data class SharePreferences(
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
+    val scrollbarEnabled: Boolean,
 )

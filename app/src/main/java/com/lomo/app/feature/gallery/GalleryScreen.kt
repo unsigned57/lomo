@@ -50,11 +50,12 @@ fun GalleryScreen(
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val shareCardShowTime = appPreferences.shareCardShowTime
+    val shareCardShowSignature = appPreferences.shareCardShowBrand
+    val shareCardSignatureText = appPreferences.shareCardSignatureText
     val dateFormat = appPreferences.dateFormat
     val timeFormat = appPreferences.timeFormat
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
-    val activeDayCount by viewModel.activeDayCount.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -69,7 +70,8 @@ fun GalleryScreen(
 
     MemoMenuBinder(
         shareCardShowTime = shareCardShowTime,
-        activeDayCount = activeDayCount,
+        shareCardShowSignature = shareCardShowSignature,
+        shareCardSignatureText = shareCardSignatureText,
         onEditMemo = { memo ->
             viewModel.requestOpenMemo(memo.id)
             onBackClick()

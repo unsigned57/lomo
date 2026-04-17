@@ -2,18 +2,17 @@ package com.lomo.app.feature.conflict
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncConflictTextMerge
+import com.lomo.domain.model.supportsDeferredConflictResolution
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.SyncConflictResolutionResult
 import com.lomo.domain.usecase.SyncConflictResolutionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -84,6 +83,29 @@ class SyncConflictViewModel
                     current
                 }
             }
+        }
+
+        fun autoResolveSafeConflicts() {
+            val current = _state.value
+            if (current !is SyncConflictDialogState.Showing || current.isResolving) return
+
+            val safeChoices = buildSafeChoices(current.conflictSet)
+            if (safeChoices.isEmpty()) return
+
+            val supportsSkip = current.conflictSet.source.supportsDeferredConflictResolution()
+            if (!supportsSkip && safeChoices.size != current.conflictSet.files.size) return
+
+            val resolvedChoices =
+                current.conflictSet.files.associate { file ->
+                    file.relativePath to
+                        (
+                            safeChoices[file.relativePath]
+                                ?: SyncConflictResolutionChoice.SKIP_FOR_NOW
+                            )
+                }.toImmutableMap()
+
+            _state.value = current.copy(perFileChoices = resolvedChoices)
+            applyResolution()
         }
 
         fun toggleExpandedFile(path: String) {
@@ -158,33 +180,21 @@ class SyncConflictViewModel
 
         private fun buildSuggestedChoices(
             conflictSet: SyncConflictSet,
-        ): ImmutableMap<String, SyncConflictResolutionChoice> {
-            if (
-                conflictSet.source != SyncBackendType.S3 &&
-                conflictSet.source != SyncBackendType.WEBDAV &&
-                conflictSet.source != SyncBackendType.INBOX
-            ) {
-                return persistentHashMapOf()
-            }
-            return conflictSet.files.mapNotNull { file ->
+        ): ImmutableMap<String, SyncConflictResolutionChoice> =
+            conflictSet.files.mapNotNull { file ->
                 suggestedChoiceFor(file)?.let { choice -> file.relativePath to choice }
             }.toMap().toImmutableMap()
-        }
+
+        private fun buildSafeChoices(
+            conflictSet: SyncConflictSet,
+        ): ImmutableMap<String, SyncConflictResolutionChoice> =
+            conflictSet.files.mapNotNull { file ->
+                SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(file)?.let { choice ->
+                    file.relativePath to choice
+                }
+            }.toMap().toImmutableMap()
 
         private fun suggestedChoiceFor(
             file: com.lomo.domain.model.SyncConflictFile,
-        ): SyncConflictResolutionChoice? {
-            if (file.isBinary) return null
-            val localContent = file.localContent?.trim().orEmpty()
-            val remoteContent = file.remoteContent?.trim().orEmpty()
-            if (localContent.isBlank() || remoteContent.isBlank()) return null
-            return when {
-                remoteContent == localContent -> SyncConflictResolutionChoice.KEEP_REMOTE
-                remoteContent.contains(localContent) -> SyncConflictResolutionChoice.KEEP_REMOTE
-                localContent.contains(remoteContent) -> SyncConflictResolutionChoice.KEEP_LOCAL
-                SyncConflictTextMerge.merge(localContent, remoteContent) != null ->
-                    SyncConflictResolutionChoice.MERGE_TEXT
-                else -> null
-            }
-        }
+        ): SyncConflictResolutionChoice? = SyncConflictAutoResolutionAdvisor.suggestedChoice(file)
     }

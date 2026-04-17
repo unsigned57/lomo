@@ -180,6 +180,10 @@ class SettingsShareCardFeatureViewModel(
     fun updateShareCardShowBrand(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateShareCardShowBrand(enabled) }
     }
+
+    fun updateShareCardSignatureText(text: String) {
+        scope.launch { appConfigCoordinator.updateShareCardSignatureText(text) }
+    }
 }
 
 class SettingsSnapshotFeatureViewModel(
@@ -225,6 +229,10 @@ class SettingsInteractionFeatureViewModel(
 
     fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateQuickSaveOnBackEnabled(enabled) }
+    }
+
+    fun updateScrollbarEnabled(enabled: Boolean) {
+        scope.launch { appConfigCoordinator.updateScrollbarEnabled(enabled) }
     }
 
     fun updateAppLockEnabled(enabled: Boolean) {
