@@ -41,6 +41,7 @@ class AppPreferencesShareCardOptionsTest {
             every {
                 preferencesRepository.getMemoActionOrder()
             } returns flowOf(listOf("history", "copy").toImmutableList())
+            every { preferencesRepository.isSingleTapDetailEnabled() } returns flowOf(false)
 
             val state = preferencesRepository.observeAppPreferences().first()
 

@@ -33,6 +33,10 @@
     <string name="settings_double_tap_edit_subtitle">Double-tap memo cards to enter edit mode quickly</string>
     <string name="settings_free_text_copy">Free text copy</string>
     <string name="settings_free_text_copy_subtitle">Allow selecting and copying text directly from memo cards</string>
+    <string name="settings_single_tap_detail">Single tap to show detail</string>
+    <string name="settings_single_tap_detail_subtitle">Tap a memo to expand and show its full content</string>
+    <string name="settings_attach_location">Attach location</string>
+    <string name="settings_attach_location_subtitle">Show location button in the input toolbar</string>
     <string name="settings_menu_auto_reorder">Auto reorder menu tiles</string>
     <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>

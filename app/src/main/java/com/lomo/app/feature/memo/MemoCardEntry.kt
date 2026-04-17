@@ -16,6 +16,7 @@ fun MemoCardEntry(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    singleTapDetailEnabled: Boolean,
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     modifier: Modifier = Modifier,
@@ -37,6 +38,7 @@ fun MemoCardEntry(
         tags = uiModel.tags,
         modifier = modifier.benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id)),
         allowFreeTextCopy = freeTextCopyEnabled,
+        expandOnClick = singleTapDetailEnabled,
         onClick = { onMemoClick?.invoke(memo) },
         onDoubleClick =
             if (doubleTapEditEnabled) {

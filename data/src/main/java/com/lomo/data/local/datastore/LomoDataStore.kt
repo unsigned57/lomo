@@ -90,6 +90,7 @@ interface LomoInteractionPreferencesStore {
     val showInputHints: Flow<Boolean>
     val doubleTapEditEnabled: Flow<Boolean>
     val freeTextCopyEnabled: Flow<Boolean>
+    val singleTapDetailEnabled: Flow<Boolean>
     val memoActionAutoReorderEnabled: Flow<Boolean>
     val memoActionOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
@@ -102,6 +103,8 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateDoubleTapEditEnabled(enabled: Boolean)
 
     suspend fun updateFreeTextCopyEnabled(enabled: Boolean)
+
+    suspend fun updateSingleTapDetailEnabled(enabled: Boolean)
 
     suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
 
@@ -317,6 +320,12 @@ interface LomoDraftStore {
     suspend fun updateDraftText(text: String?)
 }
 
+interface LomoLocationPreferencesStore {
+    val attachLocationEnabled: Flow<Boolean>
+
+    suspend fun updateAttachLocationEnabled(enabled: Boolean)
+}
+
 /**
  * DataStore-backed settings shell. The API remains stable while implementation is split by concern.
  */
@@ -340,7 +349,8 @@ class LomoDataStore private constructor(
     LomoWebDavScheduleStore by WebDavScheduleStoreImpl(dataStore),
     LomoS3ConnectionStore by S3ConnectionStoreImpl(dataStore),
     LomoS3ScheduleStore by S3ScheduleStoreImpl(dataStore),
-    LomoDraftStore by DraftStoreImpl(dataStore) {
+    LomoDraftStore by DraftStoreImpl(dataStore),
+    LomoLocationPreferencesStore by LocationPreferencesStoreImpl(dataStore) {
     @Inject
     constructor(
         @ApplicationContext context: Context,
@@ -366,6 +376,7 @@ internal object LomoDataStoreKeys {
     val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
     val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
     val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
+    val SINGLE_TAP_DETAIL_ENABLED = booleanPreferencesKey(PreferenceKeys.SINGLE_TAP_DETAIL_ENABLED)
     val MEMO_ACTION_AUTO_REORDER_ENABLED =
         booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
     val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
@@ -424,6 +435,7 @@ internal object LomoDataStoreKeys {
     val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
     val DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
+    val ATTACH_LOCATION_ENABLED = booleanPreferencesKey(PreferenceKeys.ATTACH_LOCATION_ENABLED)
 }
 
 internal fun DataStore<Preferences>.nullableStringFlow(

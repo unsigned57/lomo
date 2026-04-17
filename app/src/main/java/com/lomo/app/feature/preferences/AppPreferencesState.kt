@@ -25,6 +25,7 @@ data class AppPreferencesState(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
@@ -43,6 +44,7 @@ data class AppPreferencesState(
                 showInputHints = PreferenceDefaults.SHOW_INPUT_HINTS,
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
+                singleTapDetailEnabled = PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED,
                 memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
                 memoActionOrder = persistentListOf(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
@@ -75,17 +77,20 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             combine(
                 isDoubleTapEditEnabled(),
                 isFreeTextCopyEnabled(),
+                isSingleTapDetailEnabled(),
                 isMemoActionAutoReorderEnabled(),
                 getMemoActionOrder(),
             ) {
                 doubleTapEditEnabled,
                 freeTextCopyEnabled,
+                singleTapDetailEnabled,
                 memoActionAutoReorderEnabled,
                 memoActionOrder,
                 ->
                 MemoActionPreferences(
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
+                    singleTapDetailEnabled = singleTapDetailEnabled,
                     memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                     memoActionOrder = memoActionOrder.toImmutableList(),
                 )
@@ -97,6 +102,7 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             SharePreferences(
                 doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
                 freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
+                singleTapDetailEnabled = memoAction.singleTapDetailEnabled,
                 memoActionAutoReorderEnabled = memoAction.memoActionAutoReorderEnabled,
                 memoActionOrder = memoAction.memoActionOrder,
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
@@ -115,6 +121,7 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             showInputHints = base.showInputHints,
             doubleTapEditEnabled = share.doubleTapEditEnabled,
             freeTextCopyEnabled = share.freeTextCopyEnabled,
+            singleTapDetailEnabled = share.singleTapDetailEnabled,
             memoActionAutoReorderEnabled = share.memoActionAutoReorderEnabled,
             memoActionOrder = share.memoActionOrder,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
@@ -144,6 +151,7 @@ private data class BasePreferences(
 private data class MemoActionPreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
 )
@@ -151,6 +159,7 @@ private data class MemoActionPreferences(
 private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,

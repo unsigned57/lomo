@@ -37,6 +37,7 @@ class AppPreferencesMemoActionStateTest {
             every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
             every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
+            every { preferencesRepository.isSingleTapDetailEnabled() } returns flowOf(false)
 
             val state = preferencesRepository.observeAppPreferences().first()
 

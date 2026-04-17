@@ -34,6 +34,10 @@
     <string name="settings_double_tap_edit_subtitle">双击备忘录卡片可快速进入编辑模式</string>
     <string name="settings_free_text_copy">自由复制文本</string>
     <string name="settings_free_text_copy_subtitle">允许在备忘录卡片中直接选择并复制文本</string>
+    <string name="settings_single_tap_detail">单击显示详情</string>
+    <string name="settings_single_tap_detail_subtitle">点击备忘录展开并显示完整内容</string>
+    <string name="settings_attach_location">附加位置</string>
+    <string name="settings_attach_location_subtitle">在输入工具栏中显示位置按钮</string>
     <string name="settings_menu_auto_reorder">菜单磁贴自动排序</string>
     <string name="settings_menu_auto_reorder_subtitle">根据长期使用热度逐步把常用备忘录菜单磁贴移动到前面</string>
     <string name="settings_quick_save_on_back">返回快速保存</string>

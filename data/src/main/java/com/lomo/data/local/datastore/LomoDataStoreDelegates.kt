@@ -206,6 +206,13 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED,
         )
 
+    override val singleTapDetailEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SINGLE_TAP_DETAIL_ENABLED,
+            flowName = "singleTapDetailEnabled",
+            default = PreferenceKeys.Defaults.SINGLE_TAP_DETAIL_ENABLED,
+        )
+
     override val memoActionAutoReorderEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED,
@@ -248,6 +255,10 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateFreeTextCopyEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.FREE_TEXT_COPY_ENABLED] = enabled }
+    }
+
+    override suspend fun updateSingleTapDetailEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SINGLE_TAP_DETAIL_ENABLED] = enabled }
     }
 
     override suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
@@ -862,6 +873,23 @@ internal class DraftStoreImpl(
             } else {
                 this[LomoDataStoreKeys.DRAFT_TEXT] = text
             }
+        }
+    }
+}
+
+internal class LocationPreferencesStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoLocationPreferencesStore {
+    override val attachLocationEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.ATTACH_LOCATION_ENABLED,
+            flowName = "attachLocationEnabled",
+            default = PreferenceKeys.Defaults.ATTACH_LOCATION_ENABLED,
+        )
+
+    override suspend fun updateAttachLocationEnabled(enabled: Boolean) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.ATTACH_LOCATION_ENABLED] = enabled
         }
     }
 }

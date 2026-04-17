@@ -43,6 +43,10 @@ interface InteractionPreferencesRepository {
     fun isFreeTextCopyEnabled(): Flow<Boolean>
 
     suspend fun setFreeTextCopyEnabled(enabled: Boolean)
+
+    fun isSingleTapDetailEnabled(): Flow<Boolean>
+
+    suspend fun setSingleTapDetailEnabled(enabled: Boolean)
 }
 
 interface InteractionBehaviorPreferencesRepository {
@@ -115,6 +119,12 @@ interface DraftPreferencesRepository {
     suspend fun setDraftText(text: String?)
 }
 
+interface LocationPreferencesRepository {
+    fun isAttachLocationEnabled(): Flow<Boolean>
+
+    suspend fun setAttachLocationEnabled(enabled: Boolean)
+}
+
 interface PreferencesRepository :
     DateTimePreferencesRepository,
     StoragePreferencesRepository,
@@ -124,4 +134,5 @@ interface PreferencesRepository :
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,
     SyncInboxPreferencesRepository,
-    DraftPreferencesRepository
+    DraftPreferencesRepository,
+    LocationPreferencesRepository

@@ -56,6 +56,13 @@ class SettingsStateProvider(
         val doubleTapEditEnabled: Boolean,
     )
 
+    private data class InteractionSecondaryState(
+        val singleTapDetailEnabled: Boolean,
+        val attachLocationEnabled: Boolean,
+        val quickSaveOnBackEnabled: Boolean,
+        val scrollbarEnabled: Boolean,
+    )
+
     private data class PrimaryUiSections(
         val storage: StorageSectionState,
         val display: DisplaySectionState,
@@ -448,25 +455,31 @@ class SettingsStateProvider(
             appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
             combine(
+                appConfigCoordinator.singleTapDetailEnabled,
+                appConfigCoordinator.attachLocationEnabled,
                 appConfigCoordinator.quickSaveOnBackEnabled,
                 appConfigCoordinator.scrollbarEnabled,
-            ) { quickSave, scrollbar -> quickSave to scrollbar },
+            ) { singleTap, attachLoc, quickSave, scrollbar ->
+                InteractionSecondaryState(singleTap, attachLoc, quickSave, scrollbar)
+            },
         ) {
                 primary,
                 freeTextCopyEnabled,
                 memoActionAutoReorderEnabled,
                 appLockEnabled,
-                quickSaveAndScrollbar,
+                secondary,
             ->
             InteractionSectionState(
                 hapticEnabled = primary.hapticEnabled,
                 showInputHints = primary.showInputHints,
                 doubleTapEditEnabled = primary.doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
+                singleTapDetailEnabled = secondary.singleTapDetailEnabled,
+                attachLocationEnabled = secondary.attachLocationEnabled,
                 memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 appLockEnabled = appLockEnabled,
-                quickSaveOnBackEnabled = quickSaveAndScrollbar.first,
-                scrollbarEnabled = quickSaveAndScrollbar.second,
+                quickSaveOnBackEnabled = secondary.quickSaveOnBackEnabled,
+                scrollbarEnabled = secondary.scrollbarEnabled,
             )
         }.stateIn(
             scope = scope,
@@ -477,6 +490,8 @@ class SettingsStateProvider(
                     showInputHints = appConfigCoordinator.showInputHints.value,
                     doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
                     freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
+                    singleTapDetailEnabled = appConfigCoordinator.singleTapDetailEnabled.value,
+                    attachLocationEnabled = appConfigCoordinator.attachLocationEnabled.value,
                     memoActionAutoReorderEnabled = appConfigCoordinator.memoActionAutoReorderEnabled.value,
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
