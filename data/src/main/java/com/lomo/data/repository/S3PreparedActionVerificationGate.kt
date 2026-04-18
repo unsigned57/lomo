@@ -2,6 +2,11 @@ package com.lomo.data.repository
 
 import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 internal class S3PreparedActionVerificationGate(
     private val planner: S3SyncPlanner,
@@ -25,47 +30,47 @@ internal class S3PreparedActionVerificationGate(
         if (candidatePaths.isEmpty()) {
             return VerifiedPreparedS3Sync(prepared = prepared)
         }
-        val verifiedRemoteFiles = prepared.remoteFiles.toMutableMap()
-        val verifiedMissingRemotePaths = linkedSetOf<String>()
-        val observedMissingRemotePaths = linkedSetOf<String>()
-        val existingRemoteIndexByPath =
-            if (remoteIndexStore.remoteIndexEnabled) {
-                remoteIndexStore
-                    .readByRelativePaths(candidatePaths)
-                    .associateBy(S3RemoteIndexEntry::relativePath)
-            } else {
-                emptyMap()
-            }
-        candidatePaths.forEach { path ->
-            val action = prepared.normalActions.firstOrNull { it.path == path } ?: return@forEach
-            if (!shouldVerifyPath(action = action, prepared = prepared)) {
-                return@forEach
-            }
-            val remotePath =
-                prepared.remoteFiles[path]?.remotePath
-                    ?: prepared.metadataByPath[path]?.remotePath
-                    ?: encodingSupport.remotePathFor(path, config)
-            val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(path)
-            if (verifiedRemote == null) {
-                verifiedRemoteFiles.remove(path)
-                observedMissingRemotePaths += path
-                if (hasStableMissingEvidence(action, prepared, existingRemoteIndexByPath[path])) {
-                    verifiedMissingRemotePaths += path
-                }
-            } else {
-                verifiedRemoteFiles[path] = verifiedRemote
-                verifiedMissingRemotePaths.remove(path)
-                observedMissingRemotePaths.remove(path)
-            }
+        val actionsByPath = prepared.normalActions.associateBy(S3SyncAction::path)
+        val existingRemoteIndexByPath = loadExistingRemoteIndexByPath(candidatePaths)
+        val pathSelection =
+            selectPathsForVerification(
+                candidatePaths = candidatePaths,
+                actionsByPath = actionsByPath,
+                prepared = prepared,
+                existingRemoteIndexByPath = existingRemoteIndexByPath,
+            )
+        val verifiedMissingRemotePaths = pathSelection.verifiedMissingRemotePaths
+        val pathsToVerify = pathSelection.pathsToVerify
+        if (pathsToVerify.isEmpty() && verifiedMissingRemotePaths.isEmpty()) {
+            return VerifiedPreparedS3Sync(prepared = prepared)
         }
+        val verifiedRemoteFiles = prepared.remoteFiles.toMutableMap()
+        val observedMissingRemotePaths = linkedSetOf<String>()
+        loadVerificationResults(
+            pathsToVerify = pathsToVerify,
+            actionsByPath = actionsByPath,
+            prepared = prepared,
+            client = client,
+            config = config,
+        ).forEach { result ->
+            applyVerificationResult(
+                result = result,
+                prepared = prepared,
+                existingRemoteIndexByPath = existingRemoteIndexByPath,
+                verifiedRemoteFiles = verifiedRemoteFiles,
+                verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                observedMissingRemotePaths = observedMissingRemotePaths,
+            )
+        }
+        val replannedPaths = (pathsToVerify + verifiedMissingRemotePaths).toSortedSet()
         val initialReplannedActions =
             planner.planPaths(
-                paths = candidatePaths,
+                paths = replannedPaths,
                 localFiles = prepared.localFiles,
                 remoteFiles = verifiedRemoteFiles,
                 metadata = prepared.metadataByPath,
                 preResolvedActionsByPath =
-                    prepared.preResolvedActionsByPath.filterKeys(candidatePaths::contains),
+                    prepared.preResolvedActionsByPath.filterKeys(replannedPaths::contains),
                 missingRemoteVerificationByPath =
                     verifiedMissingRemotePaths.associateWith {
                         S3RemoteVerificationLevel.VERIFIED_REMOTE
@@ -92,11 +97,47 @@ internal class S3PreparedActionVerificationGate(
         return VerifiedPreparedS3Sync(
             prepared =
                 prepared.rebuildAfterVerification(
-                    verifiedPaths = candidatePaths,
+                    verifiedPaths = replannedPaths,
                     verifiedRemoteFiles = verifiedRemoteFiles,
                     replannedActions = replannedActions,
                     observedMissingRemotePaths = observedMissingRemotePaths,
                 ),
+            verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+        )
+    }
+
+    private suspend fun loadExistingRemoteIndexByPath(
+        candidatePaths: Set<String>,
+    ): Map<String, S3RemoteIndexEntry> =
+        if (remoteIndexStore.remoteIndexEnabled) {
+            remoteIndexStore
+                .readByRelativePaths(candidatePaths)
+                .associateBy(S3RemoteIndexEntry::relativePath)
+        } else {
+            emptyMap()
+        }
+
+    private fun selectPathsForVerification(
+        candidatePaths: Set<String>,
+        actionsByPath: Map<String, S3SyncAction>,
+        prepared: PreparedS3Sync,
+        existingRemoteIndexByPath: Map<String, S3RemoteIndexEntry>,
+    ): S3VerificationPathSelection {
+        val verifiedMissingRemotePaths = linkedSetOf<String>()
+        val pathsToVerify =
+            candidatePaths.filterTo(linkedSetOf()) { path ->
+                val action = actionsByPath[path] ?: return@filterTo false
+                if (!shouldVerifyPath(action = action, prepared = prepared)) {
+                    return@filterTo false
+                }
+                if (canTrustStableMissingEvidence(action, prepared, existingRemoteIndexByPath[path])) {
+                    verifiedMissingRemotePaths += path
+                    return@filterTo false
+                }
+                true
+            }
+        return S3VerificationPathSelection(
+            pathsToVerify = pathsToVerify,
             verifiedMissingRemotePaths = verifiedMissingRemotePaths,
         )
     }
@@ -128,6 +169,18 @@ internal class S3PreparedActionVerificationGate(
         }
     }
 
+    private fun canTrustStableMissingEvidence(
+        action: S3SyncAction,
+        prepared: PreparedS3Sync,
+        existingRemoteIndex: S3RemoteIndexEntry?,
+    ): Boolean =
+        action.direction == S3SyncDirection.DELETE_LOCAL &&
+            hasStableMissingEvidence(
+                action = action,
+                prepared = prepared,
+                existingRemoteIndex = existingRemoteIndex,
+            )
+
     private fun hasStableMissingEvidence(
         action: S3SyncAction,
         prepared: PreparedS3Sync,
@@ -140,7 +193,67 @@ internal class S3PreparedActionVerificationGate(
             existingRemoteIndex?.missingOnLastScan == true && existingRemoteIndex.lastVerifiedAt != null -> true
             else -> false
         }
+
+    private suspend fun loadVerificationResults(
+        pathsToVerify: Set<String>,
+        actionsByPath: Map<String, S3SyncAction>,
+        prepared: PreparedS3Sync,
+        client: com.lomo.data.s3.LomoS3Client,
+        config: S3ResolvedConfig,
+    ): List<S3VerificationResult> {
+        val verificationLimiter = Semaphore(S3_VERIFICATION_CONCURRENCY)
+        return coroutineScope {
+            pathsToVerify.map { path ->
+                async {
+                    val action = requireNotNull(actionsByPath[path])
+                    val remotePath =
+                        prepared.remoteFiles[path]?.remotePath
+                            ?: prepared.metadataByPath[path]?.remotePath
+                            ?: encodingSupport.remotePathFor(path, config)
+                    verificationLimiter.withPermit {
+                        S3VerificationResult(
+                            path = path,
+                            action = action,
+                            verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(path),
+                        )
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+
+    private fun applyVerificationResult(
+        result: S3VerificationResult,
+        prepared: PreparedS3Sync,
+        existingRemoteIndexByPath: Map<String, S3RemoteIndexEntry>,
+        verifiedRemoteFiles: MutableMap<String, RemoteS3File>,
+        verifiedMissingRemotePaths: LinkedHashSet<String>,
+        observedMissingRemotePaths: LinkedHashSet<String>,
+    ) {
+        if (result.verifiedRemote == null) {
+            verifiedRemoteFiles.remove(result.path)
+            observedMissingRemotePaths += result.path
+            if (hasStableMissingEvidence(result.action, prepared, existingRemoteIndexByPath[result.path])) {
+                verifiedMissingRemotePaths += result.path
+            }
+            return
+        }
+        verifiedRemoteFiles[result.path] = result.verifiedRemote
+        verifiedMissingRemotePaths.remove(result.path)
+        observedMissingRemotePaths.remove(result.path)
+    }
 }
+
+private data class S3VerificationResult(
+    val path: String,
+    val action: S3SyncAction,
+    val verifiedRemote: RemoteS3File?,
+)
+
+private data class S3VerificationPathSelection(
+    val pathsToVerify: LinkedHashSet<String>,
+    val verifiedMissingRemotePaths: LinkedHashSet<String>,
+)
 
 private fun PreparedS3Sync.rebuildAfterVerification(
     verifiedPaths: Set<String>,
