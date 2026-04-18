@@ -14,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.lomo.ui.theme.ProvideExpressiveMotion
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 
@@ -43,45 +42,42 @@ fun MemoMenuBottomSheet(
     benchmarkRootTag: String? = null,
     actionAnchorForId: (MemoActionId) -> String? = { null },
 ) {
-    ProvideExpressiveMotion {
-        ModalBottomSheet(
-            modifier = modifier,
-            onDismissRequest = onDismissRequest,
-            sheetState = sheetState,
-            dragHandle = {
-                // Custom Drag Handle to remove standard ripple/rectangular mask
-                Box(
-                    modifier =
-                        Modifier
-                            .padding(vertical = 22.dp)
-                            .width(32.dp)
-                            .size(32.dp, 4.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
-                )
-            },
-        ) {
-            MemoActionSheet(
-                state = state,
-                onCopy = onCopy,
-                onShareImage = onShareImage,
-                onShareText = onShareText,
-                onLanShare = onLanShare,
-                onTogglePin = onTogglePin,
-                onJump = onJump,
-                onEdit = onEdit,
-                onDelete = onDelete,
-                onDismiss = onDismissRequest,
-                onHistory = onHistory,
-                showHistory = showHistory,
-                showJump = showJump,
-                memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-                memoActionOrder = memoActionOrder,
-                onActionInvoked = onMemoActionInvoked,
-                onActionOrderChanged = onMemoActionOrderChanged,
-                benchmarkRootTag = benchmarkRootTag,
-                actionAnchorForId = actionAnchorForId,
+    ModalBottomSheet(
+        modifier = modifier,
+        onDismissRequest = onDismissRequest,
+        sheetState = sheetState,
+        dragHandle = {
+            Box(
+                modifier =
+                    Modifier
+                        .padding(vertical = 22.dp)
+                        .width(32.dp)
+                        .size(32.dp, 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
             )
-        }
+        },
+    ) {
+        MemoActionSheet(
+            state = state,
+            onCopy = onCopy,
+            onShareImage = onShareImage,
+            onShareText = onShareText,
+            onLanShare = onLanShare,
+            onTogglePin = onTogglePin,
+            onJump = onJump,
+            onEdit = onEdit,
+            onDelete = onDelete,
+            onDismiss = onDismissRequest,
+            onHistory = onHistory,
+            showHistory = showHistory,
+            showJump = showJump,
+            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+            memoActionOrder = memoActionOrder,
+            onActionInvoked = onMemoActionInvoked,
+            onActionOrderChanged = onMemoActionOrderChanged,
+            benchmarkRootTag = benchmarkRootTag,
+            actionAnchorForId = actionAnchorForId,
+        )
     }
 }
