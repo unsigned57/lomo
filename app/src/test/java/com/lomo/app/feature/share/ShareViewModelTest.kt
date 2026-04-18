@@ -57,6 +57,7 @@ class ShareViewModelTest {
         every { shareService.incomingShare } returns MutableStateFlow(IncomingShareState.None)
         every { shareService.transferState } returns MutableStateFlow(ShareTransferState.Idle)
         every { shareService.lanSharePairingCode } returns MutableStateFlow("")
+        every { shareService.lanShareEnabled } returns flowOf(true)
         every { shareService.lanShareE2eEnabled } returns flowOf(true)
         every { shareService.lanSharePairingConfigured } returns flowOf(true)
         every { shareService.lanShareDeviceName } returns flowOf("Local")
@@ -280,7 +281,33 @@ class ShareViewModelTest {
                         ),
                 )
 
+            testDispatcher.scheduler.advanceUntilIdle()
             assertEquals("discovery failed", viewModel.operationError.value)
+        }
+
+    @Test
+    fun `init skips discovery when lan share is disabled`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            every { shareService.lanShareEnabled } returns flowOf(false)
+
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            testDispatcher.scheduler.advanceUntilIdle()
+            verify(exactly = 0) { shareService.startDiscovery() }
+            assertNull(viewModel.operationError.value)
         }
 
     @Test
@@ -307,6 +334,40 @@ class ShareViewModelTest {
                 "Share content is unavailable. Please reopen the share page.",
                 viewModel.operationError.value,
             )
+            coVerify(exactly = 0) { shareService.requiresPairingBeforeSend() }
+            verify(exactly = 0) { extractShareAttachmentsUseCase.invoke(any()) }
+            coVerify(exactly = 0) { shareService.sendMemo(any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `sendMemo when lan share is disabled surfaces settings error and skips send pipeline`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+            val device =
+                DiscoveredDevice(
+                    name = "Peer",
+                    host = "192.168.1.2",
+                    port = 1080,
+                )
+            every { shareService.lanShareEnabled } returns flowOf(false)
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.sendMemo(device)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("LAN share is disabled in settings.", viewModel.operationError.value)
             coVerify(exactly = 0) { shareService.requiresPairingBeforeSend() }
             verify(exactly = 0) { extractShareAttachmentsUseCase.invoke(any()) }
             coVerify(exactly = 0) { shareService.sendMemo(any(), any(), any(), any()) }

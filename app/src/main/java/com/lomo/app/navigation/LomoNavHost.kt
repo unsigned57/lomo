@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -37,8 +38,14 @@ private const val BACK_NAVIGATION_THROTTLE_MILLIS = 500L
 fun LomoNavHost(
     navController: NavHostController,
 ) {
+    val lanShareAvailabilityViewModel: LanShareAvailabilityViewModel = activityHiltViewModel()
+    val lanShareEnabled by lanShareAvailabilityViewModel.lanShareEnabled.collectAsStateWithLifecycle()
     val popBackStackSafely = rememberBackNavigationAction(navController = navController)
-    val navigateToShare = rememberShareNavigationAction(navController = navController)
+    val navigateToShare =
+        rememberShareNavigationAction(
+            navController = navController,
+            lanShareEnabled = lanShareEnabled,
+        )
     val navigateToImage = rememberImageNavigationAction(navController = navController)
 
     @OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
@@ -51,6 +58,7 @@ fun LomoNavHost(
                 popBackStackSafely = popBackStackSafely,
                 navigateToShare = navigateToShare,
                 navigateToImage = navigateToImage,
+                lanShareEnabled = lanShareEnabled,
             )
         }
     }
@@ -72,16 +80,23 @@ private fun rememberBackNavigationAction(navController: NavHostController): () -
 }
 
 @Composable
-private fun rememberShareNavigationAction(navController: NavHostController): (String, Long) -> Unit =
-    remember(navController) {
+private fun rememberShareNavigationAction(
+    navController: NavHostController,
+    lanShareEnabled: Boolean,
+): (String, Long) -> Unit =
+    remember(navController, lanShareEnabled) {
         { content, timestamp ->
-            val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
-            navController.navigate(
-                NavRoute.Share(
-                    payloadKey = payloadKey,
-                    memoTimestamp = timestamp,
-                ),
-            )
+            if (!lanShareEnabled) {
+                Unit
+            } else {
+                val payloadKey = ShareRoutePayloadStore.putMemoContent(content)
+                navController.navigate(
+                    NavRoute.Share(
+                        payloadKey = payloadKey,
+                        memoTimestamp = timestamp,
+                    ),
+                )
+            }
         }
     }
 
@@ -115,6 +130,7 @@ private fun LomoNavigationGraph(
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
+    lanShareEnabled: Boolean,
 ) {
     NavHost(
         navController = navController,
@@ -129,12 +145,14 @@ private fun LomoNavigationGraph(
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
             navigateToImage = navigateToImage,
+            lanShareEnabled = lanShareEnabled,
         )
         addSecondaryDestinations(
             navController = navController,
             popBackStackSafely = popBackStackSafely,
             navigateToShare = navigateToShare,
             navigateToImage = navigateToImage,
+            lanShareEnabled = lanShareEnabled,
         )
         addImageViewerDestination(
             popBackStackSafely = popBackStackSafely,
@@ -147,6 +165,7 @@ private fun NavGraphBuilder.addPrimaryDestinations(
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
+    lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.Main> {
         androidx.compose.runtime.CompositionLocalProvider(
@@ -162,6 +181,7 @@ private fun NavGraphBuilder.addPrimaryDestinations(
                 onNavigateToGallery = { navController.navigate(NavRoute.Gallery) },
                 onNavigateToStatistics = { navController.navigate(NavRoute.Statistics) },
                 onNavigateToShare = navigateToShare,
+                lanShareEnabled = lanShareEnabled,
             )
         }
     }
@@ -178,6 +198,7 @@ private fun NavGraphBuilder.addPrimaryDestinations(
         SearchScreen(
             onBackClick = popBackStackSafely,
             onNavigateToShare = navigateToShare,
+            lanShareEnabled = lanShareEnabled,
         )
     }
 }
@@ -187,6 +208,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
     popBackStackSafely: () -> Unit,
     navigateToShare: (String, Long) -> Unit,
     navigateToImage: (ImageViewerRequest) -> Unit,
+    lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.Tag> { backStackEntry ->
         val tag = backStackEntry.toRoute<NavRoute.Tag>()
@@ -198,6 +220,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
                 onBackClick = popBackStackSafely,
                 onNavigateToImage = navigateToImage,
                 onNavigateToShare = navigateToShare,
+                lanShareEnabled = lanShareEnabled,
             )
         }
     }
@@ -211,6 +234,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
                 onBackClick = popBackStackSafely,
                 onNavigateToImage = navigateToImage,
                 onNavigateToShare = navigateToShare,
+                lanShareEnabled = lanShareEnabled,
                 onNavigateToMemo = { memoId ->
                     mainViewModel.requestFocusMemo(memoId)
                     navController.popBackStackOrNavigateMain()
@@ -223,6 +247,8 @@ private fun NavGraphBuilder.addSecondaryDestinations(
         GalleryScreen(
             onBackClick = popBackStackSafely,
             onNavigateToImage = navigateToImage,
+            onNavigateToShare = navigateToShare,
+            lanShareEnabled = lanShareEnabled,
         )
     }
 

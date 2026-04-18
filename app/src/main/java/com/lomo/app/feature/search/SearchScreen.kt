@@ -67,7 +67,6 @@ private data class SearchScreenUiSnapshot(
     val shareCardSignatureText: String,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
@@ -79,6 +78,7 @@ private data class SearchScreenUiSnapshot(
 fun SearchScreen(
     onBackClick: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    lanShareEnabled: Boolean = true,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val uiState = collectSearchScreenUiSnapshot(viewModel)
@@ -106,7 +106,7 @@ fun SearchScreen(
         rootPath = uiState.rootDirectory,
         imageDirectory = uiState.imageDirectory,
         imageMap = uiState.imageMap,
-        onLanShare = onNavigateToShare,
+        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
     ) { showMenu, openEditor ->
         val onShowSearchMenu =
             rememberSearchMenuHandler(
@@ -132,7 +132,6 @@ fun SearchScreen(
                 timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
-                singleTapDetailEnabled = uiState.singleTapDetailEnabled,
                 padding = padding,
                 onOpenEditor = openEditor,
                 onShowMenu = onShowSearchMenu,
@@ -163,7 +162,6 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         shareCardSignatureText = appPreferences.shareCardSignatureText,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-        singleTapDetailEnabled = appPreferences.singleTapDetailEnabled,
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },
@@ -343,7 +341,6 @@ private fun SearchScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     padding: PaddingValues,
     onOpenEditor: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
@@ -385,7 +382,6 @@ private fun SearchScreenContent(
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
-                        singleTapDetailEnabled = singleTapDetailEnabled,
                         onMemoEdit = onOpenEditor,
                         onShowMenu = onShowMenu,
                         animation = MemoCardListAnimation.None,

@@ -57,20 +57,23 @@ class ShareServiceLifecycleController
         }
 
         fun startServices() {
-            val shouldStart =
-                synchronized(serviceStateLock) {
-                    if (servicesStarted) {
-                        false
-                    } else {
-                        servicesStarted = true
-                        true
-                    }
-                }
-            if (!shouldStart) return
-
-            acquireMulticastLock()
-
             scope.launch {
+                if (!pairingConfig.isLanShareEnabled()) {
+                    Timber.tag(TAG).d("Skip service start because LAN share is disabled")
+                    return@launch
+                }
+                val shouldStart =
+                    synchronized(serviceStateLock) {
+                        if (servicesStarted) {
+                            false
+                        } else {
+                            servicesStarted = true
+                            true
+                        }
+                    }
+                if (!shouldStart) return@launch
+
+                acquireMulticastLock()
                 runCatching {
                     serverPort = server.start()
                     val deviceName = pairingConfig.resolveDeviceName()
@@ -105,17 +108,23 @@ class ShareServiceLifecycleController
         }
 
         fun startDiscovery() {
-            val shouldStart =
-                synchronized(serviceStateLock) {
-                    if (discoveryStarted) {
-                        false
-                    } else {
-                        discoveryStarted = true
-                        true
-                    }
+            scope.launch {
+                if (!pairingConfig.isLanShareEnabled()) {
+                    Timber.tag(TAG).d("Skip discovery start because LAN share is disabled")
+                    return@launch
                 }
-            if (!shouldStart) return
-            nsdService.startDiscovery(localUuid)
+                val shouldStart =
+                    synchronized(serviceStateLock) {
+                        if (discoveryStarted) {
+                            false
+                        } else {
+                            discoveryStarted = true
+                            true
+                        }
+                    }
+                if (!shouldStart) return@launch
+                nsdService.startDiscovery(localUuid)
+            }
         }
 
         fun stopDiscovery() {

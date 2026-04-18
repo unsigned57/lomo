@@ -14,6 +14,15 @@ class SettingsLanShareCoordinator(
     private val shareServiceManager: LanShareService,
     scope: CoroutineScope,
 ) : SettingsLanShareFeatureSupport {
+    val lanShareEnabled: StateFlow<Boolean> =
+        shareServiceManager
+            .lanShareEnabled
+            .stateIn(
+                scope,
+                settingsWhileSubscribed(),
+                PreferenceDefaults.LAN_SHARE_ENABLED,
+            )
+
     val lanShareE2eEnabled: StateFlow<Boolean> =
         shareServiceManager
             .lanShareE2eEnabled
@@ -43,6 +52,10 @@ class SettingsLanShareCoordinator(
 
     private val _pairingCodeError = MutableStateFlow<String?>(null)
     val pairingCodeError: StateFlow<String?> = _pairingCodeError.asStateFlow()
+
+    suspend fun updateLanShareEnabled(enabled: Boolean) {
+        shareServiceManager.setLanShareEnabled(enabled)
+    }
 
     suspend fun updateLanShareE2eEnabled(enabled: Boolean) {
         shareServiceManager.setLanShareE2eEnabled(enabled)

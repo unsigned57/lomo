@@ -14,6 +14,7 @@ interface LanShareStateRepository {
     val incomingShare: StateFlow<IncomingShareState>
     val transferState: StateFlow<ShareTransferState>
     val lanSharePairingCode: StateFlow<String>
+    val lanShareEnabled: Flow<Boolean>
     val lanShareE2eEnabled: Flow<Boolean>
     val lanSharePairingConfigured: Flow<Boolean>
     val lanShareDeviceName: Flow<String>
@@ -45,6 +46,8 @@ interface LanShareTransferController {
 }
 
 interface LanShareConfigurationController {
+    suspend fun setLanShareEnabled(enabled: Boolean)
+
     suspend fun setLanShareE2eEnabled(enabled: Boolean)
 
     suspend fun setLanSharePairingCode(pairingCode: String)

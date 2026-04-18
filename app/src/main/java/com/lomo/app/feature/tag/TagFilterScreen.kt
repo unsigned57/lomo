@@ -56,6 +56,7 @@ fun TagFilterScreen(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    lanShareEnabled: Boolean = true,
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
     val memos by viewModel.uiMemos.collectAsStateWithLifecycle()
@@ -84,7 +85,7 @@ fun TagFilterScreen(
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,
         imageDirectory = imageDirectory,
-        onLanShare = onNavigateToShare,
+        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
     ) { showMenu, openEditor ->
         TagFilterScreenScaffold(
             tagName = tagName,
@@ -101,7 +102,6 @@ fun TagFilterScreen(
                 timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
                 freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-                singleTapDetailEnabled = appPreferences.singleTapDetailEnabled,
                 onMemoEdit = openEditor,
                 onShowMenu = showMenu,
                 onImageClick = onNavigateToImage,
@@ -186,7 +186,6 @@ private fun TagFilterScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
@@ -206,7 +205,6 @@ private fun TagFilterScreenContent(
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
-                singleTapDetailEnabled = singleTapDetailEnabled,
                 onMemoEdit = onMemoEdit,
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,

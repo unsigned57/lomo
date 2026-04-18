@@ -64,6 +64,7 @@ class LanShareStateDelegate
 
         override val transferState: StateFlow<ShareTransferState> = transferOrchestrator.transferState
 
+        override val lanShareEnabled: Flow<Boolean> = pairingConfig.lanShareEnabled
         override val lanShareE2eEnabled: Flow<Boolean> = pairingConfig.lanShareE2eEnabled
         override val lanSharePairingConfigured: Flow<Boolean> = pairingConfig.lanSharePairingConfigured
         override val lanSharePairingCode: StateFlow<String> = pairingConfig.lanSharePairingCode
@@ -117,19 +118,24 @@ class LanShareTransferControllerImpl
         private val lifecycleController: ShareServiceLifecycleController,
         private val transferOrchestrator: ShareTransferOrchestrator,
         private val incomingStateHolder: ShareIncomingStateHolder,
+        private val pairingConfig: SharePairingConfig,
     ) : LanShareTransferController {
         override suspend fun sendMemo(
             device: DiscoveredDevice,
             content: String,
             timestamp: Long,
             attachmentUris: Map<String, String>,
-        ): Result<Unit> =
-            transferOrchestrator.sendMemo(
+        ): Result<Unit> {
+            if (!pairingConfig.isLanShareEnabled()) {
+                return Result.failure(IllegalStateException(LAN_SHARE_DISABLED_MESSAGE))
+            }
+            return transferOrchestrator.sendMemo(
                 device = device,
                 content = content,
                 timestamp = timestamp,
                 attachmentUris = attachmentUris,
             )
+        }
 
         override fun acceptIncoming() {
             lifecycleController.acceptIncoming()
@@ -153,6 +159,15 @@ class LanShareConfigurationControllerImpl
         private val pairingConfig: SharePairingConfig,
         private val lifecycleController: ShareServiceLifecycleController,
     ) : LanShareConfigurationController {
+        override suspend fun setLanShareEnabled(enabled: Boolean) {
+            pairingConfig.setLanShareEnabled(enabled)
+            if (enabled) {
+                lifecycleController.startServices()
+            } else {
+                lifecycleController.stopServices()
+            }
+        }
+
         override suspend fun setLanShareE2eEnabled(enabled: Boolean) {
             pairingConfig.setLanShareE2eEnabled(enabled)
         }
@@ -172,3 +187,5 @@ class LanShareConfigurationControllerImpl
 
         override suspend fun requiresPairingBeforeSend(): Boolean = pairingConfig.requiresPairingBeforeSend()
     }
+
+private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."

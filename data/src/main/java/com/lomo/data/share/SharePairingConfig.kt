@@ -18,6 +18,7 @@ class SharePairingConfig
     ) {
         private val pairingCodeInputState = MutableStateFlow("")
 
+        val lanShareEnabled: Flow<Boolean> = dataStore.lanShareEnabled
         val lanShareE2eEnabled: Flow<Boolean> = dataStore.lanShareE2eEnabled
         val lanSharePairingConfigured: Flow<Boolean> =
             dataStore.lanSharePairingKeyHex.map(::isValidKeyHex)
@@ -26,6 +27,10 @@ class SharePairingConfig
             dataStore.lanShareDeviceName.map {
                 sanitizeDeviceName(it) ?: getFallbackDeviceName()
             }
+
+        suspend fun setLanShareEnabled(enabled: Boolean) {
+            dataStore.updateLanShareEnabled(enabled)
+        }
 
         suspend fun setLanShareE2eEnabled(enabled: Boolean) {
             dataStore.updateLanShareE2eEnabled(enabled)
@@ -64,26 +69,31 @@ class SharePairingConfig
             return sanitizeDeviceName(custom) ?: getFallbackDeviceName()
         }
 
+        suspend fun isLanShareEnabled(): Boolean = dataStore.lanShareEnabled.first()
+
         suspend fun isE2eEnabled(): Boolean = dataStore.lanShareE2eEnabled.first()
-
-        private fun getFallbackDeviceName(): String {
-            val model = Build.MODEL?.trim().orEmpty()
-            return sanitizeDeviceName(model) ?: DEFAULT_DEVICE_NAME
-        }
-
-        private fun sanitizeDeviceName(name: String?): String? {
-            val normalized =
-                name
-                    ?.trim()
-                    ?.replace(Regex("""[\u0000-\u001F\u007F]"""), "")
-                    ?.replace(Regex("""\s+"""), " ")
-            return normalized
-                ?.takeUnless(String::isBlank)
-                ?.take(MAX_DEVICE_NAME_CHARS)
-        }
 
         companion object {
             private const val MAX_DEVICE_NAME_CHARS = 32
             private const val DEFAULT_DEVICE_NAME = "Android Device"
         }
     }
+
+private fun getFallbackDeviceName(): String {
+    val model = Build.MODEL?.trim().orEmpty()
+    return sanitizeDeviceName(model) ?: DEFAULT_DEVICE_NAME
+}
+
+private fun sanitizeDeviceName(name: String?): String? {
+    val normalized =
+        name
+            ?.trim()
+            ?.replace(Regex("""[\u0000-\u001F\u007F]"""), "")
+            ?.replace(Regex("""\s+"""), " ")
+    return normalized
+        ?.takeUnless(String::isBlank)
+        ?.take(MAX_DEVICE_NAME_CHARS)
+}
+
+private const val MAX_DEVICE_NAME_CHARS = 32
+private const val DEFAULT_DEVICE_NAME = "Android Device"
