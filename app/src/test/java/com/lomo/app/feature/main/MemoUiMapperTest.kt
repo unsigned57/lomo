@@ -181,6 +181,43 @@ class MemoUiMapperTest {
     }
 
     @Test
+    fun `mapToUiModel linkifies raw geo uri text for markdown rendering`() {
+        val geoUri = "geo:-29.1645,141.5243?z=10"
+        val memo =
+            memo(
+                content = "Meet here\n$geoUri",
+                tags = emptyList(),
+            )
+
+        val uiModel = mapper.mapToUiModel(memo, rootPath = null, imagePath = null, imageMap = emptyMap())
+
+        assertTrue(uiModel.processedContent.contains("[$geoUri]($geoUri)"))
+        assertTrue(requireNotNull(uiModel.precomputedRenderPlan).content.contains(geoUri))
+    }
+
+    @Test
+    fun `mapToUiModel surfaces legacy geo metadata when content has no raw geo uri`() {
+        val memo =
+            memo(
+                content = "Body",
+                tags = emptyList(),
+                geoLocation = "-29.1645,141.5243",
+            )
+
+        val uiModel =
+            mapper.mapToUiModel(
+                memo = memo,
+                rootPath = null,
+                imagePath = null,
+                imageMap = emptyMap(),
+                precomputeMarkdown = false,
+            )
+
+        assertEquals("Body\n[geo:-29.1645,141.5243?z=10](geo:-29.1645,141.5243?z=10)", uiModel.processedContent)
+        assertTrue(uiModel.collapsedSummary.contains("geo:-29.1645,141.5243?z=10"))
+    }
+
+    @Test
     fun `mapToUiModel removes known tags from collapsed summary`() {
         val memo =
             memo(
@@ -243,6 +280,7 @@ class MemoUiMapperTest {
     private fun memo(
         content: String,
         tags: List<String>,
+        geoLocation: String? = null,
     ): Memo =
         Memo(
             id = "memo-1",
@@ -251,5 +289,6 @@ class MemoUiMapperTest {
             rawContent = content,
             dateKey = "2026_02_23",
             tags = tags,
+            geoLocation = geoLocation,
         )
 }

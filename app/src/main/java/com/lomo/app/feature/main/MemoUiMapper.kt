@@ -72,7 +72,8 @@ class MemoUiMapper
             existingProcessedContent: String? = null,
         ): MemoUiModel {
             val displayMemo = recoverDisplayMemoIfNeeded(memo)
-            val processedContent = buildProcessedContent(displayMemo.content, rootPath, imagePath, imageMap)
+            val displayContent = appendLegacyMemoGeoLocation(displayMemo.content, displayMemo.geoLocation)
+            val processedContent = buildProcessedContent(displayContent, rootPath, imagePath, imageMap)
             val canReuseExistingRenderPlan =
                 existingRenderPlan != null &&
                     existingProcessedContent != null &&
@@ -89,8 +90,8 @@ class MemoUiMapper
                     else -> null
                 }
             val imageUrls = imageContentResolver.extractImageUrls(processedContent)
-            val shouldShowExpand = shouldShowMemoCardExpand(displayMemo.content)
-            val collapsedSummary = buildMemoCardCollapsedSummary(displayMemo.content, displayMemo.tags)
+            val shouldShowExpand = shouldShowMemoCardExpand(displayContent)
+            val collapsedSummary = buildMemoCardCollapsedSummary(displayContent, displayMemo.tags)
 
             return MemoUiModel(
                 memo = displayMemo,
