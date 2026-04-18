@@ -76,6 +76,7 @@ import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareImageRepository
+import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
 import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -461,6 +462,12 @@ object PreferenceFacetRepositoryModule {
     fun provideSecurityPreferencesRepository(
         impl: SettingsRepositoryImpl,
     ): SecurityPreferencesRepository = impl
+
+    @Provides
+    @Singleton
+    fun provideSidebarTagOrderPreferencesRepository(
+        impl: SettingsRepositoryImpl,
+    ): SidebarTagOrderPreferencesRepository = impl
 }
 
 @Module

@@ -15,8 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.filled.DateRange
@@ -38,6 +40,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -116,27 +120,34 @@ fun SidebarDrawer(
     memoCountByDate: ImmutableMap<LocalDate, Int>,
     tags: ImmutableList<SidebarTag>,
     modifier: Modifier = Modifier,
+    rootTagOrder: ImmutableList<String> = kotlinx.collections.immutable.persistentListOf(),
     currentDestination: SidebarDestination = SidebarDestination.Memo,
     onTrashClick: () -> Unit = {},
     onDailyReviewClick: () -> Unit = {},
     onGalleryClick: () -> Unit = {},
     onStatisticsClick: () -> Unit = {},
     onTagClick: (String) -> Unit = {},
+    onTagReorder: (List<String>) -> Unit = {},
     onHeatmapDateLongPress: (LocalDate) -> Unit = {},
     onSettingsClick: () -> Unit = {},
     settingsAnchorTag: String? = null,
     trashAnchorTag: String? = null,
     tagAnchorForPath: (String) -> String? = { null },
 ) {
-    val tagTree = remember(tags) { buildTagTree(tags) }
+    val tagTree = remember(tags, rootTagOrder) { buildTagTree(tags, rootTagOrder) }
+    val reorderableTree: SnapshotStateList<TagNode> =
+        remember(tagTree) { tagTree.toMutableStateList() }
+    val reorderState = remember { TagReorderState() }
     val expandedNodes = remember { mutableStateMapOf<String, Boolean>() }
     val selectedTagPath = (currentDestination as? SidebarDestination.Tag)?.fullPath
     val isTrashSelected = currentDestination == SidebarDestination.Trash
     val isDailyReviewSelected = currentDestination == SidebarDestination.DailyReview
     val isGallerySelected = currentDestination == SidebarDestination.Gallery
     val isStatisticsSelected = currentDestination == SidebarDestination.Statistics
+    val listState = rememberLazyListState()
 
     LazyColumn(
+        state = listState,
         modifier = modifier.fillMaxHeight(),
         contentPadding = PaddingValues(AppSpacing.Medium),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
@@ -164,11 +175,14 @@ fun SidebarDrawer(
         )
         sidebarTags(
             tags = tags,
-            tagTree = tagTree,
+            tagTree = reorderableTree,
             expandedNodes = expandedNodes,
             selectedTagPath = selectedTagPath,
             onTagClick = onTagClick,
             anchorTagForPath = tagAnchorForPath,
+            reorderState = reorderState,
+            listState = listState,
+            onReorderComplete = onTagReorder,
         )
     }
 }
