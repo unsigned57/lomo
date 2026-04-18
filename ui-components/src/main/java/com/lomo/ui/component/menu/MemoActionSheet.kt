@@ -2,6 +2,7 @@ package com.lomo.ui.component.menu
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
@@ -38,15 +39,21 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.zIndex
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.R
@@ -100,7 +107,7 @@ fun MemoActionSheet(
     onCopy: () -> Unit,
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
-    onLanShare: () -> Unit,
+    onLanShare: (() -> Unit)?,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
@@ -114,6 +121,7 @@ fun MemoActionSheet(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onActionInvoked: (MemoActionId) -> Unit = {},
+    onActionOrderChanged: (List<MemoActionId>) -> Unit = {},
     benchmarkRootTag: String? = null,
     actionAnchorForId: (MemoActionId) -> String? = { null },
     useHorizontalScroll: Boolean = true,
@@ -139,10 +147,11 @@ fun MemoActionSheet(
             showHistory = showHistory,
             showJump = showJump,
             actions = actions,
-            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             memoActionOrder = memoActionOrder,
             actionAnchorForId = actionAnchorForId,
         )
+    val reorderableActions = remember(sheetActions) { sheetActions.toMutableStateList() }
+    val reorderState = remember { ActionReorderState() }
     val showSwipeAffordanceIndicator by rememberShowSwipeAffordanceIndicator(
         actionsScrollState = actionsScrollState,
         useHorizontalScroll = useHorizontalScroll,
@@ -161,7 +170,8 @@ fun MemoActionSheet(
                 .padding(bottom = 32.dp),
     ) {
         MemoActionRow(
-            actions = sheetActions,
+            actions = reorderableActions,
+            reorderState = reorderState,
             actionsScrollState = actionsScrollState,
             useHorizontalScroll = useHorizontalScroll,
             equalWidthActions = equalWidthActions,
@@ -170,6 +180,7 @@ fun MemoActionSheet(
             onActionInvoked = onActionInvoked,
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             onViewportWidthChanged = { width -> actionRowViewportWidthPx = width },
+            onActionOrderChanged = onActionOrderChanged,
         )
 
         if (showSwipeAffordanceIndicator) {
@@ -219,7 +230,7 @@ private fun rememberResolvedMemoActionSheetActions(
     onCopy: () -> Unit,
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
-    onLanShare: () -> Unit,
+    onLanShare: (() -> Unit)?,
     onTogglePin: (() -> Unit)?,
     onJump: (() -> Unit)?,
     onEdit: () -> Unit,
@@ -228,7 +239,6 @@ private fun rememberResolvedMemoActionSheetActions(
     showHistory: Boolean,
     showJump: Boolean,
     actions: ImmutableList<MemoActionSheetAction>?,
-    memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: ImmutableList<String>,
     actionAnchorForId: (MemoActionId) -> String?,
 ): ImmutableList<MemoActionSheetAction> {
@@ -255,13 +265,13 @@ private fun rememberResolvedMemoActionSheetActions(
         ?: sortDefaultMemoActionSheetActions(
             actions = defaultActions,
             rankedActionOrder = rankedActionOrder,
-            autoReorderEnabled = memoActionAutoReorderEnabled,
         )
 }
 
 @Composable
 private fun MemoActionRow(
-    actions: ImmutableList<MemoActionSheetAction>,
+    actions: androidx.compose.runtime.snapshots.SnapshotStateList<MemoActionSheetAction>,
+    reorderState: ActionReorderState,
     actionsScrollState: androidx.compose.foundation.ScrollState,
     useHorizontalScroll: Boolean,
     equalWidthActions: Boolean,
@@ -270,8 +280,10 @@ private fun MemoActionRow(
     onActionInvoked: (MemoActionId) -> Unit,
     memoActionAutoReorderEnabled: Boolean,
     onViewportWidthChanged: (Int) -> Unit,
+    onActionOrderChanged: (List<MemoActionId>) -> Unit,
 ) {
     val overscrollEffect = rememberOverscrollEffect()
+    val haptic = LocalAppHapticFeedback.current
 
     Row(
         modifier =
@@ -283,6 +295,7 @@ private fun MemoActionRow(
                         base.horizontalScroll(
                             state = actionsScrollState,
                             overscrollEffect = overscrollEffect,
+                            enabled = !reorderState.isDragging,
                         )
                     } else {
                         base
@@ -291,17 +304,62 @@ private fun MemoActionRow(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         actions.forEach { action ->
+            val isDragged = reorderState.draggedId == action.id
             ActionChip(
                 icon = action.icon,
                 label = action.label,
                 isDestructive = action.isDestructive,
                 isHighlighted = action.isHighlighted,
                 modifier =
-                    if (equalWidthActions) {
+                    (if (equalWidthActions) {
                         Modifier.weight(1f)
                     } else {
                         Modifier.width(92.dp)
-                    }.benchmarkAnchor(action.benchmarkTag),
+                    })
+                        .benchmarkAnchor(action.benchmarkTag)
+                        .onGloballyPositioned { coordinates ->
+                            action.id?.let { id ->
+                                val left = coordinates.positionInParent().x.roundToInt()
+                                val right = left + coordinates.size.width
+                                reorderState.itemBounds[id] =
+                                    ActionReorderState.ItemBounds(left = left, right = right)
+                            }
+                        }.let { base ->
+                            if (action.id != null) {
+                                base
+                                    .zIndex(if (isDragged) 1f else 0f)
+                                    .graphicsLayer {
+                                        if (isDragged) {
+                                            translationX = reorderState.dragOffset
+                                            scaleX = DRAG_SCALE_FACTOR
+                                            scaleY = DRAG_SCALE_FACTOR
+                                        }
+                                    }.pointerInput(action.id) {
+                                        detectDragGesturesAfterLongPress(
+                                            onDragStart = {
+                                                haptic.heavy()
+                                                reorderState.startDrag(action.id)
+                                            },
+                                            onDrag = { change, dragAmount ->
+                                                change.consume()
+                                                reorderState.updateDrag(dragAmount.x)
+                                                reorderState.checkAndSwap(actions)
+                                            },
+                                            onDragEnd = {
+                                                val newOrder =
+                                                    actions.mapNotNull(
+                                                        MemoActionSheetAction::id,
+                                                    )
+                                                onActionOrderChanged(newOrder)
+                                                reorderState.endDrag()
+                                            },
+                                            onDragCancel = { reorderState.endDrag() },
+                                        )
+                                    }
+                            } else {
+                                base
+                            }
+                        },
                 onClick = {
                     onPerformHaptic(action.haptic)
                     action.id

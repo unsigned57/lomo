@@ -79,6 +79,7 @@ fun MainScreen(
     onNavigateToGallery: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    lanShareEnabled: Boolean = true,
     viewModel: MainViewModel = activityHiltViewModel(),
     sidebarViewModel: SidebarViewModel = injectedHiltViewModel(),
     editorViewModel: MemoEditorViewModel = injectedHiltViewModel(),
@@ -152,6 +153,7 @@ fun MainScreen(
         onNavigateToGallery = onNavigateToGallery,
         onNavigateToStatistics = onNavigateToStatistics,
         onNavigateToShare = onNavigateToShare,
+        lanShareEnabled = lanShareEnabled,
     )
 }
 
@@ -295,7 +297,6 @@ internal data class MainScreenUiSnapshot(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
@@ -422,6 +423,7 @@ internal fun MainScreenInteractionBindings(
     availableTags: ImmutableList<String>,
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
+    lanShareEnabled: Boolean,
     content: MainScreenInteractionContent,
 ) {
     val gitSyncEnabled by dependencies.mainViewModel.gitSyncEnabled.collectAsStateWithLifecycle()
@@ -432,7 +434,6 @@ internal fun MainScreenInteractionBindings(
     val voiceDirectory by dependencies.mainViewModel.voiceDirectory.collectAsStateWithLifecycle()
     val stableImageMap = remember(imageMap) { imageMap.toImmutableMap() }
     val inputHints = rememberInputHints(showInputHints = showInputHints)
-    var attachedGeoLocation by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
 
     val locationPermissionLauncher =
@@ -441,9 +442,7 @@ internal fun MainScreenInteractionBindings(
         ) { permissions ->
             val granted = permissions.values.any { it }
             if (granted) {
-                fetchLastKnownLocation(context) { location ->
-                    attachedGeoLocation = location
-                }
+                fetchLastKnownLocation(context, editorController::appendMarkdownBlock)
             }
         }
 
@@ -470,11 +469,12 @@ internal fun MainScreenInteractionBindings(
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
         onMemoActionInvoked = dependencies.mainViewModel::recordMemoActionUsage,
+        onMemoActionOrderChanged = dependencies.mainViewModel.updateMemoActionOrder,
         onDeleteMemo = dependencies.mainViewModel.deleteMemo,
         onUpdateMemo = dependencies.editorViewModel::updateMemo,
         onCreateMemo = interactionCallbacks.onCreateMemo,
         onSaveImage = dependencies.editorViewModel::saveImage,
-        onLanShare = onNavigateToShare,
+        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
         onDismiss = dependencies.editorViewModel::discardInputs,
         onImageDirectoryMissing = directoryGuideController::requestImage,
         onCameraCaptureError = interactionCallbacks.onCameraCaptureError,
@@ -491,13 +491,7 @@ internal fun MainScreenInteractionBindings(
                 Manifest.permission.ACCESS_FINE_LOCATION,
             ) == PackageManager.PERMISSION_GRANTED
             if (hasPermission) {
-                if (attachedGeoLocation != null) {
-                    attachedGeoLocation = null
-                } else {
-                    fetchLastKnownLocation(context) { location ->
-                        attachedGeoLocation = location
-                    }
-                }
+                fetchLastKnownLocation(context, editorController::appendMarkdownBlock)
             } else {
                 locationPermissionLauncher.launch(
                     arrayOf(
@@ -507,8 +501,8 @@ internal fun MainScreenInteractionBindings(
                 )
             }
         },
-        onClearLocation = { attachedGeoLocation = null },
-        attachedGeoLocation = attachedGeoLocation,
+        onClearLocation = {},
+        attachedGeoLocation = null,
         hints = inputHints,
         onVersionHistory = interactionCallbacks.onVersionHistory,
         onTogglePin = dependencies.mainViewModel.setMemoPinned,
@@ -691,7 +685,7 @@ private fun fetchLastKnownLocation(
     for (provider in providers) {
         val location = runCatching { locationManager.getLastKnownLocation(provider) }.getOrNull()
         if (location != null) {
-            onResult("${location.latitude},${location.longitude}")
+            onResult(formatMemoGeoUri(location.latitude, location.longitude))
             return
         }
     }

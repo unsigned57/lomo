@@ -25,11 +25,7 @@ import kotlinx.collections.immutable.toImmutableList
 internal fun sortDefaultMemoActionSheetActions(
     actions: ImmutableList<MemoActionSheetAction>,
     rankedActionOrder: List<MemoActionId>,
-    autoReorderEnabled: Boolean,
 ): ImmutableList<MemoActionSheetAction> {
-    if (!autoReorderEnabled) {
-        return actions
-    }
     val rankedIds = rankedActionOrder.distinct()
     if (rankedIds.isEmpty()) {
         return actions
@@ -43,12 +39,22 @@ internal fun sortDefaultMemoActionSheetActions(
     }.toImmutableList()
 }
 
+internal fun defaultPrimaryMemoActionIds(includeLanShare: Boolean): List<MemoActionId> =
+    buildList {
+        add(MemoActionId.COPY)
+        add(MemoActionId.SHARE_IMAGE)
+        add(MemoActionId.SHARE_TEXT)
+        if (includeLanShare) {
+            add(MemoActionId.LAN_SHARE)
+        }
+    }
+
 @Composable
 internal fun rememberDefaultMemoActionSheetActions(
     onCopy: () -> Unit,
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
-    onLanShare: () -> Unit,
+    onLanShare: (() -> Unit)?,
     onTogglePin: (() -> Unit)?,
     isPinned: Boolean,
     onJump: (() -> Unit)?,
@@ -75,6 +81,7 @@ internal fun rememberDefaultMemoActionSheetActions(
     val hasJumpAction = showJump && onJump != null
     val hasHistoryAction = showHistory && onHistory != null
     val hasPinAction = onTogglePin != null
+    val hasLanShareAction = onLanShare != null
 
     return remember(
         labels,
@@ -83,10 +90,11 @@ internal fun rememberDefaultMemoActionSheetActions(
         hasJumpAction,
         hasHistoryAction,
         hasPinAction,
+        hasLanShareAction,
         actionAnchorForId,
     ) {
         buildList {
-            addAll(primaryMemoActions(labels, handlers))
+            addAll(primaryMemoActions(labels, handlers, includeLanShare = hasLanShareAction))
             addAll(
                 optionalMemoActions(
                     labels = labels,
@@ -158,7 +166,7 @@ private fun rememberMemoActionHandlers(
     onCopy: () -> Unit,
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
-    onLanShare: () -> Unit,
+    onLanShare: (() -> Unit)?,
     onTogglePin: (() -> Unit)?,
     onJump: (() -> Unit)?,
     onHistory: (() -> Unit)?,
@@ -180,33 +188,45 @@ private fun rememberMemoActionHandlers(
 private fun primaryMemoActions(
     labels: MemoActionLabels,
     handlers: MemoActionHandlers,
+    includeLanShare: Boolean,
 ): List<MemoActionSheetAction> =
-    listOf(
-        MemoActionSheetAction(
-            id = MemoActionId.COPY,
-            icon = Icons.Outlined.ContentCopy,
-            label = labels.copy,
-            onClick = { handlers.onCopy.value() },
-        ),
-        MemoActionSheetAction(
-            id = MemoActionId.SHARE_IMAGE,
-            icon = Icons.Outlined.Share,
-            label = labels.shareImage,
-            onClick = { handlers.onShareImage.value() },
-        ),
-        MemoActionSheetAction(
-            id = MemoActionId.SHARE_TEXT,
-            icon = Icons.AutoMirrored.Outlined.TextSnippet,
-            label = labels.shareText,
-            onClick = { handlers.onShareText.value() },
-        ),
-        MemoActionSheetAction(
-            id = MemoActionId.LAN_SHARE,
-            icon = Icons.Outlined.Wifi,
-            label = labels.lanShare,
-            onClick = { handlers.onLanShare.value() },
-        ),
-    )
+    defaultPrimaryMemoActionIds(includeLanShare = includeLanShare).map { actionId ->
+        when (actionId) {
+            MemoActionId.COPY ->
+                MemoActionSheetAction(
+                    id = MemoActionId.COPY,
+                    icon = Icons.Outlined.ContentCopy,
+                    label = labels.copy,
+                    onClick = { handlers.onCopy.value() },
+                )
+
+            MemoActionId.SHARE_IMAGE ->
+                MemoActionSheetAction(
+                    id = MemoActionId.SHARE_IMAGE,
+                    icon = Icons.Outlined.Share,
+                    label = labels.shareImage,
+                    onClick = { handlers.onShareImage.value() },
+                )
+
+            MemoActionId.SHARE_TEXT ->
+                MemoActionSheetAction(
+                    id = MemoActionId.SHARE_TEXT,
+                    icon = Icons.AutoMirrored.Outlined.TextSnippet,
+                    label = labels.shareText,
+                    onClick = { handlers.onShareText.value() },
+                )
+
+            MemoActionId.LAN_SHARE ->
+                MemoActionSheetAction(
+                    id = MemoActionId.LAN_SHARE,
+                    icon = Icons.Outlined.Wifi,
+                    label = labels.lanShare,
+                    onClick = { handlers.onLanShare.value?.invoke() },
+                )
+
+            else -> error("Unsupported primary memo action: $actionId")
+        }
+    }
 
 private fun optionalMemoActions(
     labels: MemoActionLabels,
@@ -296,7 +316,7 @@ private data class MemoActionHandlers(
     val onCopy: State<() -> Unit>,
     val onShareImage: State<() -> Unit>,
     val onShareText: State<() -> Unit>,
-    val onLanShare: State<() -> Unit>,
+    val onLanShare: State<(() -> Unit)?>,
     val onTogglePin: State<(() -> Unit)?>,
     val onJump: State<(() -> Unit)?>,
     val onHistory: State<(() -> Unit)?>,

@@ -8,7 +8,7 @@ object PreferenceDefaults {
     const val SHOW_INPUT_HINTS = true
     const val DOUBLE_TAP_EDIT_ENABLED = true
     const val FREE_TEXT_COPY_ENABLED = false
-    const val MEMO_ACTION_AUTO_REORDER_ENABLED = true
+    const val MEMO_ACTION_AUTO_REORDER_ENABLED = false
     const val MEMO_ACTION_ORDER = ""
     const val SIDEBAR_TAG_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
