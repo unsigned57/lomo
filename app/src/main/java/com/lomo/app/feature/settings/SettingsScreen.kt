@@ -1,6 +1,16 @@
 package com.lomo.app.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -12,6 +22,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.lomo.ui.theme.MotionTokens
 import com.lomo.app.BuildConfig
 import com.lomo.app.R
 import com.lomo.app.feature.conflict.SyncConflictDialogHost
@@ -113,13 +124,9 @@ fun SettingsScreen(
         )
 
     if (dialogState.showTypographyPage) {
-        TypographySettingsPage(
-            uiState = uiState.display,
-            displayFeature = features.display,
-            onBack = { dialogState.showTypographyPage = false },
-        )
-        return
+        BackHandler { dialogState.showTypographyPage = false }
     }
+
     SettingsConflictHandlers(
         uiState = uiState,
         features = features,
@@ -137,23 +144,20 @@ fun SettingsScreen(
         onActiveUpdateDialogStateChange = { activeUpdateDialogState = it },
         onConsumeDebugPreviewDialog = features.system::consumeDebugPreviewDialog,
     )
-    SettingsScreenScaffold(
+
+    SettingsTypographyAnimatedContent(
         uiState = uiState,
-        aboutState =
-            AboutSectionState(
-                currentVersion = currentVersion,
-                manualUpdateState = manualUpdateState,
-                showDebugUpdateTools = BuildConfig.DEBUG,
-            ),
-        onBackClick = onBackClick,
-        snackbarHostState = snackbarHostState,
         dialogState = dialogState,
         features = features,
         resources = resources,
         storagePickers = storagePickers,
+        snackbarHostState = snackbarHostState,
+        currentVersion = currentVersion,
+        manualUpdateState = manualUpdateState,
+        onBackClick = onBackClick,
         onOpenAvailableUpdateDialog = { activeUpdateDialogState = it },
-        onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
     )
+
     LomoAppUpdateDialog(
         dialogState = activeUpdateDialogState,
         onDismiss = { activeUpdateDialogState = null },
@@ -171,6 +175,114 @@ fun SettingsScreen(
         options = resources.dialogOptions,
         onApplyLanguageTag = ::applyLanguageTag,
     )
+}
+
+@Composable
+private fun SettingsTypographyAnimatedContent(
+    uiState: SettingsScreenUiState,
+    dialogState: SettingsDialogState,
+    features: SettingsFeatures,
+    resources: SettingsResources,
+    storagePickers: StoragePickerActions,
+    snackbarHostState: SnackbarHostState,
+    currentVersion: String,
+    manualUpdateState: SettingsManualUpdateState,
+    onBackClick: () -> Unit,
+    onOpenAvailableUpdateDialog: (AppUpdateDialogState) -> Unit,
+) {
+    AnimatedContent(
+        targetState = dialogState.showTypographyPage,
+        transitionSpec = {
+            if (targetState) {
+                (slideInHorizontally(
+                    initialOffsetX = { (it * 0.15f).toInt() },
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+                ) + scaleIn(
+                    initialScale = 0.95f,
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+                )) togetherWith (slideOutHorizontally(
+                    targetOffsetX = { -(it * 0.15f).toInt() },
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+                ) + scaleOut(
+                    targetScale = 1.05f,
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+                ))
+            } else {
+                (slideInHorizontally(
+                    initialOffsetX = { -(it * 0.15f).toInt() },
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+                ) + fadeIn(
+                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+                ) + scaleIn(
+                    initialScale = 1.05f,
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+                )) togetherWith (slideOutHorizontally(
+                    targetOffsetX = { (it * 0.15f).toInt() },
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+                ) + fadeOut(
+                    animationSpec = tween(durationMillis = MotionTokens.DurationLong2),
+                ) + scaleOut(
+                    targetScale = 0.95f,
+                    animationSpec = tween(
+                        durationMillis = MotionTokens.DurationLong2,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+                ))
+            }
+        },
+        label = "SettingsTypographyTransition",
+    ) { showTypography ->
+        if (showTypography) {
+            TypographySettingsPage(
+                uiState = uiState.display,
+                displayFeature = features.display,
+                onBack = { dialogState.showTypographyPage = false },
+            )
+        } else {
+            SettingsScreenScaffold(
+                uiState = uiState,
+                aboutState =
+                    AboutSectionState(
+                        currentVersion = currentVersion,
+                        manualUpdateState = manualUpdateState,
+                        showDebugUpdateTools = BuildConfig.DEBUG,
+                    ),
+                onBackClick = onBackClick,
+                snackbarHostState = snackbarHostState,
+                dialogState = dialogState,
+                features = features,
+                resources = resources,
+                storagePickers = storagePickers,
+                onOpenAvailableUpdateDialog = onOpenAvailableUpdateDialog,
+                onPreviewDebugUpdate = features.system::openDebugLatestReleasePreview,
+            )
+        }
+    }
 }
 
 @Composable
