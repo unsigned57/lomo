@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 
 internal const val DRAG_SCALE_FACTOR = 1.05f
+internal const val DRAG_ALPHA = 0.92f
 
 internal class ActionReorderState {
     var draggedId: MemoActionId? by mutableStateOf(null)
@@ -20,18 +21,36 @@ internal class ActionReorderState {
 
     val itemBounds = mutableStateMapOf<MemoActionId, ItemBounds>()
 
+    val swapAnimationOffsets = mutableStateMapOf<MemoActionId, Float>()
+
+    private var viewportWidth: Int = 0
+
+    fun setViewportWidth(width: Int) {
+        viewportWidth = width
+    }
+
     fun startDrag(id: MemoActionId) {
         draggedId = id
         dragOffset = 0f
+        swapAnimationOffsets.clear()
     }
 
     fun updateDrag(deltaX: Float) {
-        dragOffset += deltaX
+        val newOffset = dragOffset + deltaX
+        if (viewportWidth > 0) {
+            val bounds = draggedId?.let { itemBounds[it] } ?: return
+            val itemWidth = bounds.right - bounds.left
+            val maxOffset = viewportWidth.toFloat()
+            dragOffset = newOffset.coerceIn(-maxOffset, maxOffset - itemWidth.toFloat() / 2)
+        } else {
+            dragOffset = newOffset
+        }
     }
 
     fun endDrag() {
         draggedId = null
         dragOffset = 0f
+        swapAnimationOffsets.clear()
     }
 
     fun checkAndSwap(actions: SnapshotStateList<MemoActionSheetAction>) {
@@ -44,6 +63,7 @@ internal class ActionReorderState {
         val target = findSwapTarget(actions, dragged, draggedCenter, draggedIndex)
         if (target != null) {
             val (targetIndex, targetBounds) = target
+            val targetId = actions[targetIndex].id
             val draggedWidth = draggedBounds.right - draggedBounds.left
             val targetWidth = targetBounds.right - targetBounds.left
             val adjustment =
@@ -52,6 +72,15 @@ internal class ActionReorderState {
                 } else {
                     -(targetWidth - draggedWidth).toFloat()
                 }
+            if (targetId != null) {
+                val displacement =
+                    if (targetIndex > draggedIndex) {
+                        -(draggedWidth.toFloat())
+                    } else {
+                        draggedWidth.toFloat()
+                    }
+                swapAnimationOffsets[targetId] = displacement
+            }
             actions.add(targetIndex, actions.removeAt(draggedIndex))
             dragOffset += adjustment
         }
