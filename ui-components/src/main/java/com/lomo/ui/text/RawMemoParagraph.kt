@@ -1,7 +1,9 @@
 package com.lomo.ui.text
 
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.TextStyle
+import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
 
@@ -37,6 +39,17 @@ fun splitRawMemoParagraphs(rawText: String): List<RawMemoParagraph> {
 fun resolveRawMemoPlainTextStyle(
     typography: Typography,
     text: CharSequence,
+    scales: TypographyScales = TypographyScales(),
+): TextStyle = typography.memoBodyTextStyle(scales).scriptAwareFor(text)
+
+@Composable
+fun resolveRawMemoPlainTextStyle(
+    typography: Typography,
+    text: CharSequence,
 ): TextStyle = typography.memoBodyTextStyle().scriptAwareFor(text)
 
+fun rawMemoParagraphSpacing(scales: TypographyScales = TypographyScales()) =
+    memoParagraphBlockSpacing(scales)
+
+@Composable
 fun rawMemoParagraphSpacing() = memoParagraphBlockSpacing()

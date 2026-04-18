@@ -61,6 +61,26 @@ class SettingsAppConfigCoordinator(
             .getThemeMode()
             .stateIn(scope, settingsWhileSubscribed(), ThemeMode.SYSTEM)
 
+    val typographyFontSizeScale: StateFlow<Float> =
+        appConfigRepository
+            .getFontSizeScale()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
+
+    val typographyLineHeightScale: StateFlow<Float> =
+        appConfigRepository
+            .getLineHeightScale()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+
+    val typographyLetterSpacingScale: StateFlow<Float> =
+        appConfigRepository
+            .getLetterSpacingScale()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
+
+    val typographyParagraphSpacingScale: StateFlow<Float> =
+        appConfigRepository
+            .getParagraphSpacingScale()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
+
     val hapticFeedbackEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isHapticFeedbackEnabled()
@@ -80,16 +100,6 @@ class SettingsAppConfigCoordinator(
         appConfigRepository
             .isFreeTextCopyEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.FREE_TEXT_COPY_ENABLED)
-
-    val singleTapDetailEnabled: StateFlow<Boolean> =
-        appConfigRepository
-            .isSingleTapDetailEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED)
-
-    val attachLocationEnabled: StateFlow<Boolean> =
-        appConfigRepository
-            .isAttachLocationEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.ATTACH_LOCATION_ENABLED)
 
     val memoActionAutoReorderEnabled: StateFlow<Boolean> =
         appConfigRepository
@@ -246,6 +256,18 @@ class SettingsAppConfigCoordinator(
     val updateThemeMode: suspend (ThemeMode) -> Unit =
         { mode -> appConfigRepository.setThemeMode(mode) }
 
+    val updateTypographyFontSizeScale: suspend (Float) -> Unit =
+        { scale -> appConfigRepository.setFontSizeScale(scale) }
+
+    val updateTypographyLineHeightScale: suspend (Float) -> Unit =
+        { scale -> appConfigRepository.setLineHeightScale(scale) }
+
+    val updateTypographyLetterSpacingScale: suspend (Float) -> Unit =
+        { scale -> appConfigRepository.setLetterSpacingScale(scale) }
+
+    val updateTypographyParagraphSpacingScale: suspend (Float) -> Unit =
+        { scale -> appConfigRepository.setParagraphSpacingScale(scale) }
+
     val updateStorageFilenameFormat: suspend (String) -> Unit =
         { format -> appConfigRepository.setStorageFilenameFormat(format) }
 
@@ -273,12 +295,6 @@ class SettingsAppConfigCoordinator(
                 appConfigRepository.setDoubleTapEditEnabled(false)
             }
         }
-
-    val updateSingleTapDetailEnabled: suspend (Boolean) -> Unit =
-        { enabled -> appConfigRepository.setSingleTapDetailEnabled(enabled) }
-
-    val updateAttachLocationEnabled: suspend (Boolean) -> Unit =
-        { enabled -> appConfigRepository.setAttachLocationEnabled(enabled) }
 
     val updateMemoActionAutoReorderEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setMemoActionAutoReorderEnabled(enabled) }

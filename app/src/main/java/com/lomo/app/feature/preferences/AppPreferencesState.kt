@@ -25,7 +25,6 @@ data class AppPreferencesState(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
@@ -33,6 +32,10 @@ data class AppPreferencesState(
     val shareCardShowTime: Boolean,
     val shareCardShowBrand: Boolean,
     val shareCardSignatureText: String = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT,
+    val typographyFontSizeScale: Float = PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE,
+    val typographyLineHeightScale: Float = PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+    val typographyLetterSpacingScale: Float = PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE,
+    val typographyParagraphSpacingScale: Float = PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
 ) {
     companion object {
         fun defaults(): AppPreferencesState =
@@ -44,7 +47,6 @@ data class AppPreferencesState(
                 showInputHints = PreferenceDefaults.SHOW_INPUT_HINTS,
                 doubleTapEditEnabled = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED,
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
-                singleTapDetailEnabled = PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED,
                 memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
                 memoActionOrder = persistentListOf(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
@@ -52,6 +54,10 @@ data class AppPreferencesState(
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
                 shareCardShowBrand = PreferenceDefaults.SHARE_CARD_SHOW_BRAND,
                 shareCardSignatureText = PreferenceDefaults.SHARE_CARD_SIGNATURE_TEXT,
+                typographyFontSizeScale = PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE,
+                typographyLineHeightScale = PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+                typographyLetterSpacingScale = PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE,
+                typographyParagraphSpacingScale = PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
             )
     }
 }
@@ -77,20 +83,17 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             combine(
                 isDoubleTapEditEnabled(),
                 isFreeTextCopyEnabled(),
-                isSingleTapDetailEnabled(),
                 isMemoActionAutoReorderEnabled(),
                 getMemoActionOrder(),
             ) {
                 doubleTapEditEnabled,
                 freeTextCopyEnabled,
-                singleTapDetailEnabled,
                 memoActionAutoReorderEnabled,
                 memoActionOrder,
                 ->
                 MemoActionPreferences(
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
-                    singleTapDetailEnabled = singleTapDetailEnabled,
                     memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                     memoActionOrder = memoActionOrder.toImmutableList(),
                 )
@@ -102,7 +105,6 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             SharePreferences(
                 doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
                 freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
-                singleTapDetailEnabled = memoAction.singleTapDetailEnabled,
                 memoActionAutoReorderEnabled = memoAction.memoActionAutoReorderEnabled,
                 memoActionOrder = memoAction.memoActionOrder,
                 quickSaveOnBackEnabled = quickSaveOnBackEnabled,
@@ -112,7 +114,20 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
         },
         isShareCardShowBrandEnabled(),
         getShareCardSignatureText(),
-    ) { base, share, shareCardShowBrand, shareCardSignatureText ->
+        combine(
+            getFontSizeScale(),
+            getLineHeightScale(),
+            getLetterSpacingScale(),
+            getParagraphSpacingScale(),
+        ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
+            TypographyPreferences(
+                fontSizeScale = fontSize,
+                lineHeightScale = lineHeight,
+                letterSpacingScale = letterSpacing,
+                paragraphSpacingScale = paragraphSpacing,
+            )
+        }
+    ) { base, share, shareCardShowBrand, shareCardSignatureText, typography ->
         AppPreferencesState(
             dateFormat = base.dateFormat,
             timeFormat = base.timeFormat,
@@ -121,7 +136,6 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             showInputHints = base.showInputHints,
             doubleTapEditEnabled = share.doubleTapEditEnabled,
             freeTextCopyEnabled = share.freeTextCopyEnabled,
-            singleTapDetailEnabled = share.singleTapDetailEnabled,
             memoActionAutoReorderEnabled = share.memoActionAutoReorderEnabled,
             memoActionOrder = share.memoActionOrder,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
@@ -129,6 +143,10 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             shareCardShowTime = share.shareCardShowTime,
             shareCardShowBrand = shareCardShowBrand,
             shareCardSignatureText = shareCardSignatureText,
+            typographyFontSizeScale = typography.fontSizeScale,
+            typographyLineHeightScale = typography.lineHeightScale,
+            typographyLetterSpacingScale = typography.letterSpacingScale,
+            typographyParagraphSpacingScale = typography.paragraphSpacingScale,
         )
     }
 
@@ -151,7 +169,6 @@ private data class BasePreferences(
 private data class MemoActionPreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
 )
@@ -159,10 +176,16 @@ private data class MemoActionPreferences(
 private data class SharePreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val scrollbarEnabled: Boolean,
+)
+
+private data class TypographyPreferences(
+    val fontSizeScale: Float,
+    val lineHeightScale: Float,
+    val letterSpacingScale: Float,
+    val paragraphSpacingScale: Float,
 )

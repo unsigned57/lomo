@@ -8,6 +8,7 @@ import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import com.lomo.ui.component.markdown.createModernMarkdownTokenSpec
+import com.lomo.ui.theme.TypographyScales
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -24,6 +25,7 @@ import org.junit.Test
  */
 class MemoParagraphLinkVisibilityContractTest {
     private val linkColor = Color(0xFF0061A4)
+    private val defaultScales = TypographyScales()
 
     @Test
     fun `platform link style keeps annotated markdown color with underline`() {
@@ -61,7 +63,12 @@ class MemoParagraphLinkVisibilityContractTest {
 
     @Test
     fun `modern markdown tokens expose underlined link style`() {
-        val spec = createModernMarkdownTokenSpec(Typography(), linkColor = linkColor)
+        val spec =
+            createModernMarkdownTokenSpec(
+                Typography(),
+                linkColor = linkColor,
+                scales = defaultScales,
+            )
 
         assertEquals(linkColor, spec.linkStyle.style?.color)
         assertEquals(

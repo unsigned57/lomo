@@ -4,8 +4,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
-import com.lomo.ui.theme.memoEditorTextStyle
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -19,6 +19,7 @@ import org.junit.Test
  */
 class MemoPlainTextPresentationTest {
     private val typography = Typography()
+    private val defaultScales = TypographyScales()
 
     @Test
     fun `raw memo paragraph splitter keeps intra paragraph line breaks and splits only on blank lines`() {
@@ -58,17 +59,17 @@ class MemoPlainTextPresentationTest {
     fun `shared plain text memo style keeps editor and rendered memo body visually identical`() {
         val text = "今天 review memo"
 
-        val resolved = resolveRawMemoPlainTextStyle(typography = typography, text = text)
+        val resolved = resolveRawMemoPlainTextStyle(typography = typography, text = text, scales = defaultScales)
 
-        assertEquals(typography.memoBodyTextStyle().fontSize, resolved.fontSize)
-        assertEquals(typography.memoBodyTextStyle().lineHeight, resolved.lineHeight)
+        assertEquals(typography.memoBodyTextStyle(defaultScales).fontSize, resolved.fontSize)
+        assertEquals(typography.memoBodyTextStyle(defaultScales).lineHeight, resolved.lineHeight)
         assertEquals(0.sp, resolved.letterSpacing)
         assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
-        assertEquals(typography.memoEditorTextStyle().scriptAwareFor(text), resolved)
+        assertEquals(typography.memoBodyTextStyle(defaultScales).scriptAwareFor(text), resolved)
     }
 
     @Test
     fun `shared raw memo paragraph spacing matches rendered memo block rhythm`() {
-        assertEquals(8.dp, rawMemoParagraphSpacing())
+        assertEquals(8.dp, rawMemoParagraphSpacing(defaultScales))
     }
 }

@@ -56,7 +56,11 @@ internal fun rememberModernMarkdownComponents(): MarkdownComponents =
 @Composable
 private fun ModernMarkdownParagraph(model: MarkdownComponentModel) {
     val style = model.typography.paragraph
-    val annotatedText = remember(model.content, model.node, style) { model.buildAnnotatedText(style) }
+    val blockSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing()
+    val annotatedText =
+        remember(model.content, model.node, style, blockSpacing) {
+            model.buildAnnotatedText(style, blockSpacing)
+        }
     val fallbackColor = MaterialTheme.colorScheme.onSurface
     val finalStyle =
         remember(style, annotatedText, fallbackColor) {
@@ -79,7 +83,11 @@ private fun ModernMarkdownHeading(
     model: MarkdownComponentModel,
     style: TextStyle,
 ) {
-    val annotatedText = remember(model.content, model.node, style) { model.buildAnnotatedText(style) }
+    val blockSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing()
+    val annotatedText =
+        remember(model.content, model.node, style, blockSpacing) {
+            model.buildAnnotatedText(style, blockSpacing)
+        }
     val fallbackColor = MaterialTheme.colorScheme.onSurface
     val finalStyle =
         remember(style, annotatedText, fallbackColor) {
@@ -113,7 +121,7 @@ internal fun buildModernMarkdownAnnotatedText(
         tokenSpec = tokenSpec,
     )
 
-private fun MarkdownComponentModel.buildAnnotatedText(style: TextStyle) =
+private fun MarkdownComponentModel.buildAnnotatedText(style: TextStyle, blockSpacing: androidx.compose.ui.unit.Dp) =
     buildModernMarkdownAnnotatedText(
         content = content,
         node = node,
@@ -134,8 +142,8 @@ private fun MarkdownComponentModel.buildAnnotatedText(style: TextStyle) =
                 tableStyle = typography.table,
                 linkStyle = typography.textLink,
                 highlightSpanStyle = SpanStyle(),
-                blockSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing(),
-                listSpacing = com.lomo.ui.theme.memoParagraphBlockSpacing(),
+                blockSpacing = blockSpacing,
+                listSpacing = blockSpacing,
                 listItemSpacing = 4.dp,
             ),
     )

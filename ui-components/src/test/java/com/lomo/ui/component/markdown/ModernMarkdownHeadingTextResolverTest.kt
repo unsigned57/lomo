@@ -2,6 +2,7 @@ package com.lomo.ui.component.markdown
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import com.lomo.ui.theme.TypographyScales
 import org.intellij.markdown.MarkdownElementTypes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -17,6 +18,8 @@ import org.junit.Test
  * - Excludes: Compose tree rendering, Android TextView internals, and third-party markdown parser implementation details beyond the exposed AST shape.
  */
 class ModernMarkdownHeadingTextResolverTest {
+    private val defaultScales = TypographyScales()
+
     @Test
     fun `atx heading produces visible text without heading markers`() {
         val content = "# 一级标题"
@@ -28,7 +31,12 @@ class ModernMarkdownHeadingTextResolverTest {
                 content = content,
                 node = headingNode,
                 style = Typography().headlineSmall,
-                tokenSpec = createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF)),
+                tokenSpec =
+                    createModernMarkdownTokenSpec(
+                        Typography(),
+                        linkColor = Color(0xFF3366FF),
+                        scales = defaultScales,
+                    ),
             )
 
         assertEquals("一级标题", resolved.text.trim())
@@ -51,7 +59,12 @@ class ModernMarkdownHeadingTextResolverTest {
                 content = content,
                 node = headingNode,
                 style = Typography().headlineSmall,
-                tokenSpec = createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF)),
+                tokenSpec =
+                    createModernMarkdownTokenSpec(
+                        Typography(),
+                        linkColor = Color(0xFF3366FF),
+                        scales = defaultScales,
+                    ),
             )
 
         assertTrue(resolved.text.contains("粗体"))

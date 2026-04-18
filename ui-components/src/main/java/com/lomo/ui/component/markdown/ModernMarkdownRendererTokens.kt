@@ -13,6 +13,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.theme.TypographyScales
+import com.lomo.ui.theme.currentTypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
 import com.mikepenz.markdown.model.DefaultMarkdownTypography
@@ -46,8 +48,9 @@ internal fun createModernMarkdownTokenSpec(
     typography: Typography,
     linkColor: Color = Color.Unspecified,
     highlightBackgroundColor: Color = DEFAULT_HIGHLIGHT_BACKGROUND_COLOR,
+    scales: TypographyScales = TypographyScales(),
 ): ModernMarkdownTokenSpec {
-    val paragraphStyle = typography.memoBodyTextStyle()
+    val paragraphStyle = typography.memoBodyTextStyle(scales)
     val linkSpanStyle =
         SpanStyle(
             color = linkColor,
@@ -73,11 +76,12 @@ internal fun createModernMarkdownTokenSpec(
         tableStyle = paragraphStyle,
         linkStyle = TextLinkStyles(style = linkSpanStyle),
         highlightSpanStyle = highlightSpanStyle,
-        blockSpacing = memoParagraphBlockSpacing(),
-        listSpacing = memoParagraphBlockSpacing(),
+        blockSpacing = memoParagraphBlockSpacing(scales),
+        listSpacing = memoParagraphBlockSpacing(scales),
         listItemSpacing = 4.dp,
     )
 }
+
 
 internal fun resolveVisibleModernMarkdownTokenSpec(
     baseSpec: ModernMarkdownTokenSpec,
@@ -110,14 +114,16 @@ internal data class ModernMarkdownTokens(
 internal fun rememberModernMarkdownTokenSpec(): ModernMarkdownTokenSpec {
     val materialTypography = MaterialTheme.typography
     val colorScheme = MaterialTheme.colorScheme
-    return remember(materialTypography, colorScheme) {
+    val scales = currentTypographyScales()
+    val baseSpec = createModernMarkdownTokenSpec(
+        typography = materialTypography,
+        linkColor = colorScheme.primary,
+        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
+        scales = scales,
+    )
+    return remember(materialTypography, colorScheme, baseSpec) {
         resolveVisibleModernMarkdownTokenSpec(
-            baseSpec =
-                createModernMarkdownTokenSpec(
-                    typography = materialTypography,
-                    linkColor = colorScheme.primary,
-                    highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                ),
+            baseSpec = baseSpec,
             primaryTextColor = colorScheme.onSurface,
             secondaryTextColor = colorScheme.onSurfaceVariant,
         )
@@ -128,15 +134,17 @@ internal fun rememberModernMarkdownTokenSpec(): ModernMarkdownTokenSpec {
 internal fun rememberModernMarkdownTokens(): ModernMarkdownTokens {
     val materialTypography = MaterialTheme.typography
     val colorScheme = MaterialTheme.colorScheme
-    return remember(materialTypography, colorScheme) {
+    val scales = currentTypographyScales()
+    val baseSpec = createModernMarkdownTokenSpec(
+        typography = materialTypography,
+        linkColor = colorScheme.primary,
+        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
+        scales = scales,
+    )
+    return remember(materialTypography, colorScheme, baseSpec) {
         val spec =
             resolveVisibleModernMarkdownTokenSpec(
-                baseSpec =
-                    createModernMarkdownTokenSpec(
-                        typography = materialTypography,
-                        linkColor = colorScheme.primary,
-                        highlightBackgroundColor = colorScheme.secondaryContainer.copy(alpha = 0.55f),
-                    ),
+                baseSpec = baseSpec,
                 primaryTextColor = colorScheme.onSurface,
                 secondaryTextColor = colorScheme.onSurfaceVariant,
             )

@@ -2,6 +2,7 @@ package com.lomo.ui.component.markdown
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import com.lomo.ui.theme.TypographyScales
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -14,9 +15,16 @@ import org.junit.Test
  * - Excludes: Compose tree rendering, third-party markdown parsing internals, and Android TextView behavior.
  */
 class ModernMarkdownVisibleTextStylePolicyTest {
+    private val defaultScales = TypographyScales()
+
     @Test
     fun `unstyled modern markdown text tokens receive visible theme colors`() {
-        val baseSpec = createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF))
+        val baseSpec =
+            createModernMarkdownTokenSpec(
+                Typography(),
+                linkColor = Color(0xFF3366FF),
+                scales = defaultScales,
+            )
         val primaryTextColor = Color(0xFF223344)
         val secondaryTextColor = Color(0xFF556677)
 
@@ -46,13 +54,25 @@ class ModernMarkdownVisibleTextStylePolicyTest {
         val explicitHeadingColor = Color(0xFFAA3300)
         val explicitQuoteColor = Color(0xFF0055AA)
         val baseSpec =
-            createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF)).copy(
+            createModernMarkdownTokenSpec(
+                Typography(),
+                linkColor = Color(0xFF3366FF),
+                scales = defaultScales,
+            ).copy(
                 heading2Style =
-                    createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF))
+                    createModernMarkdownTokenSpec(
+                        Typography(),
+                        linkColor = Color(0xFF3366FF),
+                        scales = defaultScales,
+                    )
                         .heading2Style
                         .copy(color = explicitHeadingColor),
                 quoteStyle =
-                    createModernMarkdownTokenSpec(Typography(), linkColor = Color(0xFF3366FF))
+                    createModernMarkdownTokenSpec(
+                        Typography(),
+                        linkColor = Color(0xFF3366FF),
+                        scales = defaultScales,
+                    )
                         .quoteStyle
                         .copy(color = explicitQuoteColor),
             )

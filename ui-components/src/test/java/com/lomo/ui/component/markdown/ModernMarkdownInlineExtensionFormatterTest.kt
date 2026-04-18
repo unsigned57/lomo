@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextDecoration
+import com.lomo.ui.theme.TypographyScales
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -19,7 +20,12 @@ import org.junit.Test
  */
 class ModernMarkdownInlineExtensionFormatterTest {
     private val typography = Typography()
-    private val tokenSpec = createModernMarkdownTokenSpec(typography, linkColor = Color(0xFF0061A4))
+    private val tokenSpec =
+        createModernMarkdownTokenSpec(
+            typography,
+            linkColor = Color(0xFF0061A4),
+            scales = TypographyScales(),
+        )
     private val paragraphStyle: TextStyle = tokenSpec.paragraphStyle
 
     @Test
