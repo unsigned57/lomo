@@ -127,11 +127,9 @@ class WebDavSyncFileBridge
             if (localChanged && completeSnapshot) localFiles(layout) else localFiles
         val syncedRemoteFiles = resolveRemoteSnapshot(
             client = client,
-            layout = layout,
             remoteFiles = remoteFiles,
             actionOutcomes = actionOutcomes,
             remoteChanged = remoteChanged,
-            completeSnapshot = completeSnapshot,
         )
         val now = System.currentTimeMillis()
         val intersectionPaths = syncedLocalFiles.keys.intersect(syncedRemoteFiles.keys)
@@ -225,25 +223,20 @@ class WebDavSyncFileBridge
 
 private fun WebDavSyncFileBridge.resolveRemoteSnapshot(
     client: WebDavClient,
-    layout: SyncDirectoryLayout,
     remoteFiles: Map<String, RemoteWebDavFile>,
     actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
     remoteChanged: Boolean,
-    completeSnapshot: Boolean,
 ): Map<String, RemoteWebDavFile> {
     if (!remoteChanged) return remoteFiles
-    if (completeSnapshot) {
-        return runNonFatalCatching {
-            remoteFiles(client, layout)
-        }.getOrElse { error ->
-            val message = error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE
-            throw IllegalStateException(
-                "Failed to reload remote WebDAV files after sync: $message",
-                error,
-            )
-        }
-    }
-    val changedPaths = actionOutcomes.keys
+    val changedPaths =
+        actionOutcomes
+            .asSequence()
+            .filter { (_, outcome) ->
+                outcome.first == WebDavSyncDirection.UPLOAD ||
+                    outcome.first == WebDavSyncDirection.DELETE_REMOTE
+            }.map { (path, _) -> path }
+            .toSet()
+    if (changedPaths.isEmpty()) return remoteFiles
     val foldersToRefresh = changedPaths.mapNotNullTo(mutableSetOf()) { path ->
         val lastSlash = path.lastIndexOf('/')
         if (lastSlash > 0) path.substring(0, lastSlash) else null
@@ -264,5 +257,7 @@ private fun WebDavSyncFileBridge.resolveRemoteSnapshot(
                 }
         }
     }
-    return remoteFiles + changedRemote
+    val mergedRemoteFiles = remoteFiles.toMutableMap()
+    changedPaths.forEach(mergedRemoteFiles::remove)
+    return mergedRemoteFiles + changedRemote
 }

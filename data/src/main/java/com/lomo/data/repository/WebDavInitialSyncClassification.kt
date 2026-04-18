@@ -6,6 +6,12 @@ import com.lomo.data.util.runNonFatalCatching
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 internal data class WebDavInitialSyncClassification(
     val equivalentMetadataByPath: Map<String, WebDavSyncMetadataEntity> = emptyMap(),
@@ -35,23 +41,38 @@ internal suspend fun classifyWebDavInitialOverlaps(
     val equivalentMetadataByPath = linkedMapOf<String, WebDavSyncMetadataEntity>()
     val resolvedActionsByPath = linkedMapOf<String, WebDavSyncAction>()
 
-    candidatePaths.forEach { path ->
-        val local = requireNotNull(localFiles[path])
-        val remote = requireNotNull(remoteFiles[path])
-        when (
-            resolveWebDavInitialOverlap(
-                path = path,
-                local = local,
-                remote = remote,
-                client = client,
-                layout = layout,
-                fileBridge = fileBridge,
-                timestampToleranceMs = timestampToleranceMs,
-            )
-        ) {
+    val decisions =
+        coroutineScope {
+            val limiter = Semaphore(WEBDAV_INITIAL_OVERLAP_CONCURRENCY)
+            candidatePaths.map { path ->
+                async(Dispatchers.IO) {
+                    limiter.withPermit {
+                        val local = requireNotNull(localFiles[path])
+                        val remote = requireNotNull(remoteFiles[path])
+                        path to
+                            resolveWebDavInitialOverlap(
+                                path = path,
+                                local = local,
+                                remote = remote,
+                                client = client,
+                                layout = layout,
+                                fileBridge = fileBridge,
+                                timestampToleranceMs = timestampToleranceMs,
+                            )
+                    }
+                }
+            }.awaitAll()
+        }
+
+    decisions.forEach { (path, decision) ->
+        when (decision) {
             WebDavInitialOverlapDecision.EQUIVALENT ->
                 equivalentMetadataByPath[path] =
-                    initialEquivalentWebDavMetadata(path, local, remote)
+                    initialEquivalentWebDavMetadata(
+                        path = path,
+                        local = requireNotNull(localFiles[path]),
+                        remote = requireNotNull(remoteFiles[path]),
+                    )
 
             WebDavInitialOverlapDecision.UPLOAD ->
                 resolvedActionsByPath[path] =
@@ -82,6 +103,11 @@ private suspend fun resolveWebDavInitialOverlap(
 ): WebDavInitialOverlapDecision {
     val localFingerprint = local.localFingerprint
         ?: return newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
+    val timestampDecision =
+        newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
+    if (timestampDecision != WebDavInitialOverlapDecision.CONFLICT) {
+        return timestampDecision
+    }
 
     val remoteBytes =
         runNonFatalCatching { client.get(path).bytes }.getOrNull()
@@ -136,3 +162,4 @@ private enum class WebDavInitialOverlapDecision {
 }
 
 private const val WEBDAV_TIMESTAMP_TOLERANCE_MS = 1000L
+private const val WEBDAV_INITIAL_OVERLAP_CONCURRENCY = 4
