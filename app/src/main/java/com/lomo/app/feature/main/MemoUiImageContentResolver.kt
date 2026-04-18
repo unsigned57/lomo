@@ -5,6 +5,7 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import java.net.URI
+import java.util.Locale
 
 internal const val CONTENT_URI_PREFIX = "content://"
 internal const val FILE_URI_PREFIX = "file://"
@@ -33,7 +34,7 @@ internal class MemoUiImageContentResolver {
         imageMap: Map<String, Uri>,
     ): String {
         if (!containsInlineMediaMarkup(content)) {
-            return content
+            return linkifyMemoGeoUris(content)
         }
         val wikiResolvedContent =
             WIKI_IMAGE_REGEX.replace(content) { match ->
@@ -50,25 +51,27 @@ internal class MemoUiImageContentResolver {
                 "![]($finalUrl)"
             }
 
-        return MARKDOWN_IMAGE_REGEX.replace(wikiResolvedContent) { match ->
-            val alt = match.groupValues[1]
-            val path = match.groupValues[2]
+        val mediaResolvedContent =
+            MARKDOWN_IMAGE_REGEX.replace(wikiResolvedContent) { match ->
+                val alt = match.groupValues[1]
+                val path = match.groupValues[2]
 
-            if (AUDIO_EXTENSIONS.any { path.lowercase(java.util.Locale.ROOT).endsWith(it) }) {
-                match.value
-            } else {
-                val resolved =
-                    resolveImageModel(
-                        imageUrl = path,
-                        isWikiStyle = false,
-                        rootPath = rootPath,
-                        imagePath = imagePath,
-                        imageMap = imageMap,
-                    )
-                val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
-                "![$alt]($finalUrl)"
+                if (AUDIO_EXTENSIONS.any { path.lowercase(Locale.ROOT).endsWith(it) }) {
+                    match.value
+                } else {
+                    val resolved =
+                        resolveImageModel(
+                            imageUrl = path,
+                            isWikiStyle = false,
+                            rootPath = rootPath,
+                            imagePath = imagePath,
+                            imageMap = imageMap,
+                        )
+                    val finalUrl = (resolved as? File)?.absolutePath ?: resolved.toString()
+                    "![$alt]($finalUrl)"
+                }
             }
-        }
+        return linkifyMemoGeoUris(mediaResolvedContent)
     }
 
     fun extractImageUrls(content: String): ImmutableList<String> {

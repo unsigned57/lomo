@@ -44,4 +44,19 @@ class MemoEditorPreviewContentResolverTest {
 
         assertEquals("# Title\nBody", resolved)
     }
+
+    @Test
+    fun `build memo editor preview content linkifies geo uri text`() {
+        val geoUri = "geo:-29.1645,141.5243?z=10"
+
+        val resolved =
+            buildMemoEditorPreviewContent(
+                content = "Meet here\n$geoUri",
+                rootPath = "/memo",
+                imagePath = "/images",
+                imageMap = emptyMap(),
+            )
+
+        assertEquals("Meet here\n[$geoUri]($geoUri)", resolved)
+    }
 }
