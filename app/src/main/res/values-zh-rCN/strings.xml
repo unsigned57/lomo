@@ -18,6 +18,16 @@
     
     <!-- Display Group -->
     <string name="settings_group_display">显示</string>
+    <string name="settings_typography">排版设置</string>
+    <string name="settings_typography_subtitle">调整字体大小与间距</string>
+    <string name="settings_typography_font_size">字体大小</string>
+    <string name="settings_typography_line_height">行间距</string>
+    <string name="settings_typography_letter_spacing">字间距</string>
+    <string name="settings_typography_paragraph_spacing">段间距</string>
+    <string name="settings_typography_preview_en_1">The quick brown fox jumps over the lazy dog. Every letter and word has its own space, creating a rhythm that guides the eye. Typography is the art of arranging text to make it readable, beautiful, and meaningful.</string>
+    <string name="settings_typography_preview_en_2">Good spacing makes text easier to read. When letters are too close together, words become crowded. When lines are too tight, paragraphs feel dense. Finding the right balance is key to comfortable reading.</string>
+    <string name="settings_typography_preview_zh_1">排版是文字呈现的艺术。每一个字、每一行、每一段之间的距离，都影响着阅读的节奏与舒适度。好的排版让文字自然流淌，让阅读成为一种享受。</string>
+    <string name="settings_typography_preview_zh_2">文字间距影响词句的紧凑程度，行间距决定段落的呼吸感，段间距则为不同思想之间留出停顿的空间。调整这些参数，找到最适合你的阅读体验。</string>
     <string name="settings_date_format">日期格式</string>
     <string name="settings_time_format">时间格式</string>
     
@@ -34,10 +44,6 @@
     <string name="settings_double_tap_edit_subtitle">双击备忘录卡片可快速进入编辑模式</string>
     <string name="settings_free_text_copy">自由复制文本</string>
     <string name="settings_free_text_copy_subtitle">允许在备忘录卡片中直接选择并复制文本</string>
-    <string name="settings_single_tap_detail">单击显示详情</string>
-    <string name="settings_single_tap_detail_subtitle">点击备忘录展开并显示完整内容</string>
-    <string name="settings_attach_location">附加位置</string>
-    <string name="settings_attach_location_subtitle">在输入工具栏中显示位置按钮</string>
     <string name="settings_menu_auto_reorder">菜单磁贴自动排序</string>
     <string name="settings_menu_auto_reorder_subtitle">根据长期使用热度逐步把常用备忘录菜单磁贴移动到前面</string>
     <string name="settings_quick_save_on_back">返回快速保存</string>
@@ -47,6 +53,8 @@
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
     <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
     <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
+    <string name="settings_lan_share_enabled_title">启用局域网分享</string>
+    <string name="settings_lan_share_enabled_subtitle">允许设备发现和局域网传输</string>
     <string name="settings_lan_share_pairing_dialog_title">设置配对密码</string>
     <string name="settings_lan_share_pairing_dialog_message">请在需要互信的设备上使用同一个配对密码。</string>
     <string name="settings_lan_share_pairing_hint">6–64 个字符</string>

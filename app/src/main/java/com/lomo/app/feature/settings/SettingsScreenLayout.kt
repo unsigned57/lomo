@@ -277,6 +277,7 @@ private fun PrimarySettingsSections(
             dialogOptions.themeModeLabels[uiState.display.themeMode] ?: uiState.display.themeMode.value,
         onOpenLanguageDialog = { dialogState.showLanguageDialog = true },
         onOpenThemeDialog = { dialogState.showThemeDialog = true },
+        onOpenTypographyDialog = { dialogState.showTypographyPage = true },
         onOpenDateFormatDialog = { dialogState.showDateDialog = true },
         onOpenTimeFormatDialog = { dialogState.showTimeDialog = true },
     )
@@ -325,8 +326,6 @@ private fun FooterSettingsSections(
         onToggleInputHints = interactionFeature::updateShowInputHints,
         onToggleDoubleTapEdit = interactionFeature::updateDoubleTapEditEnabled,
         onToggleFreeTextCopy = interactionFeature::updateFreeTextCopyEnabled,
-        onToggleSingleTapDetail = interactionFeature::updateSingleTapDetailEnabled,
-        onToggleAttachLocation = interactionFeature::updateAttachLocationEnabled,
         onToggleMemoActionAutoReorder = interactionFeature::updateMemoActionAutoReorderEnabled,
         onToggleAppLock = interactionFeature::updateAppLockEnabled,
         onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,

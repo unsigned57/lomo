@@ -1,31 +1,54 @@
 package com.lomo.ui.theme
 
 import androidx.compose.material3.Typography
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-fun Typography.memoBodyTextStyle(): TextStyle =
+private const val BASELINE_LETTER_SPACING = 0.1f
+private const val LETTER_SPACING_STEP = 1.0f
+
+private fun scaledLetterSpacing(scale: Float) =
+    (BASELINE_LETTER_SPACING + LETTER_SPACING_STEP * (scale - 1.0f)).sp
+
+fun Typography.memoBodyTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
     bodyMedium.copy(
-        lineHeight = 16.sp,
-        letterSpacing = 0.1.sp,
+        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
+        lineHeight = 16.sp * scales.fontSizeScale * scales.lineHeightScale,
+        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
     )
 
-fun Typography.memoSummaryTextStyle(): TextStyle =
+@Composable
+fun Typography.memoBodyTextStyle(): TextStyle = memoBodyTextStyle(currentTypographyScales())
+
+fun Typography.memoSummaryTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
     bodyMedium.copy(
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp,
+        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
+        lineHeight = 20.sp * scales.fontSizeScale * scales.lineHeightScale,
+        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
     )
 
-fun Typography.memoEditorTextStyle(): TextStyle =
-    memoBodyTextStyle()
+@Composable
+fun Typography.memoSummaryTextStyle(): TextStyle = memoSummaryTextStyle(currentTypographyScales())
 
-fun Typography.memoHintTextStyle(): TextStyle =
+fun Typography.memoEditorTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
+    memoBodyTextStyle(scales)
+
+@Composable
+fun Typography.memoEditorTextStyle(): TextStyle = memoEditorTextStyle(currentTypographyScales())
+
+fun Typography.memoHintTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
     bodyMedium.copy(
-        lineHeight = 16.sp,
-        letterSpacing = 0.1.sp,
+        fontSize = bodyMedium.fontSize * scales.fontSizeScale,
+        lineHeight = 16.sp * scales.fontSizeScale * scales.lineHeightScale,
+        letterSpacing = scaledLetterSpacing(scales.letterSpacingScale),
     )
 
-fun Typography.memoListTextStyle(): TextStyle = memoBodyTextStyle()
+@Composable
+fun Typography.memoHintTextStyle(): TextStyle = memoHintTextStyle(currentTypographyScales())
 
-fun memoParagraphBlockSpacing() = 8.dp
+fun Typography.memoListTextStyle(scales: TypographyScales = TypographyScales()): TextStyle =
+    memoBodyTextStyle(scales)
+
+@Composable
+fun Typography.memoListTextStyle(): TextStyle = memoListTextStyle(currentTypographyScales())
