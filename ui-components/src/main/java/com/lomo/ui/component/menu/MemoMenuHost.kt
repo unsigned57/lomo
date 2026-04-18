@@ -124,10 +124,13 @@ private fun MemoMenuBottomSheetHost(
                 clearActiveState()
                 onShareText(state)
             },
-            onLanShare = {
-                clearActiveState()
-                onLanShare?.invoke(state)
-            },
+            onLanShare =
+                onLanShare?.let { handler ->
+                    {
+                        clearActiveState()
+                        handler(state)
+                    }
+                },
             onTogglePin =
                 createOptionalStateAction(
                     handler = onTogglePin,
