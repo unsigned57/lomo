@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Column
+import androidx.compose.ui.Modifier
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -21,34 +22,54 @@ import com.lomo.ui.theme.MotionTokens
 @Composable
 fun LanShareSettingsSection(
     state: LanShareSectionState,
+    onToggleEnabled: (Boolean) -> Unit,
     onToggleE2e: (Boolean) -> Unit,
     onOpenPairingDialog: () -> Unit,
     onOpenDeviceNameDialog: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    SettingsGroup(title = stringResource(R.string.share_lan_title)) {
+    SettingsGroup(
+        title = stringResource(R.string.share_lan_title),
+        modifier = modifier,
+    ) {
         SwitchPreferenceItem(
-            title = stringResource(R.string.share_e2e_enabled_title),
-            subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
-            icon = Icons.Default.Lock,
-            checked = state.e2eEnabled,
-            onCheckedChange = onToggleE2e,
+            title = stringResource(R.string.settings_lan_share_enabled_title),
+            subtitle = stringResource(R.string.settings_lan_share_enabled_subtitle),
+            icon = Icons.Outlined.PhoneAndroid,
+            checked = state.enabled,
+            onCheckedChange = onToggleEnabled,
         )
         SettingsExpandableContent(
-            visible = state.e2eEnabled,
-            label = "LanPairingVisibility",
+            visible = state.enabled,
+            label = "LanShareSettingsVisibility",
         ) {
-            LanSharePairingSettings(
-                pairingConfigured = state.pairingConfigured,
-                onOpenPairingDialog = onOpenPairingDialog,
-            )
+            Column {
+                SettingsDivider()
+                SwitchPreferenceItem(
+                    title = stringResource(R.string.share_e2e_enabled_title),
+                    subtitle = stringResource(R.string.share_e2e_enabled_subtitle),
+                    icon = Icons.Default.Lock,
+                    checked = state.e2eEnabled,
+                    onCheckedChange = onToggleE2e,
+                )
+                SettingsExpandableContent(
+                    visible = state.e2eEnabled,
+                    label = "LanPairingVisibility",
+                ) {
+                    LanSharePairingSettings(
+                        pairingConfigured = state.pairingConfigured,
+                        onOpenPairingDialog = onOpenPairingDialog,
+                    )
+                }
+                SettingsDivider()
+                PreferenceItem(
+                    title = stringResource(R.string.share_device_name_label),
+                    subtitle = state.deviceName.ifBlank { stringResource(R.string.settings_not_set) },
+                    icon = Icons.Outlined.PhoneAndroid,
+                    onClick = onOpenDeviceNameDialog,
+                )
+            }
         }
-        SettingsDivider()
-        PreferenceItem(
-            title = stringResource(R.string.share_device_name_label),
-            subtitle = state.deviceName.ifBlank { stringResource(R.string.settings_not_set) },
-            icon = Icons.Outlined.PhoneAndroid,
-            onClick = onOpenDeviceNameDialog,
-        )
     }
 }
 

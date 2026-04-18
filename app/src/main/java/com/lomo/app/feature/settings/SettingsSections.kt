@@ -15,11 +15,10 @@ import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
-import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.Tag
-import androidx.compose.material.icons.outlined.TouchApp
+import androidx.compose.material.icons.outlined.TextFields
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -88,6 +87,7 @@ fun DisplaySettingsSection(
     themeLabel: String,
     onOpenLanguageDialog: () -> Unit,
     onOpenThemeDialog: () -> Unit,
+    onOpenTypographyDialog: () -> Unit,
     onOpenDateFormatDialog: () -> Unit,
     onOpenTimeFormatDialog: () -> Unit,
 ) {
@@ -104,6 +104,13 @@ fun DisplaySettingsSection(
             subtitle = themeLabel,
             icon = Icons.Outlined.Brightness6,
             onClick = onOpenThemeDialog,
+        )
+        SettingsDivider()
+        PreferenceItem(
+            title = stringResource(R.string.settings_typography),
+            subtitle = stringResource(R.string.settings_typography_subtitle),
+            icon = Icons.Outlined.TextFields,
+            onClick = onOpenTypographyDialog,
         )
         SettingsDivider()
         PreferenceItem(
@@ -200,8 +207,6 @@ fun InteractionSettingsSection(
     onToggleInputHints: (Boolean) -> Unit,
     onToggleDoubleTapEdit: (Boolean) -> Unit,
     onToggleFreeTextCopy: (Boolean) -> Unit,
-    onToggleSingleTapDetail: (Boolean) -> Unit,
-    onToggleAttachLocation: (Boolean) -> Unit,
     onToggleMemoActionAutoReorder: (Boolean) -> Unit,
     onToggleAppLock: (Boolean) -> Unit,
     onToggleQuickSaveOnBack: (Boolean) -> Unit,
@@ -246,22 +251,6 @@ fun InteractionSettingsSection(
             icon = Icons.Outlined.ContentCopy,
             checked = state.freeTextCopyEnabled,
             onCheckedChange = onToggleFreeTextCopy,
-        )
-        SettingsDivider()
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_single_tap_detail),
-            subtitle = stringResource(R.string.settings_single_tap_detail_subtitle),
-            icon = Icons.Outlined.TouchApp,
-            checked = state.singleTapDetailEnabled,
-            onCheckedChange = onToggleSingleTapDetail,
-        )
-        SettingsDivider()
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_attach_location),
-            subtitle = stringResource(R.string.settings_attach_location_subtitle),
-            icon = Icons.Outlined.LocationOn,
-            checked = state.attachLocationEnabled,
-            onCheckedChange = onToggleAttachLocation,
         )
         SettingsDivider()
         SwitchPreferenceItem(
