@@ -753,7 +753,7 @@ class S3SyncIncrementalExecutorTest {
         }
 
     @Test
-    fun `performSync rechecks remote object before deleting local file from full snapshot`() =
+    fun `performSync trusts full snapshot when deleting local file after remote disappearance`() =
         runTest {
             val path = "lomo/memo/note.md"
             coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns
@@ -778,9 +778,13 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 already up to date", success.message)
-            assertEquals(listOf(path), client.headKeys)
-            coVerify(exactly = 0) { markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, "note.md") }
+            assertEquals("S3 sync completed", success.message)
+            assertEquals(
+                listOf(S3SyncDirection.DELETE_LOCAL to S3SyncReason.REMOTE_DELETED),
+                success.outcomes.map { it.direction to it.reason },
+            )
+            assertTrue(client.headKeys.isEmpty())
+            coVerify(exactly = 1) { markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, "note.md") }
         }
 
     @Test
