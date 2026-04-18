@@ -251,17 +251,19 @@ fun LomoTheme(
         }
     }
 
-    // Warm the expressive motion scheme during stable theme composition so first-use surfaces such as the
-    // memo menu sheet do not initialize their motion path on the initial click.
-    PrewarmExpressiveMotion()
+    // Apply the expressive motion scheme globally so that composables such as ModalBottomSheet
+    // (memo menu) inherit the scheme directly and avoid a costly nested MaterialTheme on first use.
+    val expressiveMotionScheme = rememberExpressiveMotionScheme()
 
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
     ) {
+        @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
         MaterialTheme(
             colorScheme = animatedColorScheme,
             typography = typography,
             shapes = Shapes,
+            motionScheme = expressiveMotionScheme,
             content = content,
         )
     }

@@ -52,7 +52,6 @@ import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.theme.AppSpacing
-import com.lomo.ui.theme.ProvideExpressiveMotion
 import com.lomo.ui.util.LocalAppHapticFeedback
 import java.time.Instant
 import java.time.LocalDate
@@ -89,34 +88,32 @@ internal fun MainMemoFilterSheet(
         onEndDateSelected(null)
     }
 
-    ProvideExpressiveMotion {
-        ModalBottomSheet(
-            onDismissRequest = onDismiss,
-            sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface,
-            tonalElevation = AppSpacing.ExtraSmall,
-            dragHandle = { MainMemoFilterDragHandle() },
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = AppSpacing.ExtraSmall,
+        dragHandle = { MainMemoFilterDragHandle() },
+    ) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .benchmarkAnchorRoot(BenchmarkAnchorContract.FILTER_SHEET_ROOT)
+                    .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
+                    .padding(bottom = AppSpacing.ExtraLarge)
+                    .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
         ) {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .benchmarkAnchorRoot(BenchmarkAnchorContract.FILTER_SHEET_ROOT)
-                        .padding(horizontal = AppSpacing.ScreenHorizontalPadding)
-                        .padding(bottom = AppSpacing.ExtraLarge)
-                        .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
-            ) {
-                MainMemoFilterSheetContent(
-                    filter = filter,
-                    hasDateFilter = hasDateFilter,
-                    onSortOptionSelected = onSortOptionSelected,
-                    onOpenStartDatePicker = openStartDatePicker,
-                    onOpenEndDatePicker = openEndDatePicker,
-                    onClearStartDate = clearStartDate,
-                    onClearEndDate = clearEndDate,
-                )
-            }
+            MainMemoFilterSheetContent(
+                filter = filter,
+                hasDateFilter = hasDateFilter,
+                onSortOptionSelected = onSortOptionSelected,
+                onOpenStartDatePicker = openStartDatePicker,
+                onOpenEndDatePicker = openEndDatePicker,
+                onClearStartDate = clearStartDate,
+                onClearEndDate = clearEndDate,
+            )
         }
     }
 
