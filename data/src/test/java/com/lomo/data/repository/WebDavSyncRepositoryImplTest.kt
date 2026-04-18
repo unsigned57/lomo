@@ -191,8 +191,8 @@ class WebDavSyncRepositoryImplTest {
             coVerify(exactly = 1) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
             coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
             verify(exactly = 2) { client.list("lomo/memos") }
-            verify(exactly = 2) { client.list("lomo/images") }
-            verify(exactly = 2) { client.list("lomo/voice") }
+            verify(exactly = 1) { client.list("lomo/images") }
+            verify(exactly = 1) { client.list("lomo/voice") }
             verify(exactly = 1) {
                 client.put("lomo/memos/note.md", any(), any(), 100L, null, true)
             }
