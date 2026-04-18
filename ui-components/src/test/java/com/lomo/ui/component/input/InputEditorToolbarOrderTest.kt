@@ -18,7 +18,7 @@ class InputEditorToolbarOrderTest {
         val toolIds = inputToolbarToolIds()
 
         assertEquals(
-            listOf("camera", "image", "record", "location", "tag", "todo", "underline", "undo", "redo"),
+            listOf("camera", "image", "record", "tag", "location", "todo", "underline", "undo", "redo"),
             toolIds,
         )
         assertTrue(toolIds.indexOf("underline") < toolIds.indexOf("undo"))
