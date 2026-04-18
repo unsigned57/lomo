@@ -6,11 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -27,7 +29,9 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 import java.io.File
 
 enum class MemoEditorMode {
@@ -216,15 +220,18 @@ fun MemoEditorSheetHost(
             onImageDirectoryMissing = onImageDirectoryMissing,
             onCameraCaptureError = onCameraCaptureError,
         )
-    val previewContent =
-        remember(controller.inputValue.text, rootPath, imageDirectory, imageMap) {
-            buildMemoEditorPreviewContent(
-                content = controller.inputValue.text,
-                rootPath = rootPath,
-                imagePath = imageDirectory,
-                imageMap = imageMap,
-            )
-        }
+    var previewContent by remember { mutableStateOf(controller.inputValue.text) }
+    LaunchedEffect(controller.inputValue.text, rootPath, imageDirectory, imageMap) {
+        previewContent =
+            withContext(Dispatchers.Default) {
+                buildMemoEditorPreviewContent(
+                    content = controller.inputValue.text,
+                    rootPath = rootPath,
+                    imagePath = imageDirectory,
+                    imageMap = imageMap,
+                )
+            }
+    }
 
     com.lomo.ui.component.input.InputSheet(
         state =
