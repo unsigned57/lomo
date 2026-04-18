@@ -25,6 +25,13 @@ class SettingsActionCoordinator(
     val refreshS3CredentialConfigured: () -> Unit =
         { launchWithOperationResult { s3Coordinator.refreshCredentialConfigured() } }
 
+    override val updateLanShareEnabled: (Boolean) -> Unit =
+        { enabled ->
+            launchWithError("Failed to update LAN share setting") {
+                lanShareCoordinator.updateLanShareEnabled(enabled)
+            }
+        }
+
     override val updateLanShareE2eEnabled: (Boolean) -> Unit =
         { enabled ->
             launchWithError("Failed to update secure share setting") {

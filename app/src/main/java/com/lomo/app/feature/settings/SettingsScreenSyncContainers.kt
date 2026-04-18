@@ -16,6 +16,7 @@ internal fun LanShareSettingsSectionContainer(
 ) {
     LanShareSettingsSection(
         state = state,
+        onToggleEnabled = lanShareFeature::updateLanShareEnabled,
         onToggleE2e = { enabled ->
             lanShareFeature.updateLanShareE2eEnabled(enabled)
             if (LanSharePairingDialogTriggerPolicy.shouldShowOnE2eEnabled(enabled, state.pairingConfigured)) {

@@ -57,8 +57,6 @@ class SettingsStateProvider(
     )
 
     private data class InteractionSecondaryState(
-        val singleTapDetailEnabled: Boolean,
-        val attachLocationEnabled: Boolean,
         val quickSaveOnBackEnabled: Boolean,
         val scrollbarEnabled: Boolean,
     )
@@ -143,8 +141,24 @@ class SettingsStateProvider(
             appConfigCoordinator.dateFormat,
             appConfigCoordinator.timeFormat,
             appConfigCoordinator.themeMode,
-        ) { dateFormat, timeFormat, themeMode ->
-            DisplaySectionState(dateFormat, timeFormat, themeMode)
+            combine(
+                appConfigCoordinator.typographyFontSizeScale,
+                appConfigCoordinator.typographyLineHeightScale,
+                appConfigCoordinator.typographyLetterSpacingScale,
+                appConfigCoordinator.typographyParagraphSpacingScale,
+            ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
+                floatArrayOf(fontSize, lineHeight, letterSpacing, paragraphSpacing)
+            }
+        ) { dateFormat, timeFormat, themeMode, typography ->
+            DisplaySectionState(
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                themeMode = themeMode,
+                typographyFontSizeScale = typography[0],
+                typographyLineHeightScale = typography[1],
+                typographyLetterSpacingScale = typography[2],
+                typographyParagraphSpacingScale = typography[3],
+            )
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
@@ -153,22 +167,28 @@ class SettingsStateProvider(
                     appConfigCoordinator.dateFormat.value,
                     appConfigCoordinator.timeFormat.value,
                     appConfigCoordinator.themeMode.value,
+                    appConfigCoordinator.typographyFontSizeScale.value,
+                    appConfigCoordinator.typographyLineHeightScale.value,
+                    appConfigCoordinator.typographyLetterSpacingScale.value,
+                    appConfigCoordinator.typographyParagraphSpacingScale.value,
                 ),
         )
 
     private val lanShareState: StateFlow<LanShareSectionState> =
         combine(
+            lanShareCoordinator.lanShareEnabled,
             lanShareCoordinator.lanShareE2eEnabled,
             lanShareCoordinator.lanSharePairingConfigured,
             lanShareCoordinator.lanShareDeviceName,
             lanShareCoordinator.pairingCodeError,
-        ) { e2eEnabled, pairingConfigured, deviceName, pairingCodeError ->
-            LanShareSectionState(e2eEnabled, pairingConfigured, deviceName, pairingCodeError)
+        ) { enabled, e2eEnabled, pairingConfigured, deviceName, pairingCodeError ->
+            LanShareSectionState(enabled, e2eEnabled, pairingConfigured, deviceName, pairingCodeError)
         }.stateIn(
             scope = scope,
             started = settingsWhileSubscribed(),
             initialValue =
                 LanShareSectionState(
+                    enabled = lanShareCoordinator.lanShareEnabled.value,
                     e2eEnabled = lanShareCoordinator.lanShareE2eEnabled.value,
                     pairingConfigured = lanShareCoordinator.lanSharePairingConfigured.value,
                     deviceName = lanShareCoordinator.lanShareDeviceName.value,
@@ -455,12 +475,10 @@ class SettingsStateProvider(
             appConfigCoordinator.memoActionAutoReorderEnabled,
             appConfigCoordinator.appLockEnabled,
             combine(
-                appConfigCoordinator.singleTapDetailEnabled,
-                appConfigCoordinator.attachLocationEnabled,
                 appConfigCoordinator.quickSaveOnBackEnabled,
                 appConfigCoordinator.scrollbarEnabled,
-            ) { singleTap, attachLoc, quickSave, scrollbar ->
-                InteractionSecondaryState(singleTap, attachLoc, quickSave, scrollbar)
+            ) { quickSave, scrollbar ->
+                InteractionSecondaryState(quickSave, scrollbar)
             },
         ) {
                 primary,
@@ -474,8 +492,6 @@ class SettingsStateProvider(
                 showInputHints = primary.showInputHints,
                 doubleTapEditEnabled = primary.doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
-                singleTapDetailEnabled = secondary.singleTapDetailEnabled,
-                attachLocationEnabled = secondary.attachLocationEnabled,
                 memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 appLockEnabled = appLockEnabled,
                 quickSaveOnBackEnabled = secondary.quickSaveOnBackEnabled,
@@ -490,8 +506,6 @@ class SettingsStateProvider(
                     showInputHints = appConfigCoordinator.showInputHints.value,
                     doubleTapEditEnabled = appConfigCoordinator.doubleTapEditEnabled.value,
                     freeTextCopyEnabled = appConfigCoordinator.freeTextCopyEnabled.value,
-                    singleTapDetailEnabled = appConfigCoordinator.singleTapDetailEnabled.value,
-                    attachLocationEnabled = appConfigCoordinator.attachLocationEnabled.value,
                     memoActionAutoReorderEnabled = appConfigCoordinator.memoActionAutoReorderEnabled.value,
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
