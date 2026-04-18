@@ -21,6 +21,7 @@ import timber.log.Timber
 import javax.inject.Inject
 
 private const val PAIRING_REQUIRED_EVENT_INCREMENT = 1
+private const val LAN_SHARE_DISABLED_MESSAGE = "LAN share is disabled in settings."
 
 @HiltViewModel
 class ShareViewModel
@@ -51,6 +52,10 @@ class ShareViewModel
             lanShareUiCoordinator.transferState
                 .stateIn(viewModelScope, appWhileSubscribed(), ShareTransferState.Idle)
 
+        val lanShareEnabled =
+            lanShareUiCoordinator.lanShareEnabled
+                .stateIn(viewModelScope, appWhileSubscribed(), true)
+
         val lanShareE2eEnabled =
             lanShareUiCoordinator.lanShareE2eEnabled
                 .stateIn(viewModelScope, appWhileSubscribed(), true)
@@ -76,11 +81,16 @@ class ShareViewModel
 
         init {
             // Discovery starts when entering the share screen; server lifecycle is managed by MainActivity.
-            runCatching {
-                lanShareUiCoordinator.startDiscovery()
-                Timber.d("ShareViewModel init: discovery started")
-            }.onFailure { throwable ->
-                reportOperationError(throwable, "Failed to start device discovery")
+            viewModelScope.launch {
+                if (!lanShareUiCoordinator.isLanShareEnabled()) {
+                    return@launch
+                }
+                runCatching {
+                    lanShareUiCoordinator.startDiscovery()
+                    Timber.d("ShareViewModel init: discovery started")
+                }.onFailure { throwable ->
+                    reportOperationError(throwable, "Failed to start device discovery")
+                }
             }
 
             if (memoContentBacking.isBlank()) {
@@ -94,6 +104,11 @@ class ShareViewModel
                     val currentContent = memoContentBacking
                     if (currentContent.isBlank()) {
                         _operationError.value = "Share content is unavailable. Please reopen the share page."
+                        return@launch
+                    }
+
+                    if (!lanShareUiCoordinator.isLanShareEnabled()) {
+                        _operationError.value = LAN_SHARE_DISABLED_MESSAGE
                         return@launch
                     }
 

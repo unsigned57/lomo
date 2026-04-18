@@ -1,16 +1,9 @@
 package com.lomo.app.feature.gallery
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -28,39 +21,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.request.ImageRequest
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
-import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.memo.MemoCardList
+import com.lomo.app.feature.memo.MemoCardListAnimation
+import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.util.activityHiltViewModel
+import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-
-private data class GalleryImageItem(
-    val imageUrl: String,
-    val allImageUrls: ImmutableList<String>,
-)
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
     onBackClick: () -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
+    onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    lanShareEnabled: Boolean = true,
 ) {
     val viewModel: MainViewModel = activityHiltViewModel()
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
+    val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -73,17 +63,48 @@ fun GalleryScreen(
         onClearError = viewModel.clearError,
     )
 
-    GalleryScreenScaffold(
-        onBackClick = onBackClick,
-        haptic = haptic,
-        scrollBehavior = scrollBehavior,
-        snackbarHostState = snackbarHostState,
-    ) { padding ->
-        GalleryScreenContent(
-            memos = remember(memos) { memos.toImmutableList() },
-            padding = padding,
-            onNavigateToImage = onNavigateToImage,
-        )
+    MemoMenuBinder(
+        shareCardShowTime = appPreferences.shareCardShowTime,
+        shareCardShowSignature = appPreferences.shareCardShowBrand,
+        shareCardSignatureText = appPreferences.shareCardSignatureText,
+        onEditMemo = { memo ->
+            viewModel.requestOpenMemo(memo.id)
+            onBackClick()
+        },
+        onDeleteMemo = viewModel.deleteMemo,
+        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
+        onJump = { state ->
+            state.memoAs<Memo>()?.let { memo ->
+                viewModel.requestFocusMemo(memo.id)
+                onBackClick()
+            }
+        },
+        showJump = true,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrder,
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
+    ) { showMenu ->
+        GalleryScreenScaffold(
+            onBackClick = onBackClick,
+            haptic = haptic,
+            scrollBehavior = scrollBehavior,
+            snackbarHostState = snackbarHostState,
+        ) { padding ->
+            GalleryScreenContent(
+                memos = remember(memos) { memos.toImmutableList() },
+                dateFormat = appPreferences.dateFormat,
+                timeFormat = appPreferences.timeFormat,
+                doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
+                freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+                padding = padding,
+                onEditMemo = { memo ->
+                    viewModel.requestOpenMemo(memo.id)
+                    onBackClick()
+                },
+                onShowMenu = showMenu,
+                onNavigateToImage = onNavigateToImage,
+            )
+        }
     }
 }
 
@@ -147,8 +168,14 @@ private fun GalleryScreenScaffold(
 
 @Composable
 private fun GalleryScreenContent(
-    memos: ImmutableList<MemoUiModel>,
+    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    dateFormat: String,
+    timeFormat: String,
+    doubleTapEditEnabled: Boolean,
+    freeTextCopyEnabled: Boolean,
     padding: PaddingValues,
+    onEditMemo: (Memo) -> Unit,
+    onShowMenu: (MemoMenuState) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
 ) {
     if (memos.isEmpty()) {
@@ -167,78 +194,22 @@ private fun GalleryScreenContent(
         return
     }
 
-    val imageItems =
-        remember(memos) {
-            memos.flatMap { uiModel ->
-                uiModel.imageUrls.map { url ->
-                    GalleryImageItem(
-                        imageUrl = url,
-                        allImageUrls = uiModel.imageUrls,
-                    )
-                }
-            }
-        }
-
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
+    MemoCardList(
+        memos = memos,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
+        doubleTapEditEnabled = doubleTapEditEnabled,
+        freeTextCopyEnabled = freeTextCopyEnabled,
+        onMemoEdit = onEditMemo,
+        onShowMenu = onShowMenu,
+        onImageClick = onNavigateToImage,
+        animation = MemoCardListAnimation.Placement,
         contentPadding =
             PaddingValues(
-                top = padding.calculateTopPadding() + AppSpacing.Small,
-                start = AppSpacing.Small,
-                end = AppSpacing.Small,
+                top = padding.calculateTopPadding() + AppSpacing.Medium,
+                start = AppSpacing.Medium,
+                end = AppSpacing.Medium,
                 bottom = AppSpacing.Medium,
             ),
-        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-        verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
-        modifier = Modifier.fillMaxSize(),
-    ) {
-        items(
-            items = imageItems,
-            key = { it.imageUrl },
-            contentType = { "image" },
-        ) { item ->
-            GalleryImageThumbnail(
-                imageUrl = item.imageUrl,
-                onClick = {
-                    onNavigateToImage(
-                        createImageViewerRequest(
-                            imageUrls = item.allImageUrls,
-                            clickedUrl = item.imageUrl,
-                        ),
-                    )
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun GalleryImageThumbnail(
-    imageUrl: String,
-    onClick: () -> Unit,
-) {
-    val context = LocalContext.current
-    val model =
-        remember(imageUrl, context) {
-            ImageRequest.Builder(context).data(imageUrl).build()
-        }
-
-    val painter = coil3.compose.rememberAsyncImagePainter(model)
-
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(MaterialTheme.shapes.medium)
-                .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        androidx.compose.foundation.Image(
-            painter = painter,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-    }
+    )
 }

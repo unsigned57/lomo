@@ -61,6 +61,7 @@ fun DailyReviewScreen(
     onBackClick: () -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    lanShareEnabled: Boolean = true,
     onNavigateToMemo: (String) -> Unit = {},
     viewModel: DailyReviewViewModel = hiltViewModel(),
 ) {
@@ -74,7 +75,6 @@ fun DailyReviewScreen(
     val shareCardSignatureText = appPreferences.shareCardSignatureText
     val doubleTapEditEnabled = appPreferences.doubleTapEditEnabled
     val freeTextCopyEnabled = appPreferences.freeTextCopyEnabled
-    val singleTapDetailEnabled = appPreferences.singleTapDetailEnabled
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
@@ -102,7 +102,7 @@ fun DailyReviewScreen(
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,
         imageDirectory = imageDirectory,
-        onLanShare = onNavigateToShare,
+        onLanShare = if (lanShareEnabled) onNavigateToShare else null,
         onJump = { state ->
             state.memoAs<Memo>()?.let { memo ->
                 onNavigateToMemo(memo.id)
@@ -124,7 +124,6 @@ fun DailyReviewScreen(
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
-                singleTapDetailEnabled = singleTapDetailEnabled,
                 padding = scaffoldPadding,
                 onShowMenu = showMenu,
                 onOpenEditor = openEditor,
@@ -186,7 +185,6 @@ private fun DailyReviewScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     padding: PaddingValues,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
@@ -230,7 +228,6 @@ private fun DailyReviewScreenContent(
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
-                        singleTapDetailEnabled = singleTapDetailEnabled,
                         onShowMenu = onShowMenu,
                         onOpenEditor = onOpenEditor,
                         onNavigateToImage = onNavigateToImage,
@@ -255,7 +252,6 @@ private fun DailyReviewPager(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
@@ -305,7 +301,6 @@ private fun DailyReviewPager(
                 timeFormat = timeFormat,
                 doubleTapEditEnabled = doubleTapEditEnabled,
                 freeTextCopyEnabled = freeTextCopyEnabled,
-                singleTapDetailEnabled = singleTapDetailEnabled,
                 onShowMenu = onShowMenu,
                 onOpenEditor = onOpenEditor,
                 onNavigateToImage = onNavigateToImage,
@@ -328,7 +323,6 @@ private fun DailyReviewPagerPage(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
@@ -370,7 +364,6 @@ private fun DailyReviewPagerPage(
                         timeFormat = timeFormat,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
-                        singleTapDetailEnabled = singleTapDetailEnabled,
                         onMemoEdit = onOpenEditor,
                         onShowMenu = onShowMenu,
                         onImageClick = onMemoImageClick,

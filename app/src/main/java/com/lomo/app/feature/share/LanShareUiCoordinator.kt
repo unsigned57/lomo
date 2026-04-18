@@ -2,6 +2,7 @@ package com.lomo.app.feature.share
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.repository.LanShareService
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 class LanShareUiCoordinator
@@ -11,6 +12,7 @@ class LanShareUiCoordinator
     ) {
         val discoveredDevices = lanShareService.discoveredDevices
         val transferState = lanShareService.transferState
+        val lanShareEnabled = lanShareService.lanShareEnabled
         val lanShareE2eEnabled = lanShareService.lanShareE2eEnabled
         val lanSharePairingConfigured = lanShareService.lanSharePairingConfigured
         val lanSharePairingCode = lanShareService.lanSharePairingCode
@@ -23,6 +25,8 @@ class LanShareUiCoordinator
         fun stopDiscovery() {
             lanShareService.stopDiscovery()
         }
+
+        suspend fun isLanShareEnabled(): Boolean = lanShareService.lanShareEnabled.first()
 
         suspend fun requiresPairingBeforeSend(): Boolean = lanShareService.requiresPairingBeforeSend()
 

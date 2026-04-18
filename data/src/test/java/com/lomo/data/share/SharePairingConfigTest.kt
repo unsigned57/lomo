@@ -99,4 +99,25 @@ class SharePairingConfigTest {
             assertTrue(requiresPairing)
             assertEquals("My Phone", resolvedName)
         }
+
+    @Test
+    fun `setLanShareEnabled delegates to datastore`() =
+        runTest {
+            val config = SharePairingConfig(dataStore)
+
+            config.setLanShareEnabled(false)
+
+            coVerify(exactly = 1) { dataStore.updateLanShareEnabled(false) }
+        }
+
+    @Test
+    fun `isLanShareEnabled reflects datastore flag`() =
+        runTest {
+            every { dataStore.lanShareEnabled } returns flowOf(false)
+            val config = SharePairingConfig(dataStore)
+
+            val enabled = config.isLanShareEnabled()
+
+            assertEquals(false, enabled)
+        }
 }
