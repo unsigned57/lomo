@@ -1,6 +1,7 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.PreferencesRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -36,11 +37,14 @@ class AppPreferencesStateTest {
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
             every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
+            every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
+            every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+            every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
+            every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
             every {
                 preferencesRepository.getMemoActionOrder()
             } returns flowOf(listOf("history", "copy").toImmutableList())
-            every { preferencesRepository.isSingleTapDetailEnabled() } returns flowOf(false)
 
             val state = preferencesRepository.observeAppPreferences().first()
 
@@ -53,7 +57,6 @@ class AppPreferencesStateTest {
                     showInputHints = true,
                     doubleTapEditEnabled = false,
                     freeTextCopyEnabled = true,
-                    singleTapDetailEnabled = false,
                     memoActionAutoReorderEnabled = true,
                     memoActionOrder = listOf("history", "copy").toImmutableList(),
                     quickSaveOnBackEnabled = false,
@@ -61,6 +64,10 @@ class AppPreferencesStateTest {
                     shareCardShowTime = true,
                     shareCardShowBrand = false,
                     shareCardSignatureText = "Shared via Lomo",
+                    typographyFontSizeScale = PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE,
+                    typographyLineHeightScale = PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+                    typographyLetterSpacingScale = PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE,
+                    typographyParagraphSpacingScale = PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
                 ),
                 state,
             )

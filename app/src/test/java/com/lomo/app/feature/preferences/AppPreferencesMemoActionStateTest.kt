@@ -1,6 +1,7 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.PreferencesRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -35,9 +36,12 @@ class AppPreferencesMemoActionStateTest {
             every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
             every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
             every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
+            every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
+            every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+            every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
+            every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
             every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
-            every { preferencesRepository.isSingleTapDetailEnabled() } returns flowOf(false)
 
             val state = preferencesRepository.observeAppPreferences().first()
 

@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 interface SettingsLanShareFeatureActions {
+    val updateLanShareEnabled: (Boolean) -> Unit
     val updateLanShareE2eEnabled: (Boolean) -> Unit
     val updateLanSharePairingCode: (String) -> Unit
     val clearLanSharePairingCode: () -> Unit
@@ -167,6 +168,22 @@ class SettingsDisplayFeatureViewModel(
     fun updateThemeMode(mode: ThemeMode) {
         scope.launch { appConfigCoordinator.updateThemeMode(mode) }
     }
+
+    fun updateTypographyFontSizeScale(scale: Float) {
+        scope.launch { appConfigCoordinator.updateTypographyFontSizeScale(scale) }
+    }
+
+    fun updateTypographyLineHeightScale(scale: Float) {
+        scope.launch { appConfigCoordinator.updateTypographyLineHeightScale(scale) }
+    }
+
+    fun updateTypographyLetterSpacingScale(scale: Float) {
+        scope.launch { appConfigCoordinator.updateTypographyLetterSpacingScale(scale) }
+    }
+
+    fun updateTypographyParagraphSpacingScale(scale: Float) {
+        scope.launch { appConfigCoordinator.updateTypographyParagraphSpacingScale(scale) }
+    }
 }
 
 class SettingsShareCardFeatureViewModel(
@@ -221,14 +238,6 @@ class SettingsInteractionFeatureViewModel(
 
     fun updateFreeTextCopyEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateFreeTextCopyEnabled(enabled) }
-    }
-
-    fun updateSingleTapDetailEnabled(enabled: Boolean) {
-        scope.launch { appConfigCoordinator.updateSingleTapDetailEnabled(enabled) }
-    }
-
-    fun updateAttachLocationEnabled(enabled: Boolean) {
-        scope.launch { appConfigCoordinator.updateAttachLocationEnabled(enabled) }
     }
 
     fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
@@ -370,6 +379,10 @@ class SettingsLanShareFeatureViewModel(
     private val actionCoordinator: SettingsLanShareFeatureActions,
     private val lanShareCoordinator: SettingsLanShareFeatureSupport,
 ) {
+    fun updateLanShareEnabled(enabled: Boolean) {
+        actionCoordinator.updateLanShareEnabled(enabled)
+    }
+
     fun updateLanShareE2eEnabled(enabled: Boolean) {
         actionCoordinator.updateLanShareE2eEnabled(enabled)
     }

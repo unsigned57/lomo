@@ -15,14 +15,15 @@ import org.junit.Test
  */
 class MemoTypographyVisualParityTest {
     private val typography = Typography()
+    private val defaultScales = TypographyScales()
 
     @Test
     fun `memo typography tokens disable platform font padding for card and editor parity`() {
         val expectedPlatformStyle = PlatformTextStyle(includeFontPadding = false)
 
-        assertEquals(expectedPlatformStyle, typography.memoBodyTextStyle().platformStyle)
-        assertEquals(expectedPlatformStyle, typography.memoEditorTextStyle().platformStyle)
-        assertEquals(expectedPlatformStyle, typography.memoSummaryTextStyle().platformStyle)
-        assertEquals(expectedPlatformStyle, typography.memoHintTextStyle().platformStyle)
+        assertEquals(expectedPlatformStyle, typography.memoBodyTextStyle(defaultScales).platformStyle)
+        assertEquals(expectedPlatformStyle, typography.memoBodyTextStyle(defaultScales).platformStyle) // editor delegates to body
+        assertEquals(expectedPlatformStyle, typography.memoSummaryTextStyle(defaultScales).platformStyle)
+        assertEquals(expectedPlatformStyle, typography.memoHintTextStyle(defaultScales).platformStyle)
     }
 }

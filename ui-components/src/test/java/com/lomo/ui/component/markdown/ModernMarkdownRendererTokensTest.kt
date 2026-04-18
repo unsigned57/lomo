@@ -4,6 +4,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -20,12 +21,13 @@ import org.junit.Test
  */
 class ModernMarkdownRendererTokensTest {
     private val typography = Typography()
+    private val defaultScales = TypographyScales()
 
     @Test
     fun `modern markdown typography keeps memo paragraph rhythm and underlined link styling`() {
-        val spec = createModernMarkdownTokenSpec(typography)
+        val spec = createModernMarkdownTokenSpec(typography, scales = defaultScales)
 
-        assertEquals(typography.memoBodyTextStyle(), spec.paragraphStyle)
+        assertEquals(typography.memoBodyTextStyle(defaultScales), spec.paragraphStyle)
         assertEquals(16.sp, spec.paragraphStyle.lineHeight)
         assertEquals(0.1.sp, spec.paragraphStyle.letterSpacing)
         assertTrue(spec.heading1Style.fontWeight != null)
@@ -34,7 +36,7 @@ class ModernMarkdownRendererTokensTest {
 
     @Test
     fun `modern markdown padding keeps memo paragraph block spacing`() {
-        val spec = createModernMarkdownTokenSpec(typography)
+        val spec = createModernMarkdownTokenSpec(typography, scales = defaultScales)
 
         assertEquals(8.dp, spec.blockSpacing)
         assertEquals(8.dp, spec.listSpacing)

@@ -37,9 +37,14 @@ data class DisplaySectionState(
     val dateFormat: String,
     val timeFormat: String,
     val themeMode: ThemeMode,
+    val typographyFontSizeScale: Float,
+    val typographyLineHeightScale: Float,
+    val typographyLetterSpacingScale: Float,
+    val typographyParagraphSpacingScale: Float,
 )
 
 data class LanShareSectionState(
+    val enabled: Boolean,
     val e2eEnabled: Boolean,
     val pairingConfigured: Boolean,
     val deviceName: String,
@@ -120,8 +125,6 @@ data class InteractionSectionState(
     val showInputHints: Boolean,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
-    val singleTapDetailEnabled: Boolean,
-    val attachLocationEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val appLockEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,

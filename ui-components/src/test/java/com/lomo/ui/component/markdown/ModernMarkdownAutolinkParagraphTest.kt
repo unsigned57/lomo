@@ -2,6 +2,7 @@ package com.lomo.ui.component.markdown
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import com.lomo.ui.theme.TypographyScales
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -20,6 +21,7 @@ class ModernMarkdownAutolinkParagraphTest {
         createModernMarkdownTokenSpec(
             typography = Typography(),
             linkColor = Color(0xFF3366FF),
+            scales = TypographyScales(),
         )
 
     @Test

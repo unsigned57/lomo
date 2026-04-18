@@ -17,6 +17,7 @@ import org.junit.Test
 class MemoTypographyTest {
     private val typography = MaterialTypography()
     private val appTypography = Typography
+    private val defaultScales = TypographyScales()
 
     @Test
     fun `material body medium keeps the tightened global reading spacing`() {
@@ -27,9 +28,9 @@ class MemoTypographyTest {
 
     @Test
     fun `memo body and editor styles stay close to the previous body medium size`() {
-        val body = typography.memoBodyTextStyle()
-        val editor = typography.memoEditorTextStyle()
-        val hint = typography.memoHintTextStyle()
+        val body = typography.memoBodyTextStyle(defaultScales)
+        val editor = typography.memoBodyTextStyle(defaultScales) // memoEditorTextStyle delegates to memoBodyTextStyle
+        val hint = typography.memoHintTextStyle(defaultScales)
 
         assertEquals(14.sp, body.fontSize)
         assertEquals(16.sp, body.lineHeight)
@@ -47,7 +48,7 @@ class MemoTypographyTest {
 
     @Test
     fun `memo summary keeps compact body medium rhythm`() {
-        val summary = typography.memoSummaryTextStyle()
+        val summary = typography.memoSummaryTextStyle(defaultScales)
 
         assertEquals(14.sp, summary.fontSize)
         assertEquals(20.sp, summary.lineHeight)
@@ -56,6 +57,6 @@ class MemoTypographyTest {
 
     @Test
     fun `memo paragraph block spacing stays clearly larger than the compact line rhythm`() {
-        assertEquals(8.dp, memoParagraphBlockSpacing())
+        assertEquals(8.dp, memoParagraphBlockSpacing(defaultScales))
     }
 }

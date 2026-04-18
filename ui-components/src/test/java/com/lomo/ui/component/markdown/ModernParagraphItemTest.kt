@@ -1,6 +1,7 @@
 package com.lomo.ui.component.markdown
 
 import androidx.compose.material3.Typography
+import com.lomo.ui.theme.TypographyScales
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
 import org.junit.Assert.assertEquals
@@ -16,7 +17,7 @@ import org.junit.Test
  * - Excludes: Compose widget rendering, TextView layout, image loading, and top-level block planning.
  */
 class ModernParagraphItemTest {
-    private val tokenSpec = createModernMarkdownTokenSpec(Typography())
+    private val tokenSpec = createModernMarkdownTokenSpec(Typography(), scales = TypographyScales())
 
     @Test
     fun `plain text paragraph emits a visible text item`() {

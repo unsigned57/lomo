@@ -26,12 +26,14 @@ class SettingsFeatureViewModelsTest {
         val lanShareSupport = FakeLanShareSupport()
 
         val viewModel = SettingsLanShareFeatureViewModel(actionCoordinator, lanShareSupport)
+        viewModel.updateLanShareEnabled(false)
         viewModel.updateLanShareE2eEnabled(true)
         viewModel.updateLanSharePairingCode("123456")
         viewModel.clearLanSharePairingCode()
         viewModel.clearPairingCodeError()
         viewModel.updateLanShareDeviceName("Pixel")
 
+        assertEquals(false, actionCoordinator.lanShareEnabledArg)
         assertEquals(true, actionCoordinator.lanShareE2eEnabledArg)
         assertEquals("123456", actionCoordinator.lanSharePairingCodeArg)
         assertTrue(actionCoordinator.clearLanSharePairingCodeInvoked)
@@ -127,6 +129,7 @@ private class FakeSettingsActionCoordinator :
     SettingsGitFeatureActions,
     SettingsWebDavFeatureActions,
     SettingsS3FeatureActions {
+    var lanShareEnabledArg: Boolean? = null
     var lanShareE2eEnabledArg: Boolean? = null
     var lanSharePairingCodeArg: String? = null
     var clearLanSharePairingCodeInvoked = false
@@ -157,6 +160,7 @@ private class FakeSettingsActionCoordinator :
     var triggerS3SyncNowInvoked = false
     var testS3ConnectionInvoked = false
 
+    override val updateLanShareEnabled: (Boolean) -> Unit = { lanShareEnabledArg = it }
     override val updateLanShareE2eEnabled: (Boolean) -> Unit = { lanShareE2eEnabledArg = it }
     override val updateLanSharePairingCode: (String) -> Unit = { lanSharePairingCodeArg = it }
     override val clearLanSharePairingCode: () -> Unit = { clearLanSharePairingCodeInvoked = true }
