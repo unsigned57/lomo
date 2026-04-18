@@ -20,7 +20,6 @@ internal fun InputSheetContent(
     hintText: String,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
-    onEditorReady: (MemoInputEditText) -> Unit,
     haptic: AppHapticFeedback,
     dismissSheet: () -> Unit,
     requestDismiss: () -> Unit,
@@ -50,7 +49,6 @@ internal fun InputSheetContent(
         showTagSelector = sessionState.showTagSelector,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
-        onEditorReady = onEditorReady,
         onTextChange = handleTextChange,
         onTagSelected = { tag ->
             haptic.medium()
@@ -104,7 +102,6 @@ private fun InputSheetBody(
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
-    onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
@@ -182,7 +179,6 @@ private fun InputSheetBody(
                     availableTags = availableTags,
                     showTagSelector = showTagSelector,
                     focusRequester = focusRequester,
-                    onEditorReady = onEditorReady,
                     onTextChange = onTextChange,
                     onTagSelected = onTagSelected,
                     onToggleExpanded = onToggleExpanded,

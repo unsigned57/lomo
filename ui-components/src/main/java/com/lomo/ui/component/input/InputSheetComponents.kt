@@ -48,11 +48,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import com.lomo.ui.R
@@ -60,12 +58,9 @@ import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.markdown.MarkdownRenderer
-import com.lomo.ui.text.rawMemoParagraphSpacing
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.MotionTokens
-import com.lomo.ui.theme.memoPlatformTextHandleColor
-import com.lomo.ui.theme.memoPlatformTextSelectionHighlightColor
 import com.lomo.ui.theme.memoEditorTextStyle
 import com.lomo.ui.theme.memoHintTextStyle
 import com.lomo.ui.util.AppHapticFeedback
@@ -81,7 +76,6 @@ internal fun InputEditorPanel(
     availableTags: ImmutableList<String>,
     showTagSelector: Boolean,
     focusRequester: FocusRequester,
-    onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
     onTagSelected: (String) -> Unit,
     onToggleExpanded: () -> Unit,
@@ -108,8 +102,8 @@ internal fun InputEditorPanel(
     val isExpanded = motionStage != InputSheetMotionStage.Compact
     val displayMode = presentationState.effectiveDisplayMode()
     val typography = MaterialTheme.typography
-    val inputTextStyle = remember(typography) { typography.memoEditorTextStyle() }
-    val hintTextStyle = remember(typography) { typography.memoHintTextStyle() }
+    val inputTextStyle = typography.memoEditorTextStyle()
+    val hintTextStyle = typography.memoHintTextStyle()
     val chromeState =
         remember(presentationState, inputValue.text, hintText) {
             resolveInputEditorChromeState(
@@ -163,7 +157,6 @@ internal fun InputEditorPanel(
             previewContent = previewContent,
             hintText = hintText,
             focusRequester = focusRequester,
-            onEditorReady = onEditorReady,
             onTextChange = onTextChange,
             inputTextStyle = inputTextStyle,
             hintTextStyle = hintTextStyle,
@@ -210,7 +203,6 @@ private fun ColumnScope.InputEditorBodyContent(
     previewContent: String?,
     hintText: String,
     focusRequester: FocusRequester,
-    onEditorReady: (MemoInputEditText) -> Unit,
     onTextChange: (TextFieldValue) -> Unit,
     inputTextStyle: androidx.compose.ui.text.TextStyle,
     hintTextStyle: androidx.compose.ui.text.TextStyle,
@@ -230,7 +222,6 @@ private fun ColumnScope.InputEditorBodyContent(
             inputValue = inputValue,
             hintText = hintText,
             focusRequester = focusRequester,
-            onEditorReady = onEditorReady,
             textStyle = inputTextStyle,
             placeholderTextStyle = hintTextStyle,
             benchmarkEditorTag = benchmarkEditorTag,
