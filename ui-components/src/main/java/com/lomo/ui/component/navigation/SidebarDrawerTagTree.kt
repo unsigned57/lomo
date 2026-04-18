@@ -47,6 +47,9 @@ import com.lomo.ui.theme.AppSpacing
 
 internal object SidebarDrawerTagTree
 
+private const val TAG_DRAG_SCALE = 1.02f
+private const val TAG_DRAG_ALPHA = 0.92f
+
 internal class TagReorderState {
     var draggedKey by mutableStateOf<String?>(null)
         private set
@@ -59,8 +62,21 @@ internal class TagReorderState {
         dragOffset = 0f
     }
 
-    fun updateDrag(delta: Float) {
-        dragOffset += delta
+    fun updateDrag(delta: Float, listState: LazyListState) {
+        val newOffset = dragOffset + delta
+        val currentKey = draggedKey ?: return
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        val draggedItem = visibleItems.find { it.key == currentKey } ?: return
+        val viewportStart = listState.layoutInfo.viewportStartOffset
+        val viewportEnd = listState.layoutInfo.viewportEndOffset
+        val itemTop = draggedItem.offset + newOffset
+        val itemBottom = itemTop + draggedItem.size
+        if (itemTop < viewportStart - draggedItem.size / 2 ||
+            itemBottom > viewportEnd + draggedItem.size / 2
+        ) {
+            return
+        }
+        dragOffset = newOffset
     }
 
     fun endDrag() {
@@ -163,9 +179,17 @@ internal fun LazyListScope.sidebarTags(
                         if (isDragged) {
                             Modifier
                                 .zIndex(1f)
-                                .graphicsLayer { translationY = reorderState.dragOffset }
+                                .graphicsLayer {
+                                    translationY = reorderState.dragOffset
+                                    scaleX = TAG_DRAG_SCALE
+                                    scaleY = TAG_DRAG_SCALE
+                                    alpha = TAG_DRAG_ALPHA
+                                }
                         } else {
-                            Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+                            Modifier.animateItem(
+                                fadeInSpec = null,
+                                fadeOutSpec = null,
+                            )
                         },
                     )
                     .pointerInput(node.fullPath) {
@@ -175,7 +199,7 @@ internal fun LazyListScope.sidebarTags(
                             },
                             onDrag = { change, dragAmount ->
                                 change.consume()
-                                reorderState.updateDrag(dragAmount.y)
+                                reorderState.updateDrag(dragAmount.y, listState)
                                 reorderState.checkAndSwap(
                                     tagTree = tagTree,
                                     listState = listState,
