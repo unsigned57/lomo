@@ -27,7 +27,7 @@ fun MemoMenuBottomSheet(
     onCopy: () -> Unit,
     onShareImage: () -> Unit,
     onShareText: () -> Unit,
-    onLanShare: () -> Unit,
+    onLanShare: (() -> Unit)?,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
@@ -39,6 +39,7 @@ fun MemoMenuBottomSheet(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
     benchmarkRootTag: String? = null,
     actionAnchorForId: (MemoActionId) -> String? = { null },
 ) {
@@ -77,6 +78,7 @@ fun MemoMenuBottomSheet(
                 memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
                 memoActionOrder = memoActionOrder,
                 onActionInvoked = onMemoActionInvoked,
+                onActionOrderChanged = onMemoActionOrderChanged,
                 benchmarkRootTag = benchmarkRootTag,
                 actionAnchorForId = actionAnchorForId,
             )

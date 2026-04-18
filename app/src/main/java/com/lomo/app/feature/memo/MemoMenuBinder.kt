@@ -20,10 +20,11 @@ fun MemoMenuBinder(
     shareCardSignatureText: String,
     onEditMemo: (Memo) -> Unit,
     onDeleteMemo: (Memo) -> Unit,
-    onLanShare: (
-        content: String,
-        timestamp: Long,
-    ) -> Unit,
+    onLanShare:
+        ((
+            content: String,
+            timestamp: Long,
+        ) -> Unit)?,
     onTogglePin: ((Memo, Boolean) -> Unit)? = null,
     onJump: ((MemoMenuState) -> Unit)? = null,
     onVersionHistory: ((MemoMenuState) -> Unit)? = null,
@@ -32,6 +33,7 @@ fun MemoMenuBinder(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
@@ -59,7 +61,10 @@ fun MemoMenuBinder(
                 content = state.content,
             )
         },
-        onLanShare = { state -> state.withMemo { memo -> onLanShare(memo.content, memo.timestamp) } },
+        onLanShare =
+            onLanShare?.let { lanShare ->
+                { state -> state.withMemo { memo -> lanShare(memo.content, memo.timestamp) } }
+            },
         onTogglePin =
             if (onTogglePin != null) {
                 { state -> state.withMemo { memo -> onTogglePin(memo, !state.isPinned) } }
@@ -73,6 +78,7 @@ fun MemoMenuBinder(
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
         onMemoActionInvoked = onMemoActionInvoked,
+        onMemoActionOrderChanged = onMemoActionOrderChanged,
         benchmarkRootTag = BenchmarkAnchorContract.MEMO_MENU_ROOT,
         benchmarkActionAnchorForId = ::benchmarkMemoActionAnchor,
     ) { showMenu ->

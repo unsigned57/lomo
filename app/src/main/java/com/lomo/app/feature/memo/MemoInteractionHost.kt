@@ -27,10 +27,11 @@ fun MemoInteractionHost(
         onResult: (String) -> Unit,
         onError: (() -> Unit)?,
     ) -> Unit,
-    onLanShare: (
-        content: String,
-        timestamp: Long,
-    ) -> Unit,
+    onLanShare:
+        ((
+            content: String,
+            timestamp: Long,
+        ) -> Unit)?,
     rootPath: String? = null,
     imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
     onCreateMemo: ((String, String?) -> Unit)? = null,
@@ -61,6 +62,7 @@ fun MemoInteractionHost(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,
         openEditor: (Memo) -> Unit,
@@ -81,6 +83,7 @@ fun MemoInteractionHost(
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
         onMemoActionInvoked = onMemoActionInvoked,
+        onMemoActionOrderChanged = onMemoActionOrderChanged,
     ) { showMenu ->
         content(showMenu, controller::openForEdit)
 

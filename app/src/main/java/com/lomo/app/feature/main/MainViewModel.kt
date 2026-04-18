@@ -586,6 +586,14 @@ class MainViewModel
             }
         }
 
+        val updateMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateMemoActionOrder(
+                    actionIds.map(MemoActionId::storageKey),
+                )
+            }
+        }
+
         val clearError: () -> Unit = {
             _errorMessage.value = null
         }

@@ -6,6 +6,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
 import kotlinx.collections.immutable.toImmutableList
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /*
@@ -45,7 +46,6 @@ class MemoActionSheetActionOrderTest {
             sortDefaultMemoActionSheetActions(
                 actions = actions,
                 rankedActionOrder = listOf(MemoActionId.HISTORY, MemoActionId.COPY),
-                autoReorderEnabled = true,
             )
 
         assertEquals(
@@ -82,7 +82,6 @@ class MemoActionSheetActionOrderTest {
             sortDefaultMemoActionSheetActions(
                 actions = actions,
                 rankedActionOrder = listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.HISTORY),
-                autoReorderEnabled = true,
             )
 
         assertEquals(
@@ -92,7 +91,7 @@ class MemoActionSheetActionOrderTest {
     }
 
     @Test
-    fun `sortDefaultMemoActionSheetActions keeps default order when auto reorder is disabled`() {
+    fun `sortDefaultMemoActionSheetActions applies stored order regardless of empty ranked list`() {
         val actions =
             listOf(
                 MemoActionSheetAction(
@@ -112,13 +111,23 @@ class MemoActionSheetActionOrderTest {
         val sorted =
             sortDefaultMemoActionSheetActions(
                 actions = actions,
-                rankedActionOrder = listOf(MemoActionId.HISTORY),
-                autoReorderEnabled = false,
+                rankedActionOrder = emptyList(),
             )
 
         assertEquals(
             listOf(MemoActionId.COPY, MemoActionId.HISTORY),
             sorted.map(MemoActionSheetAction::id),
         )
+    }
+
+    @Test
+    fun `defaultPrimaryMemoActionIds omits lan share when the action is unavailable`() {
+        val actionIds = defaultPrimaryMemoActionIds(includeLanShare = false)
+
+        assertEquals(
+            listOf(MemoActionId.COPY, MemoActionId.SHARE_IMAGE, MemoActionId.SHARE_TEXT),
+            actionIds,
+        )
+        assertFalse(actionIds.contains(MemoActionId.LAN_SHARE))
     }
 }

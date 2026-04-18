@@ -51,6 +51,10 @@ class AppConfigUiCoordinator
 
         fun sidebarTagOrder(): Flow<List<String>> = appConfigRepository.getSidebarTagOrder()
 
+        suspend fun updateMemoActionOrder(order: List<String>) {
+            appConfigRepository.updateMemoActionOrder(order)
+        }
+
         suspend fun updateSidebarTagOrder(order: List<String>) {
             appConfigRepository.updateSidebarTagOrder(order)
         }

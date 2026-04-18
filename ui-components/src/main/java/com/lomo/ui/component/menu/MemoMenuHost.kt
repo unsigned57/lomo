@@ -33,7 +33,7 @@ fun MemoMenuHost(
     onDelete: (MemoMenuState) -> Unit,
     onShareImage: (MemoMenuState) -> Unit = {},
     onShareText: (MemoMenuState) -> Unit = {},
-    onLanShare: (MemoMenuState) -> Unit = {},
+    onLanShare: ((MemoMenuState) -> Unit)? = null,
     onTogglePin: ((MemoMenuState) -> Unit)? = null,
     onJump: ((MemoMenuState) -> Unit)? = null,
     onHistory: ((MemoMenuState) -> Unit)? = null,
@@ -42,6 +42,7 @@ fun MemoMenuHost(
     memoActionAutoReorderEnabled: Boolean = true,
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
+    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
     benchmarkRootTag: String? = null,
     benchmarkActionAnchorForId: (MemoActionId) -> String? = { null },
     content: @Composable (showMenu: (MemoMenuState) -> Unit) -> Unit,
@@ -77,6 +78,7 @@ fun MemoMenuHost(
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
         onMemoActionInvoked = onMemoActionInvoked,
+        onMemoActionOrderChanged = onMemoActionOrderChanged,
         benchmarkRootTag = benchmarkRootTag,
         benchmarkActionAnchorForId = benchmarkActionAnchorForId,
     )
@@ -95,7 +97,7 @@ private fun MemoMenuBottomSheetHost(
     onDelete: (MemoMenuState) -> Unit,
     onShareImage: (MemoMenuState) -> Unit,
     onShareText: (MemoMenuState) -> Unit,
-    onLanShare: (MemoMenuState) -> Unit,
+    onLanShare: ((MemoMenuState) -> Unit)?,
     onTogglePin: ((MemoMenuState) -> Unit)?,
     onJump: ((MemoMenuState) -> Unit)?,
     onHistory: ((MemoMenuState) -> Unit)?,
@@ -104,6 +106,7 @@ private fun MemoMenuBottomSheetHost(
     memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: ImmutableList<String>,
     onMemoActionInvoked: (MemoActionId) -> Unit,
+    onMemoActionOrderChanged: (List<MemoActionId>) -> Unit,
     benchmarkRootTag: String?,
     benchmarkActionAnchorForId: (MemoActionId) -> String?,
 ) {
@@ -123,7 +126,7 @@ private fun MemoMenuBottomSheetHost(
             },
             onLanShare = {
                 clearActiveState()
-                onLanShare(state)
+                onLanShare?.invoke(state)
             },
             onTogglePin =
                 createOptionalStateAction(
@@ -166,6 +169,7 @@ private fun MemoMenuBottomSheetHost(
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
             memoActionOrder = memoActionOrder,
             onMemoActionInvoked = onMemoActionInvoked,
+            onMemoActionOrderChanged = onMemoActionOrderChanged,
             benchmarkRootTag = benchmarkRootTag,
             actionAnchorForId = benchmarkActionAnchorForId,
         )
