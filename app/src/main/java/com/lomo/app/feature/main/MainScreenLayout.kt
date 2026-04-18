@@ -55,6 +55,7 @@ internal fun MainScreenNavigationRender(
     onScrollToTop: () -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onOpenEditor: (Memo) -> Unit,
+    onSidebarTagReorder: (List<String>) -> Unit,
 ) {
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val collapsingMemoIds by viewModel.collapsingMemoIds.collectAsStateWithLifecycle()
@@ -86,7 +87,6 @@ internal fun MainScreenNavigationRender(
         onMemoDoubleClick = onOpenEditor,
         doubleTapEditEnabled = screenState.doubleTapEditEnabled,
         freeTextCopyEnabled = screenState.freeTextCopyEnabled,
-        singleTapDetailEnabled = screenState.singleTapDetailEnabled,
         scrollbarEnabled = screenState.scrollbarEnabled,
         onShowMemoMenu = onShowMemoMenu,
         onMemoSortOptionSelected = viewModel.updateMemoSortOption,
@@ -95,6 +95,7 @@ internal fun MainScreenNavigationRender(
         onDismissMemoFilterSheet = onDismissMemoFilterSheet,
         onHeatmapDateLongPress = onHeatmapDateLongPress,
         onScrollToTop = onScrollToTop,
+        onSidebarTagReorder = onSidebarTagReorder,
     )
 }
 
@@ -128,7 +129,6 @@ internal fun MainScreenRenderHost(
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     scrollbarEnabled: Boolean,
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onMemoSortOptionSelected: (MemoSortOption) -> Unit,
@@ -137,6 +137,7 @@ internal fun MainScreenRenderHost(
     onDismissMemoFilterSheet: () -> Unit,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
     onScrollToTop: () -> Unit,
+    onSidebarTagReorder: (List<String>) -> Unit,
 ) {
     MainScreenDrawerLayout(
         isExpanded = isExpanded,
@@ -146,6 +147,7 @@ internal fun MainScreenRenderHost(
                 sidebarUiState = sidebarUiState,
                 actions = actions,
                 onHeatmapDateLongPress = onHeatmapDateLongPress,
+                onTagReorder = onSidebarTagReorder,
             )
         },
     ) {
@@ -172,7 +174,6 @@ internal fun MainScreenRenderHost(
             onMemoDoubleClick = onMemoDoubleClick,
             doubleTapEditEnabled = doubleTapEditEnabled,
             freeTextCopyEnabled = freeTextCopyEnabled,
-            singleTapDetailEnabled = singleTapDetailEnabled,
             scrollbarEnabled = scrollbarEnabled,
             onShowMemoMenu = onShowMemoMenu,
             isFilterActive = isFilterActive,
@@ -221,13 +222,16 @@ private fun MainScreenSidebarContent(
     sidebarUiState: SidebarViewModel.SidebarUiState,
     actions: MainScreenActions,
     onHeatmapDateLongPress: (LocalDate) -> Unit,
+    onTagReorder: (List<String>) -> Unit,
 ) {
     SidebarDrawer(
         username = "Lomo",
         stats = sidebarUiState.stats,
         memoCountByDate = sidebarUiState.memoCountByDate.toImmutableMap(),
         tags = sidebarUiState.tags.toImmutableList(),
+        rootTagOrder = sidebarUiState.rootTagOrder.toImmutableList(),
         onTagClick = actions.onSidebarTagClick,
+        onTagReorder = onTagReorder,
         onSettingsClick = actions.onSettings,
         onTrashClick = actions.onTrash,
         onDailyReviewClick = actions.onDailyReviewClick,
@@ -262,7 +266,6 @@ internal fun MainScreenAnimatedBody(
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
@@ -311,7 +314,6 @@ internal fun MainScreenAnimatedBody(
                     onMemoDoubleClick = onMemoDoubleClick,
                     doubleTapEditEnabled = doubleTapEditEnabled,
                     freeTextCopyEnabled = freeTextCopyEnabled,
-                    singleTapDetailEnabled = singleTapDetailEnabled,
                     scrollbarEnabled = scrollbarEnabled,
                     onTagClick = onTagClick,
                     onImageClick = onImageClick,
@@ -353,7 +355,6 @@ private fun MainReadyContent(
     onMemoDoubleClick: (Memo) -> Unit,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
-    singleTapDetailEnabled: Boolean,
     scrollbarEnabled: Boolean,
     onTagClick: (String) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
@@ -396,7 +397,6 @@ private fun MainReadyContent(
                         onMemoDoubleClick = onMemoDoubleClick,
                         doubleTapEditEnabled = doubleTapEditEnabled,
                         freeTextCopyEnabled = freeTextCopyEnabled,
-                        singleTapDetailEnabled = singleTapDetailEnabled,
                         scrollbarEnabled = scrollbarEnabled,
                         onTagClick = onTagClick,
                         onImageClick = onImageClick,

@@ -43,10 +43,6 @@ interface InteractionPreferencesRepository {
     fun isFreeTextCopyEnabled(): Flow<Boolean>
 
     suspend fun setFreeTextCopyEnabled(enabled: Boolean)
-
-    fun isSingleTapDetailEnabled(): Flow<Boolean>
-
-    suspend fun setSingleTapDetailEnabled(enabled: Boolean)
 }
 
 interface InteractionBehaviorPreferencesRepository {
@@ -67,6 +63,12 @@ interface MemoActionPreferencesRepository {
     fun getMemoActionOrder(): Flow<List<String>>
 
     suspend fun updateMemoActionOrder(actionOrder: List<String>)
+}
+
+interface SidebarTagOrderPreferencesRepository {
+    fun getSidebarTagOrder(): Flow<List<String>>
+
+    suspend fun updateSidebarTagOrder(order: List<String>)
 }
 
 interface SecurityPreferencesRepository {
@@ -119,10 +121,22 @@ interface DraftPreferencesRepository {
     suspend fun setDraftText(text: String?)
 }
 
-interface LocationPreferencesRepository {
-    fun isAttachLocationEnabled(): Flow<Boolean>
+interface TypographyPreferencesRepository {
+    fun getFontSizeScale(): Flow<Float>
 
-    suspend fun setAttachLocationEnabled(enabled: Boolean)
+    suspend fun setFontSizeScale(scale: Float)
+
+    fun getLineHeightScale(): Flow<Float>
+
+    suspend fun setLineHeightScale(scale: Float)
+
+    fun getLetterSpacingScale(): Flow<Float>
+
+    suspend fun setLetterSpacingScale(scale: Float)
+
+    fun getParagraphSpacingScale(): Flow<Float>
+
+    suspend fun setParagraphSpacingScale(scale: Float)
 }
 
 interface PreferencesRepository :
@@ -131,8 +145,9 @@ interface PreferencesRepository :
     InteractionPreferencesRepository,
     InteractionBehaviorPreferencesRepository,
     MemoActionPreferencesRepository,
+    SidebarTagOrderPreferencesRepository,
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,
     SyncInboxPreferencesRepository,
     DraftPreferencesRepository,
-    LocationPreferencesRepository
+    TypographyPreferencesRepository

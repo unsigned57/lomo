@@ -8,20 +8,22 @@ import com.lomo.domain.repository.DateTimePreferencesRepository
 import com.lomo.domain.repository.DraftPreferencesRepository
 import com.lomo.domain.repository.InteractionBehaviorPreferencesRepository
 import com.lomo.domain.repository.InteractionPreferencesRepository
-import com.lomo.domain.repository.LocationPreferencesRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.SecurityPreferencesRepository
 import com.lomo.domain.repository.ShareCardPreferencesRepository
+import com.lomo.domain.repository.SidebarTagOrderPreferencesRepository
 import com.lomo.domain.repository.StoragePreferencesRepository
 import com.lomo.domain.repository.SyncInboxPreferencesRepository
+import com.lomo.domain.repository.TypographyPreferencesRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val MEMO_ACTION_ORDER_DELIMITER = "|"
+private const val SIDEBAR_TAG_ORDER_DELIMITER = "|"
 
 private fun decodeMemoActionOrder(serialized: String): List<String> =
     serialized
@@ -38,6 +40,21 @@ private fun encodeMemoActionOrder(actionOrder: List<String>): String =
         .distinct()
         .joinToString(MEMO_ACTION_ORDER_DELIMITER)
 
+private fun decodeSidebarTagOrder(serialized: String): List<String> =
+    serialized
+        .split(SIDEBAR_TAG_ORDER_DELIMITER)
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+
+private fun encodeSidebarTagOrder(order: List<String>): String =
+    order
+        .asSequence()
+        .map(String::trim)
+        .filter(String::isNotEmpty)
+        .distinct()
+        .joinToString(SIDEBAR_TAG_ORDER_DELIMITER)
+
 @Singleton
 class PreferencesRepositoryImpl
     @Inject
@@ -47,22 +64,24 @@ class PreferencesRepositoryImpl
         interactionPreferencesRepository: InteractionPreferencesRepositoryImpl,
         interactionBehaviorPreferencesRepository: InteractionBehaviorPreferencesRepositoryImpl,
         memoActionPreferencesRepository: MemoActionPreferencesRepositoryImpl,
+        sidebarTagOrderPreferencesRepository: SidebarTagOrderPreferencesRepositoryImpl,
         securityPreferencesRepository: SecurityPreferencesRepositoryImpl,
         shareCardPreferencesRepository: ShareCardPreferencesRepositoryImpl,
         syncInboxPreferencesRepository: SyncInboxPreferencesRepositoryImpl,
         draftPreferencesRepository: DraftPreferencesRepositoryImpl,
-        locationPreferencesRepository: LocationPreferencesRepositoryImpl,
+        typographyPreferencesRepository: TypographyPreferencesRepositoryImpl,
     ) : PreferencesRepository,
         DateTimePreferencesRepository by dateTimePreferencesRepository,
         StoragePreferencesRepository by storagePreferencesRepository,
         InteractionPreferencesRepository by interactionPreferencesRepository,
         InteractionBehaviorPreferencesRepository by interactionBehaviorPreferencesRepository,
         MemoActionPreferencesRepository by memoActionPreferencesRepository,
+        SidebarTagOrderPreferencesRepository by sidebarTagOrderPreferencesRepository,
         SecurityPreferencesRepository by securityPreferencesRepository,
         ShareCardPreferencesRepository by shareCardPreferencesRepository,
         SyncInboxPreferencesRepository by syncInboxPreferencesRepository,
         DraftPreferencesRepository by draftPreferencesRepository,
-        com.lomo.domain.repository.LocationPreferencesRepository by locationPreferencesRepository
+        TypographyPreferencesRepository by typographyPreferencesRepository
 
 @Singleton
 class DateTimePreferencesRepositoryImpl
@@ -137,12 +156,6 @@ class InteractionPreferencesRepositoryImpl
         override suspend fun setFreeTextCopyEnabled(enabled: Boolean) {
             dataStore.updateFreeTextCopyEnabled(enabled)
         }
-
-        override fun isSingleTapDetailEnabled(): Flow<Boolean> = dataStore.singleTapDetailEnabled
-
-        override suspend fun setSingleTapDetailEnabled(enabled: Boolean) {
-            dataStore.updateSingleTapDetailEnabled(enabled)
-        }
     }
 
 @Singleton
@@ -182,6 +195,20 @@ class MemoActionPreferencesRepositoryImpl
 
         override suspend fun updateMemoActionOrder(actionOrder: List<String>) {
             dataStore.updateMemoActionOrder(encodeMemoActionOrder(actionOrder))
+        }
+    }
+
+@Singleton
+class SidebarTagOrderPreferencesRepositoryImpl
+    @Inject
+    constructor(
+        private val dataStore: LomoDataStore,
+    ) : SidebarTagOrderPreferencesRepository {
+        override fun getSidebarTagOrder(): Flow<List<String>> =
+            dataStore.sidebarTagOrder.map(::decodeSidebarTagOrder)
+
+        override suspend fun updateSidebarTagOrder(order: List<String>) {
+            dataStore.updateSidebarTagOrder(encodeSidebarTagOrder(order))
         }
     }
 
@@ -281,15 +308,32 @@ class MemoSnapshotPreferencesRepositoryImpl
     }
 
 @Singleton
-class LocationPreferencesRepositoryImpl
+class TypographyPreferencesRepositoryImpl
     @Inject
     constructor(
         private val dataStore: LomoDataStore,
-    ) : LocationPreferencesRepository {
-        override fun isAttachLocationEnabled(): Flow<Boolean> =
-            dataStore.attachLocationEnabled
+    ) : TypographyPreferencesRepository {
+        override fun getFontSizeScale(): Flow<Float> = dataStore.fontSizeScale
 
-        override suspend fun setAttachLocationEnabled(enabled: Boolean) {
-            dataStore.updateAttachLocationEnabled(enabled)
+        override suspend fun setFontSizeScale(scale: Float) {
+            dataStore.updateFontSizeScale(scale)
+        }
+
+        override fun getLineHeightScale(): Flow<Float> = dataStore.lineHeightScale
+
+        override suspend fun setLineHeightScale(scale: Float) {
+            dataStore.updateLineHeightScale(scale)
+        }
+
+        override fun getLetterSpacingScale(): Flow<Float> = dataStore.letterSpacingScale
+
+        override suspend fun setLetterSpacingScale(scale: Float) {
+            dataStore.updateLetterSpacingScale(scale)
+        }
+
+        override fun getParagraphSpacingScale(): Flow<Float> = dataStore.paragraphSpacingScale
+
+        override suspend fun setParagraphSpacingScale(scale: Float) {
+            dataStore.updateParagraphSpacingScale(scale)
         }
     }

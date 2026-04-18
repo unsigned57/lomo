@@ -5,6 +5,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Row
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -25,16 +28,87 @@ import androidx.compose.material3.NavigationDrawerItem
 import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.theme.AppSpacing
 
 internal object SidebarDrawerTagTree
+
+internal class TagReorderState {
+    var draggedKey by mutableStateOf<String?>(null)
+        private set
+    var dragOffset by mutableFloatStateOf(0f)
+        private set
+    val isDragging: Boolean get() = draggedKey != null
+
+    fun startDrag(key: String) {
+        draggedKey = key
+        dragOffset = 0f
+    }
+
+    fun updateDrag(delta: Float) {
+        dragOffset += delta
+    }
+
+    fun endDrag() {
+        draggedKey = null
+        dragOffset = 0f
+    }
+
+    fun checkAndSwap(tagTree: SnapshotStateList<TagNode>, listState: LazyListState) {
+        val currentKey = draggedKey ?: return
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        val draggedItem = visibleItems.find { it.key == currentKey } ?: return
+        val draggedCenter = draggedItem.offset + draggedItem.size / 2 + dragOffset
+        val draggedIndex = tagTree.indexOfFirst { it.fullPath == currentKey }
+        if (draggedIndex < 0) return
+
+        val swapTarget = findSwapTarget(tagTree, visibleItems, currentKey, draggedIndex, draggedCenter)
+        if (swapTarget != null) {
+            val targetItem = visibleItems.first { it.key == tagTree[swapTarget].fullPath }
+            val sizeAdjustment =
+                if (swapTarget > draggedIndex) {
+                    (targetItem.size - draggedItem.size).toFloat()
+                } else {
+                    -(targetItem.size - draggedItem.size).toFloat()
+                }
+            tagTree.add(swapTarget, tagTree.removeAt(draggedIndex))
+            dragOffset += sizeAdjustment
+        }
+    }
+
+    private fun findSwapTarget(
+        tagTree: SnapshotStateList<TagNode>,
+        visibleItems: List<androidx.compose.foundation.lazy.LazyListItemInfo>,
+        currentKey: String,
+        draggedIndex: Int,
+        draggedCenter: Float,
+    ): Int? =
+        visibleItems
+            .asSequence()
+            .mapNotNull { item -> (item.key as? String)?.let { key -> key to item } }
+            .filter { (key, _) -> key != currentKey }
+            .mapNotNull { (key, item) ->
+                val idx = tagTree.indexOfFirst { it.fullPath == key }
+                if (idx >= 0) Triple(idx, item, item.offset + item.size / 2) else null
+            }.firstOrNull { (itemIndex, _, itemCenter) ->
+                (itemIndex > draggedIndex && draggedCenter > itemCenter) ||
+                    (itemIndex < draggedIndex && draggedCenter < itemCenter)
+            }?.first
+}
 
 internal data class TagNode(
     val name: String,
@@ -43,7 +117,7 @@ internal data class TagNode(
     val children: List<TagNode> = emptyList(),
 )
 
-internal fun buildTagTree(tags: List<SidebarTag>): List<TagNode> {
+internal fun buildTagTree(tags: List<SidebarTag>, rootOrder: List<String> = emptyList()): List<TagNode> {
     val rootNodes = mutableListOf<MutableTagNode>()
     val tagMap = tags.associate { it.name to it.count }
 
@@ -51,20 +125,27 @@ internal fun buildTagTree(tags: List<SidebarTag>): List<TagNode> {
         insertTagPath(rootNodes, tag, tagMap)
     }
 
-    return rootNodes.map { it.toImmutable() }
+    val nodes = rootNodes.map { it.toImmutable() }
+    if (rootOrder.isEmpty()) return nodes
+
+    val orderIndex = rootOrder.withIndex().associate { (index, name) -> name to index }
+    return nodes.sortedBy { node -> orderIndex[node.name] ?: (rootOrder.size + nodes.indexOf(node)) }
 }
 
 internal fun LazyListScope.sidebarTags(
     tags: List<SidebarTag>,
-    tagTree: List<TagNode>,
+    tagTree: SnapshotStateList<TagNode>,
     expandedNodes: SnapshotStateMap<String, Boolean>,
     selectedTagPath: String?,
     onTagClick: (String) -> Unit,
     anchorTagForPath: (String) -> String?,
+    reorderState: TagReorderState,
+    listState: LazyListState,
+    onReorderComplete: (List<String>) -> Unit,
 ) {
     if (tags.isEmpty()) return
 
-    item {
+    item(key = "sidebar_tags_header") {
         Text(
             text = androidx.compose.ui.res.stringResource(com.lomo.ui.R.string.sidebar_tags),
             style = MaterialTheme.typography.labelSmall,
@@ -73,16 +154,53 @@ internal fun LazyListScope.sidebarTags(
         )
     }
 
-    items(tagTree) { node ->
-        TagTreeItem(
-            node = node,
-            onTagClick = onTagClick,
-            level = 0,
-            expandedNodes = expandedNodes,
-            selectedTagPath = selectedTagPath,
-            onToggleExpand = { path -> expandedNodes[path] = !(expandedNodes[path] ?: false) },
-            anchorTagForPath = anchorTagForPath,
-        )
+    items(tagTree, key = { it.fullPath }) { node ->
+        val isDragged = reorderState.draggedKey == node.fullPath
+        Box(
+            modifier =
+                Modifier
+                    .then(
+                        if (isDragged) {
+                            Modifier
+                                .zIndex(1f)
+                                .graphicsLayer { translationY = reorderState.dragOffset }
+                        } else {
+                            Modifier.animateItem(fadeInSpec = null, fadeOutSpec = null)
+                        },
+                    )
+                    .pointerInput(node.fullPath) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = {
+                                reorderState.startDrag(node.fullPath)
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                reorderState.updateDrag(dragAmount.y)
+                                reorderState.checkAndSwap(
+                                    tagTree = tagTree,
+                                    listState = listState,
+                                )
+                            },
+                            onDragEnd = {
+                                reorderState.endDrag()
+                                onReorderComplete(tagTree.map { it.name })
+                            },
+                            onDragCancel = {
+                                reorderState.endDrag()
+                            },
+                        )
+                    },
+        ) {
+            TagTreeItem(
+                node = node,
+                onTagClick = onTagClick,
+                level = 0,
+                expandedNodes = expandedNodes,
+                selectedTagPath = selectedTagPath,
+                onToggleExpand = { path -> expandedNodes[path] = !(expandedNodes[path] ?: false) },
+                anchorTagForPath = anchorTagForPath,
+            )
+        }
     }
 }
 

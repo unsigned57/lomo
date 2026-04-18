@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -90,7 +91,6 @@ interface LomoInteractionPreferencesStore {
     val showInputHints: Flow<Boolean>
     val doubleTapEditEnabled: Flow<Boolean>
     val freeTextCopyEnabled: Flow<Boolean>
-    val singleTapDetailEnabled: Flow<Boolean>
     val memoActionAutoReorderEnabled: Flow<Boolean>
     val memoActionOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
@@ -104,8 +104,6 @@ interface LomoInteractionPreferencesStore {
 
     suspend fun updateFreeTextCopyEnabled(enabled: Boolean)
 
-    suspend fun updateSingleTapDetailEnabled(enabled: Boolean)
-
     suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
 
     suspend fun updateMemoActionOrder(order: String)
@@ -113,6 +111,12 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean)
 
     suspend fun updateScrollbarEnabled(enabled: Boolean)
+}
+
+interface LomoSidebarTagOrderStore {
+    val sidebarTagOrder: Flow<String>
+
+    suspend fun updateSidebarTagOrder(order: String)
 }
 
 interface LomoAppSecurityStore {
@@ -125,6 +129,7 @@ interface LomoAppSecurityStore {
 }
 
 interface LomoLanSharePreferencesStore {
+    val lanShareEnabled: Flow<Boolean>
     val lanSharePairingKeyHex: Flow<String?>
     val lanShareE2eEnabled: Flow<Boolean>
     val lanShareDeviceName: Flow<String?>
@@ -132,6 +137,8 @@ interface LomoLanSharePreferencesStore {
     val shareCardShowBrand: Flow<Boolean>
     val shareCardSignatureText: Flow<String>
     val syncInboxEnabled: Flow<Boolean>
+
+    suspend fun updateLanShareEnabled(enabled: Boolean)
 
     suspend fun updateLanSharePairingKeyHex(keyHex: String?)
 
@@ -320,10 +327,16 @@ interface LomoDraftStore {
     suspend fun updateDraftText(text: String?)
 }
 
-interface LomoLocationPreferencesStore {
-    val attachLocationEnabled: Flow<Boolean>
+interface LomoTypographyPreferencesStore {
+    val fontSizeScale: Flow<Float>
+    val lineHeightScale: Flow<Float>
+    val letterSpacingScale: Flow<Float>
+    val paragraphSpacingScale: Flow<Float>
 
-    suspend fun updateAttachLocationEnabled(enabled: Boolean)
+    suspend fun updateFontSizeScale(scale: Float)
+    suspend fun updateLineHeightScale(scale: Float)
+    suspend fun updateLetterSpacingScale(scale: Float)
+    suspend fun updateParagraphSpacingScale(scale: Float)
 }
 
 /**
@@ -337,6 +350,7 @@ class LomoDataStore private constructor(
     LomoStorageFormatStore by StorageFormatStoreImpl(dataStore),
     LomoDisplayPreferencesStore by DisplayPreferencesStoreImpl(dataStore),
     LomoInteractionPreferencesStore by InteractionPreferencesStoreImpl(dataStore),
+    LomoSidebarTagOrderStore by SidebarTagOrderStoreImpl(dataStore),
     LomoAppSecurityStore by AppSecurityStoreImpl(dataStore),
     LomoLanSharePreferencesStore by LanSharePreferencesStoreImpl(dataStore),
     LomoDailyReviewSessionStore by DailyReviewSessionStoreImpl(dataStore),
@@ -350,7 +364,7 @@ class LomoDataStore private constructor(
     LomoS3ConnectionStore by S3ConnectionStoreImpl(dataStore),
     LomoS3ScheduleStore by S3ScheduleStoreImpl(dataStore),
     LomoDraftStore by DraftStoreImpl(dataStore),
-    LomoLocationPreferencesStore by LocationPreferencesStoreImpl(dataStore) {
+    LomoTypographyPreferencesStore by TypographyPreferencesStoreImpl(dataStore) {
     @Inject
     constructor(
         @ApplicationContext context: Context,
@@ -376,13 +390,14 @@ internal object LomoDataStoreKeys {
     val SHOW_INPUT_HINTS = booleanPreferencesKey(PreferenceKeys.SHOW_INPUT_HINTS)
     val DOUBLE_TAP_EDIT_ENABLED = booleanPreferencesKey(PreferenceKeys.DOUBLE_TAP_EDIT_ENABLED)
     val FREE_TEXT_COPY_ENABLED = booleanPreferencesKey(PreferenceKeys.FREE_TEXT_COPY_ENABLED)
-    val SINGLE_TAP_DETAIL_ENABLED = booleanPreferencesKey(PreferenceKeys.SINGLE_TAP_DETAIL_ENABLED)
     val MEMO_ACTION_AUTO_REORDER_ENABLED =
         booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
     val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
+    val SIDEBAR_TAG_ORDER = stringPreferencesKey(PreferenceKeys.SIDEBAR_TAG_ORDER)
     val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
     val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
+    val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
     val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)
     val LAN_SHARE_E2E_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_E2E_ENABLED)
     val LAN_SHARE_DEVICE_NAME = stringPreferencesKey(PreferenceKeys.LAN_SHARE_DEVICE_NAME)
@@ -435,7 +450,10 @@ internal object LomoDataStoreKeys {
     val S3_LAST_SYNC_TIME = longPreferencesKey(PreferenceKeys.S3_LAST_SYNC_TIME)
     val S3_SYNC_ON_REFRESH = booleanPreferencesKey(PreferenceKeys.S3_SYNC_ON_REFRESH)
     val DRAFT_TEXT = stringPreferencesKey(PreferenceKeys.DRAFT_TEXT)
-    val ATTACH_LOCATION_ENABLED = booleanPreferencesKey(PreferenceKeys.ATTACH_LOCATION_ENABLED)
+    val TYPOGRAPHY_FONT_SIZE_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_FONT_SIZE_SCALE)
+    val TYPOGRAPHY_LINE_HEIGHT_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+    val TYPOGRAPHY_LETTER_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_LETTER_SPACING_SCALE)
+    val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = floatPreferencesKey(PreferenceKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
 }
 
 internal fun DataStore<Preferences>.nullableStringFlow(
@@ -487,6 +505,15 @@ internal fun DataStore<Preferences>.intFlow(
         .map { prefs -> normalize(prefs[key] ?: default) }
         .catchOnlyIOException(flowName, fallback)
 }
+
+internal fun DataStore<Preferences>.floatFlow(
+    key: Preferences.Key<Float>,
+    flowName: String,
+    default: Float,
+): Flow<Float> =
+    data
+        .map { prefs -> prefs[key] ?: default }
+        .catchOnlyIOException(flowName, default)
 
 internal suspend fun <T> DataStore<Preferences>.firstValue(
     flowName: String,

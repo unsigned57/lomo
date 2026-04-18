@@ -1,7 +1,9 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.domain.model.MemoTagCount
+import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoRepository
 import io.mockk.every
 import io.mockk.mockk
@@ -31,14 +33,19 @@ import java.time.LocalDate
 @OptIn(ExperimentalCoroutinesApi::class)
 class SidebarViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var repository: MemoRepository
+    private lateinit var memoRepository: MemoRepository
+    private lateinit var appConfigRepository: AppConfigRepository
     private lateinit var stateHolder: MainSidebarStateHolder
+    private lateinit var appConfigCoordinator: AppConfigUiCoordinator
 
     @Before
     fun setUp() {
         Dispatchers.setMain(testDispatcher)
-        repository = mockk(relaxed = true)
+        memoRepository = mockk(relaxed = true)
+        appConfigRepository = mockk(relaxed = true)
+        every { appConfigRepository.getSidebarTagOrder() } returns flowOf(emptyList())
         stateHolder = MainSidebarStateHolder()
+        appConfigCoordinator = AppConfigUiCoordinator(appConfigRepository)
     }
 
     @After
@@ -49,8 +56,8 @@ class SidebarViewModelTest {
     @Test
     fun `sidebarUiState aggregates stats filters invalid dates and sorts tags`() =
         runTest {
-            every { repository.getMemoCountFlow() } returns flowOf(7)
-            every { repository.getMemoCountByDateFlow() } returns
+            every { memoRepository.getMemoCountFlow() } returns flowOf(7)
+            every { memoRepository.getMemoCountByDateFlow() } returns
                 flowOf(
                     mapOf(
                         "2026_03_24" to 3,
@@ -58,7 +65,7 @@ class SidebarViewModelTest {
                         "not-a-date" to 99,
                     ),
                 )
-            every { repository.getTagCountsFlow() } returns
+            every { memoRepository.getTagCountsFlow() } returns
                 flowOf(
                     listOf(
                         MemoTagCount(name = "zeta", count = 4),
@@ -69,8 +76,9 @@ class SidebarViewModelTest {
 
             val viewModel =
                 SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(repository),
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
                     stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
                 )
 
             val state = viewModel.sidebarUiState.first { it.stats.memoCount == 7 && it.tags.isNotEmpty() }
@@ -100,8 +108,9 @@ class SidebarViewModelTest {
         runTest {
             val viewModel =
                 SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(repository),
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
                     stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
                 )
 
             viewModel.onSearch("meeting")
@@ -114,8 +123,9 @@ class SidebarViewModelTest {
         runTest {
             val viewModel =
                 SidebarViewModel(
-                    memoUiCoordinator = MemoUiCoordinator(repository),
+                    memoUiCoordinator = MemoUiCoordinator(memoRepository),
                     stateHolder = stateHolder,
+                    appConfigCoordinator = appConfigCoordinator,
                 )
 
             viewModel.onSearch("meeting")

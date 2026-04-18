@@ -60,7 +60,6 @@ internal fun collectMainScreenUiSnapshot(
         showInputHints = appPreferences.showInputHints,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-        singleTapDetailEnabled = appPreferences.singleTapDetailEnabled,
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
         memoActionOrder = appPreferences.memoActionOrder,
         quickSaveOnBackEnabled = appPreferences.quickSaveOnBackEnabled,
@@ -165,6 +164,7 @@ internal fun MainScreenContentHost(
     onNavigateToGallery: () -> Unit,
     onNavigateToStatistics: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit,
+    lanShareEnabled: Boolean,
 ) {
     val allTags =
         remember(screenState.sidebarUiState.tags) {
@@ -187,6 +187,7 @@ internal fun MainScreenContentHost(
         availableTags = allTags,
         showInputHints = screenState.showInputHints,
         onNavigateToShare = onNavigateToShare,
+        lanShareEnabled = lanShareEnabled,
     ) { showMenu, openEditor ->
         MainScreenNavigationContent(
             screenState = screenState,
@@ -295,6 +296,7 @@ private fun MainScreenNavigationContent(
             onScrollToTop = onScrollToTop,
             onShowMemoMenu = onShowMemoMenu,
             onOpenEditor = onOpenEditor,
+            onSidebarTagReorder = dependencies.sidebarViewModel::updateTagOrder,
         )
     }
 }

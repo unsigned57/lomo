@@ -206,13 +206,6 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.FREE_TEXT_COPY_ENABLED,
         )
 
-    override val singleTapDetailEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.SINGLE_TAP_DETAIL_ENABLED,
-            flowName = "singleTapDetailEnabled",
-            default = PreferenceKeys.Defaults.SINGLE_TAP_DETAIL_ENABLED,
-        )
-
     override val memoActionAutoReorderEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED,
@@ -257,10 +250,6 @@ internal class InteractionPreferencesStoreImpl(
         dataStore.editPreferences { this[LomoDataStoreKeys.FREE_TEXT_COPY_ENABLED] = enabled }
     }
 
-    override suspend fun updateSingleTapDetailEnabled(enabled: Boolean) {
-        dataStore.editPreferences { this[LomoDataStoreKeys.SINGLE_TAP_DETAIL_ENABLED] = enabled }
-    }
-
     override suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_AUTO_REORDER_ENABLED] = enabled }
     }
@@ -275,6 +264,21 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateScrollbarEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SCROLLBAR_ENABLED] = enabled }
+    }
+}
+
+internal class SidebarTagOrderStoreImpl(
+    private val dataStore: DataStore<Preferences>,
+) : LomoSidebarTagOrderStore {
+    override val sidebarTagOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.SIDEBAR_TAG_ORDER,
+            flowName = "sidebarTagOrder",
+            default = PreferenceKeys.Defaults.SIDEBAR_TAG_ORDER,
+        )
+
+    override suspend fun updateSidebarTagOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SIDEBAR_TAG_ORDER] = order }
     }
 }
 
@@ -307,6 +311,13 @@ internal class AppSecurityStoreImpl(
 internal class LanSharePreferencesStoreImpl(
     private val dataStore: DataStore<Preferences>,
 ) : LomoLanSharePreferencesStore {
+    override val lanShareEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.LAN_SHARE_ENABLED,
+            flowName = "lanShareEnabled",
+            default = PreferenceKeys.Defaults.LAN_SHARE_ENABLED,
+        )
+
     override val lanSharePairingKeyHex: Flow<String?> =
         dataStore.nullableStringFlow(LomoDataStoreKeys.LAN_SHARE_PAIRING_KEY_HEX, "lanSharePairingKeyHex")
 
@@ -347,6 +358,10 @@ internal class LanSharePreferencesStoreImpl(
             flowName = "syncInboxEnabled",
             default = PreferenceKeys.Defaults.SYNC_INBOX_ENABLED,
         )
+
+    override suspend fun updateLanShareEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.LAN_SHARE_ENABLED] = enabled }
+    }
 
     override suspend fun updateLanSharePairingKeyHex(keyHex: String?) {
         dataStore.setOrRemoveIfBlank(LomoDataStoreKeys.LAN_SHARE_PAIRING_KEY_HEX, keyHex)
@@ -877,19 +892,50 @@ internal class DraftStoreImpl(
     }
 }
 
-internal class LocationPreferencesStoreImpl(
+internal class TypographyPreferencesStoreImpl(
     private val dataStore: DataStore<Preferences>,
-) : LomoLocationPreferencesStore {
-    override val attachLocationEnabled: Flow<Boolean> =
-        dataStore.booleanFlow(
-            key = LomoDataStoreKeys.ATTACH_LOCATION_ENABLED,
-            flowName = "attachLocationEnabled",
-            default = PreferenceKeys.Defaults.ATTACH_LOCATION_ENABLED,
+) : LomoTypographyPreferencesStore {
+    override val fontSizeScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_FONT_SIZE_SCALE,
+            flowName = "typographyFontSizeScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_FONT_SIZE_SCALE,
         )
 
-    override suspend fun updateAttachLocationEnabled(enabled: Boolean) {
-        dataStore.editPreferences {
-            this[LomoDataStoreKeys.ATTACH_LOCATION_ENABLED] = enabled
-        }
+    override val lineHeightScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+            flowName = "typographyLineHeightScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_LINE_HEIGHT_SCALE,
+        )
+
+    override val letterSpacingScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_LETTER_SPACING_SCALE,
+            flowName = "typographyLetterSpacingScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_LETTER_SPACING_SCALE,
+        )
+
+    override val paragraphSpacingScale: Flow<Float> =
+        dataStore.floatFlow(
+            key = LomoDataStoreKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
+            flowName = "typographyParagraphSpacingScale",
+            default = PreferenceKeys.Defaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
+        )
+
+    override suspend fun updateFontSizeScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_FONT_SIZE_SCALE] = scale }
+    }
+
+    override suspend fun updateLineHeightScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_LINE_HEIGHT_SCALE] = scale }
+    }
+
+    override suspend fun updateLetterSpacingScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_LETTER_SPACING_SCALE] = scale }
+    }
+
+    override suspend fun updateParagraphSpacingScale(scale: Float) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE] = scale }
     }
 }

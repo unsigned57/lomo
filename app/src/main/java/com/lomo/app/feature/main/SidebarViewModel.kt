@@ -2,6 +2,7 @@ package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.MemoTagCount
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
 
@@ -23,11 +25,13 @@ class SidebarViewModel
     constructor(
         private val memoUiCoordinator: MemoUiCoordinator,
         private val stateHolder: MainSidebarStateHolder,
+        private val appConfigCoordinator: AppConfigUiCoordinator,
     ) : ViewModel() {
         data class SidebarUiState(
             val stats: SidebarStats = SidebarStats(),
             val memoCountByDate: Map<LocalDate, Int> = emptyMap(),
             val tags: List<SidebarTag> = emptyList(),
+            val rootTagOrder: List<String> = emptyList(),
         )
 
         val searchQuery: StateFlow<String> = stateHolder.searchQuery
@@ -37,7 +41,8 @@ class SidebarViewModel
                 memoUiCoordinator.memoCount(),
                 memoUiCoordinator.memoCountByDate(),
                 memoUiCoordinator.tagCounts(),
-            ) { memoCount, memoCountByDateRaw, tagCounts ->
+                appConfigCoordinator.sidebarTagOrder(),
+            ) { memoCount, memoCountByDateRaw, tagCounts, tagOrder ->
                 val memoCountByDate =
                     memoCountByDateRaw
                         .asSequence()
@@ -57,6 +62,7 @@ class SidebarViewModel
                         tagCounts
                             .sortedWith(compareByDescending<MemoTagCount> { it.count }.thenBy { it.name })
                             .map { tagCount -> SidebarTag(name = tagCount.name, count = tagCount.count) },
+                    rootTagOrder = tagOrder,
                 )
             }.flowOn(Dispatchers.Default)
                 .stateIn(viewModelScope, appWhileSubscribed(), SidebarUiState())
@@ -67,5 +73,9 @@ class SidebarViewModel
 
         fun clearFilters() {
             stateHolder.updateSearchQuery("")
+        }
+
+        fun updateTagOrder(order: List<String>) {
+            viewModelScope.launch { appConfigCoordinator.updateSidebarTagOrder(order) }
         }
     }

@@ -28,18 +28,25 @@ object PreferenceKeys {
     const val TIME_FORMAT = "time_format_only"
     const val THEME_MODE = "theme_mode"
 
+    // Typography
+    const val TYPOGRAPHY_FONT_SIZE_SCALE = "typography_font_size_scale"
+    const val TYPOGRAPHY_LINE_HEIGHT_SCALE = "typography_line_height_scale"
+    const val TYPOGRAPHY_LETTER_SPACING_SCALE = "typography_letter_spacing_scale"
+    const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = "typography_paragraph_spacing_scale"
+
     // Interaction
     const val HAPTIC_FEEDBACK_ENABLED = "haptic_feedback_enabled"
     const val CHECK_UPDATES_ON_STARTUP = "check_updates_on_startup"
     const val SHOW_INPUT_HINTS = "show_input_hints"
     const val DOUBLE_TAP_EDIT_ENABLED = "double_tap_edit_enabled"
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
-    const val SINGLE_TAP_DETAIL_ENABLED = "single_tap_detail_enabled"
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
     const val MEMO_ACTION_ORDER = "memo_action_order"
+    const val SIDEBAR_TAG_ORDER = "sidebar_tag_order"
     const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
     const val SCROLLBAR_ENABLED = "scrollbar_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
+    const val LAN_SHARE_ENABLED = "lan_share_enabled"
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
     const val LAN_SHARE_E2E_ENABLED = "lan_share_e2e_enabled"
     const val LAN_SHARE_DEVICE_NAME = "lan_share_device_name"
@@ -95,9 +102,6 @@ object PreferenceKeys {
     // Draft
     const val DRAFT_TEXT = "draft_text"
 
-    // Location
-    const val ATTACH_LOCATION_ENABLED = "attach_location_enabled"
-
     // Default values
     object Defaults {
         const val DATE_FORMAT = PreferenceDefaults.DATE_FORMAT
@@ -107,12 +111,13 @@ object PreferenceKeys {
         const val SHOW_INPUT_HINTS = PreferenceDefaults.SHOW_INPUT_HINTS
         const val DOUBLE_TAP_EDIT_ENABLED = PreferenceDefaults.DOUBLE_TAP_EDIT_ENABLED
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
-        const val SINGLE_TAP_DETAIL_ENABLED = PreferenceDefaults.SINGLE_TAP_DETAIL_ENABLED
         const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
         const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
+        const val SIDEBAR_TAG_ORDER = PreferenceDefaults.SIDEBAR_TAG_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
         const val SCROLLBAR_ENABLED = PreferenceDefaults.SCROLLBAR_ENABLED
         const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
+        const val LAN_SHARE_ENABLED = PreferenceDefaults.LAN_SHARE_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED
         const val THEME_MODE = PreferenceDefaults.THEME_MODE
         const val SHARE_CARD_SHOW_TIME = PreferenceDefaults.SHARE_CARD_SHOW_TIME
@@ -122,6 +127,12 @@ object PreferenceKeys {
         const val MEMO_SNAPSHOTS_ENABLED = PreferenceDefaults.MEMO_SNAPSHOTS_ENABLED
         const val MEMO_SNAPSHOT_MAX_COUNT = PreferenceDefaults.MEMO_SNAPSHOT_MAX_COUNT
         const val MEMO_SNAPSHOT_MAX_AGE_DAYS = PreferenceDefaults.MEMO_SNAPSHOT_MAX_AGE_DAYS
+
+        // Typography
+        const val TYPOGRAPHY_FONT_SIZE_SCALE = PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE
+        const val TYPOGRAPHY_LINE_HEIGHT_SCALE = PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE
+        const val TYPOGRAPHY_LETTER_SPACING_SCALE = PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE
+        const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE
 
         // Storage Defaults
         const val STORAGE_FILENAME_FORMAT = PreferenceDefaults.STORAGE_FILENAME_FORMAT
@@ -153,6 +164,5 @@ object PreferenceKeys {
         const val S3_AUTO_SYNC_ENABLED = PreferenceDefaults.S3_AUTO_SYNC_ENABLED
         const val S3_AUTO_SYNC_INTERVAL = PreferenceDefaults.S3_AUTO_SYNC_INTERVAL
         const val S3_SYNC_ON_REFRESH = PreferenceDefaults.S3_SYNC_ON_REFRESH
-        const val ATTACH_LOCATION_ENABLED = PreferenceDefaults.ATTACH_LOCATION_ENABLED
     }
 }

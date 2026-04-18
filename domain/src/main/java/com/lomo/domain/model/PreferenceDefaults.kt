@@ -10,10 +10,11 @@ object PreferenceDefaults {
     const val FREE_TEXT_COPY_ENABLED = false
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = true
     const val MEMO_ACTION_ORDER = ""
+    const val SIDEBAR_TAG_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
     const val SCROLLBAR_ENABLED = true
-    const val SINGLE_TAP_DETAIL_ENABLED = true
     const val APP_LOCK_ENABLED = false
+    const val LAN_SHARE_ENABLED = true
     const val LAN_SHARE_E2E_ENABLED = true
     const val THEME_MODE = "system"
     const val SHARE_CARD_SHOW_TIME = true
@@ -48,5 +49,8 @@ object PreferenceDefaults {
     const val S3_AUTO_SYNC_ENABLED = false
     const val S3_AUTO_SYNC_INTERVAL = "1h"
     const val S3_SYNC_ON_REFRESH = false
-    const val ATTACH_LOCATION_ENABLED = false
+    const val TYPOGRAPHY_FONT_SIZE_SCALE = 1.0f
+    const val TYPOGRAPHY_LINE_HEIGHT_SCALE = 1.0f
+    const val TYPOGRAPHY_LETTER_SPACING_SCALE = 1.0f
+    const val TYPOGRAPHY_PARAGRAPH_SPACING_SCALE = 1.0f
 }

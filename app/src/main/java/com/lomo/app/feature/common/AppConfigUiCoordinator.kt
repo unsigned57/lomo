@@ -48,6 +48,12 @@ class AppConfigUiCoordinator
             appConfigRepository
                 .isAppLockEnabled()
                 .map<Boolean, Boolean?> { it }
+
+        fun sidebarTagOrder(): Flow<List<String>> = appConfigRepository.getSidebarTagOrder()
+
+        suspend fun updateSidebarTagOrder(order: List<String>) {
+            appConfigRepository.updateSidebarTagOrder(order)
+        }
     }
 
 internal fun promoteMemoActionOrder(
