@@ -24,6 +24,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,6 +51,8 @@ import com.lomo.ui.media.LocalAudioPlayerManager
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.MotionTokens
+import com.lomo.ui.theme.TypographyScales
+import com.lomo.ui.theme.updateTypographyScales
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -369,6 +372,16 @@ private fun MainActivityRoot(
     shareServiceManager: LanShareService,
     currentUiMode: Int,
 ) {
+    val typographyScales =
+        TypographyScales(
+            fontSizeScale = appPreferences.typographyFontSizeScale,
+            lineHeightScale = appPreferences.typographyLineHeightScale,
+            letterSpacingScale = appPreferences.typographyLetterSpacingScale,
+            paragraphSpacingScale = appPreferences.typographyParagraphSpacingScale,
+        )
+    SideEffect {
+        updateTypographyScales(typographyScales)
+    }
     LomoTheme(
         themeMode = appPreferences.themeMode.value,
         currentUiMode = currentUiMode,
