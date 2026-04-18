@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -148,7 +149,7 @@ fun SidebarDrawer(
 
     LazyColumn(
         state = listState,
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier.fillMaxHeight().clipToBounds(),
         contentPadding = PaddingValues(AppSpacing.Medium),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
