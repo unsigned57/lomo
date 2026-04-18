@@ -184,7 +184,6 @@ fun InputSheet(
     val focusRequester = remember { FocusRequester() }
     val focusParkingRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    var editorView by remember { mutableStateOf<MemoInputEditText?>(null) }
     val scope = rememberCoroutineScope()
     val dismissSheet =
         rememberDismissSheetAction(
@@ -192,7 +191,6 @@ fun InputSheet(
             onDismissingChange = { sessionState.isDismissing = it },
             onSheetVisibleChange = { sessionState.isSheetVisible = it },
             focusParkingRequester = focusParkingRequester,
-            editorView = editorView,
             keyboardController = keyboardController,
             scope = scope,
             onDismiss = callbacks.onDismiss,
@@ -201,7 +199,6 @@ fun InputSheet(
         rememberSubmitWithLock(
             sessionState = sessionState,
             onSubmit = callbacks.onSubmit,
-            editorView = editorView,
             keyboardController = keyboardController,
             focusParkingRequester = focusParkingRequester,
             scope = scope,
@@ -224,7 +221,6 @@ fun InputSheet(
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
         focusRequestToken = state.focusRequestToken,
-        editorView = editorView,
         keyboardController = keyboardController,
         onCollapse = callbacks.onCollapse,
         onConsumeBackPress = callbacks.onConsumeBackPress,
@@ -252,7 +248,6 @@ fun InputSheet(
         hintText = hintText,
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
-        onEditorReady = { editorView = it },
         haptic = haptic,
         dismissSheet = dismissSheet,
         requestDismiss = requestDismiss,
@@ -291,12 +286,11 @@ internal class InputSheetSessionState(
 private fun rememberSubmitWithLock(
     sessionState: InputSheetSessionState,
     onSubmit: (String) -> Unit,
-    editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     focusParkingRequester: FocusRequester,
     scope: kotlinx.coroutines.CoroutineScope,
 ): (String, String, String) -> Unit =
-    remember(sessionState, onSubmit, editorView, keyboardController, focusParkingRequester, scope) {
+    remember(sessionState, onSubmit, keyboardController, focusParkingRequester, scope) {
         submit@{ content, triggerText, sourceText ->
             if (sessionState.isSubmitting && sessionState.pendingSubmissionTriggerText == triggerText) {
                 return@submit
@@ -305,7 +299,6 @@ private fun rememberSubmitWithLock(
             sessionState.pendingSubmissionTriggerText = triggerText
             sessionState.submissionLockSourceText = sourceText
             releaseEditorFocusAndKeyboardImmediately(
-                editor = editorView,
                 keyboardController = keyboardController,
                 focusParkingRequester = focusParkingRequester,
             )
@@ -385,7 +378,6 @@ private fun rememberDismissSheetAction(
     onDismissingChange: (Boolean) -> Unit,
     onSheetVisibleChange: (Boolean) -> Unit,
     focusParkingRequester: FocusRequester,
-    editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     scope: kotlinx.coroutines.CoroutineScope,
     onDismiss: () -> Unit,
@@ -394,7 +386,6 @@ private fun rememberDismissSheetAction(
         if (isDismissing) return@dismiss
         onDismissingChange(true)
         releaseEditorFocusAndKeyboardImmediately(
-            editor = editorView,
             keyboardController = keyboardController,
             focusParkingRequester = focusParkingRequester,
         )
@@ -415,7 +406,6 @@ private fun InputSheetLifecycle(
     focusRequester: FocusRequester,
     focusParkingRequester: FocusRequester,
     focusRequestToken: Long,
-    editorView: MemoInputEditText?,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     onCollapse: () -> Unit,
     onConsumeBackPress: () -> Boolean,
@@ -437,7 +427,6 @@ private fun InputSheetLifecycle(
         focusRequester = focusRequester,
         focusParkingRequester = focusParkingRequester,
         focusRequestToken = focusRequestToken,
-        editorView = editorView,
         keyboardController = keyboardController,
     )
     BackHandler(enabled = true) {
