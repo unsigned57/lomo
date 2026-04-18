@@ -17,6 +17,16 @@
     
     <!-- Display Group -->
     <string name="settings_group_display">Display</string>
+    <string name="settings_typography">Typography</string>
+    <string name="settings_typography_subtitle">Adjust font size and spacing</string>
+    <string name="settings_typography_font_size">Font Size</string>
+    <string name="settings_typography_line_height">Line Height</string>
+    <string name="settings_typography_letter_spacing">Letter Spacing</string>
+    <string name="settings_typography_paragraph_spacing">Paragraph Spacing</string>
+    <string name="settings_typography_preview_en_1">The quick brown fox jumps over the lazy dog. Every letter and word has its own space, creating a rhythm that guides the eye. Typography is the art of arranging text to make it readable, beautiful, and meaningful.</string>
+    <string name="settings_typography_preview_en_2">Good spacing makes text easier to read. When letters are too close together, words become crowded. When lines are too tight, paragraphs feel dense. Finding the right balance is key to comfortable reading.</string>
+    <string name="settings_typography_preview_zh_1">排版是文字呈现的艺术。每一个字、每一行、每一段之间的距离，都影响着阅读的节奏与舒适度。好的排版让文字自然流淌，让阅读成为一种享受。</string>
+    <string name="settings_typography_preview_zh_2">文字间距影响词句的紧凑程度，行间距决定段落的呼吸感，段间距则为不同思想之间留出停顿的空间。调整这些参数，找到最适合你的阅读体验。</string>
     <string name="settings_date_format">Date Format</string>
     <string name="settings_time_format">Time Format</string>
     
@@ -33,10 +43,6 @@
     <string name="settings_double_tap_edit_subtitle">Double-tap memo cards to enter edit mode quickly</string>
     <string name="settings_free_text_copy">Free text copy</string>
     <string name="settings_free_text_copy_subtitle">Allow selecting and copying text directly from memo cards</string>
-    <string name="settings_single_tap_detail">Single tap to show detail</string>
-    <string name="settings_single_tap_detail_subtitle">Tap a memo to expand and show its full content</string>
-    <string name="settings_attach_location">Attach location</string>
-    <string name="settings_attach_location_subtitle">Show location button in the input toolbar</string>
     <string name="settings_menu_auto_reorder">Auto reorder menu tiles</string>
     <string name="settings_menu_auto_reorder_subtitle">Gradually move memo menu tiles forward based on long-term usage heat</string>
     <string name="settings_quick_save_on_back">Quick save on back</string>
@@ -57,6 +63,8 @@
     <string name="settings_lan_share_pairing_code">LAN Share Pairing Code</string>
     <string name="settings_lan_share_pairing_configured">Configured (tap to update or clear)</string>
     <string name="settings_lan_share_pairing_not_set">Not configured (required for LAN sharing)</string>
+    <string name="settings_lan_share_enabled_title">Enable LAN Share</string>
+    <string name="settings_lan_share_enabled_subtitle">Allow device discovery and local network transfers</string>
     <string name="settings_lan_share_pairing_dialog_title">Set Pairing Code</string>
     <string name="settings_lan_share_pairing_dialog_message">Use the same code on all devices you want to trust for LAN sharing.</string>
     <string name="settings_lan_share_pairing_hint">6–64 characters</string>

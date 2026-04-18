@@ -112,27 +112,22 @@ fun SettingsScreen(
             unknownErrorMessage = resources.messages.unknownErrorMessage,
         )
 
-    HandleSettingsOperationError(
-        operationError = uiState.operationError,
-        gitFeature = features.git,
+    if (dialogState.showTypographyPage) {
+        TypographySettingsPage(
+            uiState = uiState.display,
+            displayFeature = features.display,
+            onBack = { dialogState.showTypographyPage = false },
+        )
+        return
+    }
+    SettingsConflictHandlers(
+        uiState = uiState,
+        features = features,
         dialogState = dialogState,
         snackbarHostState = snackbarHostState,
         messages = resources.messages,
+        conflictController = conflictController,
         onClearOperationError = viewModel::clearOperationError,
-    )
-    HandleGitConflictState(
-        syncState = uiState.git.syncState,
-        gitFeature = features.git,
-        dialogState = dialogState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
-    )
-    HandleWebDavConflictState(
-        syncState = uiState.webDav.syncState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
-    )
-    HandleS3ConflictState(
-        syncState = uiState.s3.syncState,
-        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
     HandleSettingsUpdateDialogs(
         manualUpdateState = manualUpdateState,
@@ -175,6 +170,40 @@ fun SettingsScreen(
         dialogState = dialogState,
         options = resources.dialogOptions,
         onApplyLanguageTag = ::applyLanguageTag,
+    )
+}
+
+@Composable
+private fun SettingsConflictHandlers(
+    uiState: SettingsScreenUiState,
+    features: SettingsFeatures,
+    dialogState: SettingsDialogState,
+    snackbarHostState: SnackbarHostState,
+    messages: SettingsMessages,
+    conflictController: SyncConflictDialogController,
+    onClearOperationError: () -> Unit,
+) {
+    HandleSettingsOperationError(
+        operationError = uiState.operationError,
+        gitFeature = features.git,
+        dialogState = dialogState,
+        snackbarHostState = snackbarHostState,
+        messages = messages,
+        onClearOperationError = onClearOperationError,
+    )
+    HandleGitConflictState(
+        syncState = uiState.git.syncState,
+        gitFeature = features.git,
+        dialogState = dialogState,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
+    )
+    HandleWebDavConflictState(
+        syncState = uiState.webDav.syncState,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
+    )
+    HandleS3ConflictState(
+        syncState = uiState.s3.syncState,
+        onShowConflictDialog = conflictController.onShowConflictDialog,
     )
 }
 
