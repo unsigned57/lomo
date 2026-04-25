@@ -20,7 +20,9 @@ import org.junit.Test
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
  *   plus direct-migration coverage to the current target version.
  * - Red phase: Fails before the fix because the schema target assertion still stops before the persisted
- *   WebDAV fingerprint schema and no test locks the 45->46 metadata normalization contract.
+ *   WebDAV fingerprint schema and no test locks the 45->46 metadata normalization contract. Additionally,
+ *   the new FTS5 migration tests (migration_21_22 and consolidation) are RED because production
+ *   currently generates "USING FTS4(...)"; these tests will turn GREEN once FTS5 is produced.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
 class DatabaseMigrationsTest {
@@ -33,8 +35,8 @@ class DatabaseMigrationsTest {
      * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
      */
     @Test
-    fun `database version advances to 47 for geo-location column`() {
-        assertEquals(47, MEMO_DATABASE_VERSION)
+    fun `database version advances to 48 for manual fts5 maintenance`() {
+        assertEquals(48, MEMO_DATABASE_VERSION)
     }
 
     @Test
@@ -854,6 +856,68 @@ class DatabaseMigrationsTest {
         val legacyTables = listOf("memos", "image_cache", "tags", "memo_tag_cross_ref", "memos_fts", "file_sync_metadata")
         for (table in legacyTables) {
             verify { db.execSQL("DROP TABLE IF EXISTS `$table`") }
+        }
+    }
+
+    /*
+     * Test Change Justification:
+     * - Reason category: product/domain contract changed (FTS4 → FTS5 upgrade).
+     * - Old behavior/assertion being replaced: no existing test locked the FTS module version
+     *   used in rebuild paths; the consolidation and migration tests were silent on FTS4/FTS5.
+     * - Why old assertion is no longer correct: target behavior requires FTS5 for all new and
+     *   upgraded databases; FTS4 is the current (wrong) state.
+     * - Coverage preserved by: existing legacy-table and migration-SQL tests remain unchanged;
+     *   new tests below add the FTS module contract as an additional assertion layer.
+     * - Why this is not fitting the test to the implementation: the new assertions assert "fts5"
+     *   which the current production code does NOT yet produce, making these tests intentionally
+     *   RED until the FTS5 production change is made.
+     */
+    @Test
+    fun `migration 21 to 22 rebuilds fts table using fts5 module`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        every { db.query(any<String>()) } answers { mockCursor(false) }
+
+        MIGRATION_21_22.migrate(db)
+
+        verify {
+            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
+        }
+        verify(exactly = 0) {
+            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
+        }
+    }
+
+    @Test
+    fun `consolidation migration rebuilds fts table using fts5 module`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        every { db.query(any<String>()) } answers { mockCursor(false) }
+
+        val migration =
+            ALL_DATABASE_MIGRATIONS.first {
+                it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
+            }
+        migration.migrate(db)
+
+        verify {
+            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
+        }
+        verify(exactly = 0) {
+            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
+        }
+    }
+
+    @Test
+    fun `migration 47 to 48 rebuilds fts table using fts5 module`() {
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        every { db.query(any<String>()) } answers { mockCursor(false) }
+
+        MIGRATION_47_48.migrate(db)
+
+        verify {
+            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
+        }
+        verify(exactly = 0) {
+            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
         }
     }
 

@@ -53,4 +53,12 @@ class SearchTokenizerTest {
         val expected = listOf("AI", "苏格", "格拉", "拉底", "2026")
         assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
     }
+
+    @Test
+    fun `tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal`() {
+        val input = "OR AND NOT"
+        val expected = listOf("or", "and", "not")
+
+        assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
+    }
 }

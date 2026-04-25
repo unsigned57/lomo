@@ -193,7 +193,7 @@ internal fun rebuildMemoFtsTable(db: SupportSQLiteDatabase) {
     db.execSQL(
         """
         CREATE VIRTUAL TABLE IF NOT EXISTS `$FTS_TABLE`
-        USING FTS4(`memoId` TEXT NOT NULL, `$COLUMN_CONTENT` TEXT NOT NULL, tokenize=unicode61)
+        USING fts5(`memoId` UNINDEXED, `$COLUMN_CONTENT`, tokenize='unicode61')
         """.trimIndent(),
     )
     if (db.tableExists(MEMO_TABLE)) {

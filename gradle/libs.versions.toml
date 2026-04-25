@@ -43,6 +43,7 @@ owaspDependencyCheck = "12.2.0"
 paparazzi = "2.0.0-alpha04"
 profileinstaller = "1.4.1"
 room = "2.8.4"
+sqliteJdbc = "3.49.1.0"
 serialization = "1.10.0"
 telephoto = "0.19.0"
 timber = "5.0.1"
@@ -83,6 +84,7 @@ androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstall
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
 androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 androidx-ui = { module = "androidx.compose.ui:ui" }
 androidx-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }

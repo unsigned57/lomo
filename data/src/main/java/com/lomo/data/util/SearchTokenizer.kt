@@ -3,6 +3,8 @@ package com.lomo.data.util
 import java.lang.Character.UnicodeBlock
 
 object SearchTokenizer {
+    private val ftsReservedWords = setOf("AND", "OR", "NOT")
+
     fun tokenize(text: String): String {
         val sb = StringBuilder()
         val length = text.length
@@ -82,7 +84,14 @@ object SearchTokenizer {
         tokens: MutableList<String>,
     ): Int {
         val endIndex = findWordEnd(text, startIndex)
-        tokens.add(text.substring(startIndex, endIndex))
+        val token = text.substring(startIndex, endIndex)
+        tokens.add(
+            if (token.uppercase() in ftsReservedWords) {
+                token.lowercase()
+            } else {
+                token
+            },
+        )
         return endIndex
     }
 

@@ -141,6 +141,42 @@ class MemoSearchRepositoryImplTest {
             assertEquals(2, repository.getActiveDayCount().first())
         }
 
+    @Test
+    fun `searchMemosList routes single CJK character query to FTS with unigram wildcard`() =
+        runTest {
+            // A single CJK char is a valid unigram token; the tokenizer returns it as-is so the
+            // repository must send "苏*" to the FTS DAO rather than falling back to plain search.
+            val entities =
+                listOf(
+                    memoEntity(id = "memo-cjk-1", timestamp = 500L, content = "苏州园林"),
+                )
+            every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(emptyList())
+            every { memoSearchDao.searchMemosByFtsFlow("苏*") } returns flowOf(entities)
+
+            val result = repository.searchMemosList("苏").first()
+
+            assertEquals(listOf("memo-cjk-1"), result.map { it.id })
+            verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("苏*") }
+            verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
+        }
+
+    @Test
+    fun `searchMemosList lowercases uppercase reserved operator words before issuing FTS query`() =
+        runTest {
+            val entities =
+                listOf(
+                    memoEntity(id = "memo-or", timestamp = 600L, content = "option OR another option"),
+                )
+            every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(emptyList())
+            every { memoSearchDao.searchMemosByFtsFlow("or* and* not*") } returns flowOf(entities)
+
+            val result = repository.searchMemosList("OR AND NOT").first()
+
+            assertEquals(listOf("memo-or"), result.map { it.id })
+            verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("or* and* not*") }
+            verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
+        }
+
     private fun memoEntity(
         id: String,
         timestamp: Long,

@@ -73,10 +73,18 @@ internal object DatabaseTransitionStrategy {
 
     fun cleanupLegacyArtifactsCallback(): RoomDatabase.Callback =
         object : RoomDatabase.Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                legacyTableNames.forEach { legacyTable ->
+                    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
+                }
+                ensureMemoFtsTable(db)
+            }
+
             override fun onOpen(db: SupportSQLiteDatabase) {
                 legacyTableNames.forEach { legacyTable ->
                     db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
                 }
+                ensureMemoFtsTable(db)
             }
         }
 
