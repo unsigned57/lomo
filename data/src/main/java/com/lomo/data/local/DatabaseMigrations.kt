@@ -32,6 +32,7 @@ const val SCHEMA_VERSION_44 = 44
 const val SCHEMA_VERSION_45 = 45
 const val SCHEMA_VERSION_46 = 46
 const val SCHEMA_VERSION_47 = 47
+const val SCHEMA_VERSION_48 = 48
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -285,6 +286,13 @@ val MIGRATION_46_47: Migration =
         }
     }
 
+val MIGRATION_47_48: Migration =
+    object : Migration(SCHEMA_VERSION_47, SCHEMA_VERSION_48) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            rebuildMemoFtsTable(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -337,6 +345,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
             MIGRATION_44_45,
             MIGRATION_45_46,
             MIGRATION_46_47,
+            MIGRATION_47_48,
         )
 
 /**

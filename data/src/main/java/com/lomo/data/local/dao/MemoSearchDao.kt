@@ -2,6 +2,9 @@ package com.lomo.data.local.dao
 
 import androidx.room.Dao
 import androidx.room.Query
+import androidx.room.RawQuery
+import androidx.sqlite.db.SimpleSQLiteQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 import com.lomo.data.local.entity.MemoEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -16,15 +19,21 @@ interface MemoSearchDao {
     )
     fun searchMemosFlow(query: String): Flow<List<MemoEntity>>
 
-    @Query(
-        """
-        SELECT Lomo.* FROM Lomo
-        INNER JOIN lomo_fts ON lomo_fts.memoId = Lomo.id
-        WHERE lomo_fts MATCH :matchQuery
-        ORDER BY Lomo.timestamp DESC, Lomo.id DESC
-        """,
-    )
-    fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>>
+    @RawQuery(observedEntities = [MemoEntity::class])
+    fun searchMemosByFtsRaw(query: SupportSQLiteQuery): Flow<List<MemoEntity>>
+
+    fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>> =
+        searchMemosByFtsRaw(
+            SimpleSQLiteQuery(
+                """
+                SELECT Lomo.* FROM Lomo
+                INNER JOIN lomo_fts ON lomo_fts.memoId = Lomo.id
+                WHERE lomo_fts MATCH ?
+                ORDER BY Lomo.timestamp DESC, Lomo.id DESC
+                """.trimIndent(),
+                arrayOf(matchQuery),
+            ),
+        )
 
     @Query(
         """

@@ -23,7 +23,6 @@ import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
-import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.MemoPinEntity
 import com.lomo.data.local.entity.MemoRevisionAssetEntity
 import com.lomo.data.local.entity.MemoRevisionEntity
@@ -39,14 +38,13 @@ import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 47
+const val MEMO_DATABASE_VERSION = 48
 
 @Database(
     entities =
         [
             MemoEntity::class,
             TrashMemoEntity::class,
-            MemoFtsEntity::class,
             MemoTagCrossRefEntity::class,
             LocalFileStateEntity::class,
             MemoFileOutboxEntity::class,
