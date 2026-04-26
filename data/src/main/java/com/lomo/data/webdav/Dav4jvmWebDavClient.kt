@@ -6,22 +6,28 @@ import at.bitfire.dav4jvm.MultiResponseCallback
 import at.bitfire.dav4jvm.Response
 import at.bitfire.dav4jvm.ResponseCallback
 import at.bitfire.dav4jvm.exception.HttpException
+import at.bitfire.dav4jvm.property.GetContentLength
 import at.bitfire.dav4jvm.property.GetETag
 import at.bitfire.dav4jvm.property.GetLastModified
 import at.bitfire.dav4jvm.property.ResourceType
-import okhttp3.Credentials
+import com.lomo.data.network.SyncHttpClientProvider
+import com.lomo.data.repository.SyncPerformanceTuner
+import com.lomo.data.repository.webDavMaxRequests
 import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.io.File
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import java.util.logging.Logger
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,39 +36,43 @@ import okhttp3.Response as OkHttpResponse
 @Singleton
 class Dav4jvmWebDavClientFactory
     @Inject
-    constructor() : WebDavClientFactory {
+    constructor(
+        private val httpClientProvider: SyncHttpClientProvider,
+        private val performanceTuner: SyncPerformanceTuner,
+    ) : WebDavClientFactory {
+        private val clients = ConcurrentHashMap<WebDavClientKey, WebDavClient>()
+
         override fun create(
             endpointUrl: String,
             username: String,
             password: String,
-        ): WebDavClient = Dav4jvmWebDavClient(endpointUrl = endpointUrl, username = username, password = password)
+        ): WebDavClient =
+            clients.getOrPut(WebDavClientKey(endpointUrl, username, password)) {
+                val profile = performanceTuner.currentProfile()
+                Dav4jvmWebDavClient(
+                    endpointUrl = endpointUrl,
+                    username = username,
+                    password = password,
+                    httpClient =
+                        httpClientProvider.webDavClient(
+                            username = username,
+                            password = password,
+                            maxRequests = profile.webDavMaxRequests(),
+                            maxRequestsPerHost = profile.webDavMaxRequests(),
+                        ),
+                )
+            }
     }
 
 class Dav4jvmWebDavClient(
     endpointUrl: String,
     username: String,
     password: String,
+    private val httpClient: OkHttpClient = SyncHttpClientProvider().webDavClient(username, password),
 ) : WebDavClient {
     private val rootUrl = endpointUrl.toHttpUrl()
     private val rootPathSegments = rootUrl.pathSegments.filter { it.isNotEmpty() }
     private val logger = Logger.getLogger(TAG)
-    private val httpClient =
-        OkHttpClient
-            .Builder()
-            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(IO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(IO_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .followRedirects(false)
-            .followSslRedirects(false)
-            .addInterceptor { chain ->
-                val request =
-                    chain
-                        .request()
-                        .newBuilder()
-                        .header("Authorization", Credentials.basic(username, password))
-                        .build()
-                chain.proceed(request)
-            }.build()
     private val rootCollection = DavCollection(httpClient, rootUrl, logger)
 
     override fun ensureDirectory(path: String) {
@@ -86,6 +96,7 @@ class Dav4jvmWebDavClient(
                 ResourceType.NAME,
                 GetETag.NAME,
                 GetLastModified.NAME,
+                GetContentLength.NAME,
                 callback =
                     object : MultiResponseCallback {
                         override fun onResponse(
@@ -102,6 +113,7 @@ class Dav4jvmWebDavClient(
                                     isDirectory = response.href.toString().endsWith("/"),
                                     etag = response.get(GetETag::class.java)?.eTag,
                                     lastModified = response.get(GetLastModified::class.java)?.lastModified,
+                                    size = response.get(GetContentLength::class.java)?.contentLength,
                                 )
                         }
                     },
@@ -137,6 +149,29 @@ class Dav4jvmWebDavClient(
         return file ?: throw IOException("Empty WebDAV response for $normalizedPath")
     }
 
+    override fun getToFile(
+        path: String,
+        destination: File,
+    ) {
+        val normalizedPath = normalizePath(path)
+        destination.parentFile?.mkdirs()
+        DavResource(httpClient, resolve(normalizedPath), logger).get(
+            OCTET_STREAM,
+            Headers.headersOf("Accept-Encoding", "identity"),
+            object : ResponseCallback {
+                override fun onResponse(response: OkHttpResponse) {
+                    response.use { httpResponse ->
+                        destination.outputStream().use { output ->
+                            httpResponse.body.byteStream().use { input ->
+                                input.copyTo(output)
+                            }
+                        }
+                    }
+                }
+            },
+        )
+    }
+
     override fun put(
         path: String,
         bytes: ByteArray,
@@ -146,8 +181,26 @@ class Dav4jvmWebDavClient(
         requireAbsent: Boolean,
     ) {
         val normalizedPath = normalizePath(path)
-        ensureDirectory(parentPath(normalizedPath))
         val requestBody = bytes.toRequestBody(contentType.toMediaType())
+        try {
+            putOnce(normalizedPath, requestBody, expectedEtag, requireAbsent)
+        } catch (error: HttpException) {
+            if (error.code != HTTP_NOT_FOUND) throw error
+            ensureDirectory(parentPath(normalizedPath))
+            putOnce(normalizedPath, requestBody, expectedEtag, requireAbsent)
+        }
+    }
+
+    override fun putFile(
+        path: String,
+        file: File,
+        contentType: String,
+        lastModifiedHint: Long?,
+        expectedEtag: String?,
+        requireAbsent: Boolean,
+    ) {
+        val normalizedPath = normalizePath(path)
+        val requestBody = file.asRequestBody(contentType.toMediaType())
         try {
             putOnce(normalizedPath, requestBody, expectedEtag, requireAbsent)
         } catch (error: HttpException) {
@@ -166,6 +219,22 @@ class Dav4jvmWebDavClient(
             null,
             emptyResponseCallback(),
         )
+    }
+
+    override fun move(
+        sourcePath: String,
+        targetPath: String,
+        overwrite: Boolean,
+    ) {
+        executeRemoteCopyOrMove("MOVE", sourcePath, targetPath, overwrite)
+    }
+
+    override fun copy(
+        sourcePath: String,
+        targetPath: String,
+        overwrite: Boolean,
+    ) {
+        executeRemoteCopyOrMove("COPY", sourcePath, targetPath, overwrite)
     }
 
     override fun testConnection() {
@@ -198,6 +267,27 @@ class Dav4jvmWebDavClient(
 
     private fun parentPath(path: String): String = normalizePath(path).substringBeforeLast('/', "")
 
+    private fun executeRemoteCopyOrMove(
+        method: String,
+        sourcePath: String,
+        targetPath: String,
+        overwrite: Boolean,
+    ) {
+        val request =
+            Request
+                .Builder()
+                .url(resolve(sourcePath))
+                .method(method, null)
+                .header("Destination", resolve(targetPath).toString())
+                .header("Overwrite", if (overwrite) OVERWRITE_TRUE else OVERWRITE_FALSE)
+                .build()
+        httpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful && response.code !in COPY_MOVE_SUCCESS_CODES) {
+                throw IOException("$method failed for $sourcePath -> $targetPath: HTTP ${response.code}")
+            }
+        }
+    }
+
     private fun relativeToRoot(href: String): String? {
         val resolvedUrl = rootUrl.resolve(href) ?: href.toHttpUrlOrNull()
         val targetPathSegments = resolvedUrl?.pathSegments?.filter(String::isNotEmpty).orEmpty()
@@ -214,12 +304,20 @@ class Dav4jvmWebDavClient(
     }
 
     private companion object {
-        private const val CONNECT_TIMEOUT_SECONDS = 30L
+        private val COPY_MOVE_SUCCESS_CODES = setOf(201, 204)
         private const val HTTP_NOT_FOUND = 404
-        private const val IO_TIMEOUT_SECONDS = 60L
+        private const val OCTET_STREAM = "application/octet-stream"
+        private const val OVERWRITE_FALSE = "F"
+        private const val OVERWRITE_TRUE = "T"
         private const val TAG = "Dav4jvmWebDavClient"
     }
 }
+
+private data class WebDavClientKey(
+    val endpointUrl: String,
+    val username: String,
+    val password: String,
+)
 
 private fun parseHttpDate(value: String?): Long? =
     value?.let { httpDate ->

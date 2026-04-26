@@ -38,5 +38,6 @@ class WebDavSyncRepositoryContext
         val metadataDao: WebDavSyncMetadataDao,
         val memoSynchronizer: MemoSynchronizer,
         val planner: WebDavSyncPlanner,
+        val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
         val stateHolder: WebDavSyncStateHolder,
     )

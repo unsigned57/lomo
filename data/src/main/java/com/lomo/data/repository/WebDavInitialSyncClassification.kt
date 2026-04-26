@@ -24,8 +24,8 @@ internal suspend fun classifyWebDavInitialOverlaps(
     metadataByPath: Map<String, WebDavSyncMetadataEntity>,
     client: WebDavClient,
     layout: SyncDirectoryLayout,
-    fileBridge: WebDavSyncFileBridge,
     timestampToleranceMs: Long = WEBDAV_TIMESTAMP_TOLERANCE_MS,
+    overlapConcurrency: Int = WEBDAV_DEFAULT_INITIAL_OVERLAP_CONCURRENCY,
 ): WebDavInitialSyncClassification {
     val candidatePaths =
         localFiles.keys
@@ -43,7 +43,7 @@ internal suspend fun classifyWebDavInitialOverlaps(
 
     val decisions =
         coroutineScope {
-            val limiter = Semaphore(WEBDAV_INITIAL_OVERLAP_CONCURRENCY)
+            val limiter = Semaphore(overlapConcurrency.coercePositiveConcurrency())
             candidatePaths.map { path ->
                 async(Dispatchers.IO) {
                     limiter.withPermit {
@@ -56,7 +56,6 @@ internal suspend fun classifyWebDavInitialOverlaps(
                                 remote = remote,
                                 client = client,
                                 layout = layout,
-                                fileBridge = fileBridge,
                                 timestampToleranceMs = timestampToleranceMs,
                             )
                     }
@@ -98,29 +97,73 @@ private suspend fun resolveWebDavInitialOverlap(
     remote: RemoteWebDavFile,
     client: WebDavClient,
     layout: SyncDirectoryLayout,
-    fileBridge: WebDavSyncFileBridge,
     timestampToleranceMs: Long,
 ): WebDavInitialOverlapDecision {
     val localFingerprint = local.localFingerprint
         ?: return newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
     val timestampDecision =
         newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
-    if (timestampDecision != WebDavInitialOverlapDecision.CONFLICT) {
-        return timestampDecision
+    return when {
+        timestampDecision != WebDavInitialOverlapDecision.CONFLICT -> timestampDecision
+        local.size != null && remote.size != null && local.size != remote.size -> timestampDecision
+        else -> {
+            val etagDecision = remote.etag?.let { resolveEtagOverlapDecision(localFingerprint, it, timestampDecision) }
+            if (etagDecision != null) {
+                etagDecision
+            } else {
+                resolveDownloadedOverlapDecision(
+                    path = path,
+                    localFingerprint = localFingerprint,
+                    client = client,
+                    layout = layout,
+                    timestampDecision = timestampDecision,
+                    localLastModified = local.lastModified,
+                    remoteLastModified = remote.lastModified,
+                    timestampToleranceMs = timestampToleranceMs,
+                )
+            }
+        }
+    }
+}
+
+private fun resolveEtagOverlapDecision(
+    localFingerprint: String,
+    remoteEtag: String,
+    timestampDecision: WebDavInitialOverlapDecision,
+): WebDavInitialOverlapDecision? =
+    normalizeSinglePartS3Md5(remoteEtag)?.let { remoteFingerprint ->
+        if (localFingerprint == remoteFingerprint) {
+            WebDavInitialOverlapDecision.EQUIVALENT
+        } else {
+            timestampDecision
+        }
     }
 
-    val remoteBytes =
-        runNonFatalCatching { client.get(path).bytes }.getOrNull()
-            ?: return if (fileBridge.isMemoPath(path, layout)) {
-                WebDavInitialOverlapDecision.CONFLICT
-            } else {
-                newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
-            }
-    val remoteFingerprint = remoteBytes.md5Hex()
-    return if (localFingerprint == remoteFingerprint) {
+private suspend fun resolveDownloadedOverlapDecision(
+    path: String,
+    localFingerprint: String,
+    client: WebDavClient,
+    layout: SyncDirectoryLayout,
+    timestampDecision: WebDavInitialOverlapDecision,
+    localLastModified: Long,
+    remoteLastModified: Long?,
+    timestampToleranceMs: Long,
+): WebDavInitialOverlapDecision {
+    if (!isWebDavMemoPath(path, layout)) {
+        return WebDavInitialOverlapDecision.CONFLICT
+    }
+    val remoteBytes = runNonFatalCatching { client.get(path).bytes }.getOrNull()
+    if (remoteBytes == null) {
+        return if (isWebDavMemoPath(path, layout)) {
+            WebDavInitialOverlapDecision.CONFLICT
+        } else {
+            newerSideWebDavDecision(localLastModified, remoteLastModified, timestampToleranceMs)
+        }
+    }
+    return if (localFingerprint == remoteBytes.md5Hex()) {
         WebDavInitialOverlapDecision.EQUIVALENT
     } else {
-        newerSideWebDavDecision(local.lastModified, remote.lastModified, timestampToleranceMs)
+        timestampDecision
     }
 }
 
@@ -162,4 +205,3 @@ private enum class WebDavInitialOverlapDecision {
 }
 
 private const val WEBDAV_TIMESTAMP_TOLERANCE_MS = 1000L
-private const val WEBDAV_INITIAL_OVERLAP_CONCURRENCY = 4

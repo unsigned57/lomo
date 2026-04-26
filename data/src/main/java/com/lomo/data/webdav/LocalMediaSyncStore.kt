@@ -13,7 +13,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -93,11 +92,17 @@ class LocalMediaSyncStore
             )
 
         suspend fun configuredCategories(): Set<MediaSyncCategory> =
-            configuredRoots().mapTo(linkedSetOf()) { it.category }
+            resolveConfiguredMediaRoots(
+                cachedRoots = configuredRootsState.value,
+                dataStore = dataStore,
+            ).mapTo(linkedSetOf()) { it.category }
 
         suspend fun listFiles(layout: SyncDirectoryLayout): Map<String, LocalMediaSyncFile> =
             withContext(Dispatchers.IO) {
-                configuredRoots()
+                resolveConfiguredMediaRoots(
+                    cachedRoots = configuredRootsState.value,
+                    dataStore = dataStore,
+                )
                     .flatMap { root ->
                         when (root) {
                             is MediaRoot.Direct -> listDirectFiles(root, layout)
@@ -123,6 +128,28 @@ class LocalMediaSyncStore
                                 "Media file not found: $relativePath"
                             }
                         context.contentResolver.openInputStream(document.uri)?.use { it.readBytes() }
+                            ?: throw IOException("Cannot open media file: $relativePath")
+                    }
+                }
+            }
+
+        suspend fun md5Hex(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+        ): String =
+            withContext(Dispatchers.IO) {
+                val located = locate(relativePath, layout) ?: throw IOException("Media file not found: $relativePath")
+                when (val root = located.root) {
+                    is MediaRoot.Direct ->
+                        File(root.path, located.filename).inputStream().use { input ->
+                            input.md5Hex()
+                        }
+                    is MediaRoot.Saf -> {
+                        val document =
+                            requireNotNull(getSafRoot(context, root)?.findFile(located.filename)) {
+                                "Media file not found: $relativePath"
+                            }
+                        context.contentResolver.openInputStream(document.uri)?.use { input -> input.md5Hex() }
                             ?: throw IOException("Cannot open media file: $relativePath")
                     }
                 }
@@ -246,18 +273,6 @@ class LocalMediaSyncStore
             return contentTypeFor(stripped.substringAfterLast('/'), category)
         }
 
-        private suspend fun configuredRoots(): List<MediaRoot> {
-            configuredRootsState.value?.let { roots ->
-                return roots
-            }
-            return buildConfiguredRoots(
-                imageDirectory = dataStore.imageDirectory.first(),
-                imageUri = dataStore.imageUri.first(),
-                voiceDirectory = dataStore.voiceDirectory.first(),
-                voiceUri = dataStore.voiceUri.first(),
-            )
-        }
-
         private suspend fun locate(
             relativePath: String,
             layout: SyncDirectoryLayout,
@@ -267,7 +282,10 @@ class LocalMediaSyncStore
             val filename = stripped.substringAfter('/', "")
             val root =
                 category?.let { resolvedCategory ->
-                    configuredRoots().firstOrNull { it.category == resolvedCategory }
+                    resolveConfiguredMediaRoots(
+                        cachedRoots = configuredRootsState.value,
+                        dataStore = dataStore,
+                    ).firstOrNull { it.category == resolvedCategory }
                 }
             return if (filename.isNotBlank() && root != null) {
                 LocatedMediaFile(root = root, filename = filename)
@@ -277,7 +295,7 @@ class LocalMediaSyncStore
         }
     }
 
-private fun buildConfiguredRoots(
+internal fun buildConfiguredRoots(
     imageDirectory: String?,
     imageUri: String?,
     voiceDirectory: String?,
