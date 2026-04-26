@@ -2,7 +2,6 @@ package com.lomo.app
 
 import android.content.Intent
 import android.content.res.Configuration
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -35,7 +34,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
-import androidx.core.content.IntentCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.feature.main.MainViewModel
@@ -54,7 +52,9 @@ import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.updateTypographyScales
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.launch
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private var currentUiMode by mutableIntStateOf(Configuration.UI_MODE_NIGHT_UNDEFINED)
+    private var nextPendingLaunchCommandId = 0L
+    private var pendingLaunchCommands by
+        mutableStateOf<ImmutableList<PendingLaunchCommand>>(persistentListOf())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -100,107 +103,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleIntent(intent: Intent?) {
-        when (intent?.action) {
-            Intent.ACTION_SEND,
-            Intent.ACTION_SEND_MULTIPLE,
-            -> {
-                handleShareIntent(intent)
-            }
-
-            ACTION_NEW_MEMO -> {
-                viewModel.requestCreateMemo()
-            }
-
-            ACTION_OPEN_MEMO -> {
-                val memoId = intent.getStringExtra(EXTRA_MEMO_ID)
-                if (!memoId.isNullOrBlank()) {
-                    viewModel.requestOpenMemo(memoId)
-                }
-            }
-        }
+        extractPendingLaunchActions(intent).forEach(::enqueuePendingLaunchAction)
     }
 
-    private fun handleShareIntent(intent: Intent) {
-        val type = intent.type.orEmpty()
-        if (type.startsWith("text/")) {
-            extractSharedTexts(intent).forEach(viewModel.handleSharedText)
-            return
-        }
-        if (type.startsWith("image/")) {
-            extractSharedImageUris(intent).forEach(viewModel.handleSharedImage)
-            return
-        }
-        // Fallback for mixed or missing MIME type.
-        extractSharedTexts(intent).forEach(viewModel.handleSharedText)
-        extractSharedImageUris(intent).forEach(viewModel.handleSharedImage)
-    }
-
-    private fun requestAppUnlock(
-        onSuccess: () -> Unit,
-        onFailure: (String) -> Unit,
-    ) {
-        val authenticators = resolveSupportedAuthenticators()
-        if (authenticators == null) {
-            onFailure(getString(R.string.app_lock_error_unavailable))
-            return
-        }
-
-        val promptInfo =
-            runCatching {
-                BiometricPrompt.PromptInfo
-                    .Builder()
-                    .setTitle(getString(R.string.app_lock_prompt_title))
-                    .setSubtitle(getString(R.string.app_lock_prompt_subtitle))
-                    .setAllowedAuthenticators(authenticators)
-                    .apply {
-                        if (authenticators == BiometricManager.Authenticators.BIOMETRIC_WEAK) {
-                            setNegativeButtonText(getString(R.string.action_cancel))
-                        }
-                    }.build()
-            }.getOrElse {
-                onFailure(getString(R.string.app_lock_error_generic))
-                return
-            }
-
-        val biometricPrompt =
-            BiometricPrompt(
-                this,
-                ContextCompat.getMainExecutor(this),
-                object : BiometricPrompt.AuthenticationCallback() {
-                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                        onSuccess()
-                    }
-
-                    override fun onAuthenticationError(
-                        errorCode: Int,
-                        errString: CharSequence,
-                    ) {
-                        val message =
-                            when (errorCode) {
-                                BiometricPrompt.ERROR_USER_CANCELED,
-                                BiometricPrompt.ERROR_NEGATIVE_BUTTON,
-                                BiometricPrompt.ERROR_CANCELED,
-                                -> getString(R.string.app_lock_error_canceled)
-
-                                else -> errString.toString().ifBlank { getString(R.string.app_lock_error_generic) }
-                            }
-                        onFailure(message)
-                    }
-                },
+    private fun enqueuePendingLaunchAction(action: PendingLaunchAction) {
+        val command =
+            PendingLaunchCommand(
+                id = nextPendingLaunchCommandId++,
+                action = action,
             )
-
-        runCatching {
-            biometricPrompt.authenticate(promptInfo)
-        }.onFailure {
-            onFailure(getString(R.string.app_lock_error_generic))
-        }
+        pendingLaunchCommands = (pendingLaunchCommands + command).toImmutableList()
     }
 
-    private fun resolveSupportedAuthenticators(): Int? {
-        val biometricManager = BiometricManager.from(this)
-        return SUPPORTED_AUTHENTICATOR_OPTIONS.firstOrNull { authenticators ->
-            biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
+    private fun consumePendingLaunchCommands(commandIds: List<Long>) {
+        if (commandIds.isEmpty()) {
+            return
         }
+        pendingLaunchCommands = pendingLaunchCommands.filterNot { it.id in commandIds.toSet() }.toImmutableList()
     }
 
     override fun onDestroy() {
@@ -220,7 +139,15 @@ class MainActivity : AppCompatActivity() {
                 onThemeModeChanged = { themeMode ->
                     applyAppNightMode(this@MainActivity, themeMode)
                 },
-                onRequestUnlock = ::requestAppUnlock,
+                onRequestUnlock = { onSuccess, onFailure ->
+                    requestAppUnlock(
+                        activity = this@MainActivity,
+                        onSuccess = onSuccess,
+                        onFailure = onFailure,
+                    )
+                },
+                pendingLaunchCommands = pendingLaunchCommands,
+                onPendingLaunchCommandsConsumed = ::consumePendingLaunchCommands,
             )
         }
     }
@@ -232,42 +159,73 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-private fun extractSharedTexts(intent: Intent): List<String> {
-    val texts = mutableListOf<String>()
-    val extras = intent.extras
-    intent.getStringExtra(Intent.EXTRA_TEXT)?.let { text ->
-        if (text.isNotBlank()) {
-            texts += text
-        }
+private fun requestAppUnlock(
+    activity: AppCompatActivity,
+    onSuccess: () -> Unit,
+    onFailure: (String) -> Unit,
+) {
+    val authenticators = resolveSupportedAuthenticators(activity)
+    if (authenticators == null) {
+        onFailure(activity.getString(R.string.app_lock_error_unavailable))
+        return
     }
-    extras?.getStringArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
-        if (text.isNotBlank()) {
-            texts += text
+
+    val promptInfo =
+        runCatching {
+            BiometricPrompt.PromptInfo
+                .Builder()
+                .setTitle(activity.getString(R.string.app_lock_prompt_title))
+                .setSubtitle(activity.getString(R.string.app_lock_prompt_subtitle))
+                .setAllowedAuthenticators(authenticators)
+                .apply {
+                    if (authenticators == BiometricManager.Authenticators.BIOMETRIC_WEAK) {
+                        setNegativeButtonText(activity.getString(R.string.action_cancel))
+                    }
+                }.build()
+        }.getOrElse {
+            onFailure(activity.getString(R.string.app_lock_error_generic))
+            return
         }
+
+    val biometricPrompt =
+        BiometricPrompt(
+            activity,
+            ContextCompat.getMainExecutor(activity),
+            object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    onSuccess()
+                }
+
+                override fun onAuthenticationError(
+                    errorCode: Int,
+                    errString: CharSequence,
+                ) {
+                    val message =
+                        when (errorCode) {
+                            BiometricPrompt.ERROR_USER_CANCELED,
+                            BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                            BiometricPrompt.ERROR_CANCELED,
+                            -> activity.getString(R.string.app_lock_error_canceled)
+
+                            else -> errString.toString().ifBlank { activity.getString(R.string.app_lock_error_generic) }
+                        }
+                    onFailure(message)
+                }
+            },
+        )
+
+    runCatching {
+        biometricPrompt.authenticate(promptInfo)
+    }.onFailure {
+        onFailure(activity.getString(R.string.app_lock_error_generic))
     }
-    extras?.getCharSequenceArrayList(Intent.EXTRA_TEXT)?.forEach { text ->
-        val normalized = text?.toString()
-        if (!normalized.isNullOrBlank()) {
-            texts += normalized
-        }
-    }
-    return texts.distinct()
 }
 
-private fun extractSharedImageUris(intent: Intent): List<Uri> {
-    val uris = mutableListOf<Uri>()
-    IntentCompat
-        .getParcelableExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-        ?.let(uris::add)
-    IntentCompat
-        .getParcelableArrayListExtra(intent, Intent.EXTRA_STREAM, Uri::class.java)
-        ?.forEach(uris::add)
-    intent.clipData?.let { clipData ->
-        repeat(clipData.itemCount) { index ->
-            clipData.getItemAt(index).uri?.let(uris::add)
-        }
+private fun resolveSupportedAuthenticators(activity: AppCompatActivity): Int? {
+    val biometricManager = BiometricManager.from(activity)
+    return SUPPORTED_AUTHENTICATOR_OPTIONS.firstOrNull { authenticators ->
+        biometricManager.canAuthenticate(authenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
-    return uris.distinct()
 }
 
 @Composable
@@ -277,6 +235,8 @@ private fun MainActivityScreen(
     currentUiMode: Int,
     onThemeModeChanged: (com.lomo.domain.model.ThemeMode) -> Unit,
     onRequestUnlock: (onSuccess: () -> Unit, onFailure: (String) -> Unit) -> Unit,
+    pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
+    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     viewModel: MainViewModel = injectedHiltViewModel(),
 ) {
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
@@ -295,6 +255,8 @@ private fun MainActivityScreen(
         appPreferences = appPreferences,
         appLockEnabled = appLockEnabled,
         appLockUiState = appLockUiState,
+        pendingLaunchCommands = pendingLaunchCommands,
+        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
         audioPlayerController = audioPlayerController,
         shareServiceManager = shareServiceManager,
         currentUiMode = currentUiMode,
@@ -368,6 +330,8 @@ private fun MainActivityRoot(
     appPreferences: AppPreferencesState,
     appLockEnabled: Boolean?,
     appLockUiState: AppLockUiState,
+    pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
+    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
     currentUiMode: Int,
@@ -406,6 +370,8 @@ private fun MainActivityRoot(
                     )
                 } else {
                     UnlockedAppRoot(
+                        pendingLaunchCommands = pendingLaunchCommands,
+                        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
                         audioPlayerController = audioPlayerController,
                         shareServiceManager = shareServiceManager,
                     )
@@ -417,9 +383,15 @@ private fun MainActivityRoot(
 
 @Composable
 private fun UnlockedAppRoot(
+    pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
+    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
     audioPlayerController: AudioPlayerController,
     shareServiceManager: LanShareService,
 ) {
+    DispatchPendingLaunchCommands(
+        pendingLaunchCommands = pendingLaunchCommands,
+        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+    )
     androidx.compose.runtime.CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
         LocalBenchmarkAnchorConfig provides
@@ -428,6 +400,28 @@ private fun UnlockedAppRoot(
         LomoAppRoot(
             shareServiceManager = shareServiceManager,
         )
+    }
+}
+
+@Composable
+private fun DispatchPendingLaunchCommands(
+    pendingLaunchCommands: ImmutableList<PendingLaunchCommand>,
+    onPendingLaunchCommandsConsumed: (List<Long>) -> Unit,
+    viewModel: MainViewModel = injectedHiltViewModel(),
+) {
+    if (pendingLaunchCommands.isEmpty()) {
+        return
+    }
+    LaunchedEffect(pendingLaunchCommands) {
+        pendingLaunchCommands.forEach { command ->
+            when (val action = command.action) {
+                is PendingLaunchAction.SharedText -> viewModel.handleSharedText(action.text)
+                is PendingLaunchAction.SharedImage -> viewModel.handleSharedImage(action.uri)
+                PendingLaunchAction.CreateMemo -> viewModel.requestCreateMemo()
+                is PendingLaunchAction.OpenMemo -> viewModel.requestOpenMemo(action.memoId)
+            }
+        }
+        onPendingLaunchCommandsConsumed(pendingLaunchCommands.map(PendingLaunchCommand::id))
     }
 }
 
@@ -523,11 +517,11 @@ private fun AppLockGateContent(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
             ) {
-            Text(
-                text = stringResource(R.string.app_lock_action_retry),
-                style = MaterialTheme.typography.labelLarge,
-            )
-        }
+                Text(
+                    text = stringResource(R.string.app_lock_action_retry),
+                    style = MaterialTheme.typography.labelLarge,
+                )
+            }
         }
     }
 }

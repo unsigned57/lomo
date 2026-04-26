@@ -120,6 +120,11 @@ class SettingsAppConfigCoordinator(
             .isScrollbarEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
 
+    val secureWipeBeforeDeleteEnabled: StateFlow<Boolean> =
+        appConfigRepository
+            .isSecureWipeBeforeDeleteEnabled()
+            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SECURE_WIPE_BEFORE_DELETE_ENABLED)
+
     val appLockEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isAppLockEnabled()
@@ -304,6 +309,9 @@ class SettingsAppConfigCoordinator(
 
     val updateScrollbarEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setScrollbarEnabled(enabled) }
+
+    val updateSecureWipeBeforeDeleteEnabled: suspend (Boolean) -> Unit =
+        { enabled -> appConfigRepository.setSecureWipeBeforeDeleteEnabled(enabled) }
 
     val updateAppLockEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setAppLockEnabled(enabled) }

@@ -50,7 +50,8 @@ class MainActivityGateViewModelTest {
             pass a separate database unlock callback.
             """.trimIndent(),
             content.contains("MainActivityScreen(") &&
-                content.contains("onRequestUnlock = ::requestAppUnlock") &&
+                content.contains("onRequestUnlock = {") &&
+                content.contains("requestAppUnlock(") &&
                 !content.contains("onRequestDatabaseUnlock"),
         )
     }

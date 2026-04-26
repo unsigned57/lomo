@@ -24,7 +24,7 @@ internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
 internal val MARKDOWN_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
 private val EXTRACT_IMAGE_URL_REGEX = Regex("""!\[.*?\]\((.*?)\)""")
 private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
-private val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav")
+private val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav", ".ogg")
 
 internal class MemoUiImageContentResolver {
     fun buildProcessedContent(
@@ -56,7 +56,7 @@ internal class MemoUiImageContentResolver {
                 val alt = match.groupValues[1]
                 val path = match.groupValues[2]
 
-                if (AUDIO_EXTENSIONS.any { path.lowercase(Locale.ROOT).endsWith(it) }) {
+                if (isAudioAttachmentPath(path)) {
                     match.value
                 } else {
                     val resolved =

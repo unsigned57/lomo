@@ -49,6 +49,8 @@
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
     <string name="settings_scrollbar">Show scrollbar</string>
     <string name="settings_scrollbar_subtitle">Display a draggable scrollbar on the main list</string>
+    <string name="settings_secure_wipe_before_delete">Secure wipe before delete</string>
+    <string name="settings_secure_wipe_before_delete_subtitle">Overwrite direct-storage markdown files with zeros before unlinking them during permanent delete</string>
     <string name="settings_check_updates">Check updates on startup</string>
     <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
     <string name="settings_check_updates_now">Check for updates</string>
@@ -205,8 +207,6 @@
     <string name="stats_avg_words">Avg Words</string>
     <string name="stats_total_tags">Tags</string>
     <string name="stats_total_chars">Characters</string>
-    <string name="stats_current_streak">Current Streak</string>
-    <string name="stats_longest_streak">Longest Streak</string>
     <string name="stats_this_week">This Week</string>
     <string name="stats_this_month">This Month</string>
     <string name="stats_this_year">This Year</string>

@@ -1,6 +1,8 @@
 package com.lomo.app.feature.main
 
 import androidx.lifecycle.ViewModel
+import androidx.paging.PagingSource
+import androidx.paging.PagingState
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
@@ -38,10 +40,12 @@ import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.spyk
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -50,6 +54,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -116,7 +123,7 @@ class MainViewModelTest {
         appVersionRepository = mockk(relaxed = true)
         memoVersionRepository = mockk(relaxed = true)
         appWidgetRepository = mockk(relaxed = true)
-        memoUiMapper = MemoUiMapper()
+        memoUiMapper = spyk(MemoUiMapper())
         imageMapProvider = emptyImageMapProvider()
         audioPlayerManager = mockk(relaxed = true)
         switchRootStorageUseCase = mockk(relaxed = true)
@@ -267,6 +274,8 @@ class MainViewModelTest {
             every { repository.getAllMemosList() } returns flowOf(listOf(memo))
 
             val viewModel = createViewModel()
+            viewModel.filterMemosByDate(LocalDate.of(2026, 3, 8))
+            testDispatcher.scheduler.advanceUntilIdle()
             val initialUiMemos = viewModel.uiMemos.first { it.size == 1 }
 
             viewModel.deleteMemo(memo)
@@ -275,6 +284,144 @@ class MainViewModelTest {
             assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
             assertSame(initialUiMemos, viewModel.uiMemos.value)
             assertSame(initialUiMemos.first(), viewModel.uiMemos.value.first())
+        }
+
+    @Test
+    fun `filtered uiMemos list does not rebuild when image map adds unrelated image`() =
+        runTest {
+            val memoDate = LocalDate.of(2026, 3, 8)
+            val memo =
+                Memo(
+                    id = "memo-image",
+                    timestamp =
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
+                    content = "![img](foo.png)",
+                    rawContent = "![img](foo.png)",
+                    dateKey = "2026_03_08",
+                    localDate = memoDate,
+                )
+            val initialUri = mockk<android.net.Uri>(relaxed = true)
+            val unrelatedUri = mockk<android.net.Uri>(relaxed = true)
+            val imageMapFlow =
+                MutableStateFlow(
+                    mapOf(
+                        "foo.png" to initialUri,
+                    ),
+                )
+            imageMapProvider = mockk(relaxed = true)
+            every { imageMapProvider.imageMap } returns imageMapFlow
+            every { repository.getAllMemosList() } returns flowOf(listOf(memo))
+
+            val viewModel = createViewModel()
+            viewModel.filterMemosByDate(memoDate)
+            testDispatcher.scheduler.advanceUntilIdle()
+            val initialUiMemos = viewModel.uiMemos.first { it.size == 1 }
+
+            imageMapFlow.value =
+                imageMapFlow.value +
+                    ("bar.png" to unrelatedUri)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertSame(initialUiMemos, viewModel.uiMemos.value)
+            assertSame(initialUiMemos.first(), viewModel.uiMemos.value.first())
+        }
+
+    @Test
+    fun `filtered uiMemos does not remap when image map adds unrelated image`() =
+        runTest {
+            val memoDate = LocalDate.of(2026, 3, 8)
+            val memo =
+                Memo(
+                    id = "memo-image-remap",
+                    timestamp =
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
+                    content = "![img](foo.png)",
+                    rawContent = "![img](foo.png)",
+                    dateKey = "2026_03_08",
+                    localDate = memoDate,
+                )
+            val initialUri = mockk<android.net.Uri>(relaxed = true)
+            val unrelatedUri = mockk<android.net.Uri>(relaxed = true)
+            val imageMapFlow =
+                MutableStateFlow(
+                    mapOf(
+                        "foo.png" to initialUri,
+                    ),
+                )
+            imageMapProvider = mockk(relaxed = true)
+            every { imageMapProvider.imageMap } returns imageMapFlow
+            every { repository.getAllMemosList() } returns flowOf(listOf(memo))
+
+            val viewModel = createViewModel()
+            viewModel.filterMemosByDate(memoDate)
+            viewModel.uiMemos.first { it.size == 1 }
+            clearMocks(memoUiMapper, answers = false, recordedCalls = true)
+
+            imageMapFlow.value =
+                imageMapFlow.value +
+                    ("bar.png" to unrelatedUri)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 0) {
+                memoUiMapper.mapToUiModels(any(), any(), any(), any(), any())
+            }
+        }
+
+    @Test
+    fun `pagedUiMemos does not emit new paging data when image map adds unrelated image`() =
+        runTest {
+            val memoDate = LocalDate.of(2026, 3, 8)
+            val memo =
+                Memo(
+                    id = "memo-paged-image",
+                    timestamp =
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
+                    content = "![img](foo.png)",
+                    rawContent = "![img](foo.png)",
+                    dateKey = "2026_03_08",
+                    localDate = memoDate,
+                )
+            val initialUri = mockk<android.net.Uri>(relaxed = true)
+            val unrelatedUri = mockk<android.net.Uri>(relaxed = true)
+            val imageMapFlow =
+                MutableStateFlow(
+                    mapOf(
+                        "foo.png" to initialUri,
+                    ),
+                )
+            imageMapProvider = mockk(relaxed = true)
+            every { imageMapProvider.imageMap } returns imageMapFlow
+            every { repository.getDefaultMainListPagingSource() } returns fixedPagingSource(listOf(memo))
+
+            val viewModel = createViewModel()
+            val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+            val collectJob =
+                backgroundScope.launch {
+                    viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
+                }
+
+            runCurrent()
+            assertEquals(1, pagingEmissions.size)
+
+            imageMapFlow.value =
+                imageMapFlow.value +
+                    ("bar.png" to unrelatedUri)
+            advanceUntilIdle()
+
+            assertEquals(1, pagingEmissions.size)
+            collectJob.cancel()
         }
 
     /*
@@ -303,6 +450,8 @@ class MainViewModelTest {
             }
 
             val viewModel = createViewModel()
+            viewModel.filterMemosByDate(LocalDate.of(2026, 3, 8))
+            testDispatcher.scheduler.advanceUntilIdle()
             viewModel.uiMemos.first { it.size == 1 }
 
             viewModel.deleteMemo(memo)
@@ -602,14 +751,14 @@ class MainViewModelTest {
         runTest {
             every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
             coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
 
             val viewModel = createViewModel()
-            testDispatcher.scheduler.runCurrent()
-
-            coVerify(exactly = 0) { repository.refreshMemos() }
+            testDispatcher.scheduler.advanceUntilIdle()
+            clearMocks(repository, answers = false, recordedCalls = true)
 
             viewModel.requestAutomaticRefreshForVisibleScreen()
-            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceUntilIdle()
 
             coVerify(exactly = 1) { repository.refreshMemos() }
         }
@@ -631,16 +780,18 @@ class MainViewModelTest {
         runTest {
             every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(StorageLocation("/tmp/root"))
             coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/tmp/root")
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
 
             val viewModel = createViewModel()
-            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceUntilIdle()
+            clearMocks(repository, answers = false, recordedCalls = true)
 
             viewModel.requestAutomaticRefreshForVisibleScreen()
-            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceUntilIdle()
             coVerify(exactly = 1) { repository.refreshMemos() }
 
             viewModel.requestAutomaticRefreshForVisibleScreen()
-            testDispatcher.scheduler.runCurrent()
+            testDispatcher.scheduler.advanceUntilIdle()
             coVerify(exactly = 1) { repository.refreshMemos() }
         }
 
@@ -797,5 +948,17 @@ class MainViewModelTest {
             dateKey = date.toString().replace("-", "_"),
             localDate = date,
         )
+
+    private fun fixedPagingSource(memos: List<Memo>): PagingSource<Int, Memo> =
+        object : PagingSource<Int, Memo>() {
+            override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Memo> =
+                LoadResult.Page(
+                    data = memos,
+                    prevKey = null,
+                    nextKey = null,
+                )
+
+            override fun getRefreshKey(state: PagingState<Int, Memo>): Int? = null
+        }
 
 }

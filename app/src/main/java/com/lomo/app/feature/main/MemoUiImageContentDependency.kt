@@ -1,6 +1,7 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
+import com.lomo.domain.model.Memo
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
 
@@ -18,6 +19,32 @@ internal fun buildMemoUiImageDependencySignature(
         .sorted()
         .joinToString(separator = "\n")
 }
+
+internal fun buildMemoListImageDependencySignature(
+    memos: List<Memo>,
+    imageMap: Map<String, Uri>,
+): String =
+    memos
+        .asSequence()
+        .map { memo ->
+            buildMemoUiImageDependencySignature(
+                content = memo.content,
+                imageMap = imageMap,
+            )
+        }.filter(String::isNotBlank)
+        .joinToString(separator = "\n---\n")
+
+internal fun buildImageMapDependencySignatureForPaths(
+    imagePaths: Set<String>,
+    imageMap: Map<String, Uri>,
+): String =
+    imagePaths
+        .asSequence()
+        .flatMap { path -> buildImageMapCandidates(path).asSequence() }
+        .distinct()
+        .mapNotNull { key -> imageMap[key]?.let { uri -> "$key=$uri" } }
+        .sorted()
+        .joinToString(separator = "\n")
 
 internal fun buildImageMapCandidates(imageUrl: String): List<String> {
     val candidates = LinkedHashSet<String>()

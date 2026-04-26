@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
+import androidx.paging.compose.LazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
@@ -42,6 +43,8 @@ internal fun MainScreenScaffoldContent(
     searchQuery: String,
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
+    usesPagedMainList: Boolean,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     uiMemos: ImmutableList<MemoUiModel>,
     visibleUiMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
@@ -99,6 +102,8 @@ internal fun MainScreenScaffoldContent(
             uiState = uiState,
             searchQuery = searchQuery,
             hasRawItems = hasRawItems,
+            usesPagedMainList = usesPagedMainList,
+            pagedUiMemos = pagedUiMemos,
             uiMemos = uiMemos,
             visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
@@ -186,6 +191,8 @@ private fun MainScreenScaffoldBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
     hasRawItems: Boolean,
+    usesPagedMainList: Boolean,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     uiMemos: ImmutableList<MemoUiModel>,
     visibleUiMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
@@ -219,6 +226,8 @@ private fun MainScreenScaffoldBody(
             uiState = uiState,
             searchQuery = searchQuery,
             hasRawItems = hasRawItems,
+            usesPagedMainList = usesPagedMainList,
+            pagedUiMemos = pagedUiMemos,
             uiMemos = uiMemos,
             visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,

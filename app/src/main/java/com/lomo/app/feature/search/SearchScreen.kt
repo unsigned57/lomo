@@ -7,23 +7,21 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DockedSearchBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,11 +30,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,7 +78,6 @@ fun SearchScreen(
 ) {
     val uiState = collectSearchScreenUiSnapshot(viewModel)
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -119,7 +113,6 @@ fun SearchScreen(
             onBackClick = onBackClick,
             onQueryChange = viewModel::onSearchQueryChanged,
             haptic = haptic,
-            scrollBehavior = scrollBehavior,
             focusRequester = focusRequester,
             keyboardController = keyboardController,
             snackbarHostState = snackbarHostState,
@@ -176,17 +169,13 @@ private fun SearchScreenScaffold(
     onBackClick: () -> Unit,
     onQueryChange: (String) -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     snackbarHostState: SnackbarHostState,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     Scaffold(
-        modifier =
-            Modifier
-                .nestedScroll(scrollBehavior.nestedScrollConnection)
-                .benchmarkAnchorRoot(BenchmarkAnchorContract.SEARCH_ROOT),
+        modifier = Modifier.benchmarkAnchorRoot(BenchmarkAnchorContract.SEARCH_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             SearchTopBar(
@@ -194,7 +183,6 @@ private fun SearchScreenScaffold(
                 onQueryChange = onQueryChange,
                 onBackClick = onBackClick,
                 haptic = haptic,
-                scrollBehavior = scrollBehavior,
                 focusRequester = focusRequester,
                 keyboardController = keyboardController,
             )
@@ -210,55 +198,76 @@ private fun SearchTopBar(
     onQueryChange: (String) -> Unit,
     onBackClick: () -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
-    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
 ) {
-    TopAppBar(
-        title = {
-            SearchQueryField(
-                query = query,
-                onQueryChange = onQueryChange,
-                focusRequester = focusRequester,
-                keyboardController = keyboardController,
-            )
-        },
-        navigationIcon = {
-            IconButton(
-                onClick = {
-                    haptic.medium()
-                    onBackClick()
-                },
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
-                )
-            }
-        },
-        actions = {
-            if (query.isNotEmpty()) {
-                IconButton(
-                    onClick = {
-                        haptic.medium()
-                        onQueryChange("")
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
+    ) {
+        DockedSearchBar(
+            inputField = {
+                SearchBarDefaults.InputField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    onSearch = { keyboardController?.hide() },
+                    expanded = false,
+                    onExpandedChange = {},
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .benchmarkAnchor(BenchmarkAnchorContract.SEARCH_INPUT),
+                    placeholder = {
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.search_hint),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        )
                     },
-                    modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
-                    )
-                }
-            }
-        },
-        colors =
-            TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
-            ),
-        scrollBehavior = scrollBehavior,
-    )
+                    leadingIcon = {
+                        IconButton(
+                            onClick = {
+                                haptic.medium()
+                                onBackClick()
+                            },
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
+                            )
+                        }
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(
+                                onClick = {
+                                    haptic.medium()
+                                    onQueryChange("")
+                                },
+                                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription =
+                                        androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
+                                )
+                            }
+                        }
+                    },
+                    interactionSource = interactionSource,
+                )
+            },
+            expanded = false,
+            onExpandedChange = {},
+            shape = MaterialTheme.shapes.extraLarge,
+            colors = SearchBarDefaults.colors(),
+        ) {}
+    }
 }
 
 @Composable
@@ -292,45 +301,6 @@ private fun rememberSearchMenuHandler(
             showMenu(menuState)
         }
     }
-
-@Composable
-private fun SearchQueryField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    focusRequester: FocusRequester,
-    keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-
-    BasicTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .focusRequester(focusRequester)
-                .benchmarkAnchor(BenchmarkAnchorContract.SEARCH_INPUT),
-        textStyle =
-            MaterialTheme.typography.bodyLarge.copy(
-                color = MaterialTheme.colorScheme.onSurface,
-            ),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-        keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() }),
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        interactionSource = interactionSource,
-        decorationBox = { innerTextField ->
-            if (query.isEmpty()) {
-                Text(
-                    text = androidx.compose.ui.res.stringResource(R.string.search_hint),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                )
-            }
-            innerTextField()
-        },
-    )
-}
 
 @Composable
 private fun SearchScreenContent(

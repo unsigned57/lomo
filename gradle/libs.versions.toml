@@ -39,12 +39,15 @@ markdownRenderer = "0.39.2"
 material3 = "1.5.0-alpha16"
 media3 = "1.10.0"
 navigationCompose = "2.9.7"
+paging = "3.4.0-beta01"
 owaspDependencyCheck = "12.2.0"
 paparazzi = "2.0.0-alpha04"
 profileinstaller = "1.4.1"
-room = "2.8.4"
-sqliteJdbc = "3.49.1.0"
+reorderable = "2.5.1"
+room3 = "3.0.0-alpha03"
 serialization = "1.10.0"
+sqlite = "2.6.2"
+sqliteJdbc = "3.47.2.0"
 telephoto = "0.19.0"
 timber = "5.0.1"
 uiautomator = "2.3.0"
@@ -80,10 +83,14 @@ androidx-media3-common = { module = "androidx.media3:media3-common", version.ref
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = "media3" }
 androidx-media3-ui = { module = "androidx.media3:media3-ui", version.ref = "media3" }
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose" }
+androidx-paging-common = { module = "androidx.paging:paging-common", version.ref = "paging" }
+androidx-paging-compose = { module = "androidx.paging:paging-compose", version.ref = "paging" }
+androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }
 androidx-profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
-androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
-androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
-androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
+androidx-room3-compiler = { module = "androidx.room3:room3-compiler", version.ref = "room3" }
+androidx-room3-paging = { module = "androidx.room3:room3-paging", version.ref = "room3" }
+androidx-room3-runtime = { module = "androidx.room3:room3-runtime", version.ref = "room3" }
+androidx-sqlite-bundled = { module = "androidx.sqlite:sqlite-bundled", version.ref = "sqlite" }
 sqlite-jdbc = { module = "org.xerial:sqlite-jdbc", version.ref = "sqliteJdbc" }
 androidx-test-uiautomator = { module = "androidx.test.uiautomator:uiautomator", version.ref = "uiautomator" }
 androidx-ui = { module = "androidx.compose.ui:ui" }
@@ -95,6 +102,7 @@ androidx-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 aws-sdk-kotlin-bom = { module = "aws.sdk.kotlin:bom", version.ref = "awsSdkKotlin" }
 aws-sdk-kotlin-s3 = { module = "aws.sdk.kotlin:s3" }
+aws-smithy-kotlin-http-client-engine-okhttp-jvm = { module = "aws.smithy.kotlin:http-client-engine-okhttp-jvm", version = "1.6.9" }
 bitfire-dav4jvm = { module = "com.github.bitfireAT:dav4jvm", version.ref = "dav4jvm" }
 bouncycastle-bcprov = { module = "org.bouncycastle:bcprov-jdk18on", version.ref = "bouncycastle" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
@@ -123,6 +131,7 @@ ktor-server-content-negotiation = { module = "io.ktor:ktor-server-content-negoti
 markdown-renderer-android = { module = "com.mikepenz:multiplatform-markdown-renderer-android", version.ref = "markdownRenderer" }
 markdown-renderer-m3-android = { module = "com.mikepenz:multiplatform-markdown-renderer-m3-android", version.ref = "markdownRenderer" }
 mockk = "io.mockk:mockk:1.14.9"
+reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
 slack-compose-lint-checks = { module = "com.slack.lint.compose:compose-lint-checks", version.ref = "composeLints" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 # Testing dependencies

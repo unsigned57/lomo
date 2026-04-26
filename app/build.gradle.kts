@@ -150,8 +150,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 39
-        versionName = "1.3.0"
+        versionCode = 40
+        versionName = "1.4.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -324,6 +324,8 @@ dependencies {
 
     // Navigation
     implementation(libs.androidx.navigation.compose) // Corrected reference
+    implementation(libs.androidx.paging.runtime)
+    implementation(libs.androidx.paging.compose)
     implementation(libs.kotlinx.serialization.json)
 
     // WorkManager

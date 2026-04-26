@@ -11,6 +11,22 @@
     <issue id="ObsoleteSdkInt" severity="error" />
     <issue id="WrongThread" severity="error" />
     <issue id="StaticFieldLeak" severity="error" />
+    <!-- Crash- and leak-class correctness checks: promoted so they fail the gate even if a future
+         module config lowers warningsAsErrors. -->
+    <issue id="InlinedApi" severity="error" />
+    <issue id="Recycle" severity="error" />
+    <issue id="CommitPrefEdits" severity="error" />
+    <issue id="ApplySharedPref" severity="error" />
+    <issue id="MissingPermission" severity="error" />
+    <issue id="WakelockTimeout" severity="error" />
+    <!-- String/resource checks that otherwise turn into runtime crashes on specific locales. -->
+    <issue id="StringFormatInvalid" severity="error" />
+    <issue id="StringFormatMatches" severity="error" />
+    <issue id="StringFormatCount" severity="error" />
+    <issue id="ImpliedQuantity" severity="error" />
+    <issue id="MissingQuantity" severity="error" />
+    <!-- CLAUDE.md mandates parallel updates to values and values-zh-rCN; keep the gate honest. -->
+    <issue id="MissingTranslation" severity="error" />
     <issue id="ModifierParameter" severity="error" />
     <issue id="ComposableLambdaParameterPosition" severity="error" />
     <issue id="RememberReturnType" severity="error" />
@@ -46,5 +62,25 @@
     <issue id="ComposeNamingLowercase" severity="error" />
     <issue id="ComposeM2Api" severity="error" />
     <issue id="SlotReused" severity="error" />
-    <issue id="UnusedResources" severity="warning" />
+    <!-- Additional Compose correctness checks commonly missed without explicit promotion. -->
+    <issue id="CoroutineCreationDuringComposition" severity="error" />
+    <issue id="FlowOperatorInvokedInComposition" severity="error" />
+    <issue id="ProduceStateDoesNotAssignValue" severity="error" />
+    <issue id="UnrememberedMutableState" severity="error" />
+    <issue id="UnrememberedAnimatable" severity="error" />
+    <issue id="UnrememberedGetBackStackEntry" severity="error" />
+    <issue id="RememberInComposition" severity="error" />
+    <!-- Security / privacy: promoted to error so weak RNG seeds and privacy-sensitive APIs cannot
+         slip past review. -->
+    <issue id="TrulyRandom" severity="error" />
+    <issue id="HardwareIds" severity="error" />
+    <issue id="ExportedReceiver" severity="error" />
+    <issue id="ExportedService" severity="error" />
+    <issue id="ExportedContentProvider" severity="error" />
+    <issue id="InsecureBaseConfiguration" severity="error" />
+    <!-- Development hygiene: leftover STOPSHIP/TODO-like markers should not reach main. -->
+    <issue id="StopShip" severity="error" />
+    <!-- Unused resources should be deleted rather than accumulate; they bloat APK size and
+         clutter the i18n surface. Kept at error after cleaning up the existing backlog. -->
+    <issue id="UnusedResources" severity="error" />
 </lint>

@@ -1,5 +1,6 @@
 package com.lomo.app.feature.common
 
+import androidx.paging.PagingSource
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
@@ -12,6 +13,9 @@ class MemoUiCoordinator
         private val memoRepository: MemoRepository,
     ) {
         val allMemos: () -> Flow<List<Memo>> = { memoRepository.getAllMemosList() }
+
+        val defaultMainListPagingSource: () -> PagingSource<Int, Memo> =
+            { memoRepository.getDefaultMainListPagingSource() }
 
         val deletedMemos: () -> Flow<List<Memo>> = { memoRepository.getDeletedMemosList() }
 
@@ -30,6 +34,9 @@ class MemoUiCoordinator
         val tagCounts: () -> Flow<List<MemoTagCount>> = { memoRepository.getTagCountsFlow() }
 
         val getMemoById: suspend (String) -> Memo? = { memoId -> memoRepository.getMemoById(memoId) }
+
+        val getDefaultMainListIndex: suspend (String) -> Int? =
+            { memoId -> memoRepository.getDefaultMainListIndex(memoId) }
 
         val setMemoPinned: suspend (String, Boolean) -> Unit =
             { memoId, pinned -> memoRepository.setMemoPinned(memoId, pinned) }

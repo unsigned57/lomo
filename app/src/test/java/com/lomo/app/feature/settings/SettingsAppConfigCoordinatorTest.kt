@@ -72,6 +72,9 @@ class SettingsAppConfigCoordinatorTest {
             appConfigRepository.isQuickSaveOnBackEnabled()
         } returns flowOf(PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED)
         every {
+            appConfigRepository.isSecureWipeBeforeDeleteEnabled()
+        } returns flowOf(PreferenceDefaults.SECURE_WIPE_BEFORE_DELETE_ENABLED)
+        every {
             appConfigRepository.isAppLockEnabled()
         } returns flowOf(PreferenceDefaults.APP_LOCK_ENABLED)
         every {
@@ -239,6 +242,7 @@ class SettingsAppConfigCoordinatorTest {
             coordinator.updateHapticFeedback(false)
             coordinator.updateShowInputHints(false)
             coordinator.updateQuickSaveOnBackEnabled(true)
+            coordinator.updateSecureWipeBeforeDeleteEnabled(true)
             coordinator.updateAppLockEnabled(true)
             coordinator.updateCheckUpdatesOnStartup(false)
             coordinator.updateShareCardShowTime(false)
@@ -253,6 +257,7 @@ class SettingsAppConfigCoordinatorTest {
             coVerify(exactly = 1) { appConfigRepository.setHapticFeedbackEnabled(false) }
             coVerify(exactly = 1) { appConfigRepository.setShowInputHintsEnabled(false) }
             coVerify(exactly = 1) { appConfigRepository.setQuickSaveOnBackEnabled(true) }
+            coVerify(exactly = 1) { appConfigRepository.setSecureWipeBeforeDeleteEnabled(true) }
             coVerify(exactly = 1) { appConfigRepository.setAppLockEnabled(true) }
             coVerify(exactly = 1) { appConfigRepository.setCheckUpdatesOnStartup(false) }
             coVerify(exactly = 1) { appConfigRepository.setShareCardShowTime(false) }

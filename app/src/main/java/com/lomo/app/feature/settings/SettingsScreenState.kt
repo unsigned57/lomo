@@ -129,6 +129,7 @@ data class InteractionSectionState(
     val appLockEnabled: Boolean,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
+    val secureWipeBeforeDeleteEnabled: Boolean,
 )
 
 data class SystemSectionState(
