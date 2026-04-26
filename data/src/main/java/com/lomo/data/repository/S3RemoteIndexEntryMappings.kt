@@ -11,6 +11,7 @@ internal fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(
         etag = eTag,
         lastModified = encodingSupport.resolveRemoteLastModified(metadata, lastModified),
         size = size,
+        contentMd5 = resolveRemoteContentMd5(metadata, eTag),
         remotePath = key,
         verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     )

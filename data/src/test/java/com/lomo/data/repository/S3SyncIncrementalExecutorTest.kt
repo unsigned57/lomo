@@ -692,6 +692,77 @@ class S3SyncIncrementalExecutorTest {
         }
 
     @Test
+    fun `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() =
+        runTest {
+            val path = "lomo/memo/note.md"
+            val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
+            protocolStateStore.write(
+                S3SyncProtocolState(
+                    lastSuccessfulSyncAt = System.currentTimeMillis(),
+                    lastFastSyncAt = System.currentTimeMillis(),
+                    lastReconcileAt = System.currentTimeMillis(),
+                    lastFullRemoteScanAt = System.currentTimeMillis(),
+                    indexedLocalFileCount = 1,
+                    indexedRemoteFileCount = 1,
+                ),
+            )
+            journalStore.upsert(
+                S3LocalChangeJournalEntry(
+                    id = "MEMO:note.md",
+                    kind = S3LocalChangeKind.MEMO,
+                    filename = "note.md",
+                    changeType = S3LocalChangeType.UPSERT,
+                    updatedAt = 60L,
+                ),
+            )
+            coEvery {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "note.md")
+            } returns FileMetadata(filename = "note.md", lastModified = 60L)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md")
+            } returns baseline.toString(StandardCharsets.UTF_8)
+            val client =
+                ProbeS3Client(
+                    onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
+                    onGetObjectMetadata = { key ->
+                        assertEquals(path, key)
+                        S3RemoteObject(
+                            key = key,
+                            eTag = "multipart-2",
+                            lastModified = 20L,
+                            metadata = mapOf("md5" to baseline.md5Hex()),
+                        )
+                    },
+                    onGetObject = { key ->
+                        throw AssertionError("head metadata md5 should avoid getObject for $key")
+                    },
+                )
+            val metadataDao =
+                ExecutorRecordingMetadataDao(
+                    initial =
+                        listOf(
+                            stableMetadata(
+                                path = path,
+                                eTag = "etag-1",
+                                lastModified = 10L,
+                                localFingerprint = baseline.md5Hex(),
+                            ),
+                        ),
+                )
+            val executor = createExecutor(client = client, metadataDao = metadataDao)
+
+            val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
+
+            assertEquals(
+                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
+                result,
+            )
+            assertEquals(listOf(path), client.headKeys)
+            assertEquals(emptyList<String>(), client.getKeys)
+            assertEquals(emptyList<String>(), client.putKeys)
+        }
+
+    @Test
     fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
         runTest {
             val path = "lomo/memo/note.md"

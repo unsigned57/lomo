@@ -1,7 +1,7 @@
 package com.lomo.data.repository
 
-import androidx.room.withTransaction
 import com.lomo.data.local.MemoDatabase
+import com.lomo.data.local.withDriverTransaction
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -24,7 +24,7 @@ class RoomBackedS3SyncTransactionRunner
         private val database: MemoDatabase,
     ) : S3SyncTransactionRunner {
         override suspend fun <T> runInTransaction(block: suspend () -> T): T =
-            database.withTransaction {
+            database.withDriverTransaction {
                 block()
             }
     }

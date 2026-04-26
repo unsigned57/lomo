@@ -18,8 +18,8 @@ internal suspend fun refineTrackedMemoPlanWithContent(
     mode: S3LocalSyncMode,
 ): S3SyncPlan {
     val refinedActionsByPath = plan.actions.associateBy(S3SyncAction::path).toMutableMap()
-    val localBytesCache = mutableMapOf<String, ByteArray?>()
-    val remoteBytesCache = mutableMapOf<String, ByteArray?>()
+    val localFingerprintCache = mutableMapOf<String, String?>()
+    val remoteFingerprintCache = mutableMapOf<String, String?>()
     plan.actions
         .asSequence()
         .filter { action ->
@@ -39,8 +39,8 @@ internal suspend fun refineTrackedMemoPlanWithContent(
                     encodingSupport = encodingSupport,
                     fileBridgeScope = fileBridgeScope,
                     layout = layout,
-                    localBytesCache = localBytesCache,
-                    remoteBytesCache = remoteBytesCache,
+                    localFingerprintCache = localFingerprintCache,
+                    remoteFingerprintCache = remoteFingerprintCache,
                 )
             ) {
                 null -> Unit
@@ -86,22 +86,38 @@ private suspend fun resolveTrackedMemoActionWithContent(
     encodingSupport: S3SyncEncodingSupport,
     fileBridgeScope: S3SyncFileBridgeScope,
     layout: com.lomo.data.sync.SyncDirectoryLayout,
-    localBytesCache: MutableMap<String, ByteArray?>,
-    remoteBytesCache: MutableMap<String, ByteArray?>,
+    localFingerprintCache: MutableMap<String, String?>,
+    remoteFingerprintCache: MutableMap<String, String?>,
 ): TrackedMemoResolution? {
-    val localBytes =
-        localBytesCache.getOrPut(path) {
-            fileBridgeScope.readLocalBytes(path, layout)
+    val localFingerprint =
+        localFingerprintCache.getOrPut(path) {
+            fileBridgeScope.readLocalBytes(path, layout)?.md5Hex()
         } ?: return null
-    val remoteBytes =
-        remoteBytesCache.getOrPut(path) {
-            runNonFatalCatching {
-                val payload = client.getObject(remote.remotePath)
-                encodingSupport.decodeContent(payload.bytes, config)
-            }.getOrNull()
+    val remoteFingerprint =
+        remoteFingerprintCache.getOrPut(path) {
+            val fastFingerprint =
+                remote.contentMd5 ?: resolveRemoteContentMd5(emptyMap(), remote.etag)
+            if (fastFingerprint != null) {
+                fastFingerprint
+            } else if (remote.verified) {
+                runNonFatalCatching {
+                    val payload = client.getObject(remote.remotePath)
+                    resolveRemoteContentMd5(payload.metadata, payload.eTag)
+                        ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
+                }.getOrNull()
+            } else {
+                runNonFatalCatching {
+                    client.getObjectMetadata(remote.remotePath)?.let { metadata ->
+                        resolveRemoteContentMd5(metadata.metadata, metadata.eTag)
+                    }
+                }.getOrNull()
+                    ?: runNonFatalCatching {
+                        val payload = client.getObject(remote.remotePath)
+                        resolveRemoteContentMd5(payload.metadata, payload.eTag)
+                            ?: encodingSupport.decodeContent(payload.bytes, config).md5Hex()
+                    }.getOrNull()
+            }
         } ?: return null
-    val localFingerprint = localBytes.md5Hex()
-    val remoteFingerprint = remoteBytes.md5Hex()
     return when {
         localFingerprint == remoteFingerprint -> TrackedMemoResolution.EQUIVALENT
         localFingerprint == baselineFingerprint -> TrackedMemoResolution.REMOTE_NEWER

@@ -126,13 +126,20 @@ class S3SyncEncodingSupport
                     }
             }
 
-        fun objectMetadata(lastModified: Long?): Map<String, String> {
-            if (lastModified == null || lastModified <= 0L) return emptyMap()
-            val seconds = (lastModified / MILLIS_PER_SECOND).toString()
-            return mapOf(
-                S3_MTIME_METADATA_KEY to seconds,
-                S3_CTIME_METADATA_KEY to seconds,
-            )
+        fun objectMetadata(
+            lastModified: Long?,
+            contentMd5: String? = null,
+        ): Map<String, String> {
+            val values = linkedMapOf<String, String>()
+            if (lastModified != null && lastModified > 0L) {
+                val seconds = (lastModified / MILLIS_PER_SECOND).toString()
+                values[S3_MTIME_METADATA_KEY] = seconds
+                values[S3_CTIME_METADATA_KEY] = seconds
+            }
+            normalizeSinglePartS3Md5(contentMd5)?.let { normalized ->
+                values[S3_MD5_METADATA_KEY] = normalized
+            }
+            return values
         }
 
         fun resolveRemoteLastModified(
@@ -180,3 +187,11 @@ private fun File.transferSuffix(defaultSuffix: String): String =
 
 private const val MILLIS_PER_SECOND = 1_000L
 private const val EPOCH_MILLIS_THRESHOLD = 1_000_000_000_000L
+private const val S3_MD5_METADATA_KEY = "md5"
+
+internal fun resolveRemoteContentMd5(
+    metadata: Map<String, String>,
+    eTag: String?,
+): String? =
+    normalizeSinglePartS3Md5(metadata[S3_MD5_METADATA_KEY])
+        ?: normalizeSinglePartS3Md5(eTag)

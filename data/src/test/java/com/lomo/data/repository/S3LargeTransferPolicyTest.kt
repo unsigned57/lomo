@@ -3,67 +3,118 @@ package com.lomo.data.repository
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.async
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.sync.Semaphore
 
 /*
  * Test Contract:
  * - Unit under test: S3 large-transfer execution policy
- * - Behavior focus: uploads and downloads above the large-transfer threshold should consume the full execution budget so the sync executor does not run multiple memory-heavy transfers concurrently.
- * - Observable outcomes: weighted permit count selected for representative sync actions.
- * - Red phase: Fails before the fix because large uploads/downloads are treated exactly like tiny objects and only consume one execution permit.
- * - Excludes: coroutine scheduling, AWS SDK transport behavior, and memo refresh side effects.
+ * - Behavior focus: large uploads/downloads should route to a dedicated large-transfer lane while small
+ *   files stay on the default lane, so saturated large work does not block unrelated small transfers.
+ * - Observable outcomes: selected lane for representative sync actions and whether a small transfer can
+ *   complete while the large lane is fully occupied.
+ * - Red phase: Fails before the fix because all actions share one weighted semaphore, so there is no
+ *   separate lane classification and a saturated large-transfer lane cannot let a small transfer proceed.
+ * - Excludes: AWS SDK transport behavior, executor wiring beyond lane selection, and memo refresh side effects.
  */
 class S3LargeTransferPolicyTest {
+    /*
+     * Test Change Justification:
+     * - Reason category: product contract changed.
+     * - Old behavior/assertion being replaced: large transfers consumed all global action permits.
+     * - Why old assertion is no longer correct: the new split-lane policy intentionally lets small transfers continue while still limiting concurrent large transfers.
+     * - Coverage preserved by: the retained small-transfer assertion plus the updated large-transfer assertion that still proves heavy work is throttled above the small-file baseline.
+     * - Why this is not fitting the test to the implementation: the new assertion protects the user-visible performance goal from `task.md`, not a private refactor detail.
+     */
     @Test
-    fun `small transfer uses a single permit`() {
-        val permits =
-            permitsForS3Action(
-                action =
-                    S3SyncAction(
-                        path = "lomo/images/small.png",
-                        direction = S3SyncDirection.DOWNLOAD,
-                        reason = S3SyncReason.REMOTE_ONLY,
-                    ),
+    fun `small transfer routes to the small lane`() {
+        val lane = laneForS3Action(action = smallDownloadAction(), localFiles = emptyMap(), remoteFiles = smallRemoteFiles(), metadataByPath = emptyMap())
+
+        assertEquals(S3ActionLane.SMALL, lane)
+    }
+
+    @Test
+    fun `large upload routes to the large lane`() {
+        val lane = laneForS3Action(action = largeUploadAction(), localFiles = largeLocalFiles(), remoteFiles = emptyMap(), metadataByPath = emptyMap())
+
+        assertEquals(S3ActionLane.LARGE, lane)
+    }
+
+    @Test
+    fun `small transfer still completes while the large lane is saturated`() =
+        runTest {
+            val smallLane = Semaphore(1)
+            val largeLane = Semaphore(1)
+            largeLane.acquire()
+            var smallCompleted = false
+
+            val largeBlocked =
+                async {
+                    withS3ActionLanePermit(
+                        action = largeUploadAction(),
+                        localFiles = largeLocalFiles(),
+                        remoteFiles = emptyMap(),
+                        metadataByPath = emptyMap(),
+                        smallLaneLimiter = smallLane,
+                        largeLaneLimiter = largeLane,
+                    ) {
+                        "large-completed"
+                    }
+                }
+
+            withS3ActionLanePermit(
+                action = smallDownloadAction(),
                 localFiles = emptyMap(),
-                remoteFiles =
-                    mapOf(
-                        "lomo/images/small.png" to
-                            RemoteS3File(
-                                path = "lomo/images/small.png",
-                                etag = "etag",
-                                lastModified = 10L,
-                                size = S3_LARGE_TRANSFER_BYTES - 1,
-                            ),
-                    ),
+                remoteFiles = smallRemoteFiles(),
                 metadataByPath = emptyMap(),
-            )
+                smallLaneLimiter = smallLane,
+                largeLaneLimiter = largeLane,
+            ) {
+                smallCompleted = true
+            }
 
-        assertEquals(1, permits)
-    }
+            assertTrue(smallCompleted)
+            assertFalse(largeBlocked.isCompleted)
+            largeLane.release()
+            assertEquals("large-completed", largeBlocked.await())
+        }
 
-    @Test
-    fun `large upload consumes full execution budget`() {
-        val permits =
-            permitsForS3Action(
-                action =
-                    S3SyncAction(
-                        path = "lomo/images/large.png",
-                        direction = S3SyncDirection.UPLOAD,
-                        reason = S3SyncReason.LOCAL_ONLY,
-                    ),
-                localFiles =
-                    mapOf(
-                        "lomo/images/large.png" to
-                            LocalS3File(
-                                path = "lomo/images/large.png",
-                                lastModified = 10L,
-                                size = S3_LARGE_TRANSFER_BYTES,
-                            ),
-                    ),
-                remoteFiles = emptyMap(),
-                metadataByPath = emptyMap(),
-            )
+    private fun smallDownloadAction() =
+        S3SyncAction(
+            path = "lomo/images/small.png",
+            direction = S3SyncDirection.DOWNLOAD,
+            reason = S3SyncReason.REMOTE_ONLY,
+        )
 
-        assertEquals(S3_ACTION_CONCURRENCY, permits)
-    }
+    private fun largeUploadAction() =
+        S3SyncAction(
+            path = "lomo/images/large.png",
+            direction = S3SyncDirection.UPLOAD,
+            reason = S3SyncReason.LOCAL_ONLY,
+        )
+
+    private fun smallRemoteFiles() =
+        mapOf(
+            "lomo/images/small.png" to
+                RemoteS3File(
+                    path = "lomo/images/small.png",
+                    etag = "etag",
+                    lastModified = 10L,
+                    size = S3_LARGE_TRANSFER_BYTES - 1,
+                ),
+        )
+
+    private fun largeLocalFiles() =
+        mapOf(
+            "lomo/images/large.png" to
+                LocalS3File(
+                    path = "lomo/images/large.png",
+                    lastModified = 10L,
+                    size = S3_LARGE_TRANSFER_BYTES,
+                ),
+        )
 }

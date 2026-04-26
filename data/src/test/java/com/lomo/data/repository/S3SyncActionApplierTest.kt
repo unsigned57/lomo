@@ -23,6 +23,7 @@ import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -33,9 +34,9 @@ import java.io.File
 /*
  * Test Contract:
  * - Unit under test: S3SyncActionApplier
- * - Behavior focus: large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs.
- * - Observable outcomes: successful Applied results, uploaded/downloaded file contents, and absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads.
- * - Red phase: Fails before the fix because large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes, which proves the transfer path is byte-array based.
+ * - Behavior focus: (1) large media transfers under legacy direct-directory mode should use file-backed transfer paths instead of materializing the whole payload through LocalMediaSyncStore byte APIs; (2) every object upload — including non-memo media — should record a content md5 in the S3 object metadata and report the same fingerprint on downloads so classifiers can skip full GETs when ETags are multipart; (3) when the verification gate has already observed that a remote object is missing (observedMissingRemotePaths), upload / delete-remote / delete-local actions must trust that observation and not re-issue HEAD requests for the same key.
+ * - Observable outcomes: Applied results, uploaded bytes/metadata captured at the S3 client boundary, downloaded file contents, absence of LocalMediaSyncStore readBytes/writeBytes calls for large payloads, syncedContentFingerprint presence for media downloads, and HEAD call count on the S3 client for gate-observed-missing paths.
+ * - Red phase: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; and (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing.
  * - Excludes: AWS SDK transport internals, planner action selection, metadata persistence, and reconcile behavior.
  */
 class S3SyncActionApplierTest {
@@ -224,6 +225,241 @@ class S3SyncActionApplierTest {
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(path, any(), layout) }
         }
 
+    @Test
+    fun `upload records md5 metadata for non-memo media`() =
+        runTest {
+            val path = "lomo/images/pic.png"
+            val bytes = byteArrayOf(1, 2, 3, 4, 5)
+            val localFile = File(imageRoot, "pic.png").apply { writeBytes(bytes) }
+            val client = RecordingS3Client()
+            val action =
+                S3SyncAction(
+                    path = path,
+                    direction = S3SyncDirection.UPLOAD,
+                    reason = S3SyncReason.LOCAL_ONLY,
+                )
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = action,
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    localFiles =
+                        mapOf(
+                            path to
+                                LocalS3File(
+                                    path = path,
+                                    lastModified = localFile.lastModified(),
+                                    size = localFile.length(),
+                                ),
+                        ),
+                    remoteFiles = emptyMap(),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            assertTrue(result is S3ActionExecutionState.Applied)
+            val metadata = requireNotNull(client.uploadedMetadata[path])
+            assertEquals(bytes.md5Hex(), metadata["md5"])
+        }
+
+    @Test
+    fun `download records md5 fingerprint for non-memo media`() =
+        runTest {
+            val path = "lomo/images/banner.png"
+            val bytes = byteArrayOf(9, 8, 7, 6, 5)
+            val client =
+                RecordingS3Client(
+                    payloads =
+                        mapOf(
+                            path to
+                                S3RemoteObjectPayload(
+                                    key = path,
+                                    eTag = "etag-banner",
+                                    lastModified = 20L,
+                                    metadata = emptyMap(),
+                                    bytes = bytes,
+                                ),
+                        ),
+                )
+            val action =
+                S3SyncAction(
+                    path = path,
+                    direction = S3SyncDirection.DOWNLOAD,
+                    reason = S3SyncReason.REMOTE_ONLY,
+                )
+
+            val result =
+                applier.applyAction(
+                    action = action,
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    localFiles = emptyMap(),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-banner",
+                                    lastModified = 20L,
+                                    size = bytes.size.toLong(),
+                                    remotePath = path,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                )
+
+            assertTrue(result is S3ActionExecutionState.Applied)
+            val applied = result as S3ActionExecutionState.Applied
+            assertNotNull(applied.syncedContentFingerprint)
+            assertEquals(bytes.md5Hex(), applied.syncedContentFingerprint)
+        }
+
+    @Test
+    fun `upload skips HEAD when path is in observedMissingRemotePaths`() =
+        runTest {
+            val path = "lomo/images/new.png"
+            val bytes = byteArrayOf(1, 2, 3)
+            val localFile = File(imageRoot, "new.png").apply { writeBytes(bytes) }
+            val client = RecordingS3Client()
+            val action =
+                S3SyncAction(
+                    path = path,
+                    direction = S3SyncDirection.UPLOAD,
+                    reason = S3SyncReason.LOCAL_ONLY,
+                )
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+
+            val result =
+                applier.applyAction(
+                    action = action,
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    localFiles =
+                        mapOf(
+                            path to
+                                LocalS3File(
+                                    path = path,
+                                    lastModified = localFile.lastModified(),
+                                    size = localFile.length(),
+                                ),
+                        ),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-stale",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    verificationLevel = com.lomo.domain.model.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                    observedMissingRemotePaths = setOf(path),
+                )
+
+            assertTrue(result is S3ActionExecutionState.Applied)
+            assertTrue(
+                "expected no HEAD call when path is known-missing from gate; saw ${client.headCalls}",
+                client.headCalls[path] == null,
+            )
+        }
+
+    @Test
+    fun `delete remote skips HEAD when path is in observedMissingRemotePaths`() =
+        runTest {
+            val path = "lomo/images/gone.png"
+            val client = RecordingS3Client()
+            val action =
+                S3SyncAction(
+                    path = path,
+                    direction = S3SyncDirection.DELETE_REMOTE,
+                    reason = S3SyncReason.LOCAL_ONLY,
+                )
+
+            val result =
+                applier.applyAction(
+                    action = action,
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    localFiles = emptyMap(),
+                    remoteFiles =
+                        mapOf(
+                            path to
+                                RemoteS3File(
+                                    path = path,
+                                    etag = "etag-stale",
+                                    lastModified = 10L,
+                                    remotePath = path,
+                                    verificationLevel = com.lomo.domain.model.S3RemoteVerificationLevel.INDEX_CACHED_REMOTE,
+                                ),
+                        ),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                    observedMissingRemotePaths = setOf(path),
+                )
+
+            assertTrue(result is S3ActionExecutionState.Applied)
+            assertTrue(
+                "expected no HEAD call when remote is known-missing; saw ${client.headCalls}",
+                client.headCalls[path] == null,
+            )
+            assertTrue(
+                "delete-remote should not issue a delete when remote is already missing; saw ${client.deletedKeys}",
+                client.deletedKeys.isEmpty(),
+            )
+        }
+
+    @Test
+    fun `delete local skips HEAD when path is in observedMissingRemotePaths`() =
+        runTest {
+            val path = "lomo/images/gone.png"
+            val client = RecordingS3Client()
+            val action =
+                S3SyncAction(
+                    path = path,
+                    direction = S3SyncDirection.DELETE_LOCAL,
+                    reason = S3SyncReason.REMOTE_ONLY,
+                )
+
+            val result =
+                applier.applyAction(
+                    action = action,
+                    client = client,
+                    layout = layout,
+                    config = config,
+                    localFiles = emptyMap(),
+                    remoteFiles = emptyMap(),
+                    metadataByPath = emptyMap(),
+                    verifiedMissingRemotePaths = emptySet(),
+                    fileBridgeScope = fileBridge.modeAware(mode),
+                    mode = mode,
+                    observedMissingRemotePaths = setOf(path),
+                )
+
+            assertTrue(result is S3ActionExecutionState.Applied)
+            assertTrue(
+                "expected no HEAD call when delete-local knows remote is missing; saw ${client.headCalls}",
+                client.headCalls[path] == null,
+            )
+        }
+
     private fun largePayload(seed: Int): ByteArray =
         ByteArray(S3_LARGE_TRANSFER_BYTES.toInt() + 1) { index ->
             ((index + seed) % 251).toByte()
@@ -232,8 +468,12 @@ class S3SyncActionApplierTest {
 
 private class RecordingS3Client(
     private val payloads: Map<String, S3RemoteObjectPayload> = emptyMap(),
+    private val metadataByKey: Map<String, S3RemoteObject> = emptyMap(),
 ) : LomoS3Client {
     val uploadedBytes = linkedMapOf<String, ByteArray>()
+    val uploadedMetadata = linkedMapOf<String, Map<String, String>>()
+    val headCalls = linkedMapOf<String, Int>()
+    val deletedKeys = mutableListOf<String>()
 
     override suspend fun verifyAccess(prefix: String) = Unit
 
@@ -244,6 +484,11 @@ private class RecordingS3Client(
 
     override suspend fun getObject(key: String): S3RemoteObjectPayload = requireNotNull(payloads[key])
 
+    override suspend fun getObjectMetadata(key: String): S3RemoteObject? {
+        headCalls[key] = (headCalls[key] ?: 0) + 1
+        return metadataByKey[key]
+    }
+
     override suspend fun putObject(
         key: String,
         bytes: ByteArray,
@@ -251,10 +496,13 @@ private class RecordingS3Client(
         metadata: Map<String, String>,
     ): S3PutObjectResult {
         uploadedBytes[key] = bytes
+        uploadedMetadata[key] = metadata
         return S3PutObjectResult(eTag = "etag-uploaded")
     }
 
-    override suspend fun deleteObject(key: String) = Unit
+    override suspend fun deleteObject(key: String) {
+        deletedKeys += key
+    }
 
     override fun close() = Unit
 }

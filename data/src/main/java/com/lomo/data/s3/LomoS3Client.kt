@@ -7,12 +7,16 @@ import aws.sdk.kotlin.services.s3.model.CompleteMultipartUploadRequest
 import aws.sdk.kotlin.services.s3.model.CompletedMultipartUpload
 import aws.sdk.kotlin.services.s3.model.CompletedPart
 import aws.sdk.kotlin.services.s3.model.CreateMultipartUploadRequest
+import aws.sdk.kotlin.services.s3.model.Delete
 import aws.sdk.kotlin.services.s3.model.DeleteObjectRequest
+import aws.sdk.kotlin.services.s3.model.DeleteObjectsRequest
 import aws.sdk.kotlin.services.s3.model.GetObjectRequest
 import aws.sdk.kotlin.services.s3.model.HeadObjectRequest
 import aws.sdk.kotlin.services.s3.model.ListObjectsV2Request
+import aws.sdk.kotlin.services.s3.model.ObjectIdentifier
 import aws.sdk.kotlin.services.s3.model.PutObjectRequest
 import aws.sdk.kotlin.services.s3.model.UploadPartRequest
+import aws.smithy.kotlin.runtime.http.engine.okhttp.OkHttpEngine
 import aws.smithy.kotlin.runtime.ServiceException
 import aws.smithy.kotlin.runtime.content.ByteStream
 import aws.smithy.kotlin.runtime.content.asByteStream
@@ -20,7 +24,10 @@ import aws.smithy.kotlin.runtime.content.toByteArray
 import aws.smithy.kotlin.runtime.content.toInputStream
 import aws.smithy.kotlin.runtime.net.url.Url
 import aws.smithy.kotlin.runtime.time.epochMilliseconds
+import com.lomo.data.network.SyncHttpClientProvider
+import com.lomo.data.repository.SyncPerformanceProfile
 import com.lomo.data.repository.S3ResolvedConfig
+import com.lomo.data.repository.coercePositiveConcurrency
 import com.lomo.domain.model.S3PathStyle
 import java.io.File
 import javax.inject.Inject
@@ -131,18 +138,43 @@ interface LomoS3Client : AutoCloseable {
         )
 
     suspend fun deleteObject(key: String)
+
+    suspend fun deleteObjects(keys: List<String>) {
+        for (key in keys) {
+            deleteObject(key)
+        }
+    }
 }
 
 class AwsSdkS3ClientFactory
     @Inject
-    constructor() : LomoS3ClientFactory {
-        override fun create(config: S3ResolvedConfig): LomoS3Client = AwsSdkS3Client(config)
+    constructor(
+        private val httpClientProvider: SyncHttpClientProvider,
+        private val performanceTuner: com.lomo.data.repository.SyncPerformanceTuner,
+    ) : LomoS3ClientFactory {
+        override fun create(config: S3ResolvedConfig): LomoS3Client =
+            AwsSdkS3Client(
+                config = config,
+                httpClientProvider = httpClientProvider,
+                performanceProfile = performanceTuner.currentProfile(),
+            )
     }
 
 internal class AwsSdkS3Client(
     private val config: S3ResolvedConfig,
-    private val client: S3Client = createSdkClient(config),
+    private val client: S3Client,
+    private val performanceProfile: SyncPerformanceProfile = SyncPerformanceProfile(),
 ) : LomoS3Client {
+    internal constructor(
+        config: S3ResolvedConfig,
+        httpClientProvider: SyncHttpClientProvider = SyncHttpClientProvider(),
+        performanceProfile: SyncPerformanceProfile = SyncPerformanceProfile(),
+    ) : this(
+        config = config,
+        client = createSdkClient(config, performanceProfile, httpClientProvider),
+        performanceProfile = performanceProfile,
+    )
+
     override suspend fun verifyAccess(prefix: String) {
         client.listObjectsV2(
             ListObjectsV2Request {
@@ -400,7 +432,7 @@ internal class AwsSdkS3Client(
                 },
             )
         }
-        val limiter = Semaphore(S3_MULTIPART_PART_CONCURRENCY)
+        val limiter = Semaphore(performanceProfile.s3MultipartPartConcurrency.coercePositiveConcurrency())
         return coroutineScope {
             (1..totalParts).map { partNum ->
                 async {
@@ -437,8 +469,43 @@ internal class AwsSdkS3Client(
         )
     }
 
+    override suspend fun deleteObjects(keys: List<String>) {
+        if (keys.isEmpty()) return
+        for (chunk in keys.chunked(S3_BULK_DELETE_BATCH_SIZE)) {
+            submitDeleteBatch(chunk)
+        }
+    }
+
     override fun close() {
         client.close()
+    }
+
+    private suspend fun submitDeleteBatch(keys: List<String>) {
+        if (keys.isEmpty()) return
+        if (keys.size == 1) {
+            client.deleteObject(
+                DeleteObjectRequest {
+                    bucket = config.bucket
+                    this.key = keys.single()
+                },
+            )
+            return
+        }
+        client.deleteObjects(
+            DeleteObjectsRequest {
+                bucket = config.bucket
+                delete =
+                    Delete {
+                        quiet = true
+                        objects =
+                            keys.map { key ->
+                                ObjectIdentifier {
+                                    this.key = key
+                                }
+                            }
+                    }
+            },
+        )
     }
 
     private suspend fun listObjects(
@@ -475,6 +542,8 @@ internal class AwsSdkS3Client(
     }
 }
 
+private const val S3_BULK_DELETE_BATCH_SIZE = 1000
+
 private fun Throwable.isMissingObjectError(): Boolean {
     val diagnostic =
         buildString {
@@ -490,7 +559,11 @@ private fun Throwable.isMissingObjectError(): Boolean {
         diagnostic.contains("NotFound", ignoreCase = true)
 }
 
-private fun createSdkClient(config: S3ResolvedConfig): S3Client {
+private fun createSdkClient(
+    config: S3ResolvedConfig,
+    performanceProfile: SyncPerformanceProfile,
+    httpClientProvider: SyncHttpClientProvider,
+): S3Client {
     val endpoint = Url.parse(config.endpointUrl)
     return S3Client {
         region = config.region
@@ -507,5 +580,12 @@ private fun createSdkClient(config: S3ResolvedConfig): S3Client {
                 S3PathStyle.VIRTUAL_HOSTED -> false
                 S3PathStyle.AUTO -> !endpoint.host.toString().contains("amazonaws.com", ignoreCase = true)
             }
+        httpClient =
+            OkHttpEngine(
+                httpClientProvider.s3Client(
+                    maxRequests = performanceProfile.s3MaxConnections,
+                    maxRequestsPerHost = performanceProfile.s3MaxConnectionsPerHost,
+                ),
+            )
     }
 }
