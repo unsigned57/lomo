@@ -1,8 +1,8 @@
 package com.lomo.data.local.entity
 
-import androidx.room.Entity
-import androidx.room.Index
-import androidx.room.PrimaryKey
+import androidx.room3.Entity
+import androidx.room3.Index
+import androidx.room3.PrimaryKey
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.domain.model.Memo
 
@@ -40,8 +40,8 @@ data class TrashMemoEntity(
             rawContent = rawContent,
             dateKey = date,
             localDate = MemoLocalDateResolver.resolve(date),
-            tags = if (tags.isEmpty()) emptyList() else tags.split(","),
-            imageUrls = if (imageUrls.isEmpty()) emptyList() else imageUrls.split(","),
+            tags = decodeStoredMemoStringList(tags),
+            imageUrls = decodeStoredMemoStringList(imageUrls),
             isPinned = isPinned,
             isDeleted = true,
         )
@@ -56,8 +56,8 @@ data class TrashMemoEntity(
                 content = memo.content,
                 rawContent = memo.rawContent,
                 date = memo.dateKey,
-                tags = memo.tags.joinToString(","),
-                imageUrls = memo.imageUrls.joinToString(","),
+                tags = encodeStoredMemoStringList(memo.tags),
+                imageUrls = encodeStoredMemoStringList(memo.imageUrls),
             )
     }
 }

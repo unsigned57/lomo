@@ -1,162 +1,91 @@
 package com.lomo.data.local
 
-import android.database.Cursor
-import androidx.sqlite.db.SupportSQLiteDatabase
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.slot
-import io.mockk.verify
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.sql.DriverManager
 
 /*
  * Test Contract:
- * - Unit under test: rebuildMemoFtsTable (DatabaseMigrationTableBuilders)
- * - Behavior focus: FTS module version used to create the lomo_fts virtual table, DROP-before-rebuild
- *   idempotency, and Lomo backfill when the memo table is present.
- * - Observable outcomes: execSQL call content (must contain "fts5"), presence or absence of INSERT
- *   backfill, and guaranteed DROP before CREATE.
- * - Red phase: Fails before the fix because rebuildMemoFtsTable currently generates
- *   "USING FTS4(...)" DDL. The assertion for "fts5" will not match "FTS4", causing a verification
- *   failure in every test in this file.
- * - Excludes: Room schema validation, query behavior, tokenizer configuration semantics, and
- *   migration sequencing beyond this function.
+ * - Unit under test: rebuildMemoFtsExternalContentInfrastructure (DatabaseFtsInfrastructure)
+ * - Behavior focus: external-content FTS5 schema, trigger creation, and rebuild command execution.
+ * - Observable outcomes: emitted DDL includes external-content clauses, trigger SQL is present,
+ *   and rebuilt index returns rows from the Lomo content table.
+ * - Red phase: Fails before the fix because rebuildMemoFtsExternalContentInfrastructure needs external-content
+ *   schema and trigger infrastructure to be created and rebuild command issued.
+ * - Excludes: Room validation and app-layer repository wiring.
  */
 class DatabaseFtsInfrastructureCallbackTest {
     @Test
-    fun `rebuildMemoFtsTable creates virtual table using fts5 module`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { noRowsCursor() }
+    fun `rebuildMemoFtsExternalContentInfrastructure creates external content fts5 table`() {
+        val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
 
-        rebuildMemoFtsTable(db)
+        rebuildMemoFtsExternalContentInfrastructure(db)
 
-        verify {
-            db.execSQL(
-                match { sql ->
-                    sql.contains("USING fts5", ignoreCase = true) &&
-                        sql.contains(FTS_TABLE)
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable does not use deprecated fts4 module`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { noRowsCursor() }
-
-        rebuildMemoFtsTable(db)
-
-        verify(exactly = 0) {
-            db.execSQL(
-                match { sql ->
-                    sql.contains("USING FTS4", ignoreCase = true)
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable drops existing lomo_fts table before creating the new one`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { noRowsCursor() }
-
-        rebuildMemoFtsTable(db)
-
-        verify(exactly = 1) {
-            db.execSQL("$DROP_TABLE_IF_EXISTS `$FTS_TABLE`")
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable does not insert backfill when lomo table does not exist`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        // sqlite_master query for tableExists("Lomo") returns false
-        every { db.query(any<String>()) } answers { noRowsCursor() }
-
-        rebuildMemoFtsTable(db)
-
-        verify(exactly = 0) {
-            db.execSQL(
-                match { sql ->
-                    sql.contains("INSERT INTO") && sql.contains(FTS_TABLE)
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable inserts backfill from lomo when memo table exists`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { call ->
-            val sql = call.invocation.args[0] as String
-            if (sql.contains("name='$MEMO_TABLE'")) oneRowCursor() else noRowsCursor()
-        }
-
-        rebuildMemoFtsTable(db)
-
-        verify {
-            db.execSQL(
-                match { sql ->
-                    sql.contains("INSERT INTO") &&
-                        sql.contains("`$FTS_TABLE`") &&
-                        sql.contains("`$MEMO_TABLE`")
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable fts5 table includes memoId and content columns`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { noRowsCursor() }
-
-        rebuildMemoFtsTable(db)
-
-        verify {
-            db.execSQL(
-                match { sql ->
-                    sql.contains("memoId") && sql.contains(COLUMN_CONTENT) &&
-                        sql.contains("USING fts5", ignoreCase = true)
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `rebuildMemoFtsTable emitted create statement targets fts5 instead of fts4`() {
-        val capturedSql = mutableListOf<String>()
-        val capturedStatement = slot<String>()
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { call ->
-            val sql = call.invocation.args[0] as String
-            if (sql.contains("name='$MEMO_TABLE'")) oneRowCursor() else noRowsCursor()
-        }
-        every { db.execSQL(capture(capturedStatement)) } answers {
-            capturedSql.add(capturedStatement.captured)
-        }
-
-        rebuildMemoFtsTable(db)
-
-        val createTableSql = capturedSql.firstOrNull { sql -> sql.contains(FTS_TABLE) && sql.contains("CREATE") }
-        assertFalse(
-            "Production rebuildMemoFtsTable must not generate FTS4 DDL. Got: $createTableSql",
-            createTableSql?.contains("FTS4", ignoreCase = true) == true,
-        )
         assertTrue(
-            "Production rebuildMemoFtsTable must generate FTS5 DDL. Got: $createTableSql",
-            createTableSql?.contains("fts5", ignoreCase = true) == true,
+            db.executedStatements.any { statement ->
+                statement.sql.contains("USING fts5", ignoreCase = true) &&
+                    statement.sql.contains("content='Lomo'", ignoreCase = true) &&
+                    statement.sql.contains("content_rowid='rowid'", ignoreCase = true) &&
+                    statement.sql.contains(COLUMN_SEARCH_CONTENT)
+            },
+        )
+        assertFalse(db.executedStatements.any { it.sql.contains("USING FTS4", ignoreCase = true) })
+    }
+
+    @Test
+    fun `rebuildMemoFtsExternalContentInfrastructure creates insert update delete triggers`() {
+        val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
+
+        rebuildMemoFtsExternalContentInfrastructure(db)
+
+        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") })
+        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_au`") })
+        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ad`") })
+    }
+
+    @Test
+    fun `rebuildMemoFtsExternalContentInfrastructure runs rebuild command after creating infrastructure`() {
+        val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
+
+        rebuildMemoFtsExternalContentInfrastructure(db)
+
+        assertTrue(
+            db.executedStatements.any { statement ->
+                statement.sql == "INSERT INTO `lomo_fts`(`lomo_fts`) VALUES ('rebuild')"
+            },
         )
     }
 
-    private fun noRowsCursor(): Cursor =
-        mockk<Cursor>(relaxed = true).also { cursor ->
-            every { cursor.moveToFirst() } returns false
-        }
+    @Test
+    fun `rebuildMemoFtsExternalContentInfrastructure rebuilds external content index from lomo rows`() {
+        Class.forName("org.sqlite.JDBC")
+        DriverManager.getConnection("jdbc:sqlite::memory:").use { connection ->
+            connection.createStatement().execute(
+                """
+                CREATE TABLE `$MEMO_TABLE` (
+                    `id` TEXT NOT NULL PRIMARY KEY,
+                    `$COLUMN_CONTENT` TEXT NOT NULL,
+                    `$COLUMN_SEARCH_CONTENT` TEXT NOT NULL
+                )
+                """.trimIndent(),
+            )
+            connection.prepareStatement(
+                "INSERT INTO `$MEMO_TABLE`(`id`, `$COLUMN_CONTENT`, `$COLUMN_SEARCH_CONTENT`) VALUES (?, ?, ?)",
+            ).use { statement ->
+                statement.setString(1, "memo-1")
+                statement.setString(2, "hello world")
+                statement.setString(3, "hello world")
+                statement.executeUpdate()
+            }
 
-    private fun oneRowCursor(): Cursor =
-        mockk<Cursor>(relaxed = true).also { cursor ->
-            every { cursor.moveToFirst() } returns true
+            rebuildMemoFtsExternalContentInfrastructure(JdbcSQLiteConnection(connection))
+
+            connection.createStatement().executeQuery("SELECT COUNT(*) FROM `$FTS_TABLE`").use { resultSet ->
+                assertTrue(resultSet.next())
+                assertEquals(1, resultSet.getInt(1))
+            }
         }
+    }
 }

@@ -1,31 +1,48 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
-import com.lomo.data.util.SearchTokenizer
+import androidx.sqlite.SQLiteConnection
+import timber.log.Timber
 
-internal fun ensureMemoFtsTable(db: SupportSQLiteDatabase) {
+internal fun ensureMemoFtsTable(db: SQLiteConnection) {
     ensureMemoFtsMaintenanceTable(db)
+    backfillMemoSearchContentTokens(db)
+    ensureMemoSearchContentColumn(db)
 
-    val rebuiltSchema = !db.memoFtsTableUsesFts5()
-    if (rebuiltSchema) {
-        rebuildMemoFtsTable(db)
+    val requiresSchemaRepair = !db.memoFtsTableUsesExternalContent() || !db.memoFtsExternalContentTriggersPresent()
+    if (requiresSchemaRepair) {
+        val repairStartedAt = System.currentTimeMillis()
+        backfillMemoSearchContentColumn(db)
+        rebuildMemoFtsExternalContentInfrastructure(db)
+        db.setMemoFtsContentVersion(CURRENT_MEMO_FTS_CONTENT_VERSION)
+        val repairDurationMs = System.currentTimeMillis() - repairStartedAt
+        MemoFtsTelemetry.recordAutoRepair(repairDurationMs)
+        Timber.tag(MEMO_FTS_TAG).w(
+            "Auto-repaired memo FTS infrastructure in %d ms",
+            repairDurationMs,
+        )
+        return
     }
-    if (rebuiltSchema || db.memoFtsContentVersion() < CURRENT_MEMO_FTS_CONTENT_VERSION) {
-        retokenizeMemoFtsContent(db)
+
+    if (db.memoFtsContentVersion() < CURRENT_MEMO_FTS_CONTENT_VERSION) {
+        backfillMemoSearchContentColumn(db)
+        rebuildMemoFtsExternalContentIndex(db)
         db.setMemoFtsContentVersion(CURRENT_MEMO_FTS_CONTENT_VERSION)
     }
 }
 
-private fun SupportSQLiteDatabase.memoFtsTableUsesFts5(): Boolean =
-    query("SELECT sql FROM sqlite_master WHERE name='$FTS_TABLE' LIMIT 1").use { cursor ->
+internal fun SQLiteConnection.memoFtsTableUsesExternalContent(): Boolean =
+    query("SELECT sql FROM sqlite_master WHERE type='table' AND name='$FTS_TABLE' LIMIT 1").use { cursor ->
         if (!cursor.moveToFirst()) {
             return@use false
         }
         val createSql = cursor.getString(0).orEmpty()
-        createSql.contains("fts5", ignoreCase = true)
+        createSql.contains("fts5", ignoreCase = true) &&
+            createSql.contains("content='Lomo'", ignoreCase = true) &&
+            createSql.contains("content_rowid='rowid'", ignoreCase = true) &&
+            createSql.contains(COLUMN_SEARCH_CONTENT, ignoreCase = true)
     }
 
-private fun ensureMemoFtsMaintenanceTable(db: SupportSQLiteDatabase) {
+internal fun ensureMemoFtsMaintenanceTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$MEMO_FTS_MAINTENANCE_TABLE` (
@@ -37,7 +54,7 @@ private fun ensureMemoFtsMaintenanceTable(db: SupportSQLiteDatabase) {
     )
 }
 
-private fun SupportSQLiteDatabase.memoFtsContentVersion(): Int =
+internal fun SQLiteConnection.memoFtsContentVersion(): Int =
     query("SELECT `content_version` FROM `$MEMO_FTS_MAINTENANCE_TABLE` WHERE `id` = 1 LIMIT 1").use { cursor ->
         if (!cursor.moveToFirst()) {
             return@use 0
@@ -45,32 +62,76 @@ private fun SupportSQLiteDatabase.memoFtsContentVersion(): Int =
         cursor.getInt(0)
     }
 
-private fun SupportSQLiteDatabase.setMemoFtsContentVersion(version: Int) {
+internal fun SQLiteConnection.setMemoFtsContentVersion(version: Int) {
     execSQL(
         "INSERT OR REPLACE INTO `$MEMO_FTS_MAINTENANCE_TABLE`(`id`, `content_version`) VALUES (1, ?)",
         arrayOf(version),
     )
 }
 
-private fun retokenizeMemoFtsContent(db: SupportSQLiteDatabase) {
-    db.execSQL("DELETE FROM `$FTS_TABLE`")
-    if (!db.tableExists(MEMO_TABLE)) {
-        return
-    }
-
-    db.query("SELECT `id`, `$COLUMN_CONTENT` FROM `$MEMO_TABLE`").use { cursor ->
-        val idIndex = cursor.getColumnIndex("id")
-        val contentIndex = cursor.getColumnIndex(COLUMN_CONTENT)
-        while (cursor.moveToNext()) {
-            val memoId = cursor.getString(idIndex)
-            val content = cursor.getString(contentIndex).orEmpty()
-            db.execSQL(
-                "INSERT INTO `$FTS_TABLE`(`memoId`, `$COLUMN_CONTENT`) VALUES (?, ?)",
-                arrayOf(memoId, SearchTokenizer.tokenize(content)),
-            )
-        }
-    }
+internal data class MemoFtsHeavyHealthCheckResult(
+    val lomoCount: Int,
+    val ftsCount: Int,
+    val sampledMatchCount: Int,
+    val sampledExpectedCount: Int,
+) {
+    val isHealthy: Boolean
+        get() = lomoCount == ftsCount && sampledMatchCount == sampledExpectedCount
 }
 
+internal fun runMemoFtsHeavyHealthCheck(db: SQLiteConnection): MemoFtsHeavyHealthCheckResult {
+    if (!db.tableExists(MEMO_TABLE) || !db.tableExists(FTS_TABLE)) {
+        return MemoFtsHeavyHealthCheckResult(
+            lomoCount = 0,
+            ftsCount = -1,
+            sampledMatchCount = 0,
+            sampledExpectedCount = 0,
+        )
+    }
+
+    val lomoCount = db.query("SELECT COUNT(*) FROM `$MEMO_TABLE`").use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+    }
+    val ftsCount = db.query("SELECT COUNT(*) FROM `$FTS_TABLE`").use { cursor ->
+        if (cursor.moveToFirst()) cursor.getInt(0) else 0
+    }
+
+    val samples = mutableListOf<Pair<Long, String>>()
+    db.query(
+        "SELECT rowid, `$COLUMN_SEARCH_CONTENT` FROM `$MEMO_TABLE` " +
+            "WHERE `$COLUMN_SEARCH_CONTENT` != '' LIMIT $HEAVY_CHECK_SAMPLE_LIMIT",
+    ).use { cursor ->
+        val rowIdIndex = cursor.getColumnIndex("rowid")
+        val searchContentIndex = cursor.getColumnIndex(COLUMN_SEARCH_CONTENT)
+        while (cursor.moveToNext()) {
+            val rowId = cursor.getLong(rowIdIndex)
+            val firstToken = cursor.getString(searchContentIndex).orEmpty().split(' ').firstOrNull().orEmpty()
+            if (firstToken.isNotBlank()) {
+                samples += rowId to firstToken
+            }
+        }
+    }
+
+    val sampledMatchCount =
+        samples.count { (rowId, token) ->
+            val matchQuery = '"' + token.replace("\"", "\"\"") + "\"*"
+            db.query(
+                "SELECT 1 FROM `$FTS_TABLE` WHERE rowid = ? AND `$FTS_TABLE` MATCH ? LIMIT 1",
+                arrayOf<Any?>(rowId, matchQuery),
+            ).use { cursor ->
+                cursor.moveToFirst()
+            }
+        }
+
+    return MemoFtsHeavyHealthCheckResult(
+        lomoCount = lomoCount,
+        ftsCount = ftsCount,
+        sampledMatchCount = sampledMatchCount,
+        sampledExpectedCount = samples.size,
+    )
+}
+
+private const val MEMO_FTS_TAG = "MemoFtsMaintenance"
 private const val MEMO_FTS_MAINTENANCE_TABLE = "lomo_fts_maintenance"
-private const val CURRENT_MEMO_FTS_CONTENT_VERSION = 1
+internal const val CURRENT_MEMO_FTS_CONTENT_VERSION = 3
+private const val HEAVY_CHECK_SAMPLE_LIMIT = 8

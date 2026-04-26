@@ -1,8 +1,8 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
-internal fun createMemoRevisionIndexes(db: SupportSQLiteDatabase) {
+internal fun createMemoRevisionIndexes(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_createdAt`
@@ -30,7 +30,7 @@ internal fun createMemoRevisionIndexes(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createMemoRevisionAssetIndexes(db: SupportSQLiteDatabase) {
+internal fun createMemoRevisionAssetIndexes(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_blobHash`

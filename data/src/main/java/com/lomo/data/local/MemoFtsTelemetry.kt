@@ -1,0 +1,47 @@
+package com.lomo.data.local
+
+import timber.log.Timber
+import java.util.concurrent.atomic.AtomicLong
+
+internal object MemoFtsTelemetry {
+    private val queryCount = AtomicLong(0)
+    private val emptyResultCount = AtomicLong(0)
+    private val matchSyntaxErrorCount = AtomicLong(0)
+    private val autoRepairCount = AtomicLong(0)
+    private val autoRepairTotalDurationMs = AtomicLong(0)
+
+    fun recordSearchResult(
+        durationMs: Long,
+        isEmptyResult: Boolean,
+    ) {
+        queryCount.incrementAndGet()
+        if (isEmptyResult) {
+            emptyResultCount.incrementAndGet()
+        }
+        Timber.tag(TAG).d(
+            "FTS query duration=%dms empty=%s totals(query=%d, empty=%d)",
+            durationMs,
+            isEmptyResult,
+            queryCount.get(),
+            emptyResultCount.get(),
+        )
+    }
+
+    fun recordMatchSyntaxError(throwable: Throwable) {
+        val syntaxErrors = matchSyntaxErrorCount.incrementAndGet()
+        Timber.tag(TAG).w(throwable, "FTS MATCH syntax error count=%d", syntaxErrors)
+    }
+
+    fun recordAutoRepair(durationMs: Long) {
+        autoRepairCount.incrementAndGet()
+        autoRepairTotalDurationMs.addAndGet(durationMs)
+        Timber.tag(TAG).w(
+            "FTS auto-repair completed in %dms (count=%d, totalDurationMs=%d)",
+            durationMs,
+            autoRepairCount.get(),
+            autoRepairTotalDurationMs.get(),
+        )
+    }
+
+    private const val TAG = "MemoFtsTelemetry"
+}

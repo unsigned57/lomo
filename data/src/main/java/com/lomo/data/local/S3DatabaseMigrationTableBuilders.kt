@@ -1,8 +1,8 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
-internal fun createS3SyncMetadataTable(db: SupportSQLiteDatabase) {
+internal fun createS3SyncMetadataTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_SYNC_METADATA_TABLE` (
@@ -23,7 +23,7 @@ internal fun createS3SyncMetadataTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createS3RemoteIndexTable(db: SupportSQLiteDatabase) {
+internal fun createS3RemoteIndexTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_REMOTE_INDEX_TABLE` (
@@ -51,7 +51,7 @@ internal fun createS3RemoteIndexTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createS3RemoteShardStateTable(db: SupportSQLiteDatabase) {
+internal fun createS3RemoteShardStateTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_REMOTE_SHARD_STATE_TABLE` (
@@ -67,7 +67,7 @@ internal fun createS3RemoteShardStateTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun addS3RemoteShardTelemetryColumns(db: SupportSQLiteDatabase) {
+internal fun addS3RemoteShardTelemetryColumns(db: SQLiteConnection) {
     db.execSQL(
         "ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE` ADD COLUMN `idle_scan_streak` INTEGER NOT NULL DEFAULT 0",
     )
@@ -85,7 +85,7 @@ internal fun addS3RemoteShardTelemetryColumns(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {
+internal fun createS3SyncProtocolStateTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_SYNC_PROTOCOL_STATE_TABLE` (
@@ -106,7 +106,7 @@ internal fun createS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createS3LocalChangeJournalTable(db: SupportSQLiteDatabase) {
+internal fun createS3LocalChangeJournalTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$S3_LOCAL_CHANGE_JOURNAL_TABLE` (

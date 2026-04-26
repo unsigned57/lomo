@@ -1,16 +1,19 @@
 package com.lomo.data.di
 
 import android.content.Context
-import androidx.room.Room
-import androidx.room.RoomDatabase
-import androidx.room.withTransaction
+import androidx.room3.Room
+import androidx.room3.RoomDatabase
+import androidx.room3.useReaderConnection
+import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.lomo.data.local.ALL_DATABASE_MIGRATIONS
 import com.lomo.data.local.DatabaseTransitionStrategy
 import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
+import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoPinDao
@@ -19,12 +22,15 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoVersionDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.RoomMemoFtsDao
 import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.dao.S3LocalChangeJournalDao
 import com.lomo.data.local.dao.S3RemoteIndexDao
 import com.lomo.data.local.dao.S3RemoteShardStateDao
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncProtocolStateDao
+import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
+import com.lomo.data.local.dao.WebDavLocalFingerprintDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.s3.AwsSdkS3ClientFactory
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -40,6 +46,7 @@ import com.lomo.data.repository.MemoRefreshDbApplier
 import com.lomo.data.repository.MemoRefreshEngine
 import com.lomo.data.repository.MemoRefreshParserWorker
 import com.lomo.data.repository.MemoRefreshPlanner
+import com.lomo.data.repository.MemoMutationGate
 import com.lomo.data.repository.MemoVersionBlobRoot
 import com.lomo.data.repository.MemoVersionJournal
 import com.lomo.data.repository.MemoRepositoryImpl
@@ -88,6 +95,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.io.File
 import javax.inject.Singleton
@@ -108,20 +116,34 @@ object DatabaseModule {
         val db = buildMemoDatabase(context)
         return runNonFatalCatching {
             // Force database open now to trigger migration inside the provider.
-            // If migration fails, the catch block recreates the database from scratch.
-            db.openHelper.writableDatabase
+            // If migration fails, preserve the existing database instead of silently deleting it.
+            runBlocking {
+                db.useReaderConnection { connection ->
+                    connection.usePrepared("SELECT 1") { statement ->
+                        statement.step()
+                    }
+                }
+            }
             db
         }.getOrElse { error ->
-            Timber.tag("DataModule").e(error, "Database open/migration failed, recreating from scratch")
+            val databaseFile = context.getDatabasePath(DatabaseTransitionStrategy.DATABASE_NAME)
+            Timber.tag("DataModule").e(
+                error,
+                "Database open/migration failed; preserving existing database at %s",
+                databaseFile.path,
+            )
             runCatching { db.close() }
-            context.deleteDatabase(DatabaseTransitionStrategy.DATABASE_NAME)
-            buildMemoDatabase(context)
+            throw IllegalStateException(
+                "Database open/migration failed; existing database preserved at ${databaseFile.path}",
+                error,
+            )
         }
     }
 
     private fun buildMemoDatabase(context: Context): MemoDatabase =
         Room
             .databaseBuilder(context, MemoDatabase::class.java, DatabaseTransitionStrategy.DATABASE_NAME)
+            .setDriver(BundledSQLiteDriver())
             .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
             .addMigrations(*ALL_DATABASE_MIGRATIONS)
             .addCallback(DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback())
@@ -150,7 +172,7 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideMemoFtsDao(database: MemoDatabase): MemoFtsDao = database.memoFtsDao()
+    fun provideMemoFtsDao(database: MemoDatabase): MemoFtsDao = RoomMemoFtsDao(database)
 
     @Provides
     @Singleton
@@ -160,10 +182,6 @@ object DatabaseModule {
     @Singleton
     fun provideMemoTrashDao(database: MemoDatabase): MemoTrashDao = database.memoTrashDao()
 
-    @Provides
-    @Singleton
-    fun provideMemoOutboxDao(database: MemoDatabase): MemoOutboxDao = database.memoOutboxDao()
-
 }
 
 @Module
@@ -172,6 +190,10 @@ object DatabaseSupportModule {
     @Provides
     @Singleton
     fun provideLocalFileStateDao(database: MemoDatabase): LocalFileStateDao = database.localFileStateDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoImageDao(database: MemoDatabase): MemoImageDao = database.memoImageDao()
 
     @Provides
     @Singleton
@@ -214,6 +236,29 @@ object DatabaseSupportModule {
     @Provides
     @Singleton
     fun provideMemoVersionDao(database: MemoDatabase): MemoVersionDao = database.memoVersionDao()
+
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object WebDavDatabaseSupportModule {
+    @Provides
+    @Singleton
+    fun provideWebDavLocalFingerprintDao(database: MemoDatabase): WebDavLocalFingerprintDao =
+        database.webDavLocalFingerprintDao()
+
+    @Provides
+    @Singleton
+    fun provideWebDavLocalChangeJournalDao(database: MemoDatabase): WebDavLocalChangeJournalDao =
+        database.webDavLocalChangeJournalDao()
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object MemoOutboxDatabaseModule {
+    @Provides
+    @Singleton
+    fun provideMemoOutboxDao(database: MemoDatabase): MemoOutboxDao = database.memoOutboxDao()
 }
 
 @Module
@@ -280,7 +325,7 @@ object MemoRefreshModule {
         memoWriteDao: MemoWriteDao,
         memoOutboxDao: MemoOutboxDao,
         memoTagDao: MemoTagDao,
-        memoFtsDao: MemoFtsDao,
+        memoImageDao: MemoImageDao,
         memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
     ): WorkspaceTransitionRepositoryImpl =
@@ -288,7 +333,7 @@ object MemoRefreshModule {
             memoWriteDao = memoWriteDao,
             memoOutboxDao = memoOutboxDao,
             memoTagDao = memoTagDao,
-            memoFtsDao = memoFtsDao,
+            memoImageDao = memoImageDao,
             memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
         )
@@ -320,7 +365,7 @@ object MemoRefreshModule {
         memoDao: MemoDao,
         memoWriteDao: MemoWriteDao,
         memoTagDao: MemoTagDao,
-        memoFtsDao: MemoFtsDao,
+        memoImageDao: MemoImageDao,
         memoTrashDao: MemoTrashDao,
         localFileStateDao: LocalFileStateDao,
         memoVersionJournal: MemoVersionJournal,
@@ -330,12 +375,12 @@ object MemoRefreshModule {
             memoDao = memoDao,
             memoWriteDao = memoWriteDao,
             memoTagDao = memoTagDao,
-            memoFtsDao = memoFtsDao,
+            memoImageDao = memoImageDao,
             memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
             memoVersionJournal = memoVersionJournal,
             runInTransaction = { block ->
-                database.withTransaction {
+                database.withDriverTransaction {
                     block()
                 }
             },
@@ -349,6 +394,7 @@ object MemoRefreshModule {
         planner: MemoRefreshPlanner,
         parserWorker: MemoRefreshParserWorker,
         dbApplier: MemoRefreshDbApplier,
+        mutationGate: MemoMutationGate,
         ): MemoRefreshEngine =
         MemoRefreshEngine(
             markdownStorageDataSource = markdownStorageDataSource,
@@ -356,6 +402,7 @@ object MemoRefreshModule {
             refreshPlanner = planner,
             refreshParserWorker = parserWorker,
             refreshDbApplier = dbApplier,
+            mutationGate = mutationGate,
         )
 
     @Provides

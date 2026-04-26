@@ -1,9 +1,7 @@
 package com.lomo.data.local
 
 import android.database.Cursor
-import androidx.sqlite.db.SupportSQLiteDatabase
-import io.mockk.every
-import io.mockk.mockk
+import com.lomo.data.util.SearchTokenizer
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -231,6 +229,7 @@ class MemoSearchFtsIntegrationTest {
                 `id` TEXT NOT NULL,
                 `timestamp` INTEGER NOT NULL,
                 `content` TEXT NOT NULL,
+                `searchContent` TEXT NOT NULL DEFAULT '',
                 `rawContent` TEXT NOT NULL,
                 `date` TEXT NOT NULL,
                 `tags` TEXT NOT NULL,
@@ -243,14 +242,7 @@ class MemoSearchFtsIntegrationTest {
     }
 
     private fun createFts5Table() {
-        // Create the FTS5 virtual table as expected after the production fix
-        connection.createStatement().execute("DROP TABLE IF EXISTS `lomo_fts`")
-        connection.createStatement().execute(
-            """
-            CREATE VIRTUAL TABLE IF NOT EXISTS `lomo_fts`
-            USING fts5(`memoId` UNINDEXED, `content`, tokenize='unicode61')
-            """.trimIndent(),
-        )
+        rebuildMemoFtsExternalContentInfrastructure(JdbcSQLiteConnection(connection))
     }
 
     private fun createLegacyFts4Table() {
@@ -264,27 +256,25 @@ class MemoSearchFtsIntegrationTest {
     }
 
     private fun runProductionFtsMaintenance() {
-        ensureMemoFtsTable(jdbcSupportDatabase())
+        ensureMemoFtsTable(JdbcSQLiteConnection(connection))
     }
 
     private fun insertMemo(
         id: String,
         content: String,
     ) {
-        connection.prepareStatement("INSERT INTO `Lomo`(id, timestamp, content, rawContent, date, tags, imageUrls, updatedAt) VALUES (?,?,?,?,?,?,?,?)").use { stmt ->
+        connection.prepareStatement(
+            "INSERT INTO `Lomo`(id, timestamp, content, searchContent, rawContent, date, tags, imageUrls, updatedAt) VALUES (?,?,?,?,?,?,?,?,?)",
+        ).use { stmt ->
             stmt.setString(1, id)
             stmt.setLong(2, System.currentTimeMillis())
             stmt.setString(3, content)
-            stmt.setString(4, content)
-            stmt.setString(5, "2026_01_01")
-            stmt.setString(6, "")
+            stmt.setString(4, SearchTokenizer.tokenize(content))
+            stmt.setString(5, content)
+            stmt.setString(6, "2026_01_01")
             stmt.setString(7, "")
-            stmt.setLong(8, System.currentTimeMillis())
-            stmt.execute()
-        }
-        connection.prepareStatement("INSERT INTO `lomo_fts`(memoId, content) VALUES (?,?)").use { stmt ->
-            stmt.setString(1, id)
-            stmt.setString(2, content)
+            stmt.setString(8, "")
+            stmt.setLong(9, System.currentTimeMillis())
             stmt.execute()
         }
     }
@@ -292,7 +282,7 @@ class MemoSearchFtsIntegrationTest {
     private fun fts5Search(matchQuery: String): List<String> {
         val results = mutableListOf<String>()
         connection.prepareStatement(
-            "SELECT Lomo.id FROM Lomo INNER JOIN lomo_fts ON lomo_fts.memoId = Lomo.id WHERE lomo_fts MATCH ? ORDER BY Lomo.timestamp DESC",
+            "SELECT Lomo.id FROM Lomo INNER JOIN lomo_fts ON lomo_fts.rowid = Lomo.rowid WHERE lomo_fts MATCH ? ORDER BY Lomo.timestamp DESC",
         ).use { stmt ->
             stmt.setString(1, matchQuery)
             stmt.executeQuery().use { rs ->
@@ -309,73 +299,4 @@ class MemoSearchFtsIntegrationTest {
             if (rs.next()) rs.getString(1) else null
         }
 
-    private fun jdbcSupportDatabase(): SupportSQLiteDatabase =
-        mockk<SupportSQLiteDatabase>(relaxed = true).also { db ->
-            every { db.query(any<String>()) } answers { call ->
-                val sql = call.invocation.args[0] as String
-                connection.createStatement().use { statement ->
-                    statement.executeQuery(sql).use(::resultSetCursor)
-                }
-            }
-            every { db.execSQL(any<String>()) } answers { call ->
-                val sql = call.invocation.args[0] as String
-                connection.createStatement().use { statement ->
-                    statement.execute(sql)
-                }
-            }
-            every { db.execSQL(any<String>(), any<Array<out Any?>>()) } answers { call ->
-                val sql = call.invocation.args[0] as String
-                @Suppress("UNCHECKED_CAST")
-                val bindArgs = call.invocation.args[1] as Array<out Any?>
-                connection.prepareStatement(sql).use { statement ->
-                    bindArgs.forEachIndexed { index, value ->
-                        statement.setObject(index + 1, value)
-                    }
-                    statement.execute()
-                }
-            }
-        }
-
-    private fun resultSetCursor(resultSet: ResultSet): Cursor {
-        val metadata = resultSet.metaData
-        val columnNames = Array(metadata.columnCount) { index -> metadata.getColumnLabel(index + 1) }
-        val rows = mutableListOf<Array<Any?>>()
-        while (resultSet.next()) {
-            rows.add(Array(columnNames.size) { index -> resultSet.getObject(index + 1) })
-        }
-        val columnIndexByName = columnNames.withIndex().associate { (index, name) -> name to index }
-        var position = -1
-        return mockk<Cursor>(relaxed = true).also { cursor ->
-            every { cursor.moveToFirst() } answers {
-                if (rows.isEmpty()) {
-                    false
-                } else {
-                    position = 0
-                    true
-                }
-            }
-            every { cursor.moveToNext() } answers {
-                val nextPosition = position + 1
-                if (nextPosition < rows.size) {
-                    position = nextPosition
-                    true
-                } else {
-                    false
-                }
-            }
-            every { cursor.getColumnIndex(any()) } answers { columnIndexByName[firstArg<String>()] ?: -1 }
-            every { cursor.getString(any()) } answers {
-                rows[position][firstArg<Int>()]?.toString()
-            }
-            every { cursor.getInt(any()) } answers {
-                val value = rows[position][firstArg<Int>()]
-                when (value) {
-                    is Number -> value.toInt()
-                    null -> 0
-                    else -> value.toString().toInt()
-                }
-            }
-            every { cursor.close() } returns Unit
-        }
-    }
 }

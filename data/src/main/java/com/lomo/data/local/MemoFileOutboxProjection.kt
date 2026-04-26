@@ -1,6 +1,6 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
 internal data class MemoFileOutboxProjection(
     val idExpr: String,
@@ -18,23 +18,6 @@ internal data class MemoFileOutboxProjection(
     val claimTokenExpr: String,
     val claimUpdatedAtExpr: String,
 )
-
-internal fun SupportSQLiteDatabase.tableExists(tableName: String): Boolean =
-    query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='$tableName' LIMIT 1").use { cursor ->
-        cursor.moveToFirst()
-    }
-
-internal fun SupportSQLiteDatabase.tableColumns(tableName: String): Set<String> =
-    query("PRAGMA table_info(`$tableName`)").use { cursor ->
-        val columns = linkedSetOf<String>()
-        val nameIndex = cursor.getColumnIndex("name")
-        while (cursor.moveToNext()) {
-            if (nameIndex >= 0) {
-                cursor.getString(nameIndex)?.let(columns::add)
-            }
-        }
-        columns
-    }
 
 internal fun pickTextExpr(
     columns: Set<String>,
@@ -71,7 +54,7 @@ internal fun pickNullableIntExpr(
 }
 
 internal fun insertLegacyMemoRows(
-    db: SupportSQLiteDatabase,
+    db: SQLiteConnection,
     targetTable: String,
     sourceTable: String,
     idExpr: String,

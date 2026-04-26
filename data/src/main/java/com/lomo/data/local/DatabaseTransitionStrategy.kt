@@ -1,10 +1,9 @@
 package com.lomo.data.local
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import androidx.room.RoomDatabase
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room3.RoomDatabase
+import androidx.room3.migration.Migration
+import androidx.sqlite.SQLiteConnection
 import timber.log.Timber
 import java.io.File
 
@@ -54,8 +53,15 @@ internal object DatabaseTransitionStrategy {
     ) {
         val databaseFile = context.getDatabasePath(databaseName)
         if (!databaseFile.exists()) return
+        if (!databaseFile.hasPlaintextSqliteHeader()) return
 
-        val existingVersion = readUserVersion(databaseFile)
+        val existingVersion =
+            runCatching {
+                PlaintextDatabaseVersionReader.readUserVersion(databaseFile)
+            }.getOrElse { throwable ->
+                Timber.tag(TAG).w(throwable, "Failed to read user_version from %s", databaseFile.path)
+                UNKNOWN_DB_VERSION
+            }
 
         // Only reset for truly invalid states: corrupt version or downgrade.
         // All upgrade paths (1..target) are now covered by consolidation +
@@ -73,14 +79,8 @@ internal object DatabaseTransitionStrategy {
 
     fun cleanupLegacyArtifactsCallback(): RoomDatabase.Callback =
         object : RoomDatabase.Callback() {
-            override fun onCreate(db: SupportSQLiteDatabase) {
-                legacyTableNames.forEach { legacyTable ->
-                    db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
-                }
-                ensureMemoFtsTable(db)
-            }
-
-            override fun onOpen(db: SupportSQLiteDatabase) {
+            override suspend fun onOpen(connection: SQLiteConnection) {
+                val db = connection
                 legacyTableNames.forEach { legacyTable ->
                     db.execSQL("DROP TABLE IF EXISTS `$legacyTable`")
                 }
@@ -102,16 +102,6 @@ internal object DatabaseTransitionStrategy {
             fromVersion == targetVersion -> true
             fromVersion <= 0 || targetVersion <= 0 || fromVersion > targetVersion -> false
             else -> canReachTargetVersionByGraph(fromVersion, targetVersion, migrationEdges)
-        }
-
-    private fun readUserVersion(databaseFile: File): Int =
-        runCatching {
-            SQLiteDatabase.openDatabase(databaseFile.path, null, SQLiteDatabase.OPEN_READONLY).use { sqliteDb ->
-                sqliteDb.version
-            }
-        }.getOrElse { throwable ->
-            Timber.tag(TAG).w(throwable, "Failed to read user_version from %s", databaseFile.path)
-            UNKNOWN_DB_VERSION
         }
 
     private fun deleteDatabaseArtifacts(
