@@ -1,10 +1,5 @@
 package com.lomo.data.local
 
-import android.database.Cursor
-import androidx.sqlite.db.SupportSQLiteDatabase
-import io.mockk.every
-import io.mockk.mockk
-import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,39 +11,236 @@ import org.junit.Test
  *   revision dedupe and paging, retires the removed legacy workspace-history schema, compacts
  *   memo-revision rows down to lightweight previews, normalizes sync metadata / protocol-state tables
  *   for supported remotes, persists shard-level remote reconcile state plus telemetry for S3,
- *   and upgrades WebDAV metadata to carry a stable local fingerprint baseline.
+ *   upgrades WebDAV metadata to carry a stable local fingerprint baseline, and migrates memo search
+ *   to the application-managed FTS5 external-content index used by the current schema with the FTS
+ *   column carrying tokenized search text while the main memo column stays as user-visible plaintext.
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
- *   plus direct-migration coverage to the current target version.
- * - Red phase: Fails before the fix because the schema target assertion still stops before the persisted
- *   WebDAV fingerprint schema and no test locks the 45->46 metadata normalization contract. Additionally,
- *   the new FTS5 migration tests (migration_21_22 and consolidation) are RED because production
- *   currently generates "USING FTS4(...)"; these tests will turn GREEN once FTS5 is produced.
+ *   plus direct-migration coverage to the current target version, and FTS index population that emits
+ *   per-row INSERTs whose bound values are the tokenized form of each memo's content.
+ * - Red phase: Fails before the fix because the schema target assertion and FTS migration coverage drifted
+ *   onto an unsupported FTS4 fork instead of the real FTS5 contract; and (for the FTS-tokenization
+ *   refactor) because the migration emitted `UPDATE Lomo SET content = tokens` to the main memo column
+ *   and used a bulk `INSERT INTO lomo_fts SELECT id, content FROM Lomo` that copied raw content into the
+ *   index without per-row tokenization.
  * - Excludes: real Room open/validation, filesystem side effects, and unrelated query behavior after migration.
  */
+/*
+ * Test Change Justification (FTS tokenization refactor):
+ * - Reason category: product/domain contract changed (separating user-visible memo content from search
+ *   index tokens was the diagnosed defect being fixed).
+ * - Old behavior/assertion being replaced: `UPDATE Lomo SET content = ? WHERE id = ?` was expected with the
+ *   tokenized form ("你 你好 好 memo"), and the FTS index was expected to be populated by a single SQL
+ *   `INSERT INTO lomo_fts SELECT id, content FROM Lomo`.
+ * - Why old assertion is no longer correct: the UPDATE polluted the main memo column with token strings,
+ *   forcing the UI to recover plaintext from rawContent and breaking any consumer that relied on
+ *   Memo.content being the original text. The bulk SELECT-INSERT then copied that polluted text into the
+ *   index. Both encoded the bug.
+ * - Coverage preserved by: the new assertions verify that (a) the migration never UPDATEs Memo.content,
+ *   (b) the FTS index is rebuilt with the correct schema, and (c) the per-row INSERT into lomo_fts binds
+ *   the SearchTokenizer.tokenize(content) form, locking in the new "main column plaintext, FTS column
+ *   tokenized" contract.
+ * - Why this is not fitting the test to the implementation: the old SQL is the encoded bug; preserving it
+ *   in tests would lock in the diagnosed defect.
+ */
 class DatabaseMigrationsTest {
-    /*
-     * Test Change Justification:
-     * - Reason category: product/domain contract changed.
-     * - Replaced assertion/setup: schema target locked at version 45 for S3 metadata persistence only.
-     * - The previous assertion is no longer correct because the Room schema now includes a version 46 WebDAV metadata normalization migration.
-     * - Retained/new coverage: version-target assertion still guards the current schema, and a new migration test locks the 45->46 WebDAV fingerprint-column contract.
-     * - This is not changing the test to fit the implementation; it updates the migration contract to the new persisted behavior introduced in this change.
-     */
     @Test
-    fun `database version advances to 48 for manual fts5 maintenance`() {
-        assertEquals(48, MEMO_DATABASE_VERSION)
+    fun `database version remains 52 for trigger managed fts5 external content`() {
+        assertEquals(52, MEMO_DATABASE_VERSION)
     }
 
     @Test
+    fun `migration list includes direct 51 to 52 upgrade path`() {
+        assertTrue(
+            ALL_DATABASE_MIGRATIONS.any { it.startVersion == 51 && it.endVersion == 52 },
+        )
+    }
+
+    @Test
+    fun `migration 48 to 49 creates exact memo image attachment index table`() {
+        val db = RecordingSQLiteConnection()
+
+        MIGRATION_48_49.migrateForTest(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `MemoImageAttachment`") &&
+                        it.contains("PRIMARY KEY(`memoId`, `imagePath`)")
+                },
+            )
+        }
+        verify {
+            db.execSQL(match { it.contains("index_MemoImageAttachment_imagePath") })
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR IGNORE INTO `MemoImageAttachment`") &&
+                        it.contains("FROM `Lomo`") &&
+                        it.contains("FROM `LomoTrash`")
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 49 to 50 rebuilds fts4 with tokenized content while leaving memo content as plaintext`() {
+        val db = RecordingSQLiteConnection()
+
+        db.queryHandler = { sql, _ ->
+            when {
+                sql.contains("sqlite_master") -> mockCursor(true)
+                sql.contains("SELECT `id`, `content`") && sql.contains("FROM `Lomo`") ->
+                    mockMemoContentCursor(
+                        rows =
+                            listOf(
+                                MemoContentRow(
+                                    id = "memo-1",
+                                    timestamp = 1L,
+                                    content = "你好 memo",
+                                    rawContent = "- 10:00 你好 memo",
+                                    date = "2026_04_19",
+                                ),
+                            ),
+                    )
+                else -> mockCursor(false)
+            }
+        }
+
+        MIGRATION_49_50.migrateForTest(db)
+
+        // Memo.content must NOT be rewritten by the migration. The previous implementation pushed
+        // SearchTokenizer.tokenize(content) into the main column, polluting the source-of-truth memo
+        // text and forcing the UI to recover plaintext from rawContent. The new contract keeps the
+        // main column as user-visible plaintext and only tokenizes content when populating the
+        // search index.
+        verify(exactly = 0) {
+            db.execSQL(match { sql -> sql.contains("UPDATE `Lomo` SET `content`") })
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE VIRTUAL TABLE IF NOT EXISTS `lomo_fts`") &&
+                        it.contains("USING FTS4", ignoreCase = true) &&
+                        it.contains("memoId") &&
+                        it.contains("notindexed=`memoId`")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                "INSERT INTO `lomo_fts` (`memoId`, `content`) VALUES (?, ?)",
+                match { args -> args.contentEquals(arrayOf("memo-1", "你 你好 好 memo")) },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 50 to 51 replaces legacy fts4 with simple application managed fts5`() {
+        val db = RecordingSQLiteConnection()
+        db.queryHandler = { sql, _ ->
+            when {
+                sql.contains("SELECT 1 FROM sqlite_master") -> {
+                    val tableName = Regex("""name='([^']+)'""").find(sql)?.groupValues?.get(1)
+                    mockCursor(tableName == MEMO_TABLE)
+                }
+                sql.contains("SELECT `id`, `content`") && sql.contains("FROM `Lomo`") ->
+                    mockMemoContentCursor(
+                        rows =
+                            listOf(
+                                MemoContentRow(
+                                    id = "memo-1",
+                                    timestamp = 1L,
+                                    content = "你好 memo",
+                                    rawContent = "- 10:00 你好 memo",
+                                    date = "2026_04_19",
+                                ),
+                            ),
+                    )
+                else -> mockCursor(false)
+            }
+        }
+
+        MIGRATION_50_51.migrateForTest(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE VIRTUAL TABLE IF NOT EXISTS `lomo_fts`") &&
+                        it.contains("USING fts5") &&
+                        it.contains("memoId") &&
+                        it.contains("tokenize='unicode61'")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                "INSERT INTO `lomo_fts` (`memoId`, `content`) VALUES (?, ?)",
+                match { args -> args.contentEquals(arrayOf("memo-1", "你 你好 好 memo")) },
+            )
+        }
+    }
+
+    @Test
+    fun `migration 51 to 52 upgrades to trigger managed external content fts`() {
+        val db = RecordingSQLiteConnection()
+
+        MIGRATION_51_52.migrateForTest(db)
+
+        verify {
+            db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `searchContent` TEXT NOT NULL DEFAULT ''")
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE VIRTUAL TABLE IF NOT EXISTS `lomo_fts`") &&
+                        it.contains("USING fts5") &&
+                        it.contains("`searchContent`") &&
+                        it.contains("content='Lomo'") &&
+                        it.contains("content_rowid='rowid'")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") &&
+                        it.contains("INSERT INTO `lomo_fts`") &&
+                        it.contains("new.`searchContent`")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_au`") &&
+                        it.contains("'delete'") &&
+                        it.contains("new.`searchContent`")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ad`") &&
+                        it.contains("'delete'")
+                },
+            )
+        }
+        verify { db.execSQL("INSERT INTO `lomo_fts`(`lomo_fts`) VALUES ('rebuild')") }
+    }
+
+
+    @Test
     fun `local file state schema includes missing confirmation columns`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
         val migration =
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 36 && it.endVersion == MEMO_DATABASE_VERSION
             }
 
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -64,9 +256,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 37 to 38 creates s3 incremental protocol and journal tables`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_37_38.migrate(db)
+        MIGRATION_37_38.migrateForTest(db)
 
         verify {
             db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_protocol_state`") })
@@ -81,9 +273,8 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        val db = RecordingSQLiteConnection()
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("PRAGMA table_info(`memo_revision`)") -> {
                     mockColumnsCursor(
@@ -104,7 +295,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        MIGRATION_38_39.migrate(db)
+        MIGRATION_38_39.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `memo_revision` ADD COLUMN `assetFingerprint` TEXT")
@@ -126,7 +317,7 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 40 to 41 rebuilds s3 protocol state without manifest column`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
                 "id",
@@ -143,8 +334,7 @@ class DatabaseMigrationsTest {
                 "scan_epoch",
             )
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> {
                     val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
@@ -165,7 +355,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        MIGRATION_40_41.migrate(db)
+        MIGRATION_40_41.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `s3_sync_protocol_state` RENAME TO `s3_sync_protocol_state_legacy_v41`")
@@ -195,9 +385,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 41 to 42 creates s3 remote shard state table`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_41_42.migrate(db)
+        MIGRATION_41_42.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -216,9 +406,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 42 to 43 adds s3 remote shard telemetry columns`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_42_43.migrate(db)
+        MIGRATION_42_43.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `s3_remote_shard_state` ADD COLUMN `idle_scan_streak` INTEGER NOT NULL DEFAULT 0")
@@ -243,9 +433,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 43 to 44 creates pending sync conflict table`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_43_44.migrate(db)
+        MIGRATION_43_44.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -262,9 +452,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_44_45.migrate(db)
+        MIGRATION_44_45.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `s3_sync_metadata` ADD COLUMN `local_size` INTEGER")
@@ -279,7 +469,7 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
                 "relative_path",
@@ -291,8 +481,7 @@ class DatabaseMigrationsTest {
                 "last_resolved_direction",
                 "last_resolved_reason",
             )
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> mockCursor(true)
                 sql.contains("PRAGMA table_info(`webdav_sync_metadata_legacy_v46`)") -> mockColumnsCursor(legacyColumns)
@@ -301,7 +490,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        MIGRATION_45_46.migrate(db)
+        MIGRATION_45_46.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `webdav_sync_metadata` RENAME TO `webdav_sync_metadata_legacy_v46`")
@@ -330,13 +519,13 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 29 to 30 drops retired workspace history tables`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
         val migration =
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 29 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_mutation`") }
         verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_head`") }
@@ -349,9 +538,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 30 to 31 adds memo revision dedupe indexes`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_30_31.migrate(db)
+        MIGRATION_30_31.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL(
@@ -383,14 +572,14 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 34 to 35 compacts memo revision rows to previews`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
         val migration =
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 34 && it.endVersion == 35
             }
 
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL(
@@ -405,9 +594,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 35 to 36 creates s3 metadata table`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_35_36.migrate(db)
+        MIGRATION_35_36.migrateForTest(db)
 
         verify {
             db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `s3_sync_metadata`") })
@@ -416,9 +605,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 26 to 27 creates webdav metadata table`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_26_27.migrate(db)
+        MIGRATION_26_27.migrateForTest(db)
 
         verify {
             db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `webdav_sync_metadata`") })
@@ -427,9 +616,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 22 to 23 drops legacy Lomo content index`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_22_23.migrate(db)
+        MIGRATION_22_23.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
@@ -438,9 +627,8 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 23 to 24 adds and backfills updatedAt`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        val db = RecordingSQLiteConnection()
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> mockCursor(true)
                 sql.contains("PRAGMA table_info(`Lomo`)") -> mockColumnsCursor(setOf("id", "timestamp"))
@@ -449,7 +637,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        MIGRATION_23_24.migrate(db)
+        MIGRATION_23_24.migrateForTest(db)
 
         verify(exactly = 1) {
             db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
@@ -467,7 +655,7 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 24 to 25 adds outbox claim columns`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val outboxColumns =
             setOf(
                 "id",
@@ -484,8 +672,7 @@ class DatabaseMigrationsTest {
                 "lastError",
             )
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> {
                     val tableName = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
@@ -502,7 +689,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        MIGRATION_24_25.migrate(db)
+        MIGRATION_24_25.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -517,9 +704,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `migration 25 to 26 creates memo pin table`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        MIGRATION_25_26.migrate(db)
+        MIGRATION_25_26.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -553,7 +740,7 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `consolidation from v7 splits memos table and applies all phases`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val v7MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls", "isDeleted")
         val v22MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls")
 
@@ -561,8 +748,7 @@ class DatabaseMigrationsTest {
         val existingTables = mutableSetOf("memos")
         val tableNamePattern = Regex("""`(\w+)`""")
 
-        every { db.execSQL(any()) } answers {
-            val sql = args[0] as String
+        db.onExec = { sql, _ ->
             val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
             if (tableName != null) {
                 when {
@@ -574,8 +760,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> {
                     val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
@@ -601,7 +786,7 @@ class DatabaseMigrationsTest {
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 7 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         // Phase A: memos split into Lomo + LomoTrash
         verify { db.execSQL(match { it.contains("INSERT OR REPLACE INTO `Lomo`") && it.contains("isDeleted") }) }
@@ -640,7 +825,7 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `consolidation from v21 normalizes tables and applies all phases`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val v21MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls")
         val localFileStateColumns = setOf("filename", "isTrash", "saf_uri", "last_known_modified_time")
         val outboxColumns =
@@ -662,8 +847,7 @@ class DatabaseMigrationsTest {
         val existingTables = mutableSetOf("Lomo", "LomoTrash", "local_file_state", "MemoFileOutbox")
         val tableNamePattern = Regex("""`(\w+)`""")
 
-        every { db.execSQL(any()) } answers {
-            val sql = args[0] as String
+        db.onExec = { sql, _ ->
             val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
             if (tableName != null) {
                 when {
@@ -688,8 +872,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> {
                     val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
@@ -720,7 +903,7 @@ class DatabaseMigrationsTest {
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 21 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         // Phase A: tables normalized (rename + rebuild)
         verify { db.execSQL(match { it.contains("Lomo") && it.contains("RENAME TO") }) }
@@ -758,10 +941,9 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `consolidation to current schema does not recreate retired workspace history tables`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> mockCursor(false)
                 else -> mockCursor(false)
@@ -772,7 +954,7 @@ class DatabaseMigrationsTest {
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot`") }) }
         verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot_entry`") }) }
@@ -783,15 +965,14 @@ class DatabaseMigrationsTest {
 
     @Test
     fun `consolidation from v7 migrates file_sync_metadata to local_file_state`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
         val v7MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls", "isDeleted")
         val fileSyncColumns = setOf("filename", "lastModified", "isTrash")
 
         val existingTables = mutableSetOf("memos", "file_sync_metadata")
         val tableNamePattern = Regex("""`(\w+)`""")
 
-        every { db.execSQL(any()) } answers {
-            val sql = args[0] as String
+        db.onExec = { sql, _ ->
             val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
             if (tableName != null) {
                 when {
@@ -803,8 +984,7 @@ class DatabaseMigrationsTest {
             }
         }
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> {
                     val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
@@ -830,17 +1010,16 @@ class DatabaseMigrationsTest {
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 7 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         verify { db.execSQL(match { it.contains("INSERT OR REPLACE INTO `local_file_state`") && it.contains("file_sync_metadata") }) }
     }
 
     @Test
     fun `consolidation drops all legacy tables`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val db = RecordingSQLiteConnection()
 
-        every { db.query(any<String>()) } answers {
-            val sql = args[0] as String
+        db.queryHandler = { sql, _ ->
             when {
                 sql.contains("sqlite_master") -> mockCursor(false)
                 else -> mockCursor(false)
@@ -851,7 +1030,7 @@ class DatabaseMigrationsTest {
             ALL_DATABASE_MIGRATIONS.first {
                 it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
             }
-        migration.migrate(db)
+        migration.migrateForTest(db)
 
         val legacyTables = listOf("memos", "image_cache", "tags", "memo_tag_cross_ref", "memos_fts", "file_sync_metadata")
         for (table in legacyTables) {
@@ -859,86 +1038,43 @@ class DatabaseMigrationsTest {
         }
     }
 
-    /*
-     * Test Change Justification:
-     * - Reason category: product/domain contract changed (FTS4 → FTS5 upgrade).
-     * - Old behavior/assertion being replaced: no existing test locked the FTS module version
-     *   used in rebuild paths; the consolidation and migration tests were silent on FTS4/FTS5.
-     * - Why old assertion is no longer correct: target behavior requires FTS5 for all new and
-     *   upgraded databases; FTS4 is the current (wrong) state.
-     * - Coverage preserved by: existing legacy-table and migration-SQL tests remain unchanged;
-     *   new tests below add the FTS module contract as an additional assertion layer.
-     * - Why this is not fitting the test to the implementation: the new assertions assert "fts5"
-     *   which the current production code does NOT yet produce, making these tests intentionally
-     *   RED until the FTS5 production change is made.
-     */
-    @Test
-    fun `migration 21 to 22 rebuilds fts table using fts5 module`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { mockCursor(false) }
-
-        MIGRATION_21_22.migrate(db)
-
-        verify {
-            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
+    private fun mockCursor(hasRow: Boolean): SQLiteQueryResult =
+        if (hasRow) {
+            queryResult("present", rows = listOf(rowOf(1)))
+        } else {
+            SQLiteQueryResult.EMPTY
         }
-        verify(exactly = 0) {
-            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
-        }
-    }
 
-    @Test
-    fun `consolidation migration rebuilds fts table using fts5 module`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { mockCursor(false) }
+    private fun mockColumnsCursor(columns: Set<String>): SQLiteQueryResult =
+        queryResult(
+            "name",
+            rows = columns.map { columnName -> rowOf(columnName) },
+        )
 
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrate(db)
+    private fun mockMemoContentCursor(rows: List<MemoContentRow>): SQLiteQueryResult =
+        queryResult(
+            "id",
+            "timestamp",
+            "content",
+            "rawContent",
+            "date",
+            rows =
+                rows.map { row ->
+                    rowOf(
+                        row.id,
+                        row.timestamp,
+                        row.content,
+                        row.rawContent,
+                        row.date,
+                    )
+                },
+        )
 
-        verify {
-            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
-        }
-        verify(exactly = 0) {
-            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
-        }
-    }
-
-    @Test
-    fun `migration 47 to 48 rebuilds fts table using fts5 module`() {
-        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
-        every { db.query(any<String>()) } answers { mockCursor(false) }
-
-        MIGRATION_47_48.migrate(db)
-
-        verify {
-            db.execSQL(match { sql -> sql.contains("USING fts5", ignoreCase = true) })
-        }
-        verify(exactly = 0) {
-            db.execSQL(match { sql -> sql.contains("USING FTS4", ignoreCase = true) })
-        }
-    }
-
-    private fun mockCursor(hasRow: Boolean): Cursor {
-        val cursor = mockk<Cursor>(relaxed = true)
-        every { cursor.moveToFirst() } returns hasRow
-        every { cursor.close() } returns Unit
-        return cursor
-    }
-
-    private fun mockColumnsCursor(columns: Set<String>): Cursor {
-        val cursor = mockk<Cursor>(relaxed = true)
-        val rows = columns.toList()
-        var index = -1
-        every { cursor.getColumnIndex("name") } returns 0
-        every { cursor.moveToNext() } answers {
-            index += 1
-            index < rows.size
-        }
-        every { cursor.getString(0) } answers { rows[index] }
-        every { cursor.close() } returns Unit
-        return cursor
-    }
+    private data class MemoContentRow(
+        val id: String,
+        val timestamp: Long,
+        val content: String,
+        val rawContent: String,
+        val date: String,
+    )
 }

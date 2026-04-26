@@ -95,6 +95,7 @@ interface LomoInteractionPreferencesStore {
     val memoActionOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
     val scrollbarEnabled: Flow<Boolean>
+    val secureWipeBeforeDeleteEnabled: Flow<Boolean>
 
     suspend fun updateHapticFeedbackEnabled(enabled: Boolean)
 
@@ -111,6 +112,8 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean)
 
     suspend fun updateScrollbarEnabled(enabled: Boolean)
+
+    suspend fun updateSecureWipeBeforeDeleteEnabled(enabled: Boolean)
 }
 
 interface LomoSidebarTagOrderStore {
@@ -396,6 +399,8 @@ internal object LomoDataStoreKeys {
     val SIDEBAR_TAG_ORDER = stringPreferencesKey(PreferenceKeys.SIDEBAR_TAG_ORDER)
     val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
     val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)
+    val SECURE_WIPE_BEFORE_DELETE_ENABLED =
+        booleanPreferencesKey(PreferenceKeys.SECURE_WIPE_BEFORE_DELETE_ENABLED)
     val APP_LOCK_ENABLED = booleanPreferencesKey(PreferenceKeys.APP_LOCK_ENABLED)
     val LAN_SHARE_ENABLED = booleanPreferencesKey(PreferenceKeys.LAN_SHARE_ENABLED)
     val LAN_SHARE_PAIRING_KEY_HEX = stringPreferencesKey(PreferenceKeys.LAN_SHARE_PAIRING_KEY_HEX)

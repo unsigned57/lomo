@@ -1,8 +1,8 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
-internal fun compactMemoRevisionContentPreviews(db: SupportSQLiteDatabase) {
+internal fun compactMemoRevisionContentPreviews(db: SQLiteConnection) {
     db.execSQL(
         """
         UPDATE `memo_revision`

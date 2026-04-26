@@ -1,8 +1,8 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
-internal fun migrateMemoRevisionAssetFingerprintColumn(db: SupportSQLiteDatabase) {
+internal fun migrateMemoRevisionAssetFingerprintColumn(db: SQLiteConnection) {
     if ("assetFingerprint" !in db.tableColumns("memo_revision")) {
         db.execSQL("ALTER TABLE `memo_revision` ADD COLUMN `assetFingerprint` TEXT")
     }

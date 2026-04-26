@@ -234,6 +234,13 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.SCROLLBAR_ENABLED,
         )
 
+    override val secureWipeBeforeDeleteEnabled: Flow<Boolean> =
+        dataStore.booleanFlow(
+            key = LomoDataStoreKeys.SECURE_WIPE_BEFORE_DELETE_ENABLED,
+            flowName = "secureWipeBeforeDeleteEnabled",
+            default = PreferenceKeys.Defaults.SECURE_WIPE_BEFORE_DELETE_ENABLED,
+        )
+
     override suspend fun updateHapticFeedbackEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.HAPTIC_FEEDBACK_ENABLED] = enabled }
     }
@@ -264,6 +271,10 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateScrollbarEnabled(enabled: Boolean) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SCROLLBAR_ENABLED] = enabled }
+    }
+
+    override suspend fun updateSecureWipeBeforeDeleteEnabled(enabled: Boolean) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.SECURE_WIPE_BEFORE_DELETE_ENABLED] = enabled }
     }
 }
 

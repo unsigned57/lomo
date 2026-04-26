@@ -1,6 +1,6 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
 internal const val LEGACY_MEMOS_TABLE = "memos"
 private const val LEGACY_FILE_SYNC_METADATA_TABLE = "file_sync_metadata"
@@ -10,6 +10,7 @@ private const val LEGACY_MEMO_TAG_CROSS_REF_TABLE = "memo_tag_cross_ref"
 private const val LEGACY_MEMO_FTS_TABLE = "memos_fts"
 internal const val MEMO_FILE_OUTBOX_TABLE = "MemoFileOutbox"
 internal const val MEMO_TAG_CROSS_REF_TABLE = "MemoTagCrossRef"
+internal const val MEMO_IMAGE_ATTACHMENT_TABLE = "MemoImageAttachment"
 internal const val MEMO_PIN_TABLE = "MemoPin"
 internal const val WEBDAV_SYNC_METADATA_TABLE = "webdav_sync_metadata"
 internal const val S3_SYNC_METADATA_TABLE = "s3_sync_metadata"
@@ -24,7 +25,7 @@ internal const val LEGACY_ROW_ID_TEXT_EXPR = "'legacy_' || rowid"
 internal const val CURRENT_TIME_MILLIS_SQL = "(CAST(strftime('%s','now') AS INTEGER) * 1000)"
 internal const val UPDATE_OPERATION_SQL = "'UPDATE'"
 
-internal fun migrateLegacyMemosTable(db: SupportSQLiteDatabase) {
+internal fun migrateLegacyMemosTable(db: SQLiteConnection) {
     val columns = db.tableColumns(LEGACY_MEMOS_TABLE)
 
     createMemoTable(db, MEMO_TABLE, withContentIndex = true)
@@ -77,7 +78,7 @@ internal fun migrateLegacyMemosTable(db: SupportSQLiteDatabase) {
     db.execSQL("$DROP_TABLE_IF_EXISTS `$LEGACY_MEMOS_TABLE`")
 }
 
-internal fun migrateLegacyFileSyncMetadata(db: SupportSQLiteDatabase) {
+internal fun migrateLegacyFileSyncMetadata(db: SQLiteConnection) {
     if (!db.tableExists(LEGACY_FILE_SYNC_METADATA_TABLE)) return
 
     if (!db.tableExists(LOCAL_FILE_STATE_TABLE)) {
@@ -109,7 +110,7 @@ internal fun migrateLegacyFileSyncMetadata(db: SupportSQLiteDatabase) {
     db.execSQL("$DROP_TABLE_IF_EXISTS `$LEGACY_FILE_SYNC_METADATA_TABLE`")
 }
 
-internal fun dropLegacyTables(db: SupportSQLiteDatabase) {
+internal fun dropLegacyTables(db: SQLiteConnection) {
     listOf(
         LEGACY_MEMOS_TABLE,
         IMAGE_CACHE_TABLE,
@@ -123,7 +124,7 @@ internal fun dropLegacyTables(db: SupportSQLiteDatabase) {
 }
 
 internal fun migrateMemoUpdatedAtColumn(
-    db: SupportSQLiteDatabase,
+    db: SQLiteConnection,
     tableName: String,
 ) {
     if (!db.tableExists(tableName)) return
@@ -136,7 +137,7 @@ internal fun migrateMemoUpdatedAtColumn(
 }
 
 internal fun normalizeMemoTable(
-    db: SupportSQLiteDatabase,
+    db: SQLiteConnection,
     tableName: String,
     withContentIndex: Boolean,
 ) {
@@ -176,7 +177,7 @@ internal fun normalizeMemoTable(
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
 }
 
-internal fun normalizeLocalFileStateTable(db: SupportSQLiteDatabase) {
+internal fun normalizeLocalFileStateTable(db: SQLiteConnection) {
     if (!db.tableExists(LOCAL_FILE_STATE_TABLE)) {
         createLocalFileStateTable(db)
         return
@@ -221,7 +222,7 @@ internal fun normalizeLocalFileStateTable(db: SupportSQLiteDatabase) {
     db.execSQL("$DROP_TABLE_IF_EXISTS `$LOCAL_FILE_STATE_LEGACY_TABLE`")
 }
 
-internal fun normalizeMemoFileOutboxTable(db: SupportSQLiteDatabase) {
+internal fun normalizeMemoFileOutboxTable(db: SQLiteConnection) {
     if (!db.tableExists(MEMO_FILE_OUTBOX_TABLE)) {
         createMemoFileOutboxTable(db)
         return

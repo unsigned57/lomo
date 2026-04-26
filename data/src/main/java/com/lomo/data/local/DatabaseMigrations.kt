@@ -1,7 +1,7 @@
 package com.lomo.data.local
 
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room3.migration.Migration
+import androidx.sqlite.SQLiteConnection
 import com.lomo.data.local.entity.S3SyncProtocolStateEntity
 
 const val SCHEMA_VERSION_18 = 18
@@ -33,6 +33,10 @@ const val SCHEMA_VERSION_45 = 45
 const val SCHEMA_VERSION_46 = 46
 const val SCHEMA_VERSION_47 = 47
 const val SCHEMA_VERSION_48 = 48
+const val SCHEMA_VERSION_49 = 49
+const val SCHEMA_VERSION_50 = 50
+const val SCHEMA_VERSION_51 = 51
+const val SCHEMA_VERSION_52 = 52
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -40,11 +44,13 @@ const val LOCAL_FILE_STATE_TABLE = "local_file_state"
 const val DROP_TABLE_IF_EXISTS = "DROP TABLE IF EXISTS"
 const val COLUMN_TIMESTAMP = "timestamp"
 const val COLUMN_CONTENT = "content"
+const val COLUMN_SEARCH_CONTENT = "searchContent"
 const val COLUMN_RAW_CONTENT = "rawContent"
 
 val MIGRATION_18_19: Migration =
     object : Migration(SCHEMA_VERSION_18, SCHEMA_VERSION_19) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS `MemoTagCrossRef` (
@@ -83,14 +89,16 @@ val MIGRATION_18_19: Migration =
 
 val MIGRATION_19_20: Migration =
     object : Migration(SCHEMA_VERSION_19, SCHEMA_VERSION_20) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             db.execSQL("DROP TABLE IF EXISTS image_cache")
         }
     }
 
 val MIGRATION_20_21: Migration =
     object : Migration(SCHEMA_VERSION_20, SCHEMA_VERSION_21) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             db.execSQL(
                 """
                 CREATE TABLE IF NOT EXISTS `MemoFileOutbox` (
@@ -116,7 +124,8 @@ val MIGRATION_20_21: Migration =
 
 val MIGRATION_21_22: Migration =
     object : Migration(SCHEMA_VERSION_21, SCHEMA_VERSION_22) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             // Normalize schema for users who may have diverged local schemas on v21 builds.
             db.execSQL("$DROP_TABLE_IF_EXISTS `MemoTagCrossRef`")
 
@@ -124,21 +133,23 @@ val MIGRATION_21_22: Migration =
             normalizeMemoTable(db, tableName = TRASH_MEMO_TABLE, withContentIndex = false)
             normalizeLocalFileStateTable(db)
             normalizeMemoFileOutboxTable(db)
-            rebuildMemoFtsTable(db)
+            rebuildMemoFts4Table(db)
             rebuildMemoTagCrossRefTable(db)
         }
     }
 
 val MIGRATION_22_23: Migration =
     object : Migration(SCHEMA_VERSION_22, SCHEMA_VERSION_23) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`")
         }
     }
 
 val MIGRATION_23_24: Migration =
     object : Migration(SCHEMA_VERSION_23, SCHEMA_VERSION_24) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             migrateMemoUpdatedAtColumn(db, tableName = MEMO_TABLE)
             migrateMemoUpdatedAtColumn(db, tableName = TRASH_MEMO_TABLE)
         }
@@ -146,42 +157,48 @@ val MIGRATION_23_24: Migration =
 
 val MIGRATION_24_25: Migration =
     object : Migration(SCHEMA_VERSION_24, SCHEMA_VERSION_25) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             normalizeMemoFileOutboxTable(db)
         }
     }
 
 val MIGRATION_25_26: Migration =
     object : Migration(SCHEMA_VERSION_25, SCHEMA_VERSION_26) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createMemoPinTable(db)
         }
     }
 
 val MIGRATION_26_27: Migration =
     object : Migration(SCHEMA_VERSION_26, SCHEMA_VERSION_27) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createWebDavSyncMetadataTable(db)
         }
     }
 
 val MIGRATION_28_29: Migration =
     object : Migration(SCHEMA_VERSION_28, SCHEMA_VERSION_29) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createMemoVersionTables(db)
         }
     }
 
 val MIGRATION_29_30: Migration =
     object : Migration(SCHEMA_VERSION_29, SCHEMA_VERSION_30) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             dropRetiredWorkspaceHistoryTables(db)
         }
     }
 
 val MIGRATION_30_31: Migration =
     object : Migration(SCHEMA_VERSION_30, SCHEMA_VERSION_31) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createMemoRevisionIndexes(db)
             createMemoRevisionAssetIndexes(db)
         }
@@ -189,28 +206,32 @@ val MIGRATION_30_31: Migration =
 
 val MIGRATION_34_35: Migration =
     object : Migration(SCHEMA_VERSION_34, SCHEMA_VERSION_35) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             compactMemoRevisionContentPreviews(db)
         }
     }
 
 val MIGRATION_35_36: Migration =
     object : Migration(SCHEMA_VERSION_35, SCHEMA_VERSION_36) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createS3SyncMetadataTable(db)
         }
     }
 
 val MIGRATION_36_37: Migration =
     object : Migration(SCHEMA_VERSION_36, SCHEMA_VERSION_37) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             normalizeLocalFileStateTable(db)
         }
     }
 
 val MIGRATION_37_38: Migration =
     object : Migration(SCHEMA_VERSION_37, SCHEMA_VERSION_38) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createS3SyncProtocolStateTable(db)
             createS3LocalChangeJournalTable(db)
         }
@@ -218,14 +239,16 @@ val MIGRATION_37_38: Migration =
 
 val MIGRATION_38_39: Migration =
     object : Migration(SCHEMA_VERSION_38, SCHEMA_VERSION_39) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             migrateMemoRevisionAssetFingerprintColumn(db)
         }
     }
 
 val MIGRATION_39_40: Migration =
     object : Migration(SCHEMA_VERSION_39, SCHEMA_VERSION_40) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createS3RemoteIndexTable(db)
             db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `last_fast_sync_at` INTEGER")
             db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` ADD COLUMN `last_reconcile_at` INTEGER")
@@ -239,57 +262,105 @@ val MIGRATION_39_40: Migration =
 
 val MIGRATION_40_41: Migration =
     object : Migration(SCHEMA_VERSION_40, SCHEMA_VERSION_41) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             normalizeS3SyncProtocolStateTable(db)
         }
     }
 
 val MIGRATION_41_42: Migration =
     object : Migration(SCHEMA_VERSION_41, SCHEMA_VERSION_42) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createS3RemoteShardStateTable(db)
         }
     }
 
 val MIGRATION_42_43: Migration =
     object : Migration(SCHEMA_VERSION_42, SCHEMA_VERSION_43) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             addS3RemoteShardTelemetryColumns(db)
         }
     }
 
 val MIGRATION_43_44: Migration =
     object : Migration(SCHEMA_VERSION_43, SCHEMA_VERSION_44) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             createPendingSyncConflictTable(db)
         }
     }
 
 val MIGRATION_44_45: Migration =
     object : Migration(SCHEMA_VERSION_44, SCHEMA_VERSION_45) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             addS3SyncMetadataPersistenceColumns(db)
         }
     }
 
 val MIGRATION_45_46: Migration =
     object : Migration(SCHEMA_VERSION_45, SCHEMA_VERSION_46) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             normalizeWebDavSyncMetadataTable(db)
         }
     }
 
 val MIGRATION_46_47: Migration =
     object : Migration(SCHEMA_VERSION_46, SCHEMA_VERSION_47) {
-        override fun migrate(db: SupportSQLiteDatabase) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
             addGeoLocationColumn(db)
         }
     }
 
 val MIGRATION_47_48: Migration =
     object : Migration(SCHEMA_VERSION_47, SCHEMA_VERSION_48) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            rebuildMemoFtsTable(db)
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            createWebDavLocalFingerprintTable(db)
+            createWebDavLocalChangeJournalTable(db)
+        }
+    }
+
+val MIGRATION_48_49: Migration =
+    object : Migration(SCHEMA_VERSION_48, SCHEMA_VERSION_49) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            rebuildMemoImageAttachmentTable(db)
+        }
+    }
+
+val MIGRATION_49_50: Migration =
+    object : Migration(SCHEMA_VERSION_49, SCHEMA_VERSION_50) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            backfillMemoSearchContentTokens(db)
+            rebuildMemoFts4Table(db)
+        }
+    }
+
+val MIGRATION_50_51: Migration =
+    object : Migration(SCHEMA_VERSION_50, SCHEMA_VERSION_51) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            backfillMemoSearchContentTokens(db)
+            rebuildMemoFts5Table(db)
+        }
+    }
+
+val MIGRATION_51_52: Migration =
+    object : Migration(SCHEMA_VERSION_51, SCHEMA_VERSION_52) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            backfillMemoSearchContentTokens(db)
+            db.execSQL("ALTER TABLE `$MEMO_TABLE` ADD COLUMN `$COLUMN_SEARCH_CONTENT` TEXT NOT NULL DEFAULT ''")
+            backfillMemoSearchContentColumn(db)
+            ensureMemoFtsMaintenanceTable(db)
+            rebuildMemoFtsExternalContentInfrastructure(db)
+            db.setMemoFtsContentVersion(CURRENT_MEMO_FTS_CONTENT_VERSION)
         }
     }
 
@@ -311,42 +382,55 @@ private val CONSOLIDATION_MIGRATIONS: Array<Migration> =
     (1 until MEMO_DATABASE_VERSION)
         .map { startVersion ->
             object : Migration(startVersion, MEMO_DATABASE_VERSION) {
-                override fun migrate(db: SupportSQLiteDatabase) {
+                override suspend fun migrate(connection: SQLiteConnection) {
+                    val db = connection
                     consolidateToCurrentSchema(db)
                 }
             }
         }.toTypedArray()
 
+private val INCREMENTAL_MIGRATIONS: Array<Migration> =
+    arrayOf(
+        MIGRATION_18_19,
+        MIGRATION_19_20,
+        MIGRATION_20_21,
+        MIGRATION_21_22,
+        MIGRATION_22_23,
+        MIGRATION_23_24,
+        MIGRATION_24_25,
+        MIGRATION_25_26,
+        MIGRATION_26_27,
+        MIGRATION_28_29,
+        MIGRATION_29_30,
+        MIGRATION_30_31,
+        MIGRATION_34_35,
+        MIGRATION_35_36,
+        MIGRATION_36_37,
+        MIGRATION_37_38,
+        MIGRATION_38_39,
+        MIGRATION_39_40,
+        MIGRATION_40_41,
+        MIGRATION_41_42,
+        MIGRATION_42_43,
+        MIGRATION_43_44,
+        MIGRATION_44_45,
+        MIGRATION_45_46,
+        MIGRATION_46_47,
+        MIGRATION_47_48,
+        MIGRATION_48_49,
+        MIGRATION_49_50,
+        MIGRATION_50_51,
+        MIGRATION_51_52,
+    )
+
 val ALL_DATABASE_MIGRATIONS: Array<Migration> =
-    CONSOLIDATION_MIGRATIONS +
-        arrayOf(
-            MIGRATION_18_19,
-            MIGRATION_19_20,
-            MIGRATION_20_21,
-            MIGRATION_21_22,
-            MIGRATION_22_23,
-            MIGRATION_23_24,
-            MIGRATION_24_25,
-            MIGRATION_25_26,
-            MIGRATION_26_27,
-            MIGRATION_28_29,
-            MIGRATION_29_30,
-            MIGRATION_30_31,
-            MIGRATION_34_35,
-            MIGRATION_35_36,
-            MIGRATION_36_37,
-            MIGRATION_37_38,
-            MIGRATION_38_39,
-            MIGRATION_39_40,
-            MIGRATION_40_41,
-            MIGRATION_41_42,
-            MIGRATION_42_43,
-            MIGRATION_43_44,
-            MIGRATION_44_45,
-            MIGRATION_45_46,
-            MIGRATION_46_47,
-            MIGRATION_47_48,
-        )
+    Array(CONSOLIDATION_MIGRATIONS.size + INCREMENTAL_MIGRATIONS.size) { index ->
+        if (index < CONSOLIDATION_MIGRATIONS.size) {
+            CONSOLIDATION_MIGRATIONS[index]
+        } else {
+            INCREMENTAL_MIGRATIONS[index - CONSOLIDATION_MIGRATIONS.size]
+        }
+    }
 
 /**
  * Brings any schema state directly to the current version ([MEMO_DATABASE_VERSION]).
@@ -375,10 +459,20 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase S: Apply v44→v45 changes (persisted S3 metadata sizes and fingerprints).
  * Phase T: Apply v45→v46 changes (persisted WebDAV local fingerprints).
  * Phase U: Apply v46→v47 changes (geo-location column on memos).
+ * Phase V: Apply v47→v48 changes (WebDAV fingerprint cache and local journal).
+ * Phase W: Apply v48→v49 changes (memo image attachment index).
+ * Phase X: Apply v49→v50 changes (external-content FTS token backfill).
+ * Phase Y: Apply v50→v51 changes (application-managed FTS5 index).
+ * Phase Z: Apply v51→v52 changes (trigger-managed external-content FTS5 index).
+ *
+ * Hard migration rule for memo search:
+ * Any migration that rebuilds, replaces, or bulk-copies the `Lomo` table must run
+ * `backfillMemoSearchContentColumn` and `rebuildMemoFtsExternalContentInfrastructure`
+ * before completing, otherwise external-content FTS rowids drift from `Lomo`.
  *
  * When adding a new schema version, append a new Phase here.
  */
-private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
+private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     // ── Phase A: Bring all tables to v22 normalization baseline ──────
 
     // A1: Handle old "memos" table (v7-era) with isDeleted column.
@@ -404,8 +498,9 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
     normalizeMemoFileOutboxTable(db)
 
     // A5: Rebuild derived tables from normalized Lomo data.
-    rebuildMemoFtsTable(db)
+    rebuildMemoFts4Table(db)
     rebuildMemoTagCrossRefTable(db)
+    rebuildMemoImageAttachmentTable(db)
 
     // A6: Drop any remaining legacy tables.
     dropLegacyTables(db)
@@ -473,9 +568,30 @@ private fun consolidateToCurrentSchema(db: SupportSQLiteDatabase) {
 
     // ── Phase U: v46 → v47 (geo-location column on memos) ──────────────
     addGeoLocationColumn(db)
+
+    // ── Phase V: v47 → v48 (WebDAV fingerprint cache and local journal) ──
+    createWebDavLocalFingerprintTable(db)
+    createWebDavLocalChangeJournalTable(db)
+
+    // ── Phase W: v48 → v49 (memo image attachment index) ────────────────
+    rebuildMemoImageAttachmentTable(db)
+
+    // ── Phase X: v49 → v50 (FTS4 rebuild with tokenized index content) ───
+    backfillMemoSearchContentTokens(db)
+    rebuildMemoFts4Table(db)
+
+    // ── Phase Y: v50 → v51 (application-managed FTS5) ─────────────────
+    rebuildMemoFts5Table(db)
+
+    // ── Phase Z: v51 → v52 (trigger-managed external-content FTS5) ───
+    ensureMemoSearchContentColumn(db)
+    backfillMemoSearchContentColumn(db)
+    ensureMemoFtsMaintenanceTable(db)
+    rebuildMemoFtsExternalContentInfrastructure(db)
+    db.setMemoFtsContentVersion(CURRENT_MEMO_FTS_CONTENT_VERSION)
 }
 
-private fun normalizeS3SyncMetadataTable(db: SupportSQLiteDatabase) {
+private fun normalizeS3SyncMetadataTable(db: SQLiteConnection) {
     if (!db.tableExists(S3_SYNC_METADATA_TABLE)) {
         createS3SyncMetadataTable(db)
         return
@@ -529,13 +645,13 @@ private fun hasNormalizedS3SyncMetadataColumns(columns: Set<String>): Boolean =
         "remote_size" in columns &&
         "local_fingerprint" in columns
 
-private fun addS3SyncMetadataPersistenceColumns(db: SupportSQLiteDatabase) {
+private fun addS3SyncMetadataPersistenceColumns(db: SQLiteConnection) {
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_size` INTEGER")
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `remote_size` INTEGER")
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` ADD COLUMN `local_fingerprint` TEXT")
 }
 
-private fun normalizeWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
+private fun normalizeWebDavSyncMetadataTable(db: SQLiteConnection) {
     if (!db.tableExists(WEBDAV_SYNC_METADATA_TABLE)) {
         createWebDavSyncMetadataTable(db)
         return
@@ -580,7 +696,7 @@ private fun normalizeWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
 }
 
-private fun normalizeS3SyncProtocolStateTable(db: SupportSQLiteDatabase) {
+private fun normalizeS3SyncProtocolStateTable(db: SQLiteConnection) {
     if (!db.tableExists(S3_SYNC_PROTOCOL_STATE_TABLE)) {
         createS3SyncProtocolStateTable(db)
         return
@@ -640,14 +756,14 @@ private fun hasNormalizedS3SyncProtocolStateColumns(columns: Set<String>): Boole
     return !hasLegacyManifestColumn && hasIncrementalColumns && hasScanCursorColumns
 }
 
-private fun createMemoVersionTables(db: SupportSQLiteDatabase) {
+private fun createMemoVersionTables(db: SQLiteConnection) {
     createMemoVersionCommitTable(db)
     createMemoVersionBlobTable(db)
     createMemoRevisionTable(db)
     createMemoRevisionAssetTable(db)
 }
 
-private fun dropRetiredWorkspaceHistoryTables(db: SupportSQLiteDatabase) {
+private fun dropRetiredWorkspaceHistoryTables(db: SQLiteConnection) {
     db.execSQL("DROP TABLE IF EXISTS `workspace_mutation`")
     db.execSQL("DROP TABLE IF EXISTS `workspace_head`")
     db.execSQL("DROP TABLE IF EXISTS `workspace_snapshot_entry`")
@@ -655,7 +771,7 @@ private fun dropRetiredWorkspaceHistoryTables(db: SupportSQLiteDatabase) {
     db.execSQL("DROP TABLE IF EXISTS `snapshot_blob`")
 }
 
-private fun createPendingSyncConflictTable(db: SupportSQLiteDatabase) {
+private fun createPendingSyncConflictTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `pending_sync_conflict` (
@@ -669,7 +785,7 @@ private fun createPendingSyncConflictTable(db: SupportSQLiteDatabase) {
     )
 }
 
-private fun addGeoLocationColumn(db: SupportSQLiteDatabase) {
+private fun addGeoLocationColumn(db: SQLiteConnection) {
     val columns = db.tableColumns("Lomo")
     if ("geoLocation" !in columns) {
         db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `geoLocation` TEXT DEFAULT NULL")

@@ -108,6 +108,32 @@ class DatabaseModuleContractTest {
     }
 
     @Test
+    fun `build configuration does not retain sqlcipher aliases or verification metadata`() {
+        val repoRoot = dataModuleRoot.parentFile ?: error("Failed to resolve repository root from $dataModuleRoot")
+        val versionCatalog = repoRoot.resolve("gradle/libs.versions.toml")
+        val verificationMetadata = repoRoot.resolve("gradle/verification-metadata.xml")
+
+        assertTrue("libs.versions.toml must exist", versionCatalog.exists())
+        assertTrue("verification-metadata.xml must exist", verificationMetadata.exists())
+
+        val versionCatalogContent = versionCatalog.readText()
+        val verificationMetadataContent = verificationMetadata.readText()
+
+        assertFalse(
+            "Version catalog must not retain SQLCipher aliases or versions after plaintext-only migration.",
+            versionCatalogContent.contains("sqlcipher", ignoreCase = true),
+        )
+        assertFalse(
+            "Verification metadata must not retain net.zetetic SQLCipher artifacts after plaintext-only migration.",
+            verificationMetadataContent.contains("net.zetetic", ignoreCase = true),
+        )
+        assertFalse(
+            "Verification metadata must not retain android-database-sqlcipher artifacts after plaintext-only migration.",
+            verificationMetadataContent.contains("android-database-sqlcipher", ignoreCase = true),
+        )
+    }
+
+    @Test
     fun `DatabaseModule builds MemoDatabase using plain Room databaseBuilder without cipher factory`() {
         val diSourceFile =
             listOf(
@@ -130,6 +156,24 @@ class DatabaseModuleContractTest {
         assertFalse(
             "DataModule must not pass a cipher SupportFactory to Room builder",
             content.contains("SupportFactory") || content.contains("supportFactory"),
+        )
+    }
+
+    @Test
+    fun `DatabaseModule does not silently delete and recreate the database after open failure`() {
+        val diSourceFile = dataModuleSource.resolve("com/lomo/data/di/DataModule.kt")
+        check(diSourceFile.exists()) { "Could not find DataModule.kt in $dataModuleSource" }
+
+        val content = diSourceFile.readText().normalizeWhitespace()
+
+        assertFalse(
+            "DatabaseModule must not delete the existing database inside the open/migration failure catch block.",
+            content.contains("getOrElse { error ->") &&
+                content.contains("context.deleteDatabase(DatabaseTransitionStrategy.DATABASE_NAME)"),
+        )
+        assertFalse(
+            "DatabaseModule must not silently recreate the database from scratch after an open failure.",
+            content.contains("Database open/migration failed, recreating from scratch"),
         )
     }
 
@@ -173,6 +217,8 @@ class DatabaseModuleContractTest {
 
     private fun kotlinSourceFiles(dir: File): List<File> =
         dir.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+
+    private fun String.normalizeWhitespace(): String = replace(Regex("\\s+"), " ").trim()
 
     private companion object {
         val CIPHER_IMPORT_PATTERNS =

@@ -1,11 +1,12 @@
 package com.lomo.data.local
 
-import androidx.room.migration.Migration
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.room3.migration.Migration
+import androidx.sqlite.SQLiteConnection
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -150,10 +151,10 @@ class DatabaseTransitionStrategyTest {
         val partialMigrations =
             listOf(
                 object : Migration(18, 19) {
-                    override fun migrate(db: SupportSQLiteDatabase) = Unit
+                    override suspend fun migrate(connection: SQLiteConnection) = Unit
                 },
                 object : Migration(19, 20) {
-                    override fun migrate(db: SupportSQLiteDatabase) = Unit
+                    override suspend fun migrate(connection: SQLiteConnection) = Unit
                 },
             )
 
@@ -179,16 +180,16 @@ class DatabaseTransitionStrategyTest {
 
     @Test
     fun cleanupLegacyArtifactsCallback_dropsEveryLegacyTableOnOpen() {
-        val database = mockk<SupportSQLiteDatabase>(relaxed = true)
+        val database = RecordingSQLiteConnection()
 
-        DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback().onOpen(database)
+        DatabaseTransitionStrategy.cleanupLegacyArtifactsCallback().onOpenForTest(database)
 
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `memos`") }
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `image_cache`") }
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `tags`") }
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `memo_tag_cross_ref`") }
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `memos_fts`") }
-        verify(exactly = 1) { database.execSQL("DROP TABLE IF EXISTS `file_sync_metadata`") }
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `memos`" })
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `image_cache`" })
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `tags`" })
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `memo_tag_cross_ref`" })
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `memos_fts`" })
+        assertEquals(1, database.executedStatements.count { it.sql == "DROP TABLE IF EXISTS `file_sync_metadata`" })
     }
 
     @Test
@@ -203,7 +204,7 @@ class DatabaseTransitionStrategyTest {
             databaseName = "missing.db",
         )
 
-        verify(exactly = 0) { context.deleteDatabase(any()) }
+        verify(exactly = 0) { context.deleteDatabase("missing.db") }
     }
 
     @Test

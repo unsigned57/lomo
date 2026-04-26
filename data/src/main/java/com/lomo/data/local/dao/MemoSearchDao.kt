@@ -1,10 +1,9 @@
 package com.lomo.data.local.dao
 
-import androidx.room.Dao
-import androidx.room.Query
-import androidx.room.RawQuery
-import androidx.sqlite.db.SimpleSQLiteQuery
-import androidx.sqlite.db.SupportSQLiteQuery
+import androidx.room3.Dao
+import androidx.room3.Query
+import androidx.room3.RawQuery
+import androidx.room3.RoomRawQuery
 import com.lomo.data.local.entity.MemoEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -20,18 +19,21 @@ interface MemoSearchDao {
     fun searchMemosFlow(query: String): Flow<List<MemoEntity>>
 
     @RawQuery(observedEntities = [MemoEntity::class])
-    fun searchMemosByFtsRaw(query: SupportSQLiteQuery): Flow<List<MemoEntity>>
+    fun searchMemosByFtsRaw(query: RoomRawQuery): Flow<List<MemoEntity>>
 
     fun searchMemosByFtsFlow(matchQuery: String): Flow<List<MemoEntity>> =
         searchMemosByFtsRaw(
-            SimpleSQLiteQuery(
-                """
-                SELECT Lomo.* FROM Lomo
-                INNER JOIN lomo_fts ON lomo_fts.memoId = Lomo.id
-                WHERE lomo_fts MATCH ?
-                ORDER BY Lomo.timestamp DESC, Lomo.id DESC
-                """.trimIndent(),
-                arrayOf(matchQuery),
+            RoomRawQuery(
+                sql =
+                    """
+                    SELECT Lomo.* FROM Lomo
+                    INNER JOIN lomo_fts ON lomo_fts.rowid = Lomo.rowid
+                    WHERE lomo_fts MATCH ?
+                    ORDER BY Lomo.timestamp DESC, Lomo.id DESC
+                    """.trimIndent(),
+                onBindStatement = { statement ->
+                    statement.bindText(index = 1, value = matchQuery)
+                },
             ),
         )
 
@@ -82,13 +84,10 @@ interface MemoSearchDao {
 
     @Query(
         """
-        SELECT
-            (SELECT COUNT(*) FROM Lomo
-             WHERE imageUrls LIKE '%' || :imagePath || '%'
-               AND id != :excludeId) +
-            (SELECT COUNT(*) FROM LomoTrash
-             WHERE imageUrls LIKE '%' || :imagePath || '%'
-               AND id != :excludeId)
+        SELECT COUNT(*)
+        FROM MemoImageAttachment
+        WHERE imagePath = :imagePath
+          AND memoId != :excludeId
         """,
     )
     suspend fun countMemosAndTrashWithImage(

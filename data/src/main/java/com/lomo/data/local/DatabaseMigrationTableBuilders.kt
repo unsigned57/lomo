@@ -1,9 +1,9 @@
 package com.lomo.data.local
 
-import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.SQLiteConnection
 
 internal fun createMemoTable(
-    db: SupportSQLiteDatabase,
+    db: SQLiteConnection,
     tableName: String,
     withContentIndex: Boolean,
 ) {
@@ -34,7 +34,7 @@ internal fun createMemoTable(
     }
 }
 
-internal fun createLocalFileStateTable(db: SupportSQLiteDatabase) {
+internal fun createLocalFileStateTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$LOCAL_FILE_STATE_TABLE` (
@@ -51,7 +51,7 @@ internal fun createLocalFileStateTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createMemoFileOutboxTable(db: SupportSQLiteDatabase) {
+internal fun createMemoFileOutboxTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$MEMO_FILE_OUTBOX_TABLE` (
@@ -84,7 +84,7 @@ internal fun createMemoFileOutboxTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createMemoPinTable(db: SupportSQLiteDatabase) {
+internal fun createMemoPinTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$MEMO_PIN_TABLE` (
@@ -97,7 +97,7 @@ internal fun createMemoPinTable(db: SupportSQLiteDatabase) {
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoPin_pinnedAt` ON `$MEMO_PIN_TABLE` (`pinnedAt`)")
 }
 
-internal fun createWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
+internal fun createWebDavSyncMetadataTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$WEBDAV_SYNC_METADATA_TABLE` (
@@ -116,7 +116,7 @@ internal fun createWebDavSyncMetadataTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createMemoVersionCommitTable(db: SupportSQLiteDatabase) {
+internal fun createMemoVersionCommitTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `version_commit` (
@@ -134,7 +134,7 @@ internal fun createMemoVersionCommitTable(db: SupportSQLiteDatabase) {
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_version_commit_batchId` ON `version_commit` (`batchId`)")
 }
 
-internal fun createMemoVersionBlobTable(db: SupportSQLiteDatabase) {
+internal fun createMemoVersionBlobTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `memo_version_blob` (
@@ -149,7 +149,7 @@ internal fun createMemoVersionBlobTable(db: SupportSQLiteDatabase) {
     )
 }
 
-internal fun createMemoRevisionTable(db: SupportSQLiteDatabase) {
+internal fun createMemoRevisionTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `memo_revision` (
@@ -173,7 +173,7 @@ internal fun createMemoRevisionTable(db: SupportSQLiteDatabase) {
     createMemoRevisionIndexes(db)
 }
 
-internal fun createMemoRevisionAssetTable(db: SupportSQLiteDatabase) {
+internal fun createMemoRevisionAssetTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `memo_revision_asset` (
@@ -188,26 +188,7 @@ internal fun createMemoRevisionAssetTable(db: SupportSQLiteDatabase) {
     createMemoRevisionAssetIndexes(db)
 }
 
-internal fun rebuildMemoFtsTable(db: SupportSQLiteDatabase) {
-    db.execSQL("$DROP_TABLE_IF_EXISTS `$FTS_TABLE`")
-    db.execSQL(
-        """
-        CREATE VIRTUAL TABLE IF NOT EXISTS `$FTS_TABLE`
-        USING fts5(`memoId` UNINDEXED, `$COLUMN_CONTENT`, tokenize='unicode61')
-        """.trimIndent(),
-    )
-    if (db.tableExists(MEMO_TABLE)) {
-        db.execSQL(
-            """
-            INSERT INTO `$FTS_TABLE` (`memoId`, `$COLUMN_CONTENT`)
-            SELECT `id`, `$COLUMN_CONTENT`
-            FROM `$MEMO_TABLE`
-            """.trimIndent(),
-        )
-    }
-}
-
-internal fun rebuildMemoTagCrossRefTable(db: SupportSQLiteDatabase) {
+internal fun rebuildMemoTagCrossRefTable(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$MEMO_TAG_CROSS_REF_TABLE` (

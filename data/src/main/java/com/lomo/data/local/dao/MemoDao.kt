@@ -1,7 +1,7 @@
 package com.lomo.data.local.dao
 
-import androidx.room.Dao
-import androidx.room.Query
+import androidx.room3.Dao
+import androidx.room3.Query
 import com.lomo.data.local.entity.MemoEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -25,18 +25,6 @@ interface MemoDao {
     @Query("SELECT COUNT(*) FROM Lomo")
     suspend fun getMemoCountSync(): Int
 
-    @Query(
-        """
-        SELECT * FROM Lomo
-        ORDER BY timestamp DESC, id DESC
-        LIMIT :limit OFFSET :offset
-        """,
-    )
-    suspend fun getMemosPage(
-        limit: Int,
-        offset: Int,
-    ): List<MemoEntity>
-
     @Query("SELECT * FROM Lomo WHERE id = :id")
     suspend fun getMemo(id: String): MemoEntity?
 
@@ -45,4 +33,7 @@ interface MemoDao {
 
     @Query("SELECT * FROM Lomo WHERE date = :date")
     suspend fun getMemosByDate(date: String): List<MemoEntity>
+
+    @Query("SELECT * FROM Lomo WHERE date IN (:dates)")
+    suspend fun getMemosByDates(dates: List<String>): List<MemoEntity>
 }
