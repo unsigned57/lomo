@@ -138,7 +138,6 @@ fun SidebarDrawer(
     val tagTree = remember(tags, rootTagOrder) { buildTagTree(tags, rootTagOrder) }
     val reorderableTree: SnapshotStateList<TagNode> =
         remember(tagTree) { tagTree.toMutableStateList() }
-    val reorderState = remember { TagReorderState() }
     val expandedNodes = remember { mutableStateMapOf<String, Boolean>() }
     val selectedTagPath = (currentDestination as? SidebarDestination.Tag)?.fullPath
     val isTrashSelected = currentDestination == SidebarDestination.Trash
@@ -146,6 +145,14 @@ fun SidebarDrawer(
     val isGallerySelected = currentDestination == SidebarDestination.Gallery
     val isStatisticsSelected = currentDestination == SidebarDestination.Statistics
     val listState = rememberLazyListState()
+    val reorderableLazyListState =
+        sh.calvin.reorderable.rememberReorderableLazyListState(listState) { from, to ->
+            applyReorderableTagMove(
+                tagTree = reorderableTree,
+                fromKey = from.key,
+                toKey = to.key,
+            )
+        }
 
     LazyColumn(
         state = listState,
@@ -181,8 +188,7 @@ fun SidebarDrawer(
             selectedTagPath = selectedTagPath,
             onTagClick = onTagClick,
             anchorTagForPath = tagAnchorForPath,
-            reorderState = reorderState,
-            listState = listState,
+            reorderableLazyListState = reorderableLazyListState,
             onReorderComplete = onTagReorder,
         )
     }

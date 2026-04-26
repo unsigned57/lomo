@@ -24,11 +24,11 @@ import kotlin.math.roundToInt
 internal const val DRAGGABLE_SCROLLBAR_FADE_OUT_DELAY_MS = 1200L
 internal val DraggableScrollbarTrackPadding = 2.dp
 internal val DraggableScrollbarIdleWidth = 4.dp
-internal val DraggableScrollbarDragWidth = 6.dp
+internal val DraggableScrollbarDragWidth = 10.dp
 internal val DraggableScrollbarTouchTargetWidth = 24.dp
 internal val DraggableScrollbarThumbHeight = 36.dp
 internal const val DRAGGABLE_SCROLLBAR_IDLE_ALPHA = 0.25f
-internal const val DRAGGABLE_SCROLLBAR_DRAG_ALPHA = 0.45f
+internal const val DRAGGABLE_SCROLLBAR_DRAG_ALPHA = 0.55f
 
 internal fun shouldShowDraggableScrollbar(
     canScroll: Boolean,

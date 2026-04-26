@@ -1,6 +1,5 @@
 package com.lomo.ui.component.menu
 
-import androidx.compose.foundation.ScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -13,7 +12,6 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.res.stringResource
@@ -110,31 +108,6 @@ internal fun rememberDefaultMemoActionSheetActions(
         }.toImmutableList()
     }
 }
-
-@Composable
-internal fun rememberShowSwipeAffordanceIndicator(
-    actionsScrollState: ScrollState,
-    useHorizontalScroll: Boolean,
-    showSwipeAffordance: Boolean,
-): State<Boolean> =
-    remember(actionsScrollState, useHorizontalScroll, showSwipeAffordance) {
-        derivedStateOf {
-            useHorizontalScroll && showSwipeAffordance && actionsScrollState.maxValue > 0
-        }
-    }
-
-@Composable
-internal fun rememberSwipeAffordanceProgress(actionsScrollState: ScrollState): State<Float> =
-    remember(actionsScrollState) {
-        derivedStateOf {
-            val maxValue = actionsScrollState.maxValue
-            if (maxValue > 0) {
-                actionsScrollState.value.toFloat() / maxValue.toFloat()
-            } else {
-                0f
-            }
-        }
-    }
 
 internal fun performMemoActionHaptic(
     haptic: AppHapticFeedback,

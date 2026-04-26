@@ -1,22 +1,16 @@
 package com.lomo.ui.component.menu
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,10 +20,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.TextSnippet
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material3.HorizontalDivider
@@ -38,28 +33,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.zIndex
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.R
@@ -68,6 +58,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 enum class MemoActionHaptic {
     NONE,
@@ -136,8 +128,7 @@ fun MemoActionSheet(
 ) {
     val haptic = LocalAppHapticFeedback.current
     val scope = rememberCoroutineScope()
-    val actionsScrollState = rememberScrollState()
-    var actionRowViewportWidthPx by remember { mutableIntStateOf(0) }
+    val lazyRowState = rememberLazyListState()
     val sheetActions =
         rememberResolvedMemoActionSheetActions(
             state = state,
@@ -157,15 +148,22 @@ fun MemoActionSheet(
             actionAnchorForId = actionAnchorForId,
         )
     val reorderableActions = remember(sheetActions) { sheetActions.toMutableStateList() }
-    val reorderState = remember { ActionReorderState() }
+    val reorderableLazyRowState =
+        rememberReorderableLazyListState(lazyRowState) { from, to ->
+            val fromIndex = reorderableActions.indexOfFirst { it.reorderKey == from.key }
+            val toIndex = reorderableActions.indexOfFirst { it.reorderKey == to.key }
+            if (fromIndex >= 0 && toIndex >= 0) {
+                reorderableActions.add(toIndex, reorderableActions.removeAt(fromIndex))
+            }
+        }
     val showSwipeAffordanceIndicator by rememberShowSwipeAffordanceIndicator(
-        actionsScrollState = actionsScrollState,
+        lazyRowState = lazyRowState,
         useHorizontalScroll = useHorizontalScroll,
         showSwipeAffordance = showSwipeAffordance,
     )
-    val swipeAffordanceProgress by rememberSwipeAffordanceProgress(actionsScrollState)
-    val canScrollBackward = actionsScrollState.canScrollBackward
-    val canScrollForward = actionsScrollState.canScrollForward
+    val swipeAffordanceProgress by rememberSwipeAffordanceProgress(lazyRowState)
+    val canScrollBackward = lazyRowState.canScrollBackward
+    val canScrollForward = lazyRowState.canScrollForward
 
     Column(
         modifier =
@@ -177,19 +175,19 @@ fun MemoActionSheet(
     ) {
         MemoActionRow(
             actions = reorderableActions,
-            reorderState = reorderState,
-            actionsScrollState = actionsScrollState,
+            lazyRowState = lazyRowState,
+            reorderableLazyRowState = reorderableLazyRowState,
             useHorizontalScroll = useHorizontalScroll,
             equalWidthActions = equalWidthActions,
             onDismiss = onDismiss,
             onPerformHaptic = { type -> performMemoActionHaptic(haptic, type) },
             onActionInvoked = onActionInvoked,
             memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-            onViewportWidthChanged = { width -> actionRowViewportWidthPx = width },
             onActionOrderChanged = onActionOrderChanged,
         )
 
         if (showSwipeAffordanceIndicator) {
+            val viewportWidthPx by rememberLazyRowViewportWidthPx(lazyRowState)
             SwipeAffordanceIndicator(
                 modifier =
                     Modifier
@@ -198,24 +196,18 @@ fun MemoActionSheet(
                 progress = swipeAffordanceProgress,
                 canScrollBackward = canScrollBackward,
                 canScrollForward = canScrollForward,
-                actionsScrollState = actionsScrollState,
-                pageScrollDeltaPx = actionRowViewportWidthPx.coerceAtLeast(1),
+                lazyRowState = lazyRowState,
+                pageScrollDeltaPx = viewportWidthPx.coerceAtLeast(1),
                 onScrollBackward = {
                     haptic.light()
                     scope.launch {
-                        actionsScrollState.animateScrollTo(
-                            (actionsScrollState.value - actionRowViewportWidthPx)
-                                .coerceAtLeast(0),
-                        )
+                        lazyRowState.animateScrollBy(-viewportWidthPx.toFloat())
                     }
                 },
                 onScrollForward = {
                     haptic.light()
                     scope.launch {
-                        actionsScrollState.animateScrollTo(
-                            (actionsScrollState.value + actionRowViewportWidthPx)
-                                .coerceAtMost(actionsScrollState.maxValue),
-                        )
+                        lazyRowState.animateScrollBy(viewportWidthPx.toFloat())
                     }
                 },
             )
@@ -229,6 +221,17 @@ fun MemoActionSheet(
         MemoInfoCard(state = state)
     }
 }
+
+@Composable
+private fun rememberLazyRowViewportWidthPx(
+    lazyRowState: androidx.compose.foundation.lazy.LazyListState,
+): androidx.compose.runtime.State<Int> =
+    remember(lazyRowState) {
+        androidx.compose.runtime.derivedStateOf {
+            val layout = lazyRowState.layoutInfo
+            (layout.viewportEndOffset - layout.viewportStartOffset).coerceAtLeast(0)
+        }
+    }
 
 @Composable
 private fun rememberResolvedMemoActionSheetActions(
@@ -274,148 +277,91 @@ private fun rememberResolvedMemoActionSheetActions(
         )
 }
 
+internal val MemoActionSheetAction.reorderKey: String
+    get() = id?.storageKey ?: "no-id-$label"
+
 @Composable
 private fun MemoActionRow(
     actions: androidx.compose.runtime.snapshots.SnapshotStateList<MemoActionSheetAction>,
-    reorderState: ActionReorderState,
-    actionsScrollState: androidx.compose.foundation.ScrollState,
+    lazyRowState: androidx.compose.foundation.lazy.LazyListState,
+    reorderableLazyRowState: sh.calvin.reorderable.ReorderableLazyListState,
     useHorizontalScroll: Boolean,
     equalWidthActions: Boolean,
     onDismiss: () -> Unit,
     onPerformHaptic: (MemoActionHaptic) -> Unit,
     onActionInvoked: (MemoActionId) -> Unit,
     memoActionAutoReorderEnabled: Boolean,
-    onViewportWidthChanged: (Int) -> Unit,
     onActionOrderChanged: (List<MemoActionId>) -> Unit,
 ) {
-    val overscrollEffect = rememberOverscrollEffect()
     val haptic = LocalAppHapticFeedback.current
 
-    Row(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .onSizeChanged { size ->
-                    onViewportWidthChanged(size.width)
-                    reorderState.setViewportWidth(size.width)
-                }
-                .let { base ->
-                    if (useHorizontalScroll) {
-                        base.horizontalScroll(
-                            state = actionsScrollState,
-                            overscrollEffect = overscrollEffect,
-                            enabled = !reorderState.isDragging,
-                        )
-                    } else {
-                        base
-                    }
-                }.padding(vertical = 16.dp),
+    LazyRow(
+        state = lazyRowState,
+        userScrollEnabled = useHorizontalScroll,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        actions.forEach { action ->
-            ReorderableActionChip(
-                action = action,
-                reorderState = reorderState,
-                actions = actions,
-                equalWidthActions = equalWidthActions,
-                haptic = haptic,
-                memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-                onActionInvoked = onActionInvoked,
-                onActionOrderChanged = onActionOrderChanged,
-                onPerformHaptic = onPerformHaptic,
-                onDismiss = onDismiss,
-            )
+        items(
+            items = actions,
+            key = { it.reorderKey },
+        ) { action ->
+            ReorderableItem(
+                state = reorderableLazyRowState,
+                key = action.reorderKey,
+            ) { isDragging ->
+                ReorderableActionChip(
+                    action = action,
+                    isDragging = isDragging,
+                    equalWidthActions = equalWidthActions,
+                    haptic = haptic,
+                    memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                    onActionInvoked = onActionInvoked,
+                    onActionOrderChanged = {
+                        onActionOrderChanged(actions.mapNotNull(MemoActionSheetAction::id))
+                    },
+                    onPerformHaptic = onPerformHaptic,
+                    onDismiss = onDismiss,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun RowScope.ReorderableActionChip(
+private fun sh.calvin.reorderable.ReorderableCollectionItemScope.ReorderableActionChip(
     action: MemoActionSheetAction,
-    reorderState: ActionReorderState,
-    actions: androidx.compose.runtime.snapshots.SnapshotStateList<MemoActionSheetAction>,
+    isDragging: Boolean,
     equalWidthActions: Boolean,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     memoActionAutoReorderEnabled: Boolean,
     onActionInvoked: (MemoActionId) -> Unit,
-    onActionOrderChanged: (List<MemoActionId>) -> Unit,
+    onActionOrderChanged: () -> Unit,
     onPerformHaptic: (MemoActionHaptic) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val isDragged = reorderState.draggedId == action.id
-    val swapAnimatable = remember { Animatable(0f) }
-    LaunchedEffect(action.id) {
-        snapshotFlow { action.id?.let { reorderState.swapAnimationOffsets[it] } ?: 0f }
-            .collect { offset ->
-                if (offset != 0f) {
-                    action.id?.let { reorderState.swapAnimationOffsets.remove(it) }
-                    swapAnimatable.snapTo(offset)
-                    swapAnimatable.animateTo(
-                        0f,
-                        spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    )
-                }
-            }
-    }
+    val dragModifier =
+        if (action.id != null) {
+            Modifier.longPressDraggableHandle(
+                onDragStarted = { haptic.heavy() },
+                onDragStopped = { onActionOrderChanged() },
+            )
+        } else {
+            Modifier
+        }
     ActionChip(
         icon = action.icon,
         label = action.label,
         isDestructive = action.isDestructive,
         isHighlighted = action.isHighlighted,
         modifier =
-            (if (equalWidthActions) {
-                Modifier.weight(1f)
-            } else {
-                Modifier.width(92.dp)
-            })
+            (if (equalWidthActions) Modifier else Modifier.width(92.dp))
                 .benchmarkAnchor(action.benchmarkTag)
-                .onGloballyPositioned { coordinates ->
-                    action.id?.let { id ->
-                        val left = coordinates.positionInParent().x.roundToInt()
-                        val right = left + coordinates.size.width
-                        reorderState.itemBounds[id] =
-                            ActionReorderState.ItemBounds(left = left, right = right)
-                    }
-                }.let { base ->
-                    if (action.id != null) {
-                        base
-                            .zIndex(if (isDragged) 1f else 0f)
-                            .graphicsLayer {
-                                if (isDragged) {
-                                    translationX = reorderState.dragOffset
-                                    scaleX = DRAG_SCALE_FACTOR
-                                    scaleY = DRAG_SCALE_FACTOR
-                                    alpha = DRAG_ALPHA
-                                } else if (swapAnimatable.value != 0f) {
-                                    translationX = swapAnimatable.value
-                                }
-                            }.pointerInput(action.id) {
-                                detectDragGesturesAfterLongPress(
-                                    onDragStart = {
-                                        haptic.heavy()
-                                        reorderState.startDrag(action.id)
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        reorderState.updateDrag(dragAmount.x)
-                                        reorderState.checkAndSwap(actions)
-                                    },
-                                    onDragEnd = {
-                                        val newOrder =
-                                            actions.mapNotNull(
-                                                MemoActionSheetAction::id,
-                                            )
-                                        onActionOrderChanged(newOrder)
-                                        reorderState.endDrag()
-                                    },
-                                    onDragCancel = { reorderState.endDrag() },
-                                )
-                            }
-                    } else {
-                        base
+                .then(dragModifier)
+                .graphicsLayer {
+                    if (isDragging) {
+                        scaleX = DRAG_SCALE_FACTOR
+                        scaleY = DRAG_SCALE_FACTOR
+                        alpha = DRAG_ALPHA
                     }
                 },
         onClick = {
@@ -465,7 +411,7 @@ private fun SwipeAffordanceIndicator(
     progress: Float,
     canScrollBackward: Boolean,
     canScrollForward: Boolean,
-    actionsScrollState: androidx.compose.foundation.ScrollState,
+    lazyRowState: androidx.compose.foundation.lazy.LazyListState,
     pageScrollDeltaPx: Int,
     onScrollBackward: () -> Unit,
     onScrollForward: () -> Unit,
@@ -477,14 +423,19 @@ private fun SwipeAffordanceIndicator(
     val density = LocalDensity.current
     val draggableState =
         rememberDraggableState { delta ->
-            val maxScroll = actionsScrollState.maxValue
             val maxTravelPx =
                 (trackWidthPx - with(density) { SwipeIndicatorThumbWidth.roundToPx() }).coerceAtLeast(1)
-            if (maxScroll <= 0 || maxTravelPx <= 0) {
+            val totalItemsCount = lazyRowState.layoutInfo.totalItemsCount
+            val visibleItems = lazyRowState.layoutInfo.visibleItemsInfo
+            val firstVisibleSize = visibleItems.firstOrNull()?.size ?: 0
+            if (totalItemsCount <= 1 || firstVisibleSize <= 0) {
                 return@rememberDraggableState
             }
-            val scrollDelta = delta * maxScroll / maxTravelPx
-            scope.launch { actionsScrollState.scrollBy(scrollDelta) }
+            val visibleCount = visibleItems.size.coerceAtLeast(1)
+            val hiddenItemCount = (totalItemsCount - visibleCount).coerceAtLeast(1)
+            val totalScrollRangePx = hiddenItemCount * firstVisibleSize
+            val scrollDelta = delta * totalScrollRangePx.toFloat() / maxTravelPx.toFloat()
+            scope.launch { lazyRowState.scrollBy(scrollDelta) }
         }
 
     Row(
@@ -512,8 +463,6 @@ private fun SwipeAffordanceIndicator(
             Box(
                 modifier =
                     Modifier
-                        // Follow the real scroll position directly so the thumb does not replay
-                        // a second catch-up animation when the row settles at either edge.
                         .offset { IntOffset(x = (maxTravel * clampedProgress).roundToPx(), y = 0) }
                         .width(SwipeIndicatorThumbWidth)
                         .fillMaxHeight()
@@ -575,38 +524,6 @@ private fun SwipeEdgeIcon(
 }
 
 private val SwipeIndicatorThumbWidth = 28.dp
-
-// Predictive edge preview has been retired. Menu boundary feedback now comes
-// exclusively from Compose's stock overscroll effect.
-internal fun calculateMenuEdgePreviewOffset(
-    dragDeltaX: Float,
-    scrollValue: Int,
-    maxScroll: Int,
-    viewportWidthPx: Int,
-): Float {
-    val retiredPreviewSeed =
-        dragDeltaX +
-            (scrollValue.toFloat() * 0f) +
-            (maxScroll.toFloat() * 0f) +
-            (viewportWidthPx.toFloat() * 0f)
-    return retiredPreviewSeed.coerceIn(0f, 0f)
-}
-
-internal fun calculateMenuEdgePreviewFlingOffset(
-    velocityX: Float,
-    scrollValue: Int,
-    maxScroll: Int,
-    viewportWidthPx: Int,
-    retainedPreviewOffsetPx: Float = 0f,
-): Float {
-    val retiredPreviewSeed =
-        velocityX +
-            retainedPreviewOffsetPx +
-            (scrollValue.toFloat() * 0f) +
-            (maxScroll.toFloat() * 0f) +
-            (viewportWidthPx.toFloat() * 0f)
-    return retiredPreviewSeed.coerceIn(0f, 0f)
-}
 
 @Composable
 private fun ActionChip(
