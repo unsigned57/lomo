@@ -30,6 +30,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.LazyPagingItems
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.memo.MemoEditorController
@@ -98,7 +100,25 @@ fun MainScreen(
         }
     val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
     val hostState = rememberMainScreenHostState()
-    val currentListTopMemoId = screenState.visibleUiMemos.firstOrNull()?.memo?.id
+    val pagedUiMemos: LazyPagingItems<MemoUiModel>? =
+        if (screenState.usesPagedMainList) {
+            dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
+        } else {
+            null
+        }
+    val displayedVisibleUiMemos =
+        remember(screenState.usesPagedMainList, pagedUiMemos?.itemSnapshotList, screenState.visibleUiMemos) {
+            if (screenState.usesPagedMainList) {
+                pagedUiMemos
+                    ?.itemSnapshotList
+                    ?.items
+                    ?.toImmutableList()
+                    ?: persistentListOf()
+            } else {
+                screenState.visibleUiMemos
+            }
+        }
+    val currentListTopMemoId = displayedVisibleUiMemos.firstOrNull()?.memo?.id
     val unknownErrorMessage = stringResource(R.string.error_unknown)
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -126,7 +146,8 @@ fun MainScreen(
 
     MainScreenTransientEffects(
         dependencies = dependencies,
-        visibleUiMemos = screenState.visibleUiMemos,
+        visibleUiMemos = displayedVisibleUiMemos,
+        usesPagedMainList = screenState.usesPagedMainList,
         listState = hostState.listState,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
@@ -139,6 +160,7 @@ fun MainScreen(
     MainScreenConflictHost(dependencies = dependencies)
     MainScreenContentHost(
         screenState = screenState,
+        pagedUiMemos = pagedUiMemos,
         hostState = hostState,
         dependencies = dependencies,
         unknownErrorMessage = unknownErrorMessage,
@@ -289,6 +311,7 @@ internal data class MainScreenUiSnapshot(
     val uiMemos: ImmutableList<MemoUiModel>,
     val visibleUiMemos: ImmutableList<MemoUiModel>,
     val hasRawItems: Boolean,
+    val usesPagedMainList: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
     val sidebarUiState: SidebarViewModel.SidebarUiState,
@@ -355,6 +378,7 @@ private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
 private fun MainScreenTransientEffects(
     dependencies: MainScreenDependencies,
     visibleUiMemos: ImmutableList<MemoUiModel>,
+    usesPagedMainList: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
@@ -389,11 +413,23 @@ private fun MainScreenTransientEffects(
         },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
-            focusMemoInMainScreen(
-                memoId = memoId,
-                visibleUiMemos = visibleUiMemos,
-                scroller = MainScreenFocusScroller { index -> listState.scrollToItem(index) },
-            )
+            val focusedInVisibleItems =
+                focusMemoInMainScreen(
+                    memoId = memoId,
+                    visibleUiMemos = visibleUiMemos,
+                    scroller = MainScreenFocusScroller { index -> listState.scrollToItem(index) },
+                )
+            if (focusedInVisibleItems || !usesPagedMainList) {
+                focusedInVisibleItems
+            } else {
+                val index = dependencies.mainViewModel.resolveDefaultMainListIndex(memoId)
+                if (index == null) {
+                    false
+                } else {
+                    listState.scrollToItem(index)
+                    true
+                }
+            }
         },
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
         onSaveImage = { uri, onResult -> dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult) },

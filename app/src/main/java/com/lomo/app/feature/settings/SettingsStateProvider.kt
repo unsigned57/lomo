@@ -59,6 +59,7 @@ class SettingsStateProvider(
     private data class InteractionSecondaryState(
         val quickSaveOnBackEnabled: Boolean,
         val scrollbarEnabled: Boolean,
+        val secureWipeBeforeDeleteEnabled: Boolean,
     )
 
     private data class PrimaryUiSections(
@@ -477,8 +478,9 @@ class SettingsStateProvider(
             combine(
                 appConfigCoordinator.quickSaveOnBackEnabled,
                 appConfigCoordinator.scrollbarEnabled,
-            ) { quickSave, scrollbar ->
-                InteractionSecondaryState(quickSave, scrollbar)
+                appConfigCoordinator.secureWipeBeforeDeleteEnabled,
+            ) { quickSave, scrollbar, secureWipeBeforeDelete ->
+                InteractionSecondaryState(quickSave, scrollbar, secureWipeBeforeDelete)
             },
         ) {
                 primary,
@@ -496,6 +498,7 @@ class SettingsStateProvider(
                 appLockEnabled = appLockEnabled,
                 quickSaveOnBackEnabled = secondary.quickSaveOnBackEnabled,
                 scrollbarEnabled = secondary.scrollbarEnabled,
+                secureWipeBeforeDeleteEnabled = secondary.secureWipeBeforeDeleteEnabled,
             )
         }.stateIn(
             scope = scope,
@@ -510,6 +513,7 @@ class SettingsStateProvider(
                     appLockEnabled = appConfigCoordinator.appLockEnabled.value,
                     quickSaveOnBackEnabled = appConfigCoordinator.quickSaveOnBackEnabled.value,
                     scrollbarEnabled = appConfigCoordinator.scrollbarEnabled.value,
+                    secureWipeBeforeDeleteEnabled = appConfigCoordinator.secureWipeBeforeDeleteEnabled.value,
                 ),
         )
 

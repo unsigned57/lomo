@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import androidx.paging.PagingData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
@@ -29,10 +30,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,8 +45,6 @@ import kotlin.time.TimeSource
 
 private const val DEFERRED_STARTUP_DELAY_MILLIS = 350L
 private const val AUTO_REFRESH_MIN_INTERVAL_MILLIS = 45_000L
-private val OPEN_RANGE_START: LocalDate = LocalDate.MIN
-private val OPEN_RANGE_END: LocalDate = LocalDate.MAX
 
 @HiltViewModel
 class MainViewModel
@@ -156,6 +152,25 @@ class MainViewModel
             memoUiCoordinator
                 .allMemos()
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        private val memoListStateHolder =
+            MainMemoListStateHolder(
+                scope = viewModelScope,
+                memoUiCoordinator = memoUiCoordinator,
+                memoUiMapper = memoUiMapper,
+                searchQuery = searchQuery,
+                memoListFilter = memoListFilter,
+                allMemos = allMemos,
+                rootDirectory = rootDirectory,
+                imageDirectory = imageDirectory,
+                imageMap = imageMap,
+                applyMainMemoFilterUseCase = applyMainMemoFilterUseCase,
+                resolveMainMemoQueryUseCase = resolveMainMemoQueryUseCase,
+            )
+
+        internal val mainListPresentationMode: StateFlow<MainListPresentationMode> =
+            memoListStateHolder.mainListPresentationMode
+
+        val usesPagedMainList: StateFlow<Boolean> = memoListStateHolder.usesPagedMainList
 
         val uiState: StateFlow<MainScreenState> =
             combine(_hasResolvedInitialRoot, rootDirectory, _isInitialDirectoryImporting) {
@@ -175,43 +190,11 @@ class MainViewModel
                 MainScreenState.Loading,
             )
 
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        val memos: StateFlow<List<Memo>> =
-            combine(searchQuery, memoListFilter) { query: String, filter: MemoListFilter ->
-                MemoQueryInput(query = query, filter = filter.toEffectiveDateRangeFilter())
-            }.flatMapLatest { input ->
-                resolveMemoFlow(query = input.query)
-                    .map { sourceMemos ->
-                        applyMainMemoFilterUseCase(memos = sourceMemos, filter = input.filter)
-                    }
-            }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        val memos: StateFlow<List<Memo>> = memoListStateHolder.memos
 
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        val uiMemos: StateFlow<List<MemoUiModel>> =
-            combine(memos, rootDirectory, imageDirectory, imageMap) {
-                currentMemos,
-                rootDir,
-                imageDir,
-                currentImageMap,
-                ->
-                currentMemos to
-                    UiMemoMappingInput(
-                        rootDirectory = rootDir,
-                        imageDirectory = imageDir,
-                        imageMap = currentImageMap,
-                        prioritizedMemoIds = emptySet(),
-                    )
-            }.distinctUntilChanged()
-                .mapLatest { (currentMemos, input) ->
-                    memoUiMapper.mapToUiModels(
-                        memos = currentMemos,
-                        rootPath = input.rootDirectory,
-                        imagePath = input.imageDirectory,
-                        imageMap = input.imageMap,
-                        prioritizedMemoIds = input.prioritizedMemoIds,
-                    )
-                }
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
+
+        val uiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.uiMemos
         private val visibleMemoListTracker =
             RetainedVisibleListTracker(
                 scope = viewModelScope,
@@ -222,35 +205,7 @@ class MainViewModel
             )
         val visibleUiMemos: StateFlow<List<MemoUiModel>> = visibleMemoListTracker.visibleItems.asStateFlow()
 
-        @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-        val galleryUiMemos: StateFlow<List<MemoUiModel>> =
-            combine(allMemos, rootDirectory, imageDirectory, imageMap) {
-                currentMemos,
-                rootDir,
-                imageDir,
-                currentImageMap,
-                ->
-                currentMemos
-                    .asSequence()
-                    .filter { memo -> memo.imageUrls.isNotEmpty() }
-                    .sortedByDescending { memo -> memo.timestamp }
-                    .toList() to
-                    UiMemoMappingInput(
-                        rootDirectory = rootDir,
-                        imageDirectory = imageDir,
-                        imageMap = currentImageMap,
-                        prioritizedMemoIds = emptySet(),
-                    )
-            }.distinctUntilChanged()
-                .mapLatest { (currentMemos, input) ->
-                    memoUiMapper.mapToUiModels(
-                        memos = currentMemos,
-                        rootPath = input.rootDirectory,
-                        imagePath = input.imageDirectory,
-                        imageMap = input.imageMap,
-                        prioritizedMemoIds = input.prioritizedMemoIds,
-                    )
-                }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+        val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos
 
         init {
             combine(uiMemos, collapsingMemoIds) { sourceUiMemos, collapsingIds ->
@@ -480,6 +435,12 @@ class MainViewModel
                 }
         }
 
+        val resolveDefaultMainListIndex: suspend (String) -> Int? = { memoId ->
+            withContext(Dispatchers.IO) {
+                memoUiCoordinator.getDefaultMainListIndex(memoId)
+            }
+        }
+
         val deleteMemo: (Memo) -> Unit = { memo ->
             viewModelScope.launch {
                 val result =
@@ -701,43 +662,6 @@ class MainViewModel
                 else -> _errorMessage.value = throwable.toUserMessage(fallbackMessage)
             }
         }
-
-        private fun resolveMemoFlow(
-            query: String,
-        ): Flow<List<Memo>> =
-            when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query)) {
-                is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText ->
-                    memoUiCoordinator.searchMemos(resolvedQuery.query)
-                ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos -> allMemos
-            }
-
-        private data class UiMemoMappingInput(
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-            val prioritizedMemoIds: Set<String>,
-        )
-
-        private data class MemoQueryInput(
-            val query: String,
-            val filter: MemoListFilter,
-        )
-
-        /**
-         * Expand one-sided date selection into an open range to keep filtering semantics:
-         * - start only => [start, +infinity)
-         * - end only => (-infinity, end]
-         */
-        private fun MemoListFilter.toEffectiveDateRangeFilter(): MemoListFilter =
-            when {
-                startDate != null && endDate != null -> this
-                startDate == null && endDate == null -> this
-                else ->
-                    copy(
-                        startDate = startDate ?: OPEN_RANGE_START,
-                        endDate = endDate ?: OPEN_RANGE_END,
-                    )
-            }
 
         // processMemoContent moved to MemoUiMapper
     }

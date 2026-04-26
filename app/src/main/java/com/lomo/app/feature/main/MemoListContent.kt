@@ -34,6 +34,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -69,10 +72,10 @@ private const val PRELOAD_EVENT_THROTTLE_MS = 150L
 private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
 
-private val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
-private val MEMO_LIST_TOP_PADDING = 16.dp
-private val MEMO_LIST_BOTTOM_PADDING = 88.dp
-private val MEMO_LIST_ITEM_SPACING = 12.dp
+internal val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
+internal val MEMO_LIST_TOP_PADDING = 16.dp
+internal val MEMO_LIST_BOTTOM_PADDING = 88.dp
+internal val MEMO_LIST_ITEM_SPACING = 12.dp
 private const val MEMO_ITEM_HIDDEN_ALPHA = 0f
 private const val MEMO_ITEM_VISIBLE_ALPHA = 1f
 private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f
@@ -139,13 +142,13 @@ internal fun MemoListContent(
 }
 
 @Composable
-private fun MemoListPreloadEffect(
+internal fun MemoListPreloadEffect(
     memos: ImmutableList<MemoUiModel>,
     listState: LazyListState,
 ) {
     val context = LocalContext.current
     val imageLoader = context.imageLoader
-    val preloadGate = remember { ImagePreloadGate() }
+    val preloadGate = rememberSaveable(saver = ImagePreloadGate.Saver) { ImagePreloadGate() }
     val latestMemos by rememberUpdatedState(memos)
 
     LaunchedEffect(memos, context, imageLoader, preloadGate) {
@@ -343,13 +346,7 @@ private fun MemoListColumn(
             itemsIndexed(
                 items = memos,
                 key = { _, item -> item.memo.id },
-                contentType = { _, item ->
-                    if (newMemoInsertAnimationState.blocksPlacementSpring) {
-                        "memo"
-                    } else {
-                        item.memoListItemLayoutSignature
-                    }
-                },
+                contentType = { _, item -> item.memoListItemContentBucket },
             ) { index, uiModel ->
                 val deleteAnimationPolicy =
                     resolveDeleteAnimationVisualPolicy(
@@ -401,7 +398,7 @@ private fun MemoListColumn(
 }
 
 @Composable
-private fun MemoListItem(
+internal fun MemoListItem(
     uiModel: MemoUiModel,
     isDeleting: Boolean,
     isCollapsing: Boolean,
@@ -424,29 +421,12 @@ private fun MemoListItem(
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val deleteAlpha by animateFloatAsState(
-        targetValue =
-            if (isDeleting) {
-                MEMO_ITEM_HIDDEN_ALPHA
-            } else {
-                MEMO_ITEM_VISIBLE_ALPHA
-            },
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MEMO_DELETE_ANIMATION_DURATION_MILLIS,
-                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
-            ),
-        label = "DeleteAlpha",
-    )
-    val animatedBottomSpacing by animateDpAsState(
-        targetValue = if (isCollapsing) 0.dp else bottomSpacing,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS,
-                easing = MotionTokens.EasingStandard,
-            ),
-        label = "DeleteSpacing",
-    )
+    val deleteAlpha = rememberDeleteAlpha(isDeleting = isDeleting)
+    val animatedBottomSpacing =
+        rememberAnimatedBottomSpacing(
+            isCollapsing = isCollapsing,
+            bottomSpacing = bottomSpacing,
+        )
     val stableTodoClick =
         remember(uiModel.memo, onTodoClick) {
             { index: Int, checked: Boolean -> onTodoClick(uiModel.memo, index, checked) }
@@ -515,7 +495,7 @@ private fun MemoListItem(
 }
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Modifier.memoListPlacementAnimation(
+internal fun Modifier.memoListPlacementAnimation(
     lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
     deleteAnimationPolicy: DeleteAnimationVisualPolicy,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
@@ -553,7 +533,7 @@ private fun Modifier.memoVisibilityModifier(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun BoxScope.MemoListPullToRefreshIndicator(
+internal fun BoxScope.MemoListPullToRefreshIndicator(
     state: PullToRefreshState,
     isRefreshing: Boolean,
 ) {
@@ -630,24 +610,59 @@ internal class ImagePreloadGate(
             iterator.remove()
         }
     }
+
+    internal fun snapshot(): Snapshot =
+        Snapshot(
+            trackedUrls =
+                buildList(lastEnqueueAtMsByUrl.size * 2) {
+                    lastEnqueueAtMsByUrl.forEach { (url, timestamp) ->
+                        add(url)
+                        add(timestamp.toString())
+                    }
+                },
+            lastEventAtMs = lastEventAtMs,
+        )
+
+    internal fun restore(snapshot: Snapshot) {
+        lastEnqueueAtMsByUrl.clear()
+        snapshot.trackedUrls
+            .chunked(2)
+            .forEach { entry ->
+                if (entry.size == 2) {
+                    lastEnqueueAtMsByUrl[entry[0]] = entry[1].toLong()
+                }
+            }
+        lastEventAtMs = snapshot.lastEventAtMs
+    }
+
+    internal companion object {
+        val Saver: Saver<ImagePreloadGate, Any> =
+            listSaver(
+                save = { gate ->
+                    val snapshot = gate.snapshot()
+                    buildList(snapshot.trackedUrls.size + 1) {
+                        add(snapshot.lastEventAtMs?.toString().orEmpty())
+                        addAll(snapshot.trackedUrls)
+                    }
+                },
+                restore = { restored ->
+                    ImagePreloadGate().apply {
+                        restore(
+                            Snapshot(
+                                trackedUrls = restored.drop(1),
+                                lastEventAtMs = restored.firstOrNull()?.takeIf(String::isNotEmpty)?.toLong(),
+                            ),
+                        )
+                    }
+                },
+            )
+    }
+
+    internal data class Snapshot(
+        val trackedUrls: List<String>,
+        val lastEventAtMs: Long?,
+    )
 }
 
-private data class MemoListItemLayoutSignature(
-    val memoContent: String,
-    val processedContent: String,
-    val tags: ImmutableList<String>,
-    val imageUrls: ImmutableList<String>,
-    val shouldShowExpand: Boolean,
-    val collapsedSummary: String,
-)
-
-private val MemoUiModel.memoListItemLayoutSignature: MemoListItemLayoutSignature
-    get() =
-        MemoListItemLayoutSignature(
-            memoContent = memo.content,
-            processedContent = processedContent,
-            tags = tags,
-            imageUrls = imageUrls,
-            shouldShowExpand = shouldShowExpand,
-            collapsedSummary = collapsedSummary,
-        )
+internal val MemoUiModel.memoListItemContentBucket: String
+    get() = if (imageUrls.isEmpty()) "memo-text" else "memo-media"

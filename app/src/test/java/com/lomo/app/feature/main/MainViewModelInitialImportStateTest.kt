@@ -298,7 +298,7 @@ class MainViewModelInitialImportStateTest {
                 viewModel.onDirectorySelected("/tmp/new-root")
                 runCurrent()
 
-                assertEquals(MainViewModel.MainScreenState.InitialImporting, viewModel.uiState.value)
+                awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
             } finally {
                 clearViewModel(viewModel)
             }
@@ -330,13 +330,13 @@ class MainViewModelInitialImportStateTest {
                 try {
                     viewModel.onDirectorySelected("/tmp/new-root")
                     runCurrent()
+                    awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
 
                     assertFalse(observedStates.contains(MainViewModel.MainScreenState.Ready))
                     assertEquals(
                         MainViewModel.MainScreenState.InitialImporting,
                         observedStates.firstOrNull(),
                     )
-                    assertEquals(MainViewModel.MainScreenState.InitialImporting, viewModel.uiState.value)
                 } finally {
                     collectJob.cancelAndJoin()
                 }

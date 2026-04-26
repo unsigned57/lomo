@@ -7,6 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.test.runTest
 
 /*
  * Test Contract:
@@ -276,6 +277,37 @@ class MemoUiMapperTest {
         assertNotEquals(initial.processedContent, updated.processedContent)
         assertFalse(updated.precomputedRenderPlan === initialRenderPlan)
     }
+
+    @Test
+    fun `mapToUiModels reuses cached model when image map changes are unrelated to memo content`() =
+        runTest {
+        val memo =
+            memo(
+                content = "![img](foo.png)",
+                tags = emptyList(),
+            )
+        val cachedUri = mockk<android.net.Uri>(relaxed = true)
+        val unrelatedUri = mockk<android.net.Uri>(relaxed = true)
+
+        val initial =
+            mapper.mapToUiModels(
+                memos = listOf(memo),
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = mapOf("foo.png" to cachedUri),
+            )
+        val updated =
+            mapper.mapToUiModels(
+                memos = listOf(memo),
+                rootPath = "/memo",
+                imagePath = null,
+                imageMap = mapOf("foo.png" to cachedUri, "bar.png" to unrelatedUri),
+            )
+
+        assertTrue(initial.first() === updated.first())
+        assertTrue(initial.first().precomputedRenderPlan === updated.first().precomputedRenderPlan)
+        assertEquals(initial.first().processedContent, updated.first().processedContent)
+        }
 
     private fun memo(
         content: String,

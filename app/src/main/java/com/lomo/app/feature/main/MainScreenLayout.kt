@@ -25,6 +25,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
+import androidx.paging.compose.LazyPagingItems
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
@@ -45,6 +47,7 @@ import java.time.LocalDate
 @Composable
 internal fun MainScreenNavigationRender(
     screenState: MainScreenUiSnapshot,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     hostState: MainScreenHostState,
     viewModel: MainViewModel,
     actions: MainScreenActions,
@@ -72,6 +75,8 @@ internal fun MainScreenNavigationRender(
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
         hasRawItems = screenState.hasRawItems,
+        usesPagedMainList = screenState.usesPagedMainList,
+        pagedUiMemos = pagedUiMemos,
         uiMemos = screenState.uiMemos,
         visibleUiMemos = screenState.visibleUiMemos,
         deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
@@ -114,6 +119,8 @@ internal fun MainScreenRenderHost(
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
     hasRawItems: Boolean,
+    usesPagedMainList: Boolean,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     uiMemos: ImmutableList<MemoUiModel>,
     visibleUiMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
@@ -159,6 +166,8 @@ internal fun MainScreenRenderHost(
             searchQuery = searchQuery,
             uiState = uiState,
             hasRawItems = hasRawItems,
+            usesPagedMainList = usesPagedMainList,
+            pagedUiMemos = pagedUiMemos,
             uiMemos = uiMemos,
             visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
@@ -250,6 +259,8 @@ internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
     hasRawItems: Boolean,
+    usesPagedMainList: Boolean,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     uiMemos: ImmutableList<MemoUiModel>,
     visibleUiMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
@@ -297,6 +308,8 @@ internal fun MainScreenAnimatedBody(
             is MainViewModel.MainScreenState.Ready -> {
                 MainReadyContent(
                     hasRawItems = hasRawItems,
+                    usesPagedMainList = usesPagedMainList,
+                    pagedUiMemos = pagedUiMemos,
                     searchQuery = searchQuery,
                     uiMemos = uiMemos,
                     visibleUiMemos = visibleUiMemos,
@@ -338,6 +351,8 @@ private fun MainInitialImportingState(modifier: Modifier = Modifier) {
 @Composable
 private fun MainReadyContent(
     hasRawItems: Boolean,
+    usesPagedMainList: Boolean,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     searchQuery: String,
     uiMemos: ImmutableList<MemoUiModel>,
     visibleUiMemos: ImmutableList<MemoUiModel>,
@@ -361,7 +376,15 @@ private fun MainReadyContent(
     onShowMemoMenu: (MemoMenuState) -> Unit,
     onSettings: () -> Unit,
 ) {
-    val readyContentState = resolveMainReadyContentState(hasRawItems = hasRawItems, uiMemos = uiMemos)
+    val readyContentState =
+        if (usesPagedMainList && pagedUiMemos != null) {
+            resolvePagedMainReadyContentState(
+                itemCount = pagedUiMemos.itemCount,
+                refreshState = pagedUiMemos.loadState.refresh,
+            )
+        } else {
+            resolveMainReadyContentState(hasRawItems = hasRawItems, uiMemos = uiMemos)
+        }
     MainReadyStateEnterContainer {
         Crossfade(
             targetState = readyContentState,
@@ -381,27 +404,51 @@ private fun MainReadyContent(
                         onSettings = onSettings,
                     )
                 MainReadyContentState.List ->
-                    MemoListContent(
-                        memos = visibleUiMemos,
-                        deletingMemoIds = deletingMemoIds,
-                        collapsingMemoIds = collapsingMemoIds,
-                        newMemoInsertAnimationState = newMemoInsertAnimationState,
-                        onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-                        onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-                        listState = listState,
-                        isRefreshing = isRefreshing,
-                        onRefresh = onRefresh,
-                        onTodoClick = onTodoClick,
-                        dateFormat = dateFormat,
-                        timeFormat = timeFormat,
-                        onMemoDoubleClick = onMemoDoubleClick,
-                        doubleTapEditEnabled = doubleTapEditEnabled,
-                        freeTextCopyEnabled = freeTextCopyEnabled,
-                        scrollbarEnabled = scrollbarEnabled,
-                        onTagClick = onTagClick,
-                        onImageClick = onImageClick,
-                        onShowMemoMenu = onShowMemoMenu,
-                    )
+                    if (usesPagedMainList && pagedUiMemos != null) {
+                        MemoListContent(
+                            pagedMemos = pagedUiMemos,
+                            deletingMemoIds = deletingMemoIds,
+                            collapsingMemoIds = collapsingMemoIds,
+                            newMemoInsertAnimationState = newMemoInsertAnimationState,
+                            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+                            listState = listState,
+                            isRefreshing = isRefreshing,
+                            onRefresh = onRefresh,
+                            onTodoClick = onTodoClick,
+                            dateFormat = dateFormat,
+                            timeFormat = timeFormat,
+                            onMemoDoubleClick = onMemoDoubleClick,
+                            doubleTapEditEnabled = doubleTapEditEnabled,
+                            freeTextCopyEnabled = freeTextCopyEnabled,
+                            scrollbarEnabled = scrollbarEnabled,
+                            onTagClick = onTagClick,
+                            onImageClick = onImageClick,
+                            onShowMemoMenu = onShowMemoMenu,
+                        )
+                    } else {
+                        MemoListContent(
+                            memos = visibleUiMemos,
+                            deletingMemoIds = deletingMemoIds,
+                            collapsingMemoIds = collapsingMemoIds,
+                            newMemoInsertAnimationState = newMemoInsertAnimationState,
+                            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+                            listState = listState,
+                            isRefreshing = isRefreshing,
+                            onRefresh = onRefresh,
+                            onTodoClick = onTodoClick,
+                            dateFormat = dateFormat,
+                            timeFormat = timeFormat,
+                            onMemoDoubleClick = onMemoDoubleClick,
+                            doubleTapEditEnabled = doubleTapEditEnabled,
+                            freeTextCopyEnabled = freeTextCopyEnabled,
+                            scrollbarEnabled = scrollbarEnabled,
+                            onTagClick = onTagClick,
+                            onImageClick = onImageClick,
+                            onShowMemoMenu = onShowMemoMenu,
+                        )
+                    }
             }
         }
     }
@@ -420,6 +467,16 @@ internal fun resolveMainReadyContentState(
     when {
         uiMemos.isNotEmpty() -> MainReadyContentState.List
         hasRawItems -> MainReadyContentState.Loading
+        else -> MainReadyContentState.Empty
+    }
+
+internal fun resolvePagedMainReadyContentState(
+    itemCount: Int,
+    refreshState: LoadState,
+): MainReadyContentState =
+    when {
+        itemCount > 0 -> MainReadyContentState.List
+        refreshState is LoadState.Loading -> MainReadyContentState.Loading
         else -> MainReadyContentState.Empty
     }
 

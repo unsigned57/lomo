@@ -30,10 +30,15 @@ import com.lomo.app.R
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
+import kotlin.math.roundToInt
 
 private const val SLIDER_RANGE_MIN = 0.5f
-private const val SLIDER_RANGE_MAX = 2.0f
-private const val SLIDER_STEPS = 14
+private const val SLIDER_RANGE_MAX = 3.0f
+private const val SLIDER_STEPS = 49
+private const val PERCENT_SCALE = 100
+
+internal fun formatTypographyScalePercent(scale: Float): String =
+    "${(scale * PERCENT_SCALE).roundToInt()}%"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -155,7 +160,7 @@ private fun TypographySliderItem(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(text = label, style = MaterialTheme.typography.bodyMedium)
-            Text(text = "${(value * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+            Text(text = formatTypographyScalePercent(value), style = MaterialTheme.typography.bodyMedium)
         }
         Slider(
             value = value,

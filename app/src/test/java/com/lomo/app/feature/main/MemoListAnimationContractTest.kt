@@ -35,6 +35,7 @@ class MemoListAnimationContractTest {
     private val sourceFiles =
         listOf(
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListContent.kt"),
+            moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemMotion.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemRevealAlpha.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemInsertSpace.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MainScreen.kt"),
@@ -75,6 +76,20 @@ class MemoListAnimationContractTest {
         )
     }
 
+    @Test
+    fun `memo list only mounts delete and collapse animations when needed`() {
+        val content = sourceFiles.joinToString(separator = " ") { it.readText() }.normalizeWhitespace()
+
+        assertTrue(
+            """
+            Idle memo rows should not keep delete alpha and collapse spacing animations mounted.
+            Expected conditional animation mounting in:
+            ${sourceFiles.joinToString(separator = "\n") { it.path }}
+            """.trimIndent(),
+            IDLE_ROW_ANIMATION_GUARD_SNIPPETS.all(content::contains),
+        )
+    }
+
     private fun String.normalizeWhitespace(): String = replace(Regex("\\s+"), " ").trim()
 
     private fun resolveModuleRoot(moduleName: String): File {
@@ -97,8 +112,8 @@ class MemoListAnimationContractTest {
     private companion object {
         val NEW_MEMO_ENTER_ANIMATION_CONSTANTS =
             listOf(
-                "private const val MEMO_ITEM_HIDDEN_ALPHA = 0f",
-                "private const val MEMO_ITEM_VISIBLE_ALPHA = 1f",
+                "const val MEMO_ITEM_HIDDEN_ALPHA = 0f",
+                "const val MEMO_ITEM_VISIBLE_ALPHA = 1f",
                 "private const val MEMO_INSERT_SPACE_ANIMATION_DURATION_MILLIS = 220",
                 "private const val MEMO_NEW_ITEM_REVEAL_DURATION_MILLIS = 300",
             )
@@ -152,7 +167,7 @@ class MemoListAnimationContractTest {
         val DELETE_FADE_ANIMATION_CONSTANTS =
             listOf(
                 "private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f",
-                "private const val MEMO_DELETE_ANIMATION_DURATION_MILLIS = 300",
+                "const val MEMO_DELETE_ANIMATION_DURATION_MILLIS = 300",
             )
 
         val DELETE_FADE_ANIMATION_SNIPPETS =
@@ -171,6 +186,17 @@ class MemoListAnimationContractTest {
                 "keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer",
                 "Modifier.memoVisibilityModifier(",
                 "Modifier.graphicsLayer { this.alpha = alpha compositingStrategy = CompositingStrategy.ModulateAlpha }",
+            )
+
+        val IDLE_ROW_ANIMATION_GUARD_SNIPPETS =
+            listOf(
+                "fun rememberDeleteAlpha(isDeleting: Boolean): Float = if (isDeleting) {",
+                "val animatedDeleteAlpha by animateFloatAsState(",
+                "} else { MEMO_ITEM_VISIBLE_ALPHA }",
+                "fun rememberAnimatedBottomSpacing(",
+                "): Dp = if (isCollapsing) {",
+                "val collapseSpacing by animateDpAsState(",
+                "} else { bottomSpacing }",
             )
     }
 }

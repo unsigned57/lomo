@@ -50,6 +50,8 @@
     <string name="settings_quick_save_on_back_subtitle">新建备忘录时按返回键自动保存，而非显示丢弃确认对话框</string>
     <string name="settings_scrollbar">显示滚动条</string>
     <string name="settings_scrollbar_subtitle">在主列表上显示可拖拽的滚动条</string>
+    <string name="settings_secure_wipe_before_delete">删除前安全覆写</string>
+    <string name="settings_secure_wipe_before_delete_subtitle">永久删除时，先用零字节覆写直连存储中的 markdown 文件，再执行 unlink</string>
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
     <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
     <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
@@ -200,8 +202,6 @@
     <string name="stats_avg_words">平均字数</string>
     <string name="stats_total_tags">标签</string>
     <string name="stats_total_chars">字符数</string>
-    <string name="stats_current_streak">当前连续</string>
-    <string name="stats_longest_streak">最长连续</string>
     <string name="stats_this_week">本周</string>
     <string name="stats_this_month">本月</string>
     <string name="stats_this_year">今年</string>

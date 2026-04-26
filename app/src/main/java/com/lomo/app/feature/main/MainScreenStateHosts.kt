@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.compose.LazyPagingItems
 import androidx.window.core.layout.WindowSizeClass
 import com.lomo.app.feature.conflict.SyncConflictDialogController
 import com.lomo.app.feature.image.ImageViewerRequest
@@ -40,6 +41,7 @@ internal fun collectMainScreenUiSnapshot(
     val memos by dependencies.mainViewModel.memos.collectAsStateWithLifecycle()
     val uiMemos by dependencies.mainViewModel.uiMemos.collectAsStateWithLifecycle()
     val visibleUiMemos by dependencies.mainViewModel.visibleUiMemos.collectAsStateWithLifecycle()
+    val usesPagedMainList by dependencies.mainViewModel.usesPagedMainList.collectAsStateWithLifecycle()
     val searchQuery by dependencies.sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by dependencies.sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
@@ -52,6 +54,7 @@ internal fun collectMainScreenUiSnapshot(
         uiMemos = uiMemos.toImmutableList(),
         visibleUiMemos = visibleUiMemos.toImmutableList(),
         hasRawItems = memos.isNotEmpty(),
+        usesPagedMainList = usesPagedMainList,
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
         sidebarUiState = sidebarUiState,
@@ -150,6 +153,7 @@ internal fun MainScreenConflictHost(
 @Composable
 internal fun MainScreenContentHost(
     screenState: MainScreenUiSnapshot,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     hostState: MainScreenHostState,
     dependencies: MainScreenDependencies,
     unknownErrorMessage: String,
@@ -171,7 +175,7 @@ internal fun MainScreenContentHost(
             screenState.sidebarUiState.tags.map { it.name }.sorted().toImmutableList()
         }
 
-    MainScreenInteractionBindings(
+        MainScreenInteractionBindings(
         dependencies = dependencies,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
@@ -191,6 +195,7 @@ internal fun MainScreenContentHost(
     ) { showMenu, openEditor ->
         MainScreenNavigationContent(
             screenState = screenState,
+            pagedUiMemos = pagedUiMemos,
             hostState = hostState,
             dependencies = dependencies,
             isRefreshing = isRefreshing,
@@ -228,6 +233,7 @@ internal fun MainScreenContentHost(
 @Composable
 private fun MainScreenNavigationContent(
     screenState: MainScreenUiSnapshot,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
     hostState: MainScreenHostState,
     dependencies: MainScreenDependencies,
     isRefreshing: Boolean,
@@ -286,6 +292,7 @@ private fun MainScreenNavigationContent(
     ) { actions ->
         MainScreenNavigationRender(
             screenState = screenState,
+            pagedUiMemos = pagedUiMemos,
             hostState = hostState,
             viewModel = dependencies.mainViewModel,
             actions = actions,
