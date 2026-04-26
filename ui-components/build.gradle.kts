@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.kotlinx.collections.immutable)
     implementation(libs.markdown.renderer.android)
     implementation(libs.markdown.renderer.m3.android)
+    implementation(libs.reorderable)
 
     // CommonMark
     api(libs.commonmark)
