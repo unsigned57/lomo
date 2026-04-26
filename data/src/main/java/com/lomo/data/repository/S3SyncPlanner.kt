@@ -18,6 +18,7 @@ data class RemoteS3File(
     val etag: String?,
     val lastModified: Long?,
     val size: Long? = null,
+    val contentMd5: String? = null,
     val remotePath: String = path,
     val verificationLevel: S3RemoteVerificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
 )

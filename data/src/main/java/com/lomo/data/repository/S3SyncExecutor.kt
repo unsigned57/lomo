@@ -34,6 +34,7 @@ class S3SyncExecutor
             S3PreparedActionVerificationGate(
                 planner = runtime.planner,
                 encodingSupport = encodingSupport,
+                performanceTuner = runtime.performanceTuner,
                 remoteIndexStore = remoteIndexStore,
             )
         private val recentActivityTracker = S3RemoteRecentActivityTracker()
@@ -47,6 +48,7 @@ class S3SyncExecutor
             val fileBridgeScope = fileBridge.modeAware(mode)
             return runNonFatalCatching {
                 support.withClient(config) { client ->
+                    val profile = runtime.performanceTuner.currentProfile()
                     val prepared = prepareFastSync(client, layout, config, fileBridgeScope, mode, policy)
                     val verified =
                         verifyDestructiveCandidates(
@@ -58,6 +60,7 @@ class S3SyncExecutor
                             mode = mode,
                             verificationGate = preparedActionVerificationGate,
                             encodingSupport = encodingSupport,
+                            actionConcurrency = profile.s3ActionConcurrency,
                         )
                     val execution =
                         applyPreparedActions(
@@ -68,6 +71,8 @@ class S3SyncExecutor
                             fileBridgeScope = fileBridgeScope,
                             mode = mode,
                             actionApplier = actionApplier,
+                            actionConcurrency = profile.s3ActionConcurrency,
+                            largeTransferConcurrency = profile.s3LargeTransferConcurrency,
                         )
                     val result = buildS3SyncResult(verified.prepared, execution)
                     runtime.transactionRunner.runInTransaction {
@@ -189,6 +194,7 @@ class S3SyncExecutor
                     fileBridgeScope = fileBridgeScope,
                     mode = mode,
                     encodingSupport = encodingSupport,
+                    actionConcurrency = runtime.performanceTuner.currentProfile().s3ActionConcurrency,
                     sessionKind = determineS3ConflictSessionKind(conflictActions, metadataByPath),
                     lightweightPreview = initialClassification.lightweightConflictPreview,
                 )
@@ -264,6 +270,7 @@ class S3SyncExecutor
             protocolState: S3SyncProtocolState,
             journalEntries: Map<String, S3LocalChangeJournalEntry>,
         ): PreparedS3Sync {
+            val profile = runtime.performanceTuner.currentProfile()
             val journalEntriesByPath = journalEntries.resolvePaths(layout, mode)
             recentActivityTracker.recordForegroundCandidates(
                 remoteIndexStore = remoteIndexStore,
@@ -322,6 +329,7 @@ class S3SyncExecutor
             protocolState: S3SyncProtocolState,
             journalEntries: Map<String, S3LocalChangeJournalEntry>,
         ): PreparedS3Sync {
+            val profile = runtime.performanceTuner.currentProfile()
             val initialPreparation =
                 prepareLocalOnlyIncrementalSync(
                     journalEntries = journalEntries,
@@ -356,6 +364,7 @@ class S3SyncExecutor
                     fileBridgeScope = fileBridgeScope,
                     mode = mode,
                     encodingSupport = encodingSupport,
+                    actionConcurrency = profile.s3ActionConcurrency,
                     sessionKind =
                         determineS3ConflictSessionKind(
                             conflictActions = conflictActions,
@@ -404,7 +413,10 @@ class S3SyncExecutor
                 val skipped: Boolean,
             )
 
-            val verificationLimiter = Semaphore(S3_VERIFICATION_CONCURRENCY)
+            val verificationLimiter =
+                Semaphore(
+                    runtime.performanceTuner.currentProfile().s3VerificationConcurrency.coercePositiveConcurrency(),
+                )
             val results = coroutineScope {
                 candidatePaths.map { path ->
                     async {
@@ -617,19 +629,22 @@ private suspend fun applyPreparedActions(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     actionApplier: S3SyncActionApplier,
+    actionConcurrency: Int,
+    largeTransferConcurrency: Int,
 ): S3ActionExecutionResult =
     coroutineScope {
-        val concurrencyLimiter = Semaphore(S3_ACTION_CONCURRENCY)
+        val smallLaneLimiter = Semaphore(actionConcurrency.coercePositiveConcurrency())
+        val largeLaneLimiter = Semaphore(largeTransferConcurrency.coercePositiveConcurrency())
         val indexedResults =
             verified.prepared.normalActions.mapIndexed { index, action ->
                 async {
-                    concurrencyLimiter.withWeightedPermit(
-                        permitsForS3Action(
-                            action = action,
-                            localFiles = verified.prepared.localFiles,
-                            remoteFiles = verified.prepared.remoteFiles,
-                            metadataByPath = verified.prepared.metadataByPath,
-                        ),
+                    withS3ActionLanePermit(
+                        action = action,
+                        localFiles = verified.prepared.localFiles,
+                        remoteFiles = verified.prepared.remoteFiles,
+                        metadataByPath = verified.prepared.metadataByPath,
+                        smallLaneLimiter = smallLaneLimiter,
+                        largeLaneLimiter = largeLaneLimiter,
                     ) {
                         IndexedS3ActionExecutionResult(
                             index = index,
@@ -646,6 +661,7 @@ private suspend fun applyPreparedActions(
                                     verifiedMissingRemotePaths = verified.verifiedMissingRemotePaths,
                                     fileBridgeScope = fileBridgeScope,
                                     mode = mode,
+                                    observedMissingRemotePaths = verified.prepared.observedMissingRemotePaths,
                                 ),
                         )
                     }
@@ -727,6 +743,7 @@ private suspend fun verifyDestructiveCandidates(
     mode: S3LocalSyncMode,
     verificationGate: S3PreparedActionVerificationGate,
     encodingSupport: S3SyncEncodingSupport,
+    actionConcurrency: Int,
 ): VerifiedPreparedS3Sync {
     val verified =
         verificationGate.verify(
@@ -755,6 +772,7 @@ private suspend fun verifyDestructiveCandidates(
             fileBridgeScope = fileBridgeScope,
             mode = mode,
             encodingSupport = encodingSupport,
+            actionConcurrency = actionConcurrency,
             sessionKind =
                 determineS3ConflictSessionKind(
                     conflictActions = conflictActions,
@@ -814,9 +832,10 @@ private suspend fun reconcileRemoteIndexAfterSyncIfNeeded(
 
 private suspend fun <T> Semaphore.withWeightedPermit(
     permits: Int,
+    maxPermits: Int,
     block: suspend () -> T,
 ): T {
-    val acquiredPermits = permits.coerceIn(1, S3_ACTION_CONCURRENCY)
+    val acquiredPermits = permits.coerceIn(1, maxPermits.coercePositiveConcurrency())
     repeat(acquiredPermits) { acquire() }
     return try {
         block()

@@ -25,10 +25,11 @@ internal suspend fun buildS3ConflictSet(
     fileBridgeScope: S3SyncFileBridgeScope,
     mode: S3LocalSyncMode,
     encodingSupport: S3SyncEncodingSupport,
+    actionConcurrency: Int = S3_ACTION_CONCURRENCY,
     sessionKind: SyncConflictSessionKind = SyncConflictSessionKind.STANDARD_CONFLICT,
     lightweightPreview: Boolean = false,
 ): SyncConflictSet? {
-    val concurrencyLimiter = Semaphore(S3_ACTION_CONCURRENCY)
+    val concurrencyLimiter = Semaphore(actionConcurrency.coercePositiveConcurrency())
     val conflictFiles =
         coroutineScope {
             actions.map { action ->

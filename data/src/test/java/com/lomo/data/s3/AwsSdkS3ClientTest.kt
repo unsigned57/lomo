@@ -24,14 +24,23 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 
 /*
  * Test Contract:
  * - Unit under test: AwsSdkS3Client
- * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, and object metadata reads should use HEAD without downloading bodies.
- * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, completed part metadata, abort behavior, returned S3PutObjectResult contents, and getObjectMetadata results from headObject.
- * - Red phase: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, and large file uploads still fall back to a single putObject request instead of multipart sequencing.
+ * - Behavior focus: paged S3 listings should reuse ListObjectsV2 summary fields without per-object HEAD calls, uploads should surface returned eTags, large file uploads should switch to multipart transfer with abort-on-failure, object metadata reads should use HEAD without downloading bodies, and deletions must hit the SDK synchronously so the sync state machine cannot record success before the network call confirms.
+ * - Observable outcomes: listed S3RemoteObject values, absence of headObject calls during list, request routing across putObject vs multipart operations, completed part metadata, abort behavior, returned S3PutObjectResult contents, getObjectMetadata results from headObject, single-key deleteObject calls reaching the SDK before the suspend returns, and multi-key deleteObjects sending one batched DeleteObjects request before the suspend returns.
+ * - Red phase: Fails before the fix because list(prefix, maxKeys = null) performs headObject per item, uploads do not surface the uploaded object's eTag, regular object metadata reads have no headObject-backed path, large file uploads still fall back to a single putObject request instead of multipart sequencing, and deleteObject / deleteObjects only enqueue the keys until close() flushes them, so the SDK call has not yet happened when the suspend returns and any error propagates only at flush time.
  * - Excludes: live AWS transport behavior, sync planner logic, and repository orchestration.
+ */
+/*
+ * Test Change Justification (deleteObject batching → synchronous deletes):
+ * - Reason category: product/domain contract changed (lazy-flush deletes were the diagnosed defect being fixed).
+ * - Old behavior/assertion being replaced: deleteObject() enqueued keys silently; only close() flushed them as a single batched DeleteObjects request, so coVerify(exactly = 0) { sdkClient.deleteObject(any()) } and coVerify(exactly = 1) { sdkClient.deleteObjects(...) } encoded that lazy contract.
+ * - Why old assertion is no longer correct: under that contract the sync state machine recorded metadata as if the delete succeeded before the network call left the device; if close() flush failed, metadata diverged from remote with no recovery, which is the bug we are fixing.
+ * - Coverage preserved by: `deleteObject issues a synchronous DeleteObject request before returning`, `deleteObject propagates SDK errors before returning so callers do not record success`, and `deleteObjects sends a single batched DeleteObjects request synchronously`.
+ * - Why this is not fitting the test to the implementation: the lazy-flush behavior is the bug, not a contract; locking it in via test would protect the defect.
  */
 class AwsSdkS3ClientTest {
     @get:Rule val tempFolder = TemporaryFolder()
@@ -219,6 +228,48 @@ class AwsSdkS3ClientTest {
         }
 
     @Test
+    fun `putObjectFile respects tuned multipart part concurrency`() =
+        runTest {
+            val file = tempFile("tuned-large.bin", S3_MULTIPART_UPLOAD_PART_SIZE_BYTES * 2 + 1)
+            val inFlight = AtomicInteger(0)
+            val peakConcurrency = AtomicInteger(0)
+            coEvery { sdkClient.createMultipartUpload(any()) } returns
+                CreateMultipartUploadResponse {
+                    uploadId = "upload-tuned"
+                }
+            coEvery { sdkClient.uploadPart(any()) } answers {
+                val concurrent = inFlight.incrementAndGet()
+                peakConcurrency.accumulateAndGet(concurrent, ::maxOf)
+                Thread.sleep(25)
+                inFlight.decrementAndGet()
+                val request = firstArg<aws.sdk.kotlin.services.s3.model.UploadPartRequest>()
+                UploadPartResponse {
+                    eTag = "etag-part-${request.partNumber}"
+                }
+            }
+            coEvery { sdkClient.completeMultipartUpload(any()) } returns
+                CompleteMultipartUploadResponse {
+                    eTag = "etag-tuned"
+                }
+
+            val client =
+                AwsSdkS3Client(
+                    config = config,
+                    client = sdkClient,
+                    performanceProfile = com.lomo.data.repository.SyncPerformanceProfile(s3MultipartPartConcurrency = 1),
+                )
+
+            client.putObjectFile(
+                key = "vault/tuned-large.bin",
+                file = file,
+                contentType = "application/octet-stream",
+                metadata = emptyMap(),
+            )
+
+            assertEquals(1, peakConcurrency.get())
+        }
+
+    @Test
     fun `putObjectFile aborts multipart upload when a part fails`() =
         runTest {
             val file = tempFile("broken.bin", S3_MULTIPART_UPLOAD_THRESHOLD_BYTES + 1)
@@ -291,6 +342,61 @@ class AwsSdkS3ClientTest {
                 ),
                 metadata,
             )
+        }
+
+    @Test
+    fun `deleteObject issues a synchronous DeleteObject request before returning`() =
+        runTest {
+            coEvery { sdkClient.deleteObject(any()) } returns
+                aws.sdk.kotlin.services.s3.model.DeleteObjectResponse {}
+
+            val client = AwsSdkS3Client(config = config, client = sdkClient)
+
+            client.deleteObject("vault/a.md")
+
+            coVerify(exactly = 1) {
+                sdkClient.deleteObject(
+                    match { it.bucket == "bucket" && it.key == "vault/a.md" },
+                )
+            }
+            coVerify(exactly = 0) { sdkClient.deleteObjects(any()) }
+        }
+
+    @Test
+    fun `deleteObject propagates SDK errors before returning so callers do not record success`() =
+        runTest {
+            coEvery { sdkClient.deleteObject(any()) } throws IllegalStateException("boom")
+
+            val client = AwsSdkS3Client(config = config, client = sdkClient)
+
+            val error =
+                runCatching {
+                    client.deleteObject("vault/a.md")
+                }.exceptionOrNull()
+
+            assertEquals("boom", error?.message)
+        }
+
+    @Test
+    fun `deleteObjects sends a single batched DeleteObjects request synchronously`() =
+        runTest {
+            coEvery { sdkClient.deleteObjects(any()) } returns
+                aws.sdk.kotlin.services.s3.model.DeleteObjectsResponse {}
+
+            val client = AwsSdkS3Client(config = config, client = sdkClient)
+
+            client.deleteObjects(listOf("vault/a.md", "vault/b.md", "vault/c.md"))
+
+            coVerify(exactly = 0) { sdkClient.deleteObject(any()) }
+            coVerify(exactly = 1) {
+                sdkClient.deleteObjects(
+                    match {
+                        it.bucket == "bucket" &&
+                            it.delete?.objects?.mapNotNull { item -> item.key } ==
+                            listOf("vault/a.md", "vault/b.md", "vault/c.md")
+                    },
+                )
+            }
         }
 
     private fun listResponse(

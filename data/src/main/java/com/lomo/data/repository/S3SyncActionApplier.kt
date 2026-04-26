@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
@@ -34,6 +35,7 @@ class S3SyncActionApplier
             verifiedMissingRemotePaths: Set<String>,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
+            observedMissingRemotePaths: Set<String> = emptySet(),
         ): S3ActionExecutionState =
             runNonFatalCatching {
                 when (action.direction) {
@@ -47,6 +49,7 @@ class S3SyncActionApplier
                             remoteFiles = remoteFiles,
                             metadataByPath = metadataByPath,
                             verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                            observedMissingRemotePaths = observedMissingRemotePaths,
                             fileBridgeScope = fileBridgeScope,
                             mode = mode,
                         )
@@ -72,6 +75,7 @@ class S3SyncActionApplier
                             remoteFiles = remoteFiles,
                             metadataByPath = metadataByPath,
                             verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                            observedMissingRemotePaths = observedMissingRemotePaths,
                             fileBridgeScope = fileBridgeScope,
                             mode = mode,
                         )
@@ -83,13 +87,14 @@ class S3SyncActionApplier
                             remoteFiles = remoteFiles,
                             metadataByPath = metadataByPath,
                             verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                            observedMissingRemotePaths = observedMissingRemotePaths,
                         )
                     S3SyncDirection.NONE,
                     S3SyncDirection.CONFLICT,
                     -> S3ActionExecutionState.Skipped
                 }
             }.getOrElse { error ->
-                Timber.e(error, "Failed to %s %s", action.operationName(), action.path)
+                Timber.e(error, "Failed to %s %s", action.operationName(), sanitizePathForLog(action.path))
                 S3ActionExecutionState.Failed(action.path)
             }
 
@@ -102,6 +107,7 @@ class S3SyncActionApplier
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String>,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
@@ -114,32 +120,39 @@ class S3SyncActionApplier
                     remoteFiles = remoteFiles,
                     metadataByPath = metadataByPath,
                     verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                    observedMissingRemotePaths = observedMissingRemotePaths,
                 ) ?: return S3ActionExecutionState.Skipped
             return transferWorkspace.withSession { session ->
                 val source =
                     fileBridgeScope.exportLocalFile(action.path, layout, session)
                         ?: run {
-                            Timber.w("Local file missing during upload: %s, skipping", action.path)
+                            Timber.w("Local file missing during upload: %s, skipping", sanitizePathForLog(action.path))
                             return@withSession S3ActionExecutionState.Skipped
                         }
                 val uploadFile = encodingSupport.prepareUploadFile(source, config, session)
+                val syncedContentFingerprint = uploadContentFingerprint(source.file)
                 val uploaded =
                     client.putObjectFile(
                         key = uploadTarget.remotePath,
                         file = uploadFile.file,
                         contentType = contentTypeForPath(action.path, layout, runtime, mode),
-                        metadata = encodingSupport.objectMetadata(localFiles[action.path]?.lastModified),
+                        metadata =
+                            encodingSupport.objectMetadata(
+                                lastModified = localFiles[action.path]?.lastModified,
+                                contentMd5 = syncedContentFingerprint,
+                            ),
                     )
                 S3ActionExecutionState.Applied(
                     localChanged = false,
                     remoteChanged = true,
-                    syncedContentFingerprint = memoContentFingerprint(action.path, layout, mode, source.file),
+                    syncedContentFingerprint = syncedContentFingerprint,
                     updatedRemoteFile =
                         RemoteS3File(
                             path = action.path,
                             etag = uploaded.eTag,
                             lastModified = localFiles[action.path]?.lastModified,
                             size = localFiles[action.path]?.size ?: source.file.length(),
+                            contentMd5 = syncedContentFingerprint,
                             remotePath = uploadTarget.remotePath,
                         ),
                 )
@@ -167,7 +180,7 @@ class S3SyncActionApplier
                 S3ActionExecutionState.Applied(
                     localChanged = true,
                     remoteChanged = false,
-                    syncedContentFingerprint = memoContentFingerprint(action.path, layout, mode, decoded.file),
+                    syncedContentFingerprint = uploadContentFingerprint(decoded.file),
                     updatedLocalFile = updatedLocalFile,
                     memoRefreshPlan = buildMemoRefreshPlan(action.path, layout, mode),
                 )
@@ -182,12 +195,15 @@ class S3SyncActionApplier
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String>,
             fileBridgeScope: S3SyncFileBridgeScope,
             mode: S3LocalSyncMode,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Deleting
             val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
-            if (action.path !in verifiedMissingRemotePaths && client.getObjectMetadata(remotePath) != null) {
+            val knownMissing =
+                action.path in verifiedMissingRemotePaths || action.path in observedMissingRemotePaths
+            if (!knownMissing && client.getObjectMetadata(remotePath) != null) {
                 return S3ActionExecutionState.Skipped
             }
             fileBridgeScope.deleteLocalFile(action.path, layout)
@@ -206,6 +222,7 @@ class S3SyncActionApplier
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String>,
         ): S3ActionExecutionState {
             runtime.stateHolder.state.value = S3SyncState.Deleting
             val verification =
@@ -216,6 +233,7 @@ class S3SyncActionApplier
                     remoteFiles = remoteFiles,
                     metadataByPath = metadataByPath,
                     verifiedMissingRemotePaths = verifiedMissingRemotePaths,
+                    observedMissingRemotePaths = observedMissingRemotePaths,
                 )
             when (verification) {
                 RemoteVerificationConflict -> return S3ActionExecutionState.Skipped
@@ -253,12 +271,14 @@ class S3SyncActionApplier
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String>,
         ): RemoteVerificationSuccess? {
             val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
             val cachedRemote = remoteFiles[action.path]
             val metadataSnapshot = metadataByPath[action.path]
             return when {
-                action.path in verifiedMissingRemotePaths ->
+                action.path in verifiedMissingRemotePaths ||
+                    action.path in observedMissingRemotePaths ->
                     RemoteVerificationSuccess(remotePath = remotePath, remoteFile = null)
 
                 cachedRemote?.verified == true ->
@@ -285,13 +305,14 @@ class S3SyncActionApplier
             remoteFiles: Map<String, RemoteS3File>,
             metadataByPath: Map<String, com.lomo.data.local.entity.S3SyncMetadataEntity>,
             verifiedMissingRemotePaths: Set<String>,
+            observedMissingRemotePaths: Set<String>,
         ): RemoteVerificationResult {
             val remotePath = resolveRemotePath(action.path, remoteFiles, metadataByPath, config)
             val cachedRemote = remoteFiles[action.path]
             if (cachedRemote?.verified == true) {
                 return RemoteVerificationSuccess(remotePath = remotePath, remoteFile = cachedRemote)
             }
-            if (action.path in verifiedMissingRemotePaths) {
+            if (action.path in verifiedMissingRemotePaths || action.path in observedMissingRemotePaths) {
                 return RemoteVerificationMissing(remotePath)
             }
             val verifiedRemote = client.getObjectMetadata(remotePath)?.toVerifiedRemoteFile(action.path)
@@ -322,17 +343,7 @@ class S3SyncActionApplier
             resolveMemoRefreshTarget(path, layout, mode)?.let(S3MemoRefreshPlan::Targets)
                 ?: S3MemoRefreshPlan.None
 
-        private fun memoContentFingerprint(
-            path: String,
-            layout: com.lomo.data.sync.SyncDirectoryLayout,
-            mode: S3LocalSyncMode,
-            file: java.io.File,
-        ): String? =
-            if (isMemoPath(path, layout, mode)) {
-                file.md5Hex()
-            } else {
-                null
-            }
+        private fun uploadContentFingerprint(file: java.io.File): String = file.md5Hex()
     }
 
 internal sealed interface S3ActionExecutionState {
@@ -394,6 +405,7 @@ private fun com.lomo.data.s3.S3RemoteObject.toVerifiedRemoteFile(path: String): 
         path = path,
         etag = eTag,
         lastModified = lastModified,
+        contentMd5 = null,
         remotePath = key,
         verificationLevel = S3RemoteVerificationLevel.VERIFIED_REMOTE,
     )

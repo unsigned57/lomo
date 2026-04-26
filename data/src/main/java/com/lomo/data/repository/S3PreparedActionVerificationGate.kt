@@ -11,6 +11,7 @@ import kotlinx.coroutines.sync.withPermit
 internal class S3PreparedActionVerificationGate(
     private val planner: S3SyncPlanner,
     private val encodingSupport: S3SyncEncodingSupport,
+    private val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
     private val remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
 ) {
     suspend fun verify(
@@ -201,7 +202,8 @@ internal class S3PreparedActionVerificationGate(
         client: com.lomo.data.s3.LomoS3Client,
         config: S3ResolvedConfig,
     ): List<S3VerificationResult> {
-        val verificationLimiter = Semaphore(S3_VERIFICATION_CONCURRENCY)
+        val verificationLimiter =
+            Semaphore(performanceTuner.currentProfile().s3VerificationConcurrency.coercePositiveConcurrency())
         return coroutineScope {
             pathsToVerify.map { path ->
                 async {
