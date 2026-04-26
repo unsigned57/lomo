@@ -5,6 +5,14 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: SensitiveLogValueSanitizer
+ * - Behavior focus: Strip credentials from logs.
+ * - Observable outcomes: Sanitized strings.
+ * - Red phase: Verified by checking for leaked passwords.
+ * - Excludes: none.
+ */
 class SensitiveLogValueSanitizerTest {
     @Test
     fun `sanitizePathForLog keeps only a short basename prefix plus hash`() {

@@ -28,9 +28,11 @@ class InteractionBehaviorPreferencesRepositoryImplTest {
         runTest {
             every { dataStore.quickSaveOnBackEnabled } returns flowOf(true)
             every { dataStore.scrollbarEnabled } returns flowOf(false)
+            every { dataStore.secureWipeBeforeDeleteEnabled } returns flowOf(true)
 
             assertEquals(true, repository.isQuickSaveOnBackEnabled().first())
             assertEquals(false, repository.isScrollbarEnabled().first())
+            assertEquals(true, repository.isSecureWipeBeforeDeleteEnabled().first())
         }
 
     @Test
@@ -38,11 +40,14 @@ class InteractionBehaviorPreferencesRepositoryImplTest {
         runTest {
             coEvery { dataStore.updateQuickSaveOnBackEnabled(true) } returns Unit
             coEvery { dataStore.updateScrollbarEnabled(false) } returns Unit
+            coEvery { dataStore.updateSecureWipeBeforeDeleteEnabled(true) } returns Unit
 
             repository.setQuickSaveOnBackEnabled(true)
             repository.setScrollbarEnabled(false)
+            repository.setSecureWipeBeforeDeleteEnabled(true)
 
             coVerify(exactly = 1) { dataStore.updateQuickSaveOnBackEnabled(true) }
             coVerify(exactly = 1) { dataStore.updateScrollbarEnabled(false) }
+            coVerify(exactly = 1) { dataStore.updateSecureWipeBeforeDeleteEnabled(true) }
         }
 }

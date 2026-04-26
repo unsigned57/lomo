@@ -11,6 +11,14 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: WorkspaceTransitionRepositoryImpl
+ * - Behavior focus: Handle transition logic between workspaces.
+ * - Observable outcomes: State transitions and callbacks.
+ * - Red phase: Verified by stripping transition safeguards.
+ * - Excludes: IO level exceptions.
+ */
 class WorkspaceTransitionRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var memoDao: TestMemoDaoSuite

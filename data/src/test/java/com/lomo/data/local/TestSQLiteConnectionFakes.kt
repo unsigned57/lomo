@@ -1,13 +1,5 @@
 package com.lomo.data.local
 
-/*
- * Test Contract:
- * - Unit under test: RecordingSQLiteConnection and JdbcSQLiteConnection fakes
- * - Behavior focus: Supporting infrastructure for database tests, not a test suite itself.
- * - Observable outcomes: n/a
- * - Red phase: n/a
- * - Excludes: all logic (test infrastructure).
- */
 import androidx.room3.RoomDatabase
 import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection

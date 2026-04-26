@@ -3,6 +3,14 @@ package com.lomo.data.util
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: IndexedTextLines
+ * - Behavior focus: Index text lines for FTS insertion.
+ * - Observable outcomes: Correct line offsets.
+ * - Red phase: Verified by asserting bad offsets.
+ * - Excludes: none.
+ */
 class IndexedTextLinesTest {
     @Test
     fun `indexed text lines mirrors kotlin lines across newline styles`() {

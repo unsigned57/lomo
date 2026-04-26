@@ -13,6 +13,7 @@ object PreferenceDefaults {
     const val SIDEBAR_TAG_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
     const val SCROLLBAR_ENABLED = true
+    const val SECURE_WIPE_BEFORE_DELETE_ENABLED = false
     const val APP_LOCK_ENABLED = false
     const val LAN_SHARE_ENABLED = true
     const val LAN_SHARE_E2E_ENABLED = true

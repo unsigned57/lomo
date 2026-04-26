@@ -17,6 +17,7 @@ import java.nio.file.Files
  * - Unit under test: SyncLayoutMigration
  * - Behavior focus: legacy WebDAV/Git layout migration decisions, move targets, and failure-tolerant progression.
  * - Observable outcomes: migrated path writes/deletes on WebDAV and moved/retained files in local Git working tree.
+ * - Red phase: Verified by asserting when migration logic is disabled.
  * - Excludes: WebDAV transport implementation details, logging behavior, and file-system primitive internals.
  */
 class SyncLayoutMigrationTest {
