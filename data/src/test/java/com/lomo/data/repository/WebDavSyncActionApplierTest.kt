@@ -88,25 +88,25 @@ class WebDavSyncActionApplierTest {
         runTest {
             val path = "lomo/images/pic.png"
             val action = action(path, WebDavSyncDirection.UPLOAD)
-            val bytes = byteArrayOf(1, 2, 3)
             every { fileBridge.isMemoPath(path, layout) } returns false
-            every { fileBridge.contentTypeForPath(path, layout) } returns "image/png"
-            coEvery { localMediaSyncStore.readBytes(path, layout) } returns bytes
+            every { localMediaSyncStore.contentTypeForPath(path, layout) } returns "image/png"
+            coEvery { localMediaSyncStore.exportToFile(path, layout, any()) } returns Unit
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = false, remoteChanged = true), result)
             assertEquals(WebDavSyncState.Uploading, stateHolder.state.value)
             verify(exactly = 1) {
-                client.put(
+                client.putFile(
                     path = path,
-                    bytes = bytes,
+                    file = any(),
                     contentType = "image/png",
                     lastModifiedHint = null,
                     expectedEtag = null,
                     requireAbsent = true,
                 )
             }
+            coVerify(exactly = 1) { localMediaSyncStore.exportToFile(path, layout, any()) }
             coVerify(exactly = 0) { markdownStorageDataSource.readFileIn(any(), any()) }
         }
 
@@ -152,16 +152,16 @@ class WebDavSyncActionApplierTest {
     fun `download media writes bytes to local media store`() =
         runTest {
             val path = "lomo/images/download.png"
-            val bytes = byteArrayOf(9, 8, 7)
             val action = action(path, WebDavSyncDirection.DOWNLOAD)
             every { fileBridge.isMemoPath(path, layout) } returns false
-            every { client.get(path) } returns WebDavRemoteFile(path, bytes, "etag", 300L)
+            every { client.getToFile(path, any()) } returns Unit
 
             val result = applier.applyAction(action, client, layout, emptyMap(), emptyMap())
 
             assertEquals(ActionExecutionState.Applied(localChanged = true, remoteChanged = false), result)
             assertEquals(WebDavSyncState.Downloading, stateHolder.state.value)
-            coVerify(exactly = 1) { localMediaSyncStore.writeBytes(path, bytes, layout) }
+            verify(exactly = 1) { client.getToFile(path, any()) }
+            coVerify(exactly = 1) { localMediaSyncStore.importFromFile(path, any(), layout) }
             coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
         }
 

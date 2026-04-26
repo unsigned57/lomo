@@ -123,7 +123,7 @@ class WebDavConflictResolver
             com.lomo.domain.model.WebDavSyncReason,
         >? {
             val isMemoPath =
-                fileBridge.isMemoPath(file.relativePath, layout) ||
+                isWebDavMemoPath(file.relativePath, layout) ||
                     file.relativePath.endsWith(WEBDAV_MEMO_SUFFIX)
             return when (choice) {
                 SyncConflictResolutionChoice.KEEP_LOCAL ->
@@ -159,7 +159,7 @@ class WebDavConflictResolver
             client.put(
                 path = file.relativePath,
                 bytes = localBytes,
-                contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
+                contentType = webDavContentTypeForPath(file.relativePath, layout, runtime),
             )
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER
@@ -187,7 +187,7 @@ class WebDavConflictResolver
                 val content = file.remoteContent ?: return null
                 runtime.markdownStorageDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
-                    filename = fileBridge.extractMemoFilename(file.relativePath, layout),
+                    filename = extractWebDavMemoFilename(file.relativePath, layout),
                     content = content,
                 )
             }
@@ -217,13 +217,13 @@ class WebDavConflictResolver
                     ?: error("Unable to merge conflict for ${file.relativePath}")
             runtime.markdownStorageDataSource.saveFileIn(
                 directory = MemoDirectoryType.MAIN,
-                filename = fileBridge.extractMemoFilename(file.relativePath, layout),
+                filename = extractWebDavMemoFilename(file.relativePath, layout),
                 content = content,
             )
             client.put(
                 path = file.relativePath,
                 bytes = content.toByteArray(StandardCharsets.UTF_8),
-                contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
+                contentType = webDavContentTypeForPath(file.relativePath, layout, runtime),
             )
             return com.lomo.domain.model.WebDavSyncDirection.UPLOAD to
                 com.lomo.domain.model.WebDavSyncReason.LOCAL_NEWER

@@ -9,6 +9,7 @@ import kotlin.math.abs
 data class LocalWebDavFile(
     val path: String,
     val lastModified: Long,
+    val size: Long? = null,
     val localFingerprint: String? = null,
 )
 
@@ -16,6 +17,7 @@ data class RemoteWebDavFile(
     val path: String,
     val etag: String?,
     val lastModified: Long?,
+    val size: Long? = null,
 )
 
 data class WebDavSyncAction(

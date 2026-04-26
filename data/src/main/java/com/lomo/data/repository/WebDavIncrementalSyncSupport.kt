@@ -1,0 +1,186 @@
+package com.lomo.data.repository
+
+import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
+import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
+import com.lomo.data.sync.SyncDirectoryLayout
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Inject
+import javax.inject.Singleton
+
+enum class WebDavLocalChangeKind {
+    MEMO,
+    IMAGE,
+    VOICE,
+}
+
+enum class WebDavLocalChangeType {
+    UPSERT,
+    DELETE,
+}
+
+data class WebDavLocalChangeJournalEntry(
+    val id: String,
+    val kind: WebDavLocalChangeKind,
+    val filename: String,
+    val changeType: WebDavLocalChangeType,
+    val updatedAt: Long,
+) {
+    fun relativePath(layout: SyncDirectoryLayout): String =
+        when (kind) {
+            WebDavLocalChangeKind.MEMO -> "$WEBDAV_ROOT/${layout.memoFolder}/$filename"
+            WebDavLocalChangeKind.IMAGE -> "$WEBDAV_ROOT/${layout.imageFolder}/$filename"
+            WebDavLocalChangeKind.VOICE -> "$WEBDAV_ROOT/${layout.voiceFolder}/$filename"
+        }
+}
+
+interface WebDavLocalChangeJournalStore {
+    val incrementalSyncEnabled: Boolean
+
+    suspend fun read(): Map<String, WebDavLocalChangeJournalEntry>
+
+    suspend fun upsert(entry: WebDavLocalChangeJournalEntry)
+
+    suspend fun remove(ids: Collection<String>)
+
+    suspend fun clear()
+}
+
+object DisabledWebDavLocalChangeJournalStore : WebDavLocalChangeJournalStore {
+    override val incrementalSyncEnabled: Boolean = false
+
+    override suspend fun read(): Map<String, WebDavLocalChangeJournalEntry> = emptyMap()
+
+    override suspend fun upsert(entry: WebDavLocalChangeJournalEntry) = Unit
+
+    override suspend fun remove(ids: Collection<String>) = Unit
+
+    override suspend fun clear() = Unit
+}
+
+@Singleton
+class RoomBackedWebDavLocalChangeJournalStore
+    @Inject
+    constructor(
+        private val dao: WebDavLocalChangeJournalDao,
+    ) : WebDavLocalChangeJournalStore {
+        override val incrementalSyncEnabled: Boolean = true
+
+        override suspend fun read(): Map<String, WebDavLocalChangeJournalEntry> =
+            dao.getAll().associate { entity -> entity.id to entity.toModel() }
+
+        override suspend fun upsert(entry: WebDavLocalChangeJournalEntry) {
+            dao.upsert(entry.toEntity())
+        }
+
+        override suspend fun remove(ids: Collection<String>) {
+            if (ids.isEmpty()) return
+            dao.deleteByIds(ids)
+        }
+
+        override suspend fun clear() {
+            dao.clearAll()
+        }
+    }
+
+interface WebDavLocalChangeRecorder {
+    suspend fun recordMemoUpsert(filename: String)
+
+    suspend fun recordMemoDelete(filename: String)
+
+    suspend fun recordImageUpsert(filename: String)
+
+    suspend fun recordImageDelete(filename: String)
+
+    suspend fun recordVoiceUpsert(filename: String)
+
+    suspend fun recordVoiceDelete(filename: String)
+}
+
+object NoOpWebDavLocalChangeRecorder : WebDavLocalChangeRecorder {
+    override suspend fun recordMemoUpsert(filename: String) = Unit
+
+    override suspend fun recordMemoDelete(filename: String) = Unit
+
+    override suspend fun recordImageUpsert(filename: String) = Unit
+
+    override suspend fun recordImageDelete(filename: String) = Unit
+
+    override suspend fun recordVoiceUpsert(filename: String) = Unit
+
+    override suspend fun recordVoiceDelete(filename: String) = Unit
+}
+
+@Singleton
+class DefaultWebDavLocalChangeRecorder
+    @Inject
+    constructor(
+        private val journalStore: WebDavLocalChangeJournalStore,
+    ) : WebDavLocalChangeRecorder {
+        override suspend fun recordMemoUpsert(filename: String) =
+            record(kind = WebDavLocalChangeKind.MEMO, filename = filename, changeType = WebDavLocalChangeType.UPSERT)
+
+        override suspend fun recordMemoDelete(filename: String) =
+            record(kind = WebDavLocalChangeKind.MEMO, filename = filename, changeType = WebDavLocalChangeType.DELETE)
+
+        override suspend fun recordImageUpsert(filename: String) =
+            record(kind = WebDavLocalChangeKind.IMAGE, filename = filename, changeType = WebDavLocalChangeType.UPSERT)
+
+        override suspend fun recordImageDelete(filename: String) =
+            record(kind = WebDavLocalChangeKind.IMAGE, filename = filename, changeType = WebDavLocalChangeType.DELETE)
+
+        override suspend fun recordVoiceUpsert(filename: String) =
+            record(kind = WebDavLocalChangeKind.VOICE, filename = filename, changeType = WebDavLocalChangeType.UPSERT)
+
+        override suspend fun recordVoiceDelete(filename: String) =
+            record(kind = WebDavLocalChangeKind.VOICE, filename = filename, changeType = WebDavLocalChangeType.DELETE)
+
+        private suspend fun record(
+            kind: WebDavLocalChangeKind,
+            filename: String,
+            changeType: WebDavLocalChangeType,
+        ) {
+            if (!journalStore.incrementalSyncEnabled || filename.isBlank()) {
+                return
+            }
+            journalStore.upsert(
+                WebDavLocalChangeJournalEntry(
+                    id = "$kind:$filename",
+                    kind = kind,
+                    filename = filename,
+                    changeType = changeType,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            )
+        }
+    }
+
+@Module
+@InstallIn(SingletonComponent::class)
+internal interface WebDavIncrementalSyncBindingsModule {
+    @Binds
+    fun bindWebDavLocalChangeJournalStore(impl: RoomBackedWebDavLocalChangeJournalStore): WebDavLocalChangeJournalStore
+
+    @Binds
+    fun bindWebDavLocalChangeRecorder(impl: DefaultWebDavLocalChangeRecorder): WebDavLocalChangeRecorder
+}
+
+private fun WebDavLocalChangeJournalEntry.toEntity(): WebDavLocalChangeJournalEntity =
+    WebDavLocalChangeJournalEntity(
+        id = id,
+        kind = kind.name,
+        filename = filename,
+        changeType = changeType.name,
+        updatedAt = updatedAt,
+    )
+
+private fun WebDavLocalChangeJournalEntity.toModel(): WebDavLocalChangeJournalEntry =
+    WebDavLocalChangeJournalEntry(
+        id = id,
+        kind = WebDavLocalChangeKind.valueOf(kind),
+        filename = filename,
+        changeType = WebDavLocalChangeType.valueOf(changeType),
+        updatedAt = updatedAt,
+    )

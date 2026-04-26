@@ -23,6 +23,8 @@ class WebDavSyncFileBridge
     @Inject
     constructor(
         private val runtime: WebDavSyncRepositoryContext,
+        private val localFingerprintCache: WebDavLocalFingerprintCache = InMemoryWebDavLocalFingerprintCache(),
+        private val remoteListingCache: WebDavRemoteListingCache = WebDavRemoteListingCache(),
     ) {
         fun ensureRemoteDirectories(
             client: WebDavClient,
@@ -35,81 +37,131 @@ class WebDavSyncFileBridge
             }
         }
 
-        suspend fun localFiles(layout: SyncDirectoryLayout): Map<String, LocalWebDavFile> {
+        suspend fun localFiles(
+            layout: SyncDirectoryLayout,
+            targetPaths: Set<String>? = null,
+            pruneCache: Boolean = true,
+        ): Map<String, LocalWebDavFile> {
+            val profile = runtime.performanceTuner.currentProfile()
             val memoPrefix = memoRemotePrefix(layout)
             val memoMetadataList =
                 runtime.markdownStorageDataSource
                     .listMetadataIn(MemoDirectoryType.MAIN)
                     .filter { it.filename.endsWith(WEBDAV_MEMO_SUFFIX) }
-            val fingerprintLimiter = Semaphore(WEBDAV_FINGERPRINT_CONCURRENCY)
-            val memoFiles = coroutineScope {
+                    .filter { metadata ->
+                        targetPaths == null || "$memoPrefix${metadata.filename}" in targetPaths
+                    }
+            val fingerprintLimiter = Semaphore(profile.webDavFingerprintConcurrency.coercePositiveConcurrency())
+            val memoFileEntries = coroutineScope {
                 memoMetadataList.map { metadata ->
                     async(Dispatchers.IO) {
                         fingerprintLimiter.withPermit {
-                            val content =
-                                runtime.markdownStorageDataSource.readFileIn(
-                                    MemoDirectoryType.MAIN,
-                                    metadata.filename,
-                                )
                             val remotePath = "$memoPrefix${metadata.filename}"
-                            remotePath to
-                                LocalWebDavFile(
+                            val cacheKey =
+                                WebDavLocalFingerprintKey(
                                     path = remotePath,
                                     lastModified = metadata.lastModified,
-                                    localFingerprint =
-                                        content
-                                            ?.toByteArray(StandardCharsets.UTF_8)
-                                            ?.md5Hex(),
+                                    size = metadata.size,
                                 )
+                            val localFingerprint =
+                                localFingerprintCache.get(cacheKey)
+                                    ?: runtime.markdownStorageDataSource
+                                        .readFileIn(
+                                            MemoDirectoryType.MAIN,
+                                            metadata.filename,
+                                        )?.toByteArray(StandardCharsets.UTF_8)
+                                        ?.md5Hex()
+                                        ?.also { fingerprint ->
+                                            localFingerprintCache.put(cacheKey, fingerprint)
+                                        }
+                            LocalWebDavFile(
+                                path = remotePath,
+                                lastModified = metadata.lastModified,
+                                size = metadata.size,
+                                localFingerprint = localFingerprint,
+                            ) to cacheKey
                         }
                     }
-                }.awaitAll().toMap()
+                }.awaitAll()
             }
             val mediaEntries =
                 runtime.localMediaSyncStore
                     .listFiles(layout)
                     .mapKeys { (path, _) -> "$WEBDAV_ROOT/$path" }
-            val mediaFiles = coroutineScope {
+                    .filterKeys { path ->
+                        targetPaths == null || path in targetPaths
+                    }
+            val mediaFileEntries = coroutineScope {
                 mediaEntries.map { (path, metadata) ->
                     async(Dispatchers.IO) {
                         fingerprintLimiter.withPermit {
-                            path to
-                                LocalWebDavFile(
+                            val cacheKey =
+                                WebDavLocalFingerprintKey(
                                     path = path,
                                     lastModified = metadata.lastModified,
-                                    localFingerprint =
-                                        runNonFatalCatching {
-                                            runtime.localMediaSyncStore.readBytes(path, layout).md5Hex()
-                                        }.getOrNull(),
+                                    size = metadata.size,
                                 )
+                            val localFingerprint =
+                                localFingerprintCache.get(cacheKey)
+                                    ?: runNonFatalCatching {
+                                        runtime.localMediaSyncStore.md5Hex(path, layout)
+                                    }.getOrNull()?.also { fingerprint ->
+                                        localFingerprintCache.put(cacheKey, fingerprint)
+                                    }
+                            LocalWebDavFile(
+                                path = path,
+                                lastModified = metadata.lastModified,
+                                size = metadata.size,
+                                localFingerprint = localFingerprint,
+                            ) to cacheKey
                         }
                     }
-                }.awaitAll().toMap()
+                }.awaitAll()
             }
+            val validKeys = (memoFileEntries + mediaFileEntries).mapTo(linkedSetOf()) { (_, key) -> key }
+            if (pruneCache) {
+                localFingerprintCache.retain(validKeys)
+            }
+            val memoFiles = memoFileEntries.associate { (file, _) -> file.path to file }
+            val mediaFiles = mediaFileEntries.associate { (file, _) -> file.path to file }
             return memoFiles + mediaFiles
         }
 
-        fun remoteFiles(
+        suspend fun localFile(
+            path: String,
+            layout: SyncDirectoryLayout,
+        ): LocalWebDavFile? = localFiles(layout, targetPaths = setOf(path), pruneCache = false)[path]
+
+        suspend fun remoteFiles(
             client: WebDavClient,
             layout: SyncDirectoryLayout,
         ): Map<String, RemoteWebDavFile> {
-            val listed = mutableListOf<WebDavRemoteResource>()
-            val visitedFolders = mutableSetOf<String>()
-            layout.distinctFolders.forEach { folder ->
-                val remotePath = remoteFolderPath(folder)
-                if (visitedFolders.add(remotePath)) {
-                    listed.addAll(client.list(remotePath).filterNot(WebDavRemoteResource::isDirectory))
-                }
-            }
+            val folderPaths =
+                layout.distinctFolders
+                    .map(::remoteFolderPath)
+                    .distinct()
+            if (folderPaths.isEmpty()) return emptyMap()
+            val profile = runtime.performanceTuner.currentProfile()
+            val limiter = Semaphore(profile.webDavListConcurrency.coercePositiveConcurrency())
+            val listed =
+                coroutineScope {
+                    folderPaths.map { folderPath ->
+                        async(Dispatchers.IO) {
+                            limiter.withPermit {
+                                listRemoteFilesInFolder(remoteListingCache, client, folderPath)
+                            }
+                        }
+                    }.awaitAll()
+                }.flatten()
             return listed.associate(::toRemoteEntry)
         }
 
         fun remoteFilesInFolder(
             client: WebDavClient,
             folderPath: String,
+            forceRefresh: Boolean = false,
         ): Map<String, RemoteWebDavFile> =
-            client.list(folderPath)
-                .filterNot(WebDavRemoteResource::isDirectory)
+            listRemoteFilesInFolder(remoteListingCache, client, folderPath, forceRefresh)
                 .associate(::toRemoteEntry)
 
     suspend fun persistMetadata(
@@ -126,6 +178,7 @@ class WebDavSyncFileBridge
         val syncedLocalFiles =
             if (localChanged && completeSnapshot) localFiles(layout) else localFiles
         val syncedRemoteFiles = resolveRemoteSnapshot(
+            cache = remoteListingCache,
             client = client,
             remoteFiles = remoteFiles,
             actionOutcomes = actionOutcomes,
@@ -186,42 +239,51 @@ class WebDavSyncFileBridge
         fun isMemoPath(
             path: String,
             layout: SyncDirectoryLayout,
-        ): Boolean {
-            val memoPrefix = memoRemotePrefix(layout)
-            return path.startsWith(memoPrefix) && path.endsWith(WEBDAV_MEMO_SUFFIX)
-        }
+        ): Boolean = isWebDavMemoPath(path, layout)
 
         fun extractMemoFilename(
             path: String,
             layout: SyncDirectoryLayout,
-        ): String {
-            return path.removePrefix(memoRemotePrefix(layout))
-        }
+        ): String = extractWebDavMemoFilename(path, layout)
 
         fun contentTypeForPath(
             path: String,
             layout: SyncDirectoryLayout,
-        ): String =
-            if (isMemoPath(path, layout)) {
-                WEBDAV_MARKDOWN_CONTENT_TYPE
-            } else {
-                runtime.localMediaSyncStore.contentTypeForPath(path, layout)
-            }
-
-        private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWebDavFile> =
-            resource.path to
-                RemoteWebDavFile(
-                    path = resource.path,
-                    etag = resource.etag,
-                    lastModified = resource.lastModified,
-                )
-
-        private fun memoRemotePrefix(layout: SyncDirectoryLayout): String = "$WEBDAV_ROOT/${layout.memoFolder}/"
-
-        private fun remoteFolderPath(folder: String): String = "$WEBDAV_ROOT/$folder"
+        ): String = webDavContentTypeForPath(path, layout, runtime)
     }
 
-private fun WebDavSyncFileBridge.resolveRemoteSnapshot(
+private fun toRemoteEntry(resource: WebDavRemoteResource): Pair<String, RemoteWebDavFile> =
+    resource.path to
+        RemoteWebDavFile(
+            path = resource.path,
+            etag = resource.etag,
+            lastModified = resource.lastModified,
+            size = resource.size,
+        )
+
+private fun listRemoteFilesInFolder(
+    cache: WebDavRemoteListingCache,
+    client: WebDavClient,
+    folderPath: String,
+    forceRefresh: Boolean = false,
+): List<WebDavRemoteResource> =
+    if (forceRefresh) {
+        cache.invalidate(client, folderPath)
+        cache.getOrLoad(client, folderPath) {
+            client.list(folderPath).filterNot(WebDavRemoteResource::isDirectory)
+        }
+    } else {
+        cache.getOrLoad(client, folderPath) {
+            client.list(folderPath).filterNot(WebDavRemoteResource::isDirectory)
+        }
+    }
+
+private fun memoRemotePrefix(layout: SyncDirectoryLayout): String = "$WEBDAV_ROOT/${layout.memoFolder}/"
+
+private fun remoteFolderPath(folder: String): String = "$WEBDAV_ROOT/$folder"
+
+private fun resolveRemoteSnapshot(
+    cache: WebDavRemoteListingCache,
     client: WebDavClient,
     remoteFiles: Map<String, RemoteWebDavFile>,
     actionOutcomes: Map<String, Pair<WebDavSyncDirection, WebDavSyncReason>>,
@@ -244,14 +306,15 @@ private fun WebDavSyncFileBridge.resolveRemoteSnapshot(
     val changedRemote = mutableMapOf<String, RemoteWebDavFile>()
     foldersToRefresh.forEach { folder ->
         runNonFatalCatching {
-            client.list(folder)
-                .filterNot(WebDavRemoteResource::isDirectory)
+            cache.invalidate(client, folder)
+            listRemoteFilesInFolder(cache, client, folder)
                 .forEach { resource ->
                     if (resource.path in changedPaths) {
                         changedRemote[resource.path] = RemoteWebDavFile(
                             path = resource.path,
                             etag = resource.etag,
                             lastModified = resource.lastModified,
+                            size = resource.size,
                         )
                     }
                 }

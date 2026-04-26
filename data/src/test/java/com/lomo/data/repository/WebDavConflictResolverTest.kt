@@ -127,7 +127,6 @@ class WebDavConflictResolverTest {
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
-            every { fileBridge.contentTypeForPath(path, any()) } returns "text/plain"
             val resolution = SyncConflictResolution(perFileChoices = mapOf(path to SyncConflictResolutionChoice.KEEP_LOCAL))
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
@@ -137,8 +136,10 @@ class WebDavConflictResolverTest {
                 client.put(
                     path = path,
                     bytes = "LOCAL".toByteArray(StandardCharsets.UTF_8),
-                    contentType = "text/plain",
+                    contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
                     lastModifiedHint = null,
+                    expectedEtag = null,
+                    requireAbsent = false,
                 )
             }
             coVerify(exactly = 1) { memoSynchronizer.refresh() }
@@ -241,7 +242,6 @@ class WebDavConflictResolverTest {
                 )
             every { fileBridge.isMemoPath(path, any()) } returns true
             every { fileBridge.extractMemoFilename(path, any()) } returns "2026_03_24.md"
-            every { fileBridge.contentTypeForPath(path, any()) } returns "text/markdown"
             coEvery {
                 markdownStorageDataSource.saveFileIn(
                     directory = com.lomo.data.source.MemoDirectoryType.MAIN,
@@ -260,8 +260,10 @@ class WebDavConflictResolverTest {
                 client.put(
                     path = path,
                     bytes = merged.toByteArray(StandardCharsets.UTF_8),
-                    contentType = "text/markdown",
+                    contentType = WEBDAV_MARKDOWN_CONTENT_TYPE,
                     lastModifiedHint = null,
+                    expectedEtag = null,
+                    requireAbsent = false,
                 )
             }
             coVerify(exactly = 1) {
@@ -293,7 +295,6 @@ class WebDavConflictResolverTest {
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
-            every { fileBridge.contentTypeForPath(path, any()) } returns "text/plain"
             coEvery { memoSynchronizer.refresh() } throws IllegalStateException("refresh failed")
 
             val result = resolver.resolveConflicts(SyncConflictResolution(emptyMap()), conflictSet(file))

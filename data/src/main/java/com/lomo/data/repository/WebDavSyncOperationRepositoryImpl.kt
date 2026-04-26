@@ -3,8 +3,10 @@ package com.lomo.data.repository
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.sync.SyncLayoutMigration
+import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.data.webdav.WebDavClient
+import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
@@ -24,7 +26,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
+import java.io.File
 import java.nio.charset.StandardCharsets
+import kotlin.io.path.createTempFile
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -128,9 +132,10 @@ class WebDavSyncExecutor
         private val support: WebDavSyncRepositorySupport,
         private val fileBridge: WebDavSyncFileBridge,
         private val actionApplier: WebDavSyncActionApplier,
+        private val localChangeJournalStore: WebDavLocalChangeJournalStore = DisabledWebDavLocalChangeJournalStore,
         private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) {
-        private val verificationGate = WebDavPreparedActionVerificationGate()
+        private val verificationGate = WebDavPreparedActionVerificationGate(runtime.performanceTuner)
 
         suspend fun performSync(): WebDavSyncResult {
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
@@ -200,8 +205,11 @@ class WebDavSyncExecutor
                                     ?.files
                                     ?.mapTo(linkedSetOf(), SyncConflictFile::relativePath)
                                     .orEmpty(),
-                            completeSnapshot = conflictSet == null,
+                            completeSnapshot = prepared.completeSnapshot && conflictSet == null,
                         )
+                        if (conflictSet == null && execution.failedPaths.isEmpty()) {
+                            localChangeJournalStore.remove(prepared.consumedJournalIds)
+                        }
 
                         val effectivePlan =
                             verified.plan.copy(
@@ -220,22 +228,30 @@ class WebDavSyncExecutor
             client: WebDavClient,
             layout: SyncDirectoryLayout,
         ): PreparedWebDavSync {
+            val profile = runtime.performanceTuner.currentProfile()
             runtime.stateHolder.state.value = WebDavSyncState.Initializing
             fileBridge.ensureRemoteDirectories(client, layout)
             SyncLayoutMigration.migrateWebDavRemote(client, layout)
 
             runtime.stateHolder.state.value = WebDavSyncState.Listing
-            val localFiles = fileBridge.localFiles(layout)
-            val remoteFiles =
-                runNonFatalCatching {
-                    fileBridge.remoteFiles(client, layout)
-                }.getOrElse { error ->
-                    throw IllegalStateException(
-                        "Failed to list remote WebDAV files: ${error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE}",
-                        error,
-                    )
-                }
             val metadataByPath = runtime.metadataDao.getAll().associateBy { it.relativePath }
+            val incremental =
+                tryPrepareIncrementalSync(
+                    client = client,
+                    layout = layout,
+                    metadataByPath = metadataByPath,
+                )
+            val localFiles = incremental?.localFiles ?: fileBridge.localFiles(layout)
+            val remoteFiles =
+                incremental?.remoteFiles
+                    ?: runNonFatalCatching {
+                        fileBridge.remoteFiles(client, layout)
+                    }.getOrElse { error ->
+                        throw IllegalStateException(
+                            "Failed to list remote WebDAV files: ${error.message ?: WEBDAV_UNKNOWN_ERROR_MESSAGE}",
+                            error,
+                        )
+                    }
 
             val classification =
                 classifyWebDavInitialOverlaps(
@@ -244,7 +260,7 @@ class WebDavSyncExecutor
                     metadataByPath = metadataByPath,
                     client = client,
                     layout = layout,
-                    fileBridge = fileBridge,
+                    overlapConcurrency = profile.webDavInitialOverlapConcurrency.coercePositiveConcurrency(),
                 )
             if (classification.equivalentMetadataByPath.isNotEmpty()) {
                 runtime.metadataDao.upsertAll(classification.equivalentMetadataByPath.values.toList())
@@ -261,9 +277,93 @@ class WebDavSyncExecutor
             return PreparedWebDavSync(
                 localFiles = localFiles,
                 remoteFiles = remoteFiles,
-                plan = plan,
                 metadataByPath = effectiveMetadata,
+                plan = plan,
                 isInitialSync = metadataByPath.isEmpty(),
+                completeSnapshot = incremental == null,
+                consumedJournalIds = incremental?.consumedJournalIds.orEmpty(),
+            )
+        }
+
+        private suspend fun tryPrepareIncrementalSync(
+            client: WebDavClient,
+            layout: SyncDirectoryLayout,
+            metadataByPath: Map<String, WebDavSyncMetadataEntity>,
+        ): PreparedWebDavIncrementalSnapshot? {
+            if (!localChangeJournalStore.incrementalSyncEnabled || metadataByPath.isEmpty()) {
+                return null
+            }
+            val lastSyncAt = runtime.dataStore.webDavLastSyncTime.first()
+            if (lastSyncAt <= 0L || System.currentTimeMillis() - lastSyncAt > WEBDAV_INCREMENTAL_SYNC_WINDOW_MS) {
+                return null
+            }
+            val journalEntries = localChangeJournalStore.read()
+            if (journalEntries.isEmpty()) {
+                return null
+            }
+            val touchedPaths =
+                journalEntries.values
+                    .map { entry -> entry.relativePath(layout) }
+                    .toSortedSet()
+            if (touchedPaths.isEmpty()) {
+                localChangeJournalStore.clear()
+                return null
+            }
+            val touchedLocalFiles = fileBridge.localFiles(layout, targetPaths = touchedPaths, pruneCache = false)
+            val localFiles =
+                metadataByPath.values
+                    .associate { entity ->
+                        entity.relativePath to
+                            LocalWebDavFile(
+                                path = entity.relativePath,
+                                lastModified = entity.localLastModified ?: 0L,
+                                localFingerprint = entity.localFingerprint,
+                            )
+                    }.toMutableMap()
+            touchedPaths.forEach { path ->
+                val localEntry = touchedLocalFiles[path]
+                if (localEntry == null) {
+                    localFiles.remove(path)
+                } else {
+                    localFiles[path] = localEntry
+                }
+            }
+            val touchedFolders =
+                touchedPaths.mapTo(linkedSetOf()) { path ->
+                    path.substringBeforeLast('/', "")
+                }
+            val untouchedRemoteFiles =
+                metadataByPath.values
+                    .asSequence()
+                    .filterNot { entity ->
+                        entity.relativePath.substringBeforeLast('/', "") in touchedFolders
+                    }
+                    .associate { entity ->
+                        entity.relativePath to
+                            RemoteWebDavFile(
+                                path = entity.relativePath,
+                                etag = entity.etag,
+                                lastModified = entity.remoteLastModified,
+                            )
+                    }
+            val refreshedRemoteFiles =
+                coroutineScope {
+                    val listLimiter =
+                        Semaphore(
+                            runtime.performanceTuner.currentProfile().webDavListConcurrency.coercePositiveConcurrency(),
+                        )
+                    touchedFolders.map { folder ->
+                        async {
+                            listLimiter.withPermit {
+                                fileBridge.remoteFilesInFolder(client, folder).values.toList()
+                            }
+                        }
+                    }.awaitAll().flatten()
+                }.associateBy(RemoteWebDavFile::path)
+            return PreparedWebDavIncrementalSnapshot(
+                localFiles = localFiles,
+                remoteFiles = untouchedRemoteFiles + refreshedRemoteFiles,
+                consumedJournalIds = journalEntries.keys,
             )
         }
 
@@ -323,7 +423,7 @@ class WebDavSyncExecutor
 
                     SyncConflictResolutionChoice.MERGE_TEXT -> {
                         val merged = SyncConflictAutoResolutionAdvisor.mergedText(file)
-                        if (merged != null && fileBridge.isMemoPath(file.relativePath, layout)) {
+                        if (merged != null && isWebDavMemoPath(file.relativePath, layout)) {
                             applyMergedConflictResolution(file, merged, client, layout)
                             autoResolvedOutcomes[file.relativePath] =
                                 WebDavSyncDirection.UPLOAD to WebDavSyncReason.LOCAL_NEWER
@@ -361,13 +461,13 @@ class WebDavSyncExecutor
         ) {
             runtime.markdownStorageDataSource.saveFileIn(
                 directory = MemoDirectoryType.MAIN,
-                filename = fileBridge.extractMemoFilename(file.relativePath, layout),
+                filename = extractWebDavMemoFilename(file.relativePath, layout),
                 content = mergedContent,
             )
             client.put(
                 path = file.relativePath,
                 bytes = mergedContent.toByteArray(StandardCharsets.UTF_8),
-                contentType = fileBridge.contentTypeForPath(file.relativePath, layout),
+                contentType = webDavContentTypeForPath(file.relativePath, layout, runtime),
             )
         }
 
@@ -378,17 +478,18 @@ class WebDavSyncExecutor
             localFiles: Map<String, LocalWebDavFile>,
             remoteFiles: Map<String, RemoteWebDavFile>,
         ): List<SyncConflictFile> {
-            val conflictLimiter = Semaphore(WEBDAV_CONFLICT_CONCURRENCY)
+            val conflictLimiter =
+                Semaphore(runtime.performanceTuner.currentProfile().webDavActionConcurrency.coercePositiveConcurrency())
             return coroutineScope {
                 actions.map { action ->
                     async {
                         conflictLimiter.withPermit {
-                            val isMemo = fileBridge.isMemoPath(action.path, layout)
+                            val isMemo = isWebDavMemoPath(action.path, layout)
                             val localContent =
                                 if (isMemo) {
                                     runtime.markdownStorageDataSource.readFileIn(
                                         MemoDirectoryType.MAIN,
-                                        fileBridge.extractMemoFilename(action.path, layout),
+                                        extractWebDavMemoFilename(action.path, layout),
                                     )
                                 } else {
                                     null
@@ -434,7 +535,8 @@ class WebDavSyncExecutor
                 )
             }
 
-            val concurrencyLimiter = Semaphore(WEBDAV_ACTION_CONCURRENCY)
+            val concurrencyLimiter =
+                Semaphore(runtime.performanceTuner.currentProfile().webDavActionConcurrency.coercePositiveConcurrency())
             val indexedResults =
                 coroutineScope {
                     actions.mapIndexed { index, action ->
@@ -507,7 +609,13 @@ class WebDavSyncExecutor
                         runtime.memoSynchronizer.refreshImportedSync()
 
                     is WebDavMemoRefreshPlan.Targets -> {
-                        val refreshLimiter = Semaphore(WEBDAV_ACTION_CONCURRENCY)
+                        val refreshConcurrency =
+                            runtime.performanceTuner
+                                .currentProfile()
+                                .webDavActionConcurrency
+                                .coercePositiveConcurrency()
+                        val refreshLimiter =
+                            Semaphore(refreshConcurrency)
                         coroutineScope {
                             memoRefreshPlan.filenames.sorted().map { targetFilename ->
                                 async {
@@ -536,8 +644,8 @@ class WebDavSyncExecutor
             path: String,
             layout: SyncDirectoryLayout,
         ): String? =
-            if (fileBridge.isMemoPath(path, layout)) {
-                fileBridge.extractMemoFilename(path, layout)
+            if (isWebDavMemoPath(path, layout)) {
+                extractWebDavMemoFilename(path, layout)
             } else {
                 null
             }
@@ -604,7 +712,7 @@ class WebDavSyncActionApplier
                     -> ActionExecutionState.Skipped
                 }
             }.getOrElse { error ->
-                Timber.e(error, "Failed to %s %s", action.operationName(), action.path)
+                Timber.e(error, "Failed to %s %s", action.operationName(), sanitizePathForLog(action.path))
                 ActionExecutionState.Failed(action.path)
             }
 
@@ -616,37 +724,50 @@ class WebDavSyncActionApplier
             remoteFiles: Map<String, RemoteWebDavFile>,
         ): ActionExecutionState {
             runtime.stateHolder.state.value = WebDavSyncState.Uploading
-            val bytes = loadUploadBytes(action, layout) ?: return ActionExecutionState.Skipped
             val remoteFile = remoteFiles[action.path]
-            client.put(
-                path = action.path,
-                bytes = bytes,
-                contentType = fileBridge.contentTypeForPath(action.path, layout),
-                lastModifiedHint = localFiles[action.path]?.lastModified,
-                expectedEtag = remoteFile?.etag,
-                requireAbsent = remoteFile == null,
-            )
+            val contentType = webDavContentTypeForPath(action.path, layout, runtime)
+            if (isWebDavMemoPath(action.path, layout)) {
+                val bytes = loadMemoUploadBytes(action, layout) ?: return ActionExecutionState.Skipped
+                client.put(
+                    path = action.path,
+                    bytes = bytes,
+                    contentType = contentType,
+                    lastModifiedHint = localFiles[action.path]?.lastModified,
+                    expectedEtag = remoteFile?.etag,
+                    requireAbsent = remoteFile == null,
+                )
+            } else {
+                withTempFile(action.path.transferSuffix()) { transferFile ->
+                    runtime.localMediaSyncStore.exportToFile(action.path, layout, transferFile)
+                    client.putFile(
+                        path = action.path,
+                        file = transferFile,
+                        contentType = contentType,
+                        lastModifiedHint = localFiles[action.path]?.lastModified,
+                        expectedEtag = remoteFile?.etag,
+                        requireAbsent = remoteFile == null,
+                    )
+                }
+            }
             return ActionExecutionState.Applied(localChanged = false, remoteChanged = true)
         }
 
-        private suspend fun loadUploadBytes(
+        private suspend fun loadMemoUploadBytes(
             action: WebDavSyncAction,
             layout: SyncDirectoryLayout,
         ): ByteArray? =
-            if (fileBridge.isMemoPath(action.path, layout)) {
+            run {
                 val content =
                     runtime.markdownStorageDataSource.readFileIn(
                         MemoDirectoryType.MAIN,
-                        fileBridge.extractMemoFilename(action.path, layout),
+                        extractWebDavMemoFilename(action.path, layout),
                     )
                 if (content == null) {
-                    Timber.w("Local memo missing during upload: %s, skipping", action.path)
+                    Timber.w("Local memo missing during upload: %s, skipping", sanitizePathForLog(action.path))
                     null
                 } else {
                     content.toByteArray(StandardCharsets.UTF_8)
                 }
-            } else {
-                runtime.localMediaSyncStore.readBytes(action.path, layout)
             }
 
         private suspend fun downloadAction(
@@ -655,15 +776,18 @@ class WebDavSyncActionApplier
             layout: SyncDirectoryLayout,
         ): ActionExecutionState {
             runtime.stateHolder.state.value = WebDavSyncState.Downloading
-            val remoteFile = client.get(action.path)
-            if (fileBridge.isMemoPath(action.path, layout)) {
+            if (isWebDavMemoPath(action.path, layout)) {
+                val remoteFile = client.get(action.path)
                 runtime.markdownStorageDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
-                    filename = fileBridge.extractMemoFilename(action.path, layout),
+                    filename = extractWebDavMemoFilename(action.path, layout),
                     content = String(remoteFile.bytes, StandardCharsets.UTF_8),
                 )
             } else {
-                runtime.localMediaSyncStore.writeBytes(action.path, remoteFile.bytes, layout)
+                withTempFile(action.path.transferSuffix()) { transferFile ->
+                    client.getToFile(action.path, transferFile)
+                    runtime.localMediaSyncStore.importFromFile(action.path, transferFile, layout)
+                }
             }
             return ActionExecutionState.Applied(localChanged = true, remoteChanged = false)
         }
@@ -673,10 +797,10 @@ class WebDavSyncActionApplier
             layout: SyncDirectoryLayout,
         ): ActionExecutionState {
             runtime.stateHolder.state.value = WebDavSyncState.Deleting
-            if (fileBridge.isMemoPath(action.path, layout)) {
+            if (isWebDavMemoPath(action.path, layout)) {
                 runtime.markdownStorageDataSource.deleteFileIn(
                     MemoDirectoryType.MAIN,
-                    fileBridge.extractMemoFilename(action.path, layout),
+                    extractWebDavMemoFilename(action.path, layout),
                 )
             } else {
                 runtime.localMediaSyncStore.delete(action.path, layout)
@@ -696,7 +820,22 @@ class WebDavSyncActionApplier
             )
             return ActionExecutionState.Applied(localChanged = false, remoteChanged = true)
         }
+
+        private suspend fun <T> withTempFile(
+            suffix: String,
+            block: suspend (File) -> T,
+        ): T {
+            val file = createTempFile(prefix = "webdav-sync-", suffix = suffix).toFile()
+            return try {
+                block(file)
+            } finally {
+                file.delete()
+            }
+        }
     }
+
+private fun String.transferSuffix(): String =
+    substringAfterLast('.', "").takeIf(String::isNotBlank)?.let { ".$it" } ?: ".tmp"
 
 private data class PreparedWebDavSync(
     val localFiles: Map<String, LocalWebDavFile>,
@@ -704,9 +843,19 @@ private data class PreparedWebDavSync(
     val metadataByPath: Map<String, com.lomo.data.local.entity.WebDavSyncMetadataEntity>,
     val plan: WebDavSyncPlan,
     val isInitialSync: Boolean = false,
+    val completeSnapshot: Boolean = true,
+    val consumedJournalIds: Collection<String> = emptyList(),
 )
 
-private class WebDavPreparedActionVerificationGate {
+private data class PreparedWebDavIncrementalSnapshot(
+    val localFiles: Map<String, LocalWebDavFile>,
+    val remoteFiles: Map<String, RemoteWebDavFile>,
+    val consumedJournalIds: Collection<String>,
+)
+
+private class WebDavPreparedActionVerificationGate(
+    private val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
+) {
     suspend fun verify(
         prepared: PreparedWebDavSync,
         client: WebDavClient,
@@ -723,12 +872,20 @@ private class WebDavPreparedActionVerificationGate {
         }
         val refreshedRemoteFiles = prepared.remoteFiles.toMutableMap()
         val refreshedFolders =
-            candidatePaths
-                .map(::parentFolderPath)
-                .distinct()
-                .associateWith { folderPath ->
-                    fileBridge.remoteFilesInFolder(client, folderPath)
-                }
+            coroutineScope {
+                val listLimiter =
+                    Semaphore(performanceTuner.currentProfile().webDavListConcurrency.coercePositiveConcurrency())
+                candidatePaths
+                    .map(::parentFolderPath)
+                    .distinct()
+                    .map { folderPath ->
+                        async {
+                            listLimiter.withPermit {
+                                folderPath to fileBridge.remoteFilesInFolder(client, folderPath, forceRefresh = true)
+                            }
+                        }
+                    }.awaitAll().toMap()
+            }
         candidatePaths.forEach { path ->
             val refreshedRemote = refreshedFolders[parentFolderPath(path)]?.get(path)
             if (refreshedRemote == null) {
@@ -880,3 +1037,4 @@ private fun WebDavSyncResult.outcomesForRefreshFailure() =
 
 private const val WEBDAV_ACTION_CONCURRENCY = 8
 private const val WEBDAV_CONFLICT_CONCURRENCY = 4
+private const val WEBDAV_INCREMENTAL_SYNC_WINDOW_MS = 2 * 60_000L
