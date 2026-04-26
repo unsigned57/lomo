@@ -56,6 +56,8 @@ internal fun Cursor.getStringOrNull(index: Int): String? = if (index != -1) getS
 
 internal fun Cursor.getLongOrZero(index: Int): Long = if (index != -1) getLong(index) else 0L
 
+internal fun Cursor.getLongOrNull(index: Int): Long? = if (index != -1 && !isNull(index)) getLong(index) else null
+
 private data class SafCursorColumnIndexes(
     val documentId: Int,
     val displayName: Int,

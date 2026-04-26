@@ -89,7 +89,7 @@ class MemoSavePlanFactory
                     rawContent = rawContent,
                     localDate = MemoLocalDateResolver.resolve(dateString),
                     tags = textProcessor.extractTags(content),
-                    imageUrls = textProcessor.extractImages(content),
+                    imageUrls = textProcessor.extractInlineAttachments(content),
                     isDeleted = false,
                     geoLocation = geoLocation,
                 )

@@ -1,7 +1,9 @@
 package com.lomo.data.repository
 
+import com.lomo.data.local.dao.DefaultMainListDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoPinDao
+import com.lomo.data.local.dao.DefaultMainListMemoRow
 import com.lomo.data.local.entity.MemoEntity
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -26,12 +28,14 @@ import org.junit.Test
  */
 class MemoQueryRepositoryImplTest {
     private val memoDao: MemoDao = mockk()
+    private val defaultMainListDao: DefaultMainListDao = mockk()
     private val memoPinDao: MemoPinDao = mockk()
     private val synchronizer: MemoSynchronizer = mockk(relaxed = true)
 
     private val repository =
         MemoQueryRepositoryImpl(
             memoDao = memoDao,
+            defaultMainListDao = defaultMainListDao,
             memoPinDao = memoPinDao,
             synchronizer = synchronizer,
         )
@@ -44,7 +48,7 @@ class MemoQueryRepositoryImplTest {
 
             assertTrue(byInvalidLimit.isEmpty())
             assertTrue(byInvalidOffset.isEmpty())
-            coVerify(exactly = 0) { memoDao.getMemosPage(any(), any()) }
+            coVerify(exactly = 0) { defaultMainListDao.getPage(any(), any()) }
             coVerify(exactly = 0) { memoPinDao.getPinnedMemoIds() }
         }
 
@@ -58,12 +62,12 @@ class MemoQueryRepositoryImplTest {
                 )
             val pageEntities =
                 listOf(
-                    memoEntity(id = "memo-2", timestamp = 200L),
-                    memoEntity(id = "memo-1", timestamp = 100L),
+                    defaultMainListRow(id = "memo-2", timestamp = 200L, isPinned = true),
+                    defaultMainListRow(id = "memo-1", timestamp = 100L, isPinned = false),
                 )
             coEvery { memoPinDao.getPinnedMemoIds() } returns listOf("memo-2")
             coEvery { memoDao.getRecentMemos(2) } returns recentEntities
-            coEvery { memoDao.getMemosPage(limit = 2, offset = 1) } returns pageEntities
+            coEvery { defaultMainListDao.getPage(limit = 2, offset = 1) } returns pageEntities
 
             val recent = repository.getRecentMemos(limit = 2)
             val page = repository.getMemosPage(limit = 2, offset = 1)
@@ -143,5 +147,14 @@ class MemoQueryRepositoryImplTest {
             tags = "work,project",
             imageUrls = "img.png",
         )
-}
 
+    private fun defaultMainListRow(
+        id: String,
+        timestamp: Long,
+        isPinned: Boolean,
+    ): DefaultMainListMemoRow =
+        DefaultMainListMemoRow(
+            memo = memoEntity(id = id, timestamp = timestamp),
+            isPinned = isPinned,
+        )
+}

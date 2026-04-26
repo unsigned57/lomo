@@ -1,7 +1,9 @@
 package com.lomo.data.repository
 
+import com.lomo.data.local.dao.DefaultMainListDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoPinDao
@@ -11,9 +13,11 @@ import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
 
 internal interface TestMemoDaoSuite :
+    DefaultMainListDao,
     MemoDao,
     MemoWriteDao,
     MemoTagDao,
+    MemoImageDao,
     MemoFtsDao,
     MemoIdentityDao,
     MemoTrashDao,
@@ -29,7 +33,7 @@ internal fun testMemoMutationDaoBundle(
         memoDao = dao,
         memoWriteDao = dao,
         memoTagDao = dao,
-        memoFtsDao = dao,
+        memoImageDao = dao,
         memoIdentityDao = dao,
         memoTrashDao = dao,
         memoOutboxDao = dao,

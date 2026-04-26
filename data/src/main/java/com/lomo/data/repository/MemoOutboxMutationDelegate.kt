@@ -36,23 +36,43 @@ internal class MemoOutboxMutationDelegate(
     }
 
     override suspend fun flushMemoFileOutbox(item: MemoFileOutboxEntity): Boolean =
-        when (item.operation) {
-            MemoFileOutboxOp.CREATE -> flushCreateFromOutbox(runtime, item)
-            MemoFileOutboxOp.UPDATE -> {
-                val newContent = item.newContent ?: return false
-                flushMainMemoUpdateToFile(runtime, storageFormatProvider, outboxSourceMemo(item), newContent)
-            }
+        runtime.mutationGate.withLock {
+            when (item.operation) {
+                MemoFileOutboxOp.CREATE -> flushCreateFromOutbox(runtime, item)
+                MemoFileOutboxOp.UPDATE -> {
+                    val newContent = item.newContent ?: return@withLock false
+                    flushMainMemoUpdateToFile(runtime, storageFormatProvider, outboxSourceMemo(item), newContent)
+                }
 
-            MemoFileOutboxOp.DELETE -> runtime.trashMutationHandler.moveToTrashFileOnly(outboxSourceMemo(item))
-            MemoFileOutboxOp.RESTORE -> runtime.trashMutationHandler.restoreFromTrashFileOnly(outboxSourceMemo(item))
-            else -> false
+                MemoFileOutboxOp.DELETE -> flushDeleteFromOutbox(runtime, item)
+                MemoFileOutboxOp.RESTORE ->
+                    runtime.trashMutationHandler.restoreFromTrashFileOnly(outboxSourceMemo(item))
+                else -> false
+            }
         }
+}
+
+/**
+ * Outbox-side DELETE flush: tries the normal main-rewrite + trash-append flow; on a retry after
+ * a crash between those two steps, falls back to [ensureMemoPresentInTrashFile] so the queued
+ * deletion still finishes.
+ */
+internal suspend fun flushDeleteFromOutbox(
+    runtime: MemoMutationRuntime,
+    item: MemoFileOutboxEntity,
+): Boolean {
+    val memo = outboxSourceMemo(item)
+    if (runtime.trashMutationHandler.moveToTrashFileOnly(memo)) {
+        return true
+    }
+    return runtime.trashMutationHandler.ensureMemoPresentInTrashFile(memo)
 }
 
 internal suspend fun flushCreateFromOutbox(
     runtime: MemoMutationRuntime,
     item: MemoFileOutboxEntity,
 ): Boolean {
+    requireSafeMemoDateKey(item.memoDate)
     val createRawContent = item.createRawContent ?: return false
     val filename = item.memoDate + ".md"
     appendMainMemoContentAndUpdateState(

@@ -5,67 +5,79 @@ import com.lomo.domain.model.Memo
 internal class TrashMemoMutationDelegate(
     private val runtime: MemoMutationRuntime,
 ) : MemoTrashMutationOperations {
-    override suspend fun deleteMemo(memo: Memo) {
-        runtime.trashMutationHandler.moveToTrash(memo)
-    }
+    override suspend fun deleteMemo(memo: Memo) =
+        runtime.mutationGate.withLock {
+            runtime.trashMutationHandler.moveToTrash(memo)
+        }
 
-    override suspend fun deleteMemoInDb(memo: Memo): Long? {
-        val sourceMemo = runtime.daoBundle.memoDao.getMemo(memo.id)?.toDomain() ?: return null
-        val outboxId =
-            moveMemoToTrashWithOutbox(
-                daoBundle = runtime.daoBundle,
-                sourceMemo = sourceMemo,
-                outbox = buildDeleteOutbox(sourceMemo),
+    override suspend fun deleteMemoInDb(memo: Memo): Long? =
+        runtime.mutationGate.withLock {
+            val sourceMemo = runtime.daoBundle.memoDao.getMemo(memo.id)?.toDomain() ?: return@withLock null
+            val outboxId =
+                moveMemoToTrashWithOutbox(
+                    daoBundle = runtime.daoBundle,
+                    sourceMemo = sourceMemo,
+                    outbox = buildDeleteOutbox(sourceMemo),
+                )
+            runtime.memoVersionRecorder.enqueueLocalRevision(
+                memo = sourceMemo.copy(isDeleted = true),
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.TRASHED,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
             )
-        runtime.memoVersionRecorder.enqueueLocalRevision(
-            memo = sourceMemo.copy(isDeleted = true),
-            lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.TRASHED,
-            origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_TRASH,
-        )
-        return outboxId
-    }
+            outboxId
+        }
 
     override suspend fun flushDeleteMemoToFile(memo: Memo): Boolean =
-        runtime.trashMutationHandler.moveToTrashFileOnly(memo).also { moved ->
-            if (moved) {
-                recordMainMemoStateAfterTrashMove(runtime, memo)
+        runtime.mutationGate.withLock {
+            runtime.trashMutationHandler.moveToTrashFileOnly(memo).also { moved ->
+                if (moved) {
+                    recordMainMemoStateAfterTrashMove(runtime, memo)
+                }
             }
         }
 
-    override suspend fun restoreMemo(memo: Memo) {
-        runtime.trashMutationHandler.restoreFromTrash(memo)
-    }
+    override suspend fun restoreMemo(memo: Memo) =
+        runtime.mutationGate.withLock {
+            runtime.trashMutationHandler.restoreFromTrash(memo)
+        }
 
-    override suspend fun restoreMemoInDb(memo: Memo): Long? {
-        val sourceMemo = runtime.daoBundle.memoTrashDao.getTrashMemo(memo.id)?.toDomain() ?: return null
-        val outboxId =
-            restoreMemoFromTrashWithOutbox(
-                daoBundle = runtime.daoBundle,
-                sourceMemo = sourceMemo,
-                outbox = buildRestoreOutbox(sourceMemo),
+    override suspend fun restoreMemoInDb(memo: Memo): Long? =
+        runtime.mutationGate.withLock {
+            val sourceMemo =
+                runtime.daoBundle.memoTrashDao.getTrashMemo(memo.id)?.toDomain() ?: return@withLock null
+            val outboxId =
+                restoreMemoFromTrashWithOutbox(
+                    daoBundle = runtime.daoBundle,
+                    sourceMemo = sourceMemo,
+                    outbox = buildRestoreOutbox(sourceMemo),
+                )
+            runtime.memoVersionRecorder.enqueueLocalRevision(
+                memo = sourceMemo.copy(isDeleted = false),
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
             )
-        runtime.memoVersionRecorder.enqueueLocalRevision(
-            memo = sourceMemo.copy(isDeleted = false),
-            lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
-            origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_RESTORE,
-        )
-        return outboxId
-    }
+            outboxId
+        }
 
     override suspend fun flushRestoreMemoToFile(memo: Memo): Boolean =
-        runtime.trashMutationHandler.restoreFromTrashFileOnly(memo).also { restored ->
-            if (restored) {
-                runtime.s3LocalChangeRecorder.recordMemoUpsert("${memo.dateKey}.md")
+        runtime.mutationGate.withLock {
+            runtime.trashMutationHandler.restoreFromTrashFileOnly(memo).also { restored ->
+                if (restored) {
+                    runtime.s3LocalChangeRecorder.recordMemoUpsert("${memo.dateKey}.md")
+                    runtime.webDavLocalChangeRecorder.recordMemoUpsert("${memo.dateKey}.md")
+                }
             }
         }
 
-    override suspend fun deletePermanently(memo: Memo) {
-        runtime.trashMutationHandler.deleteFromTrashPermanently(memo)
-    }
+    override suspend fun deletePermanently(memo: Memo) =
+        runtime.mutationGate.withLock {
+            runtime.trashMutationHandler.deleteFromTrashPermanently(memo)
+        }
 
-    override suspend fun clearTrash() {
-        clearTrashPermanently(runtime.trashMutationHandler, runtime.daoBundle.memoTrashDao)
-    }
+    override suspend fun clearTrash() =
+        runtime.mutationGate.withLock {
+            clearTrashPermanently(runtime.trashMutationHandler, runtime.daoBundle.memoTrashDao)
+        }
 }
 
 private suspend fun recordMainMemoStateAfterTrashMove(
@@ -76,8 +88,10 @@ private suspend fun recordMainMemoStateAfterTrashMove(
     val mainState = runtime.localFileStateDao.getByFilename(filename, false)
     if (mainState != null) {
         runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
+        runtime.webDavLocalChangeRecorder.recordMemoUpsert(filename)
     } else {
         runtime.s3LocalChangeRecorder.recordMemoDelete(filename)
+        runtime.webDavLocalChangeRecorder.recordMemoDelete(filename)
     }
 }
 
@@ -89,7 +103,5 @@ private suspend fun clearTrashPermanently(
     if (trashMemos.isEmpty()) {
         return
     }
-    trashMemos.forEach { trashMemo ->
-        trashMutationHandler.deleteFromTrashPermanently(trashMemo.toDomain())
-    }
+    trashMutationHandler.clearAllTrashPermanently(trashMemos)
 }

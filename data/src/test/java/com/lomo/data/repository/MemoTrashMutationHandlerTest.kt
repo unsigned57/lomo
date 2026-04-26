@@ -10,6 +10,7 @@ import com.lomo.domain.model.Memo
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.coVerifyOrder
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
@@ -49,7 +50,7 @@ class MemoTrashMutationHandlerTest {
                 mediaStorageDataSource = fileDataSource,
                 memoWriteDao = memoDao,
                 memoTagDao = memoDao,
-                memoFtsDao = memoDao,
+                memoImageDao = memoDao,
                 memoTrashDao = memoDao,
                 memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
@@ -248,6 +249,78 @@ class MemoTrashMutationHandlerTest {
         }
 
     @Test
+    fun `restoreFromTrashFileOnly rewrites trash before appending back to main when trash content remains`() =
+        runTest {
+            val memo = buildMemo(rawContent = "- 10:00 restore me")
+            val filename = "${memo.dateKey}.md"
+            val remainingTrashContent = "- 09:30 keep me"
+
+            coEvery {
+                fileDataSource.readFileIn(MemoDirectoryType.TRASH, filename)
+            } returns "$remainingTrashContent\n${memo.rawContent}"
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.TRASH, filename)
+            } returns FileMetadata(filename, 610L)
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+            } returns FileMetadata(filename, 620L)
+
+            val result = handler.restoreFromTrashFileOnly(memo)
+
+            assertTrue(result)
+            coVerify(exactly = 1) {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.TRASH,
+                    filename = filename,
+                    content = remainingTrashContent,
+                    append = false,
+                )
+            }
+            coVerify(exactly = 1) {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = any(),
+                    append = true,
+                )
+            }
+            coVerifyOrder {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.TRASH,
+                    filename = filename,
+                    content = remainingTrashContent,
+                    append = false,
+                )
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = any(),
+                    append = true,
+                )
+            }
+            coVerify(exactly = 1) {
+                localFileStateDao.upsert(
+                    match {
+                        it.filename == filename &&
+                            it.isTrash &&
+                            it.lastKnownModifiedTime == 610L
+                    },
+                )
+            }
+            coVerify(exactly = 1) {
+                localFileStateDao.upsert(
+                    match {
+                        it.filename == filename &&
+                            !it.isTrash &&
+                            it.lastKnownModifiedTime == 620L
+                    },
+                )
+            }
+            coVerify(exactly = 0) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, filename) }
+            coVerify(exactly = 0) { localFileStateDao.deleteByFilename(filename, true) }
+        }
+
+    @Test
     fun `restoreFromTrashInDb returns false when source memo is missing`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 source absent")
@@ -257,8 +330,24 @@ class MemoTrashMutationHandlerTest {
 
             assertFalse(result)
             coVerify(exactly = 0) { memoDao.insertMemo(any()) }
-            coVerify(exactly = 0) { memoDao.insertMemoFts(any()) }
             coVerify(exactly = 0) { memoDao.deleteTrashMemoById(any()) }
+        }
+
+    @Test
+    fun `moveToTrashInDb avoids direct fts deletion because triggers maintain index`() =
+        runTest {
+            val memo = buildMemo(id = "memo_trash_db")
+
+            handler.moveToTrashInDb(memo)
+
+            coVerify(exactly = 1) { memoDao.deleteMemoById(memo.id) }
+            coVerify(exactly = 1) { memoDao.deleteTagRefsByMemoId(memo.id) }
+            coVerify(exactly = 0) { memoDao.rebuildFts() }
+            coVerify(exactly = 1) {
+                memoDao.insertTrashMemo(
+                    match { trash -> trash.id == memo.id && trash.content == memo.content },
+                )
+            }
         }
 
     @Test(expected = UnsafeWorkspaceMutationException::class)
@@ -295,18 +384,13 @@ class MemoTrashMutationHandlerTest {
                     match {
                         it.id == sourceMemo.id &&
                             it.content == "source text" &&
-                            it.tags == "sync,restore"
-                    },
-                )
-            }
-            coVerify(exactly = 1) {
-                memoDao.insertMemoFts(
-                    match {
-                        it.memoId == sourceMemo.id && it.content.contains("source")
+                            it.tags == """["sync","restore"]"""
                     },
                 )
             }
             coVerify(exactly = 1) { memoDao.replaceTagRefsForMemo(any()) }
+            coVerify(exactly = 1) { memoDao.replaceImageRefsForMemo(any()) }
+            coVerify(exactly = 0) { memoDao.rebuildFts() }
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(sourceMemo.id) }
         }
 
@@ -347,6 +431,7 @@ class MemoTrashMutationHandlerTest {
                 memoDao.countMemosAndTrashWithImage("orphan.png", memo.id)
             }
             coVerify(exactly = 1) { fileDataSource.deleteImage("orphan.png") }
+            coVerify(exactly = 1) { memoDao.deleteImageRefsByMemoId(memo.id) }
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
         }
 
@@ -376,6 +461,34 @@ class MemoTrashMutationHandlerTest {
 
             coVerify(exactly = 1) { fileDataSource.deleteVoiceFile("voice_123.m4a") }
             coVerify(exactly = 0) { fileDataSource.deleteImage("voice_123.m4a") }
+        }
+
+    @Test
+    fun `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() =
+        runTest {
+            val memoA1 = TrashMemoEntity.fromDomain(buildMemo(id = "a1", deleted = true).copy(dateKey = "2026_03_01"))
+            val memoA2 = TrashMemoEntity.fromDomain(buildMemo(id = "a2", deleted = true).copy(dateKey = "2026_03_01"))
+            val memoB1 = TrashMemoEntity.fromDomain(buildMemo(id = "b1", deleted = true).copy(dateKey = "2026_03_02"))
+
+            handler.clearAllTrashPermanently(listOf(memoA1, memoA2, memoB1))
+
+            coVerify(exactly = 1) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, "2026_03_01.md") }
+            coVerify(exactly = 1) { fileDataSource.deleteFileIn(MemoDirectoryType.TRASH, "2026_03_02.md") }
+            coVerify(exactly = 1) { localFileStateDao.deleteByFilename("2026_03_01.md", true) }
+            coVerify(exactly = 1) { localFileStateDao.deleteByFilename("2026_03_02.md", true) }
+            coVerify(exactly = 1) { memoDao.deleteImageRefsByMemoIds(listOf("a1", "a2", "b1")) }
+            coVerify(exactly = 1) { memoDao.clearTrash() }
+            coVerify(exactly = 0) { memoDao.deleteTrashMemoById(any()) }
+            coVerify(exactly = 0) { fileDataSource.saveFileIn(MemoDirectoryType.TRASH, any(), any(), any(), any()) }
+        }
+
+    @Test
+    fun `clearAllTrashPermanently returns without touching storage when given empty list`() =
+        runTest {
+            handler.clearAllTrashPermanently(emptyList())
+
+            coVerify(exactly = 0) { fileDataSource.deleteFileIn(any(), any(), any()) }
+            coVerify(exactly = 0) { memoDao.clearTrash() }
         }
 
     private fun buildMemo(

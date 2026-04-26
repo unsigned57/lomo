@@ -47,6 +47,7 @@ class MemoRepositoryImplTest {
                 queryRepository =
                     MemoQueryRepositoryImpl(
                         memoDao = dao,
+                        defaultMainListDao = dao,
                         memoPinDao = dao,
                         synchronizer = synchronizer,
                     ),
@@ -144,7 +145,7 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("苏格拉底").first()
 
-            assertEquals("苏格* 格拉* 拉底*", captured.captured)
+            assertEquals("\"苏格\"* \"格拉\"* \"拉底\"*", captured.captured)
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
@@ -170,7 +171,7 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("苏格").first()
 
-            assertEquals("苏格*", captured.captured)
+            assertEquals("\"苏格\"*", captured.captured)
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
@@ -184,21 +185,20 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("Socrates 123").first()
 
-            assertEquals("Socrates* 123*", captured.captured)
+            assertEquals("\"Socrates\"* \"123\"*", captured.captured)
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
     @Test
-    fun `searchMemosList falls back when query has no searchable tokens`() =
+    fun `searchMemosList returns empty when query has no searchable tokens`() =
         runTest {
             every { dao.searchMemosByFtsFlow(any()) } returns flowOf(emptyList())
-            every { dao.searchMemosFlow("###") } returns flowOf(emptyList())
 
             repository.searchMemosList("###").first()
 
             verify(exactly = 0) { dao.searchMemosByFtsFlow(any()) }
-            verify(exactly = 1) { dao.searchMemosFlow("###") }
+            verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
     @Test

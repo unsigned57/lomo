@@ -72,7 +72,11 @@ class FileStorageBackendResolver
                 }
 
                 rootDir != null -> {
-                    val backend = DirectStorageBackend(File(rootDir))
+                    val backend =
+                        DirectStorageBackend(
+                            rootDir = File(rootDir),
+                            secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
+                        )
                     backend to backend
                 }
 
@@ -91,7 +95,11 @@ class FileStorageBackendResolver
         ): Pair<MediaStorageBackend?, String?> =
             when {
                 configuredUri != null -> SafStorageBackend(context, configuredUri.toUri()) to configuredUri
-                configuredPath != null -> DirectStorageBackend(File(configuredPath)) to null
+                configuredPath != null ->
+                    DirectStorageBackend(
+                        rootDir = File(configuredPath),
+                        secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
+                    ) to null
                 else -> null to null
             }
 

@@ -79,7 +79,7 @@ class MarkdownParser
                             dateKey = filename,
                             localDate = MemoLocalDateResolver.resolve(filename),
                             tags = extractTags(fullContent),
-                            imageUrls = extractImages(fullContent),
+                            imageUrls = extractInlineAttachments(fullContent),
                         ),
                     )
                 }
@@ -155,10 +155,8 @@ class MarkdownParser
             return textProcessor.extractTags(content)
         }
 
-        private fun extractImages(content: String): List<String> {
-            // Delegate to shared utility class to avoid duplication
-            return textProcessor.extractImages(content)
-        }
+        private fun extractInlineAttachments(content: String): List<String> =
+            textProcessor.extractInlineAttachments(content)
 
         private fun buildPlainMarkdownFallbackMemo(
             content: String,
@@ -179,7 +177,7 @@ class MarkdownParser
                 dateKey = filename,
                 localDate = MemoLocalDateResolver.resolve(filename),
                 tags = extractTags(normalizedContent),
-                imageUrls = extractImages(normalizedContent),
+                imageUrls = extractInlineAttachments(normalizedContent),
             )
         }
     }

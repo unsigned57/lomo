@@ -7,11 +7,6 @@ interface WorkspaceConfigBackend {
 }
 
 interface MarkdownStorageBackend {
-    suspend fun listFilesIn(
-        directory: MemoDirectoryType,
-        targetFilename: String? = null,
-    ): List<FileContent>
-
     suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata>
 
     suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>

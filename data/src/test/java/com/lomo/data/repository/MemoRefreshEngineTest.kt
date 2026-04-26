@@ -57,7 +57,7 @@ class MemoRefreshEngineTest {
     }
 
     @Test
-    fun `refresh does not delete db records when missing main file is still resolvable`() =
+    fun `refresh uses directory-scoped local file state queries without per-file probes`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -69,18 +69,18 @@ class MemoRefreshEngineTest {
             val parseResult = emptyParseResult()
             val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
 
-            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_03_25.md")
-            } returns FileMetadata(filename = "2026_03_25.md", lastModified = 2_000L)
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
 
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_03_25.md")
+            coVerify(exactly = 1) { localFileStateDao.getAllByTrashStatus(false) }
+            coVerify(exactly = 1) { localFileStateDao.getAllByTrashStatus(true) }
+            coVerify(exactly = 0) {
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, any())
             }
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
             assertEquals(emptySet<Pair<String, Boolean>>(), capturedDeleteSet.captured)
@@ -100,12 +100,10 @@ class MemoRefreshEngineTest {
             val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
             val capturedStateUpdates = slot<List<LocalFileStateEntity>>()
 
-            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_03_25.md")
-            } returns null
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
@@ -133,12 +131,10 @@ class MemoRefreshEngineTest {
             val parseResult = emptyParseResult()
             val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
 
-            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
             coEvery { markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_03_25.md")
-            } returns null
             coEvery { refreshParserWorker.parse(emptyList(), emptyList()) } returns parseResult
 
             engine.refresh()
@@ -161,7 +157,8 @@ class MemoRefreshEngineTest {
                 )
             val capturedStateUpdates = slot<List<LocalFileStateEntity>>()
 
-            coEvery { localFileStateDao.getAll() } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(knownState)
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
             coEvery {
                 markdownStorageDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN)
             } returns
@@ -223,8 +220,11 @@ class MemoRefreshEngineTest {
             val capturedParseResult = slot<MemoRefreshParseResult>()
 
             coEvery {
-                markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
-            } returns listOf(refreshedFile)
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
+            } returns FileMetadata(filename = targetFilename, lastModified = refreshedFile.lastModified)
+            coEvery {
+                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
+            } returns refreshedFile.content
             coEvery { refreshParserWorker.parseMainFileContents(listOf(refreshedFile)) } returns parsedParseResult
 
             engine.refresh(targetFilename)
@@ -247,8 +247,8 @@ class MemoRefreshEngineTest {
             val capturedDeleteSet = slot<Set<Pair<String, Boolean>>>()
 
             coEvery {
-                markdownStorageDataSource.listFilesIn(MemoDirectoryType.MAIN, targetFilename)
-            } returns emptyList()
+                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, targetFilename)
+            } returns null
 
             engine.refresh(targetFilename)
 

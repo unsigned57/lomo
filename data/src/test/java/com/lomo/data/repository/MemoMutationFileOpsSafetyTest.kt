@@ -28,6 +28,7 @@ import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import java.io.File
 
 /*
  * Test Contract:
@@ -73,7 +74,9 @@ class MemoMutationFileOpsSafetyTest {
         runtime =
             MemoMutationRuntime(
                 markdownStorageDataSource = fileDataSource,
+                mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(memoDao),
+                memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = MemoSavePlanFactory(parser, textProcessor, memoIdentityPolicy),
                 textProcessor = textProcessor,
@@ -83,7 +86,7 @@ class MemoMutationFileOpsSafetyTest {
                         mediaStorageDataSource = fileDataSource,
                         memoWriteDao = memoDao,
                         memoTagDao = memoDao,
-                        memoFtsDao = memoDao,
+                        memoImageDao = memoDao,
                         memoTrashDao = memoDao,
                         memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
@@ -112,7 +115,6 @@ class MemoMutationFileOpsSafetyTest {
 
             val result =
                 buildUpdatedFileContent(
-                    runtime = runtime,
                     storageFormatProvider = storageFormatProvider,
                     currentFileContent = "- 10:00 another memo",
                     memo = memo,
@@ -247,6 +249,39 @@ class MemoMutationFileOpsSafetyTest {
         }
 
     @Test
+    fun `persistUpdatedMainFile reuses direct save path metadata without extra lookup`() =
+        runTest {
+            val filename = "2026_03_28.md"
+            val savedFile =
+                File.createTempFile("memo-mutation-file-ops", ".md").apply {
+                    writeText("after")
+                    setLastModified(456_789L)
+                    deleteOnExit()
+                }
+            coEvery { localFileStateDao.getByFilename(filename, false) } returns null
+            coEvery {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = "after",
+                    append = false,
+                )
+            } returns savedFile.absolutePath
+
+            persistUpdatedMainFile(
+                runtime = runtime,
+                filename = filename,
+                updatedContent = "after",
+            )
+
+            val captured = slot<LocalFileStateEntity>()
+            coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
+            coVerify(exactly = 0) { fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename) }
+            assertEquals(savedFile.absolutePath, captured.captured.safUri)
+            assertEquals(456_789L, captured.captured.lastKnownModifiedTime)
+        }
+
+    @Test
     fun `appendMainMemoContentAndUpdateState keeps existing saf uri when save returns null`() =
         runTest {
             val filename = "2026_03_27.md"
@@ -283,6 +318,40 @@ class MemoMutationFileOpsSafetyTest {
             coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
             assertEquals("content://memo/existing", captured.captured.safUri)
             assertEquals(999L, captured.captured.lastKnownModifiedTime)
+        }
+
+    @Test
+    fun `appendMainMemoContentAndUpdateState reuses direct save path metadata without extra lookup`() =
+        runTest {
+            val filename = "2026_03_29.md"
+            val savedFile =
+                File.createTempFile("memo-append-file-ops", ".md").apply {
+                    writeText("after")
+                    setLastModified(654_321L)
+                    deleteOnExit()
+                }
+            coEvery { localFileStateDao.getByFilename(filename, false) } returnsMany listOf(null, null)
+            coEvery {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = "\n- 10:00 appended",
+                    append = true,
+                    uri = null,
+                )
+            } returns savedFile.absolutePath
+
+            appendMainMemoContentAndUpdateState(
+                runtime = runtime,
+                filename = filename,
+                rawContent = "- 10:00 appended",
+            )
+
+            val captured = slot<LocalFileStateEntity>()
+            coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
+            coVerify(exactly = 0) { fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename) }
+            assertEquals(savedFile.absolutePath, captured.captured.safUri)
+            assertEquals(654_321L, captured.captured.lastKnownModifiedTime)
         }
 
     @Test

@@ -121,9 +121,13 @@ class MemoSynchronizer
         }
 
         suspend fun deleteMemo(memo: Memo) =
-            mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    mutationHandler.deleteMemo(memo)
+            withContext(Dispatchers.IO) {
+                val outboxId =
+                    mutex.withLock {
+                        mutationHandler.deleteMemoInDb(memo)
+                    }
+                if (outboxId != null) {
+                    outboxCoordinator.requestOutboxDrain()
                 }
             }
 
@@ -139,9 +143,13 @@ class MemoSynchronizer
             }
 
         suspend fun restoreMemo(memo: Memo) =
-            mutex.withLock {
-                withContext(Dispatchers.IO) {
-                    mutationHandler.restoreMemo(memo)
+            withContext(Dispatchers.IO) {
+                val outboxId =
+                    mutex.withLock {
+                        mutationHandler.restoreMemoInDb(memo)
+                    }
+                if (outboxId != null) {
+                    outboxCoordinator.requestOutboxDrain()
                 }
             }
 

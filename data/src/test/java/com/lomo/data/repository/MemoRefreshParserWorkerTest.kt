@@ -156,7 +156,7 @@ class MemoRefreshParserWorkerTest {
             every {
                 parser.parseContent("- 10:00 beta", "2026_03_06", 606L)
             } returns listOf(reparsedMemo)
-            coEvery { dao.getMemosByDate("2026_03_06") } returns listOf(MemoEntity.fromDomain(existingMemo))
+            coEvery { dao.getMemosByDates(listOf("2026_03_06")) } returns listOf(MemoEntity.fromDomain(existingMemo))
 
             val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
 
@@ -164,7 +164,8 @@ class MemoRefreshParserWorkerTest {
                 listOf(MemoEntity.fromDomain(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L)),
                 result.mainMemos,
             )
-            coVerify(exactly = 1) { dao.getMemosByDate("2026_03_06") }
+            coVerify(exactly = 1) { dao.getMemosByDates(listOf("2026_03_06")) }
+            coVerify(exactly = 0) { dao.getMemosByDate("2026_03_06") }
         }
 
     @Test
@@ -203,6 +204,13 @@ class MemoRefreshParserWorkerTest {
             assertEquals(emptySet<String>(), result.mainDatesToReplace)
             assertEquals(setOf("2026_03_05"), result.trashDatesToReplace)
         }
+
+    @Test
+    fun `default file parse batch size stays within supported processor bounds`() {
+        assertEquals(2, defaultFileParseBatchSize(1))
+        assertEquals(4, defaultFileParseBatchSize(4))
+        assertEquals(8, defaultFileParseBatchSize(64))
+    }
 
     private fun fileMeta(
         filename: String,

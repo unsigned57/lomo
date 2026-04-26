@@ -3,6 +3,7 @@ package com.lomo.data.git
 import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
+import com.lomo.data.util.sanitizePathForLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -271,7 +272,7 @@ private fun pruneLocalMirror(
         if (!safPaths.contains(relativePath)) {
             val deleted = local.deleteRecursively()
             if (!deleted) {
-                Timber.w("Failed to delete stale mirror path: %s", relativePath)
+                Timber.w("Failed to delete stale mirror path: %s", sanitizePathForLog(relativePath))
             }
         }
     }
@@ -314,7 +315,7 @@ private fun deleteRecursively(document: DocumentFile) {
         document.listFiles().forEach(::deleteRecursively)
     }
     if (!document.delete()) {
-        Timber.w("Failed to delete SAF document: %s", document.uri)
+        Timber.w("Failed to delete SAF document: %s", sanitizePathForLog(document.uri.toString()))
     }
 }
 

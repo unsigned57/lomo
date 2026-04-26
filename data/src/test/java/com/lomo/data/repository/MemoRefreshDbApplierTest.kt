@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.MemoEntity
+import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.domain.model.MemoRevisionOrigin
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -43,7 +44,7 @@ class MemoRefreshDbApplierTest {
     }
 
     @Test
-    fun `apply removes stale fts rows when replacing main date`() =
+    fun `apply removes stale main rows when replacing main date`() =
         runTest {
             val existingMemoIds = listOf("memo_1", "memo_2")
             coEvery { dao.getMemosByDate("2024_01_15") } returns
@@ -67,12 +68,13 @@ class MemoRefreshDbApplierTest {
             applier.apply(parseResult, filesToDeleteInDb = emptySet())
 
             coVerify(exactly = 1) { dao.deleteTagRefsByMemoIds(existingMemoIds) }
-            coVerify(exactly = 1) { dao.deleteMemoFtsByIds(existingMemoIds) }
-            coVerify(exactly = 1) { dao.deleteMemosByDate("2024_01_15") }
+            coVerify(exactly = 0) { dao.rebuildFts() }
+            coVerify(exactly = 1) { dao.deleteMemosByIds(existingMemoIds) }
+            coVerify(exactly = 0) { dao.deleteMemosByDate(any()) }
         }
 
     @Test
-    fun `apply deduplicates main memos before inserting fts`() =
+    fun `apply deduplicates main memos before inserting rows`() =
         runTest {
             coEvery { dao.getMemosByDate("2024_01_16") } returns emptyList()
 
@@ -109,12 +111,79 @@ class MemoRefreshDbApplierTest {
                     },
                 )
             }
+        }
+
+    @Test
+    fun `apply relies on trigger managed fts updates for persisted main memos`() =
+        runTest {
+            coEvery { dao.getMemosByDate("2024_01_21") } returns emptyList()
+
+            val parseResult =
+                MemoRefreshParseResult(
+                    mainMemos =
+                        listOf(
+                            memoEntity(
+                                id = "memo-searchable",
+                                date = "2024_01_21",
+                                content = "tokenized searchable content",
+                            ),
+                        ),
+                    trashMemos = emptyList(),
+                    metadataToUpdate = emptyList(),
+                    mainDatesToReplace = setOf("2024_01_21"),
+                    trashDatesToReplace = emptySet(),
+            )
+
+            applier.apply(parseResult, filesToDeleteInDb = emptySet())
+
+            coVerify(exactly = 0) { dao.rebuildFts() }
+        }
+
+    @Test
+    fun `apply refreshes exact image refs for main and trash memos`() =
+        runTest {
+            val parseResult =
+                MemoRefreshParseResult(
+                    mainMemos =
+                        listOf(
+                            memoEntity(
+                                id = "memo-main",
+                                date = "2024_01_20",
+                                content = "main",
+                                imageUrls = "a.png,a.png,aaa.png",
+                            ),
+                        ),
+                    trashMemos =
+                        listOf(
+                            trashMemoEntity(
+                                id = "memo-trash",
+                                date = "2024_01_20",
+                                content = "trash",
+                                imageUrls = "trash.png",
+                            ),
+                        ),
+                    metadataToUpdate = emptyList(),
+                    mainDatesToReplace = setOf("2024_01_20"),
+                    trashDatesToReplace = setOf("2024_01_20"),
+                )
+
+            applier.apply(parseResult, filesToDeleteInDb = emptySet())
+
             coVerify(exactly = 1) {
-                dao.replaceMemoFtsBatch(
-                    match { entries ->
-                        entries.size == 1 &&
-                            entries.first().memoId == duplicatedMemoId &&
-                            entries.first().content == "latest content"
+                dao.replaceImageRefsForMemos(
+                    match { memos ->
+                        memos.size == 1 &&
+                            memos.first().id == "memo-main" &&
+                            memos.first().imageUrls == "a.png,a.png,aaa.png"
+                    },
+                )
+            }
+            coVerify(exactly = 1) {
+                dao.replaceImageRefsForTrashMemos(
+                    match { memos ->
+                        memos.size == 1 &&
+                            memos.first().id == "memo-trash" &&
+                            memos.first().imageUrls == "trash.png"
                     },
                 )
             }
@@ -146,6 +215,36 @@ class MemoRefreshDbApplierTest {
             )
 
             assertEquals(1, transactionCalls)
+        }
+
+    @Test
+    fun `apply keeps memos present in both db and parse result untouched`() =
+        runTest {
+            val stableId = "memo_stable"
+            val staleId = "memo_stale"
+            coEvery { dao.getMemosByDate("2024_01_19") } returns
+                listOf(
+                    memoEntity(id = stableId, date = "2024_01_19", content = "content-stable"),
+                    memoEntity(id = staleId, date = "2024_01_19", content = "content-stale"),
+                )
+
+            val parseResult =
+                MemoRefreshParseResult(
+                    mainMemos =
+                        listOf(
+                            memoEntity(id = stableId, date = "2024_01_19", content = "content-stable"),
+                        ),
+                    trashMemos = emptyList(),
+                    metadataToUpdate = emptyList(),
+                    mainDatesToReplace = setOf("2024_01_19"),
+                    trashDatesToReplace = emptySet(),
+                )
+
+            applier.apply(parseResult, filesToDeleteInDb = emptySet())
+
+            coVerify(exactly = 1) { dao.deleteTagRefsByMemoIds(listOf(staleId)) }
+            coVerify(exactly = 1) { dao.deleteMemosByIds(listOf(staleId)) }
+            coVerify(exactly = 0) { dao.deleteMemosByDate(any()) }
         }
 
     @Test
@@ -188,7 +287,7 @@ class MemoRefreshDbApplierTest {
             memoDao = dao,
             memoWriteDao = dao,
             memoTagDao = dao,
-            memoFtsDao = dao,
+            memoImageDao = dao,
             memoTrashDao = dao,
             localFileStateDao = localFileStateDao,
             memoVersionJournal = memoVersionJournal,
@@ -199,6 +298,7 @@ class MemoRefreshDbApplierTest {
         id: String,
         date: String,
         content: String,
+        imageUrls: String = "",
     ): MemoEntity =
         MemoEntity(
             id = id,
@@ -207,6 +307,22 @@ class MemoRefreshDbApplierTest {
             rawContent = "- 10:00:00 $content",
             date = date,
             tags = "",
-            imageUrls = "",
+            imageUrls = imageUrls,
+        )
+
+    private fun trashMemoEntity(
+        id: String,
+        date: String,
+        content: String,
+        imageUrls: String = "",
+    ): TrashMemoEntity =
+        TrashMemoEntity(
+            id = id,
+            timestamp = 1_700_000_000_000,
+            content = content,
+            rawContent = "- 10:00:00 $content",
+            date = date,
+            tags = "",
+            imageUrls = imageUrls,
         )
 }

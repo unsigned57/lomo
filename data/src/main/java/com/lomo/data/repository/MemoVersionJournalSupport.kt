@@ -63,7 +63,7 @@ internal fun MemoVersionRevisionRecord.toMemo(
         rawContent = rawContent,
         dateKey = dateKey,
         tags = memoTextProcessor.extractTags(resolvedBody.content),
-        imageUrls = memoTextProcessor.extractImages(resolvedBody.content),
+        imageUrls = memoTextProcessor.extractInlineAttachments(resolvedBody.content),
         isDeleted = lifecycleState != MemoRevisionLifecycleState.ACTIVE,
     )
 }

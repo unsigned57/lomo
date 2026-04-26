@@ -5,16 +5,8 @@ import java.io.File
 
 internal class DirectMarkdownStorageBackendDelegate(
     private val rootDir: File,
+    private val secureWipeBeforeDeleteEnabled: suspend () -> Boolean = { false },
 ) : MarkdownStorageBackend {
-    override suspend fun listFilesIn(
-        directory: MemoDirectoryType,
-        targetFilename: String?,
-    ): List<FileContent> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directListFiles(rootDir, targetFilename)
-            MemoDirectoryType.TRASH -> directListTrashFiles(rootDir)
-        }
-
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
         when (directory) {
             MemoDirectoryType.MAIN -> directListMetadata(rootDir)
@@ -77,8 +69,19 @@ internal class DirectMarkdownStorageBackendDelegate(
         uri: Uri?,
     ) {
         when (directory) {
-            MemoDirectoryType.MAIN -> directDeleteFile(rootDir, filename)
-            MemoDirectoryType.TRASH -> directDeleteTrashFile(rootDir, filename)
+            MemoDirectoryType.MAIN ->
+                directDeleteFile(
+                    rootDir = rootDir,
+                    filename = filename,
+                    overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
+                )
+
+            MemoDirectoryType.TRASH ->
+                directDeleteTrashFile(
+                    rootDir = rootDir,
+                    filename = filename,
+                    overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
+                )
         }
     }
 }

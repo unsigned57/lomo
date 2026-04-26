@@ -1,5 +1,6 @@
 package com.lomo.data.sync
 
+import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.data.webdav.WebDavClient
 import timber.log.Timber
@@ -47,16 +48,13 @@ object SyncLayoutMigration {
         for (memo in legacyState.oldMemos) {
             val filename = memo.path.trimStart('/')
             runNonFatalCatching {
-                val content = client.get(filename)
-                client.put(
-                    path = "$LOMO_ROOT_FOLDER/${layout.memoFolder}/$filename",
-                    bytes = content.bytes,
-                    contentType = "text/markdown; charset=utf-8",
-                    lastModifiedHint = content.lastModified,
+                client.move(
+                    sourcePath = filename,
+                    targetPath = "$LOMO_ROOT_FOLDER/${layout.memoFolder}/$filename",
+                    overwrite = false,
                 )
-                client.delete(filename)
             }.onFailure { error ->
-                Timber.w(error, "Failed to migrate WebDAV memo: %s", filename)
+                Timber.w(error, "Failed to migrate WebDAV memo: %s", sanitizePathForLog(filename))
             }
         }
 
@@ -81,16 +79,13 @@ object SyncLayoutMigration {
         for (resource in files) {
             val filename = resource.path.substringAfterLast('/')
             runNonFatalCatching {
-                val content = client.get(resource.path)
-                client.put(
-                    path = "$newFolder/$filename",
-                    bytes = content.bytes,
-                    contentType = "application/octet-stream",
-                    lastModifiedHint = content.lastModified,
+                client.move(
+                    sourcePath = resource.path,
+                    targetPath = "$newFolder/$filename",
+                    overwrite = false,
                 )
-                client.delete(resource.path)
             }.onFailure { error ->
-                Timber.w(error, "Failed to migrate WebDAV media: %s", resource.path)
+                Timber.w(error, "Failed to migrate WebDAV media: %s", sanitizePathForLog(resource.path))
             }
         }
 

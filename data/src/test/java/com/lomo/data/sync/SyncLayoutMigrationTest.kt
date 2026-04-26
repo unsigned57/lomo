@@ -1,7 +1,6 @@
 package com.lomo.data.sync
 
 import com.lomo.data.webdav.WebDavClient
-import com.lomo.data.webdav.WebDavRemoteFile
 import com.lomo.data.webdav.WebDavRemoteResource
 import io.mockk.every
 import io.mockk.mockk
@@ -31,10 +30,6 @@ class SyncLayoutMigrationTest {
                 voiceFolder = "voice_new",
                 allSameDirectory = false,
             )
-        val memoBytes = "# memo".toByteArray()
-        val imageBytes = byteArrayOf(1, 2, 3)
-        val voiceBytes = byteArrayOf(4, 5, 6)
-
         every { client.list("") } returns
             listOf(
                 dir("images"),
@@ -43,12 +38,6 @@ class SyncLayoutMigrationTest {
             )
         every { client.list("images") } returns listOf(file("images/a.png"))
         every { client.list("voice") } returns listOf(file("voice/v1.m4a"))
-        every { client.get("2026_03_24.md") } returns
-            WebDavRemoteFile("2026_03_24.md", memoBytes, "m1", 100L)
-        every { client.get("images/a.png") } returns
-            WebDavRemoteFile("images/a.png", imageBytes, "i1", 200L)
-        every { client.get("voice/v1.m4a") } returns
-            WebDavRemoteFile("voice/v1.m4a", voiceBytes, "v1", 300L)
 
         SyncLayoutMigration.migrateWebDavRemote(client, layout)
 
@@ -56,12 +45,9 @@ class SyncLayoutMigrationTest {
         verify(exactly = 1) { client.ensureDirectory("lomo/memos") }
         verify(exactly = 1) { client.ensureDirectory("lomo/images_new") }
         verify(exactly = 1) { client.ensureDirectory("lomo/voice_new") }
-        verify(exactly = 1) { client.put("lomo/memos/2026_03_24.md", memoBytes, "text/markdown; charset=utf-8", 100L) }
-        verify(exactly = 1) { client.put("lomo/images_new/a.png", imageBytes, "application/octet-stream", 200L) }
-        verify(exactly = 1) { client.put("lomo/voice_new/v1.m4a", voiceBytes, "application/octet-stream", 300L) }
-        verify(exactly = 1) { client.delete("2026_03_24.md") }
-        verify(exactly = 1) { client.delete("images/a.png") }
-        verify(exactly = 1) { client.delete("voice/v1.m4a") }
+        verify(exactly = 1) { client.move("2026_03_24.md", "lomo/memos/2026_03_24.md", false) }
+        verify(exactly = 1) { client.move("images/a.png", "lomo/images_new/a.png", false) }
+        verify(exactly = 1) { client.move("voice/v1.m4a", "lomo/voice_new/v1.m4a", false) }
         verify(exactly = 1) { client.delete("images") }
         verify(exactly = 1) { client.delete("voice") }
     }
@@ -87,8 +73,7 @@ class SyncLayoutMigrationTest {
 
         verify(exactly = 0) { client.ensureDirectory(any()) }
         verify(exactly = 0) { client.list("images") }
-        verify(exactly = 0) { client.get(any()) }
-        verify(exactly = 0) { client.put(any(), any(), any(), any()) }
+        verify(exactly = 0) { client.move(any(), any(), any()) }
         verify(exactly = 0) { client.delete(any()) }
     }
 
@@ -108,7 +93,7 @@ class SyncLayoutMigrationTest {
 
         verify(exactly = 1) { client.list("") }
         verify(exactly = 0) { client.ensureDirectory(any()) }
-        verify(exactly = 0) { client.put(any(), any(), any(), any()) }
+        verify(exactly = 0) { client.move(any(), any(), any()) }
         verify(exactly = 0) { client.delete(any()) }
     }
 
@@ -122,9 +107,6 @@ class SyncLayoutMigrationTest {
                 voiceFolder = "voice_new",
                 allSameDirectory = false,
             )
-        val memo2Bytes = "ok".toByteArray()
-        val imageBytes = byteArrayOf(9)
-
         every { client.list("") } returns
             listOf(
                 dir("images"),
@@ -133,19 +115,12 @@ class SyncLayoutMigrationTest {
             )
         every { client.list("images") } returns listOf(file("images/a.png"))
         every { client.list("voice") } returns emptyList()
-        every { client.get("2026_03_24.md") } throws IllegalStateException("memo read failed")
-        every { client.get("2026_03_25.md") } returns
-            WebDavRemoteFile("2026_03_25.md", memo2Bytes, "m2", 222L)
-        every { client.get("images/a.png") } returns
-            WebDavRemoteFile("images/a.png", imageBytes, "i1", 333L)
+        every { client.move("2026_03_24.md", "lomo/memos/2026_03_24.md", false) } throws IllegalStateException("memo move failed")
 
         SyncLayoutMigration.migrateWebDavRemote(client, layout)
 
-        verify(exactly = 1) { client.put("lomo/memos/2026_03_25.md", memo2Bytes, "text/markdown; charset=utf-8", 222L) }
-        verify(exactly = 0) { client.put("lomo/memos/2026_03_24.md", any(), any(), any()) }
-        verify(exactly = 1) { client.put("lomo/images_new/a.png", imageBytes, "application/octet-stream", 333L) }
-        verify(exactly = 1) { client.delete("2026_03_25.md") }
-        verify(exactly = 1) { client.delete("images/a.png") }
+        verify(exactly = 1) { client.move("2026_03_25.md", "lomo/memos/2026_03_25.md", false) }
+        verify(exactly = 1) { client.move("images/a.png", "lomo/images_new/a.png", false) }
         verify(exactly = 1) { client.delete("images") }
     }
 

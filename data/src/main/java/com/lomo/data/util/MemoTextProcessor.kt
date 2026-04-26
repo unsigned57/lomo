@@ -145,8 +145,17 @@ class MemoTextProcessor
                 .mapNotNull { it.groupValues.getOrNull(1) }
                 .toList()
 
+        /**
+         * Returns every inline attachment target referenced by the memo body — markdown/wiki images
+         * plus audio links that Lomo uses for voice notes. Preserves absolute URLs so existing
+         * [Memo.imageUrls] consumers keep seeing remote image URLs; orphan-cleanup callers filter
+         * locally themselves.
+         */
+        fun extractInlineAttachments(content: String): List<String> =
+            (extractImages(content) + extractAudioLinks(content)).distinct()
+
         fun extractLocalAttachmentPaths(content: String): List<String> =
-            (extractImages(content) + extractAudioLinks(content))
+            extractInlineAttachments(content)
                 .map(String::trim)
                 .filter { path ->
                     path.isNotEmpty() &&
@@ -213,7 +222,10 @@ class MemoTextProcessor
         }
 
         companion object {
-            private val TAG_PATTERN = Regex("""(?:^|\s)#([\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*)""")
+            private val TAG_PATTERN =
+                Regex(
+                    """(?:^|\s)#([\p{L}\p{N}\p{So}\p{Sc}_][\p{L}\p{N}\p{So}\p{Sc}_/]*)(?=$|[\s,])""",
+                )
             private val MD_IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
             private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
             private val AUDIO_LINK_PATTERN =

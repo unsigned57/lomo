@@ -976,11 +976,6 @@ private open class JournalMarkdownStorageDataSource : MarkdownStorageDataSource 
     val mainFiles = linkedMapOf<String, String>()
     val trashFiles = linkedMapOf<String, String>()
 
-    override suspend fun listFilesIn(
-        directory: MemoDirectoryType,
-        targetFilename: String?,
-    ) = emptyList<com.lomo.data.source.FileContent>()
-
     override suspend fun listMetadataIn(directory: MemoDirectoryType) = emptyList<com.lomo.data.source.FileMetadata>()
 
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType) =
