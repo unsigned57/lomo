@@ -65,7 +65,9 @@ class MemoMutationHistorySchedulingTest {
         handler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
+                mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(dao),
+                memoSearchDao = dao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = savePlanFactory,
                 textProcessor = MemoTextProcessor(),
@@ -128,6 +130,7 @@ class MemoMutationHistorySchedulingTest {
                     MemoRevisionOrigin.LOCAL_TRASH,
                 )
             }
+            coVerify(exactly = 0) { dao.rebuildFts() }
         }
 }
 

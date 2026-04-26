@@ -3,7 +3,10 @@ package com.lomo.data.repository
 import android.net.Uri
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.util.findDestructiveMemoBlock
+import com.lomo.data.util.IndexedTextLines
 import com.lomo.domain.model.Memo
+import java.io.File
 
 internal suspend fun flushMainMemoUpdateToFile(
     runtime: MemoMutationRuntime,
@@ -11,10 +14,11 @@ internal suspend fun flushMainMemoUpdateToFile(
     memo: Memo,
     newContent: String,
 ): Boolean {
+    requireSafeMemoDateKey(memo.dateKey)
     val filename = memo.dateKey + ".md"
     val currentFileContent = readCurrentMainFileContent(runtime, filename)
     return currentFileContent?.let { content ->
-        buildUpdatedFileContent(runtime, storageFormatProvider, content, memo, newContent)?.let { updatedContent ->
+        buildUpdatedFileContent(storageFormatProvider, content, memo, newContent)?.let { updatedContent ->
             persistUpdatedMainFile(runtime, filename, updatedContent)
             true
         } ?: false
@@ -35,22 +39,23 @@ internal suspend fun readCurrentMainFileContent(
 }
 
 internal suspend fun buildUpdatedFileContent(
-    runtime: MemoMutationRuntime,
     storageFormatProvider: MemoStorageFormatProvider,
     currentFileContent: String,
     memo: Memo,
     newContent: String,
 ): String? {
-    val lines = currentFileContent.lines().toMutableList()
-    val success =
-        runtime.textProcessor.replaceMemoBlockSafely(
-            lines = lines,
-            rawContent = memo.rawContent,
-            newRawContent = newContent,
-            timestampStr = storageFormatProvider.formatTime(memo.timestamp),
-            memoId = memo.id,
-        )
-    return lines.joinToString("\n").takeIf { success }
+    val lines = IndexedTextLines.of(currentFileContent)
+    val (startIndex, endIndex) = findDestructiveMemoBlock(lines, memo.rawContent, memo.id)
+    if (startIndex == -1 || endIndex < startIndex) {
+        return null
+    }
+    val replacementLines = buildUpdatedMemoLines(newContent, storageFormatProvider.formatTime(memo.timestamp))
+    return rebuildMemoContent(
+        lines = lines,
+        startIndex = startIndex,
+        endIndex = endIndex,
+        replacementLines = replacementLines,
+    )
 }
 
 internal suspend fun persistUpdatedMainFile(
@@ -65,12 +70,11 @@ internal suspend fun persistUpdatedMainFile(
             content = updatedContent,
             append = false,
         )
-    runtime.markdownStorageDataSource
-        .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
-        ?.let { metadata ->
-            upsertMainState(runtime, filename, metadata.lastModified, savedUri)
-            runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
-        }
+    resolveSavedMainFileLastModified(runtime, filename, savedUri)?.let { lastModified ->
+        upsertMainState(runtime, filename, lastModified, savedUri)
+        runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
+        runtime.webDavLocalChangeRecorder.recordMemoUpsert(filename)
+    }
 }
 
 internal suspend fun appendMainMemoContentAndUpdateState(
@@ -78,9 +82,16 @@ internal suspend fun appendMainMemoContentAndUpdateState(
     filename: String,
     rawContent: String,
 ) {
+    requireSafeMemoMarkdownFilename(filename)
     val savedUriString = appendMainMemoContent(runtime, filename, rawContent)
-    upsertMainState(runtime, filename, resolveMainFileLastModified(runtime, filename), savedUriString)
+    upsertMainState(
+        runtime = runtime,
+        filename = filename,
+        lastModified = resolveMainFileLastModified(runtime, filename, savedUriString),
+        safUri = savedUriString,
+    )
     runtime.s3LocalChangeRecorder.recordMemoUpsert(filename)
+    runtime.webDavLocalChangeRecorder.recordMemoUpsert(filename)
 }
 
 internal suspend fun appendMainMemoContent(
@@ -106,11 +117,25 @@ internal suspend fun getMainSafUri(
 internal suspend fun resolveMainFileLastModified(
     runtime: MemoMutationRuntime,
     filename: String,
+    savedUriString: String? = null,
 ): Long =
-    runtime.markdownStorageDataSource
+    resolveSavedMainFileLastModified(runtime, filename, savedUriString) ?: System.currentTimeMillis()
+
+private suspend fun resolveSavedMainFileLastModified(
+    runtime: MemoMutationRuntime,
+    filename: String,
+    savedUriString: String?,
+): Long? {
+    savedUriString?.let { savedPath ->
+        val file = File(savedPath)
+        if (file.isAbsolute && file.exists()) {
+            file.lastModified().takeIf { it > 0L }?.let { return it }
+        }
+    }
+    return runtime.markdownStorageDataSource
         .getFileMetadataIn(MemoDirectoryType.MAIN, filename)
         ?.lastModified
-        ?: System.currentTimeMillis()
+}
 
 internal fun String?.toPersistedUriOrNull(): Uri? =
     this

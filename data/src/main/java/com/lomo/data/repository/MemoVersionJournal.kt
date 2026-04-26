@@ -1,18 +1,16 @@
 package com.lomo.data.repository
 
-import androidx.room.withTransaction
 import com.lomo.data.local.MemoDatabase
-import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.withDriverTransaction
+import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.data.local.entity.MemoEntity
-import com.lomo.data.local.entity.MemoFtsEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.util.MemoTextProcessor
-import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevisionCursor
 import com.lomo.domain.model.MemoRevisionPage
@@ -181,7 +179,7 @@ class MemoVersionJournal
         private val memoTextProcessor: MemoTextProcessor,
         private val memoWriteDao: MemoWriteDao? = null,
         private val memoTagDao: MemoTagDao? = null,
-        private val memoFtsDao: MemoFtsDao? = null,
+        private val memoImageDao: MemoImageDao? = null,
         private val memoTrashDao: MemoTrashDao? = null,
         private val mediaRepository: MediaRepository? = null,
         private val runInTransaction: suspend (suspend () -> Unit) -> Unit = { block -> block() },
@@ -207,7 +205,7 @@ class MemoVersionJournal
             memoTextProcessor: MemoTextProcessor,
             memoWriteDao: MemoWriteDao,
             memoTagDao: MemoTagDao,
-            memoFtsDao: MemoFtsDao,
+            memoImageDao: MemoImageDao,
             memoTrashDao: MemoTrashDao,
             mediaRepository: MediaRepository,
             database: MemoDatabase,
@@ -220,11 +218,11 @@ class MemoVersionJournal
             memoTextProcessor = memoTextProcessor,
             memoWriteDao = memoWriteDao,
             memoTagDao = memoTagDao,
-            memoFtsDao = memoFtsDao,
+            memoImageDao = memoImageDao,
             memoTrashDao = memoTrashDao,
             mediaRepository = mediaRepository,
             runInTransaction = { block ->
-                database.withTransaction {
+                database.withDriverTransaction {
                     block()
                 }
             },
@@ -602,44 +600,52 @@ class MemoVersionJournal
                 memo = currentMemo.copy(isDeleted = true),
                 memoTextProcessor = memoTextProcessor,
             )
-            if (memoWriteDao == null || memoTagDao == null || memoFtsDao == null || memoTrashDao == null) {
-                return
-            }
+            val stores =
+                memoPersistenceStores(
+                    memoWriteDao = memoWriteDao,
+                    memoTagDao = memoTagDao,
+                    memoImageDao = memoImageDao,
+                    memoTrashDao = memoTrashDao,
+                ) ?: return
             runInTransaction {
-                memoWriteDao.deleteMemoById(revision.memoId)
-                memoTagDao.deleteTagRefsByMemoId(revision.memoId)
-                memoFtsDao.deleteMemoFts(revision.memoId)
-                memoTrashDao.deleteTrashMemoById(revision.memoId)
+                stores.memoWriteDao.deleteMemoById(revision.memoId)
+                stores.memoTagDao.deleteTagRefsByMemoId(revision.memoId)
+                stores.memoImageDao.deleteImageRefsByMemoId(revision.memoId)
+                stores.memoTrashDao.deleteTrashMemoById(revision.memoId)
             }
         }
 
         private suspend fun persistActiveMemo(memo: Memo) {
-            if (memoWriteDao == null || memoTagDao == null || memoFtsDao == null || memoTrashDao == null) {
-                return
-            }
+            val stores =
+                memoPersistenceStores(
+                    memoWriteDao = memoWriteDao,
+                    memoTagDao = memoTagDao,
+                    memoImageDao = memoImageDao,
+                    memoTrashDao = memoTrashDao,
+                ) ?: return
             runInTransaction {
                 val entity = MemoEntity.fromDomain(memo.copy(isDeleted = false))
-                memoWriteDao.insertMemo(entity)
-                memoTagDao.replaceTagRefsForMemo(entity)
-                memoFtsDao.insertMemoFts(
-                    MemoFtsEntity(
-                        memoId = entity.id,
-                        content = SearchTokenizer.tokenize(entity.content),
-                    ),
-                )
-                memoTrashDao.deleteTrashMemoById(entity.id)
+                stores.memoWriteDao.insertMemo(entity)
+                stores.memoTagDao.replaceTagRefsForMemo(entity)
+                stores.memoImageDao.replaceImageRefsForMemo(entity)
+                stores.memoTrashDao.deleteTrashMemoById(entity.id)
             }
         }
 
         private suspend fun persistTrashedMemo(memo: Memo) {
-            if (memoWriteDao == null || memoTagDao == null || memoFtsDao == null || memoTrashDao == null) {
-                return
-            }
+            val stores =
+                memoPersistenceStores(
+                    memoWriteDao = memoWriteDao,
+                    memoTagDao = memoTagDao,
+                    memoImageDao = memoImageDao,
+                    memoTrashDao = memoTrashDao,
+                ) ?: return
             runInTransaction {
-                memoWriteDao.deleteMemoById(memo.id)
-                memoTagDao.deleteTagRefsByMemoId(memo.id)
-                memoFtsDao.deleteMemoFts(memo.id)
-                memoTrashDao.insertTrashMemo(TrashMemoEntity.fromDomain(memo.copy(isDeleted = true)))
+                stores.memoWriteDao.deleteMemoById(memo.id)
+                stores.memoTagDao.deleteTagRefsByMemoId(memo.id)
+                val trashEntity = TrashMemoEntity.fromDomain(memo.copy(isDeleted = true))
+                stores.memoTrashDao.insertTrashMemo(trashEntity)
+                stores.memoImageDao.replaceImageRefsForTrashMemo(trashEntity)
             }
         }
 
@@ -727,6 +733,31 @@ internal data class MemoVersionAppendPayload(
     val assetPairs: List<Pair<String, String>>,
     val assetFingerprint: String,
 )
+
+private data class MemoPersistenceStores(
+    val memoWriteDao: MemoWriteDao,
+    val memoTagDao: MemoTagDao,
+    val memoImageDao: MemoImageDao,
+    val memoTrashDao: MemoTrashDao,
+)
+
+private fun memoPersistenceStores(
+    memoWriteDao: MemoWriteDao?,
+    memoTagDao: MemoTagDao?,
+    memoImageDao: MemoImageDao?,
+    memoTrashDao: MemoTrashDao?,
+): MemoPersistenceStores? {
+    val writeDao = memoWriteDao ?: return null
+    val tagDao = memoTagDao ?: return null
+    val imageDao = memoImageDao ?: return null
+    val trashDao = memoTrashDao ?: return null
+    return MemoPersistenceStores(
+        memoWriteDao = writeDao,
+        memoTagDao = tagDao,
+        memoImageDao = imageDao,
+        memoTrashDao = trashDao,
+    )
+}
 
 internal suspend fun loadLatestAssetPairsIfNeeded(
     store: MemoVersionStore,

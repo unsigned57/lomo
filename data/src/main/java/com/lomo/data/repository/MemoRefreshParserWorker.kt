@@ -34,6 +34,7 @@ class MemoRefreshParserWorker(
     private val markdownStorageDataSource: MarkdownStorageDataSource,
     private val dao: MemoDao,
     private val parser: MarkdownParser,
+    private val fileParseBatchSize: Int = defaultFileParseBatchSize(),
 ) {
     internal suspend fun parseMainFileContents(
         files: List<FileContent>,
@@ -104,8 +105,12 @@ class MemoRefreshParserWorker(
         val metadata = mutableListOf<LocalFileStateEntity>()
         val datesToReplace = mutableSetOf<String>()
 
-        files.chunked(FILE_PARSE_BATCH_SIZE).forEach { chunk ->
-            loadParsedResults(chunk, ::parseMainFile).forEach { (memos, meta) ->
+        files.chunked(fileParseBatchSize).forEach { chunk ->
+            val existingByDate = preloadExistingMemosByDate(chunk)
+            val lookupExisting: suspend (String) -> List<MemoEntity> = { date ->
+                existingByDate[date].orEmpty()
+            }
+            loadParsedResults(chunk) { meta -> parseMainFile(meta, lookupExisting) }.forEach { (memos, meta) ->
                 datesToReplace.add(meta.filename.removeSuffix(".md"))
                 mainMemos.addAll(memos)
                 metadata.add(
@@ -126,12 +131,20 @@ class MemoRefreshParserWorker(
         )
     }
 
+    private suspend fun preloadExistingMemosByDate(
+        chunk: List<FileMetadataWithId>,
+    ): Map<String, List<MemoEntity>> {
+        val dates = chunk.map { it.filename.removeSuffix(".md") }.distinct()
+        if (dates.isEmpty()) return emptyMap()
+        return dao.getMemosByDates(dates).groupBy { it.date }
+    }
+
     private suspend fun parseTrashFiles(files: List<FileMetadataWithId>): ParsedRefreshBatch<TrashMemoEntity> {
         val trashMemos = mutableListOf<TrashMemoEntity>()
         val metadata = mutableListOf<LocalFileStateEntity>()
         val datesToReplace = mutableSetOf<String>()
 
-        files.chunked(FILE_PARSE_BATCH_SIZE).forEach { chunk ->
+        files.chunked(fileParseBatchSize).forEach { chunk ->
             val chunkResults = loadParsedResults(chunk, ::parseTrashFile)
             val activeMemoIdsInDb = resolveActiveMemoIds(chunkResults)
 
@@ -186,7 +199,10 @@ class MemoRefreshParserWorker(
         }
     }
 
-    private suspend fun parseMainFile(meta: FileMetadataWithId): Pair<List<MemoEntity>, FileMetadataWithId>? {
+    private suspend fun parseMainFile(
+        meta: FileMetadataWithId,
+        existingByFilename: suspend (String) -> List<MemoEntity> = { dao.getMemosByDate(it) },
+    ): Pair<List<MemoEntity>, FileMetadataWithId>? {
         val content =
             withContext(Dispatchers.IO) {
                 markdownStorageDataSource.readFileByDocumentIdIn(
@@ -204,9 +220,7 @@ class MemoRefreshParserWorker(
                 fallbackTimestampMillis = meta.lastModified,
             )
         val existingMemosByTimestamp =
-            dao
-                .getMemosByDate(filename)
-                .groupBy(MemoEntity::timestamp)
+            existingByFilename(filename).groupBy(MemoEntity::timestamp)
         val memos =
             domainMemos.map { memo ->
                 MemoEntity
@@ -246,8 +260,12 @@ class MemoRefreshParserWorker(
     }
 }
 
-private const val FILE_PARSE_BATCH_SIZE = 10
 private const val MEMO_LOOKUP_BATCH_SIZE = 500
+private const val MIN_FILE_PARSE_BATCH_SIZE = 2
+private const val MAX_FILE_PARSE_BATCH_SIZE = 8
+
+internal fun defaultFileParseBatchSize(availableProcessors: Int = Runtime.getRuntime().availableProcessors()): Int =
+    availableProcessors.coerceIn(MIN_FILE_PARSE_BATCH_SIZE, MAX_FILE_PARSE_BATCH_SIZE)
 
 internal fun Memo.withStableRefreshId(
     existingMemosByTimestamp: Map<Long, List<MemoEntity>>,

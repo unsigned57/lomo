@@ -33,9 +33,9 @@ import java.util.concurrent.atomic.AtomicInteger
 /*
  * Test Contract:
  * - Unit under test: MemoMutationHandler
- * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, and unsafe rewrite rejection.
- * - Observable outcomes: thrown unsafe mutation exception, LocalFileState writes, persisted updatedAt, and cached flow collection counts.
- * - Red phase: Fails before the fix because updateMemo silently no-ops when a destructive-safe rewrite cannot locate the target memo block.
+ * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, unsafe rewrite rejection, and edit-time orphan attachment cleanup.
+ * - Observable outcomes: thrown unsafe mutation exception, LocalFileState writes, persisted updatedAt, cached flow collection counts, and voice/image deletion dispatch when references disappear.
+ * - Red phase: "updateMemo deletes unreferenced voice attachment removed by edit" fails before the fix because UpdateMemoMutationDelegate never ran orphan cleanup on the removed attachment set.
  * - Excludes: Room transaction internals, UI rendering, and retired legacy-capture storage mechanics.
  */
 class MemoMutationHandlerTest {
@@ -73,7 +73,9 @@ class MemoMutationHandlerTest {
         handler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
+                mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(dao),
+                memoSearchDao = dao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = savePlanFactory,
                 textProcessor = MemoTextProcessor(),
@@ -253,6 +255,34 @@ class MemoMutationHandlerTest {
 
             assertEquals(1L, outboxId)
             assertTrue(persistedMemo.captured.updatedAt > sourceMemo.updatedAt)
+            coVerify(exactly = 1) {
+                dao.replaceImageRefsForMemo(
+                    match { it.id == sourceMemo.id && it.content == "after" },
+                )
+            }
+        }
+
+    @Test
+    fun `updateMemoInDb relies on trigger managed fts and avoids direct fts writes`() =
+        runTest {
+            val sourceMemo =
+                Memo(
+                    id = "memo_update_search",
+                    timestamp = 1_700_000_000_000L,
+                    updatedAt = 1_700_000_000_000L,
+                    content = "before",
+                    rawContent = "- 10:00 before",
+                    dateKey = "2024_01_15",
+                )
+            coEvery { dao.getMemo(sourceMemo.id) } returns
+                com.lomo.data.local.entity.MemoEntity
+                    .fromDomain(sourceMemo)
+            coEvery { dao.insertMemo(any()) } just runs
+            coEvery { dao.insertMemoFileOutbox(any()) } returns 1L
+
+            handler.updateMemoInDb(sourceMemo, "after search")
+
+            coVerify(exactly = 0) { dao.rebuildFts() }
         }
 
     @Test(expected = UnsafeWorkspaceMutationException::class)
@@ -275,6 +305,85 @@ class MemoMutationHandlerTest {
         }
 
     @Test
+    fun `updateMemo deletes unreferenced voice attachment removed by edit`() =
+        runTest {
+            val filename = "2026_03_26.md"
+            val voicePath = "voice_1711418400000.m4a"
+            val sourceMemo =
+                Memo(
+                    id = "2026_03_26_10:00_deadbeef",
+                    timestamp = 1_711_418_400_000L,
+                    updatedAt = 1_711_418_400_000L,
+                    content = "before [voice]($voicePath)",
+                    rawContent = "- 10:00 before [voice]($voicePath)",
+                    dateKey = "2026_03_26",
+                    imageUrls = listOf(voicePath),
+                )
+            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { localFileStateDao.getByFilename(filename, false) } returns null
+            coEvery {
+                fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+            } returns "${sourceMemo.rawContent}\n"
+            coEvery {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = any(),
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+            } returns FileMetadata(filename, 1L)
+            coEvery { dao.countMemosAndTrashWithImage(voicePath, sourceMemo.id) } returns 0
+
+            handler.updateMemo(sourceMemo, "after")
+
+            coVerify(exactly = 1) { fileDataSource.deleteVoiceFile(voicePath) }
+        }
+
+    @Test
+    fun `updateMemo keeps voice attachment that is still referenced by another memo`() =
+        runTest {
+            val filename = "2026_03_26.md"
+            val voicePath = "voice_shared.m4a"
+            val sourceMemo =
+                Memo(
+                    id = "2026_03_26_10:00_deadbeef",
+                    timestamp = 1_711_418_400_000L,
+                    updatedAt = 1_711_418_400_000L,
+                    content = "before [voice]($voicePath)",
+                    rawContent = "- 10:00 before [voice]($voicePath)",
+                    dateKey = "2026_03_26",
+                    imageUrls = listOf(voicePath),
+                )
+            coEvery { dao.getMemo(sourceMemo.id) } returns com.lomo.data.local.entity.MemoEntity.fromDomain(sourceMemo)
+            coEvery { localFileStateDao.getByFilename(filename, false) } returns null
+            coEvery {
+                fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename)
+            } returns "${sourceMemo.rawContent}\n"
+            coEvery {
+                fileDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = filename,
+                    content = any(),
+                    append = false,
+                    uri = null,
+                )
+            } returns null
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename)
+            } returns FileMetadata(filename, 1L)
+            coEvery { dao.countMemosAndTrashWithImage(voicePath, sourceMemo.id) } returns 1
+
+            handler.updateMemo(sourceMemo, "after")
+
+            coVerify(exactly = 0) { fileDataSource.deleteVoiceFile(any()) }
+            coVerify(exactly = 0) { fileDataSource.deleteImage(any()) }
+        }
+
+    @Test
     fun `saveMemoInDb reuses cached storage formats across saves`() =
         runTest {
             val filenameCollections = AtomicInteger(0)
@@ -293,7 +402,9 @@ class MemoMutationHandlerTest {
             val localHandler =
                 MemoMutationHandler(
                     markdownStorageDataSource = fileDataSource,
+                    mediaStorageDataSource = fileDataSource,
                     daoBundle = testMemoMutationDaoBundle(dao),
+                    memoSearchDao = dao,
                     localFileStateDao = localFileStateDao,
                     savePlanFactory = savePlanFactory,
                     textProcessor = MemoTextProcessor(),

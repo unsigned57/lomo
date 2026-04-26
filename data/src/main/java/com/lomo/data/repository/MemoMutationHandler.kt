@@ -1,10 +1,10 @@
 package com.lomo.data.repository
 
-import androidx.room.withTransaction
 import com.lomo.data.local.MemoDatabase
+import com.lomo.data.local.withDriverTransaction
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
-import com.lomo.data.local.dao.MemoFtsDao
+import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoIdentityDao
 import com.lomo.data.local.dao.MemoOutboxDao
 import com.lomo.data.local.dao.MemoTagDao
@@ -14,6 +14,7 @@ import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.util.MemoTextProcessor
+import com.lomo.data.di.ApplicationScope
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
@@ -121,7 +122,9 @@ class MemoMutationHandler private constructor(
     MemoOutboxMutationOperations by MemoOutboxMutationDelegate(runtime, storageFormatProvider) {
     constructor(
         markdownStorageDataSource: MarkdownStorageDataSource,
+        mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
         daoBundle: MemoMutationDaoBundle,
+        memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
         localFileStateDao: LocalFileStateDao,
         savePlanFactory: MemoSavePlanFactory,
         textProcessor: MemoTextProcessor,
@@ -130,11 +133,16 @@ class MemoMutationHandler private constructor(
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionJournal: MemoVersionJournal,
         s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
+        webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+        mutationGate: MemoMutationGate = MemoMutationGate(),
+        settingsScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     ) : this(
         runtime =
             MemoMutationRuntime(
                 markdownStorageDataSource = markdownStorageDataSource,
+                mediaStorageDataSource = mediaStorageDataSource,
                 daoBundle = daoBundle,
+                memoSearchDao = memoSearchDao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = savePlanFactory,
                 textProcessor = textProcessor,
@@ -142,20 +150,24 @@ class MemoMutationHandler private constructor(
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
+                webDavLocalChangeRecorder = webDavLocalChangeRecorder,
+                mutationGate = mutationGate,
             ),
-        storageFormatProvider = MemoStorageFormatProvider(dataStore),
+        storageFormatProvider = MemoStorageFormatProvider(dataStore, settingsScope),
     )
 
     @Inject
     constructor(
         markdownStorageDataSource: MarkdownStorageDataSource,
+        mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
         memoDao: MemoDao,
         memoWriteDao: MemoWriteDao,
         memoTagDao: MemoTagDao,
-        memoFtsDao: MemoFtsDao,
+        memoImageDao: MemoImageDao,
         memoIdentityDao: MemoIdentityDao,
         memoTrashDao: MemoTrashDao,
         memoOutboxDao: MemoOutboxDao,
+        memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
         database: MemoDatabase,
         localFileStateDao: LocalFileStateDao,
         savePlanFactory: MemoSavePlanFactory,
@@ -165,25 +177,30 @@ class MemoMutationHandler private constructor(
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionRecorder: AsyncMemoVersionRecorder,
         s3LocalChangeRecorder: S3LocalChangeRecorder,
+        webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
+        mutationGate: MemoMutationGate,
+        @ApplicationScope settingsScope: CoroutineScope,
     ) : this(
         runtime =
             MemoMutationRuntime(
                 markdownStorageDataSource = markdownStorageDataSource,
+                mediaStorageDataSource = mediaStorageDataSource,
                 daoBundle =
                     MemoMutationDaoBundle(
                         memoDao = memoDao,
                         memoWriteDao = memoWriteDao,
                         memoTagDao = memoTagDao,
-                        memoFtsDao = memoFtsDao,
+                        memoImageDao = memoImageDao,
                         memoIdentityDao = memoIdentityDao,
                         memoTrashDao = memoTrashDao,
                         memoOutboxDao = memoOutboxDao,
                         runInTransaction = { block ->
-                            database.withTransaction {
+                            database.withDriverTransaction {
                                 block()
                             }
                         },
                     ),
+                memoSearchDao = memoSearchDao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = savePlanFactory,
                 textProcessor = textProcessor,
@@ -191,14 +208,18 @@ class MemoMutationHandler private constructor(
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionRecorder = memoVersionRecorder,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
+                webDavLocalChangeRecorder = webDavLocalChangeRecorder,
+                mutationGate = mutationGate,
             ),
-        storageFormatProvider = MemoStorageFormatProvider(dataStore),
+        storageFormatProvider = MemoStorageFormatProvider(dataStore, settingsScope),
     )
 }
 
 internal class MemoMutationRuntime(
     val markdownStorageDataSource: MarkdownStorageDataSource,
+    val mediaStorageDataSource: com.lomo.data.source.MediaStorageDataSource,
     val daoBundle: MemoMutationDaoBundle,
+    val memoSearchDao: com.lomo.data.local.dao.MemoSearchDao,
     val localFileStateDao: LocalFileStateDao,
     val savePlanFactory: MemoSavePlanFactory,
     val textProcessor: MemoTextProcessor,
@@ -206,13 +227,15 @@ internal class MemoMutationRuntime(
     val memoIdentityPolicy: MemoIdentityPolicy,
     val memoVersionRecorder: MemoVersionRecorder,
     val s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
+    val webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+    val mutationGate: MemoMutationGate = MemoMutationGate(),
 )
 
 class MemoMutationDaoBundle(
     val memoDao: MemoDao,
     val memoWriteDao: MemoWriteDao,
     val memoTagDao: MemoTagDao,
-    val memoFtsDao: MemoFtsDao,
+    val memoImageDao: MemoImageDao,
     val memoIdentityDao: MemoIdentityDao,
     val memoTrashDao: MemoTrashDao,
     val memoOutboxDao: MemoOutboxDao,
@@ -221,8 +244,8 @@ class MemoMutationDaoBundle(
 
 internal class MemoStorageFormatProvider(
     private val dataStore: LomoDataStore,
+    private val settingsScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
 ) {
-    private val settingsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val storageFormatSettings =
         combine(
             dataStore.storageFilenameFormat,

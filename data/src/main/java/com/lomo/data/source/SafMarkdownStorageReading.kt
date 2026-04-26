@@ -9,7 +9,7 @@ internal suspend fun safReadFile(
     filename: String,
 ): String? =
     withContext(SAF_IO_DISPATCHER) {
-        val file = documentAccess.root()?.findFile(filename) ?: return@withContext null
+        val file = safResolveRelative(documentAccess.root(), filename) ?: return@withContext null
         documentAccess.readTextFromUri(file.uri)
     }
 

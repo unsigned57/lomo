@@ -10,11 +10,6 @@ class FileMarkdownStorageDataSourceDelegate
     constructor(
         private val backendResolver: FileStorageBackendResolver,
     ) : MarkdownStorageDataSource {
-        override suspend fun listFilesIn(
-            directory: MemoDirectoryType,
-            targetFilename: String?,
-        ): List<FileContent> = backendResolver.markdownBackend()?.listFilesIn(directory, targetFilename) ?: emptyList()
-
         override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
             backendResolver.markdownBackend()?.listMetadataIn(directory) ?: emptyList()
 

@@ -60,7 +60,7 @@ internal suspend fun safDeleteFile(
             Timber.w("Failed to delete using cached URI, falling back to findFile")
         }
         val root = documentAccess.root() ?: throw SecurityException("Cannot access SAF root for deleteFile")
-        root.findFile(filename)?.delete()
+        safResolveRelative(root, filename)?.delete()
         Unit
     }
 }
@@ -99,7 +99,7 @@ private fun safWriteUsingResolvedFile(
     append: Boolean,
 ): String {
     val root = documentAccess.root() ?: throw SecurityException("Cannot access SAF root for saveFile")
-    val targetUri = safResolveOrCreateFileUri(root, filename)
+    val targetUri = safResolveOrCreateRelative(root, filename, "text/markdown").uri
     safWriteMarkdownContent(documentAccess, targetUri, content, append)
     return if (targetUri.toString().isNotBlank()) {
         targetUri.toString()

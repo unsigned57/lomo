@@ -4,52 +4,41 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 
-internal suspend fun directListFiles(
-    rootDir: File,
-    targetFilename: String?,
-): List<FileContent> =
-    withContext(Dispatchers.IO) {
-        if (!rootDir.exists() || !rootDir.isDirectory) {
-            return@withContext emptyList()
-        }
-        rootDir
-            .listFiles { _, name ->
-                name.endsWith(DIRECT_MARKDOWN_SUFFIX) && (targetFilename == null || name == targetFilename)
-            }?.map { file ->
-                FileContent(file.name, file.readText(), file.lastModified())
-            } ?: emptyList()
-    }
+private fun File.relativeLomoPath(rootDir: File): String =
+    toRelativeString(rootDir).replace(File.separatorChar, '/')
 
-internal suspend fun directListTrashFiles(rootDir: File): List<FileContent> =
-    withContext(Dispatchers.IO) {
-        val trashDir = directTrashDir(rootDir)
-        if (!trashDir.exists() || !trashDir.isDirectory) {
-            return@withContext emptyList()
-        }
-        trashDir.listFiles { _, name -> name.endsWith(DIRECT_MARKDOWN_SUFFIX) }?.map { file ->
-            FileContent(file.name, file.readText(), file.lastModified())
-        } ?: emptyList()
-    }
+private fun walkMainMarkdownFiles(rootDir: File): Sequence<File> {
+    if (!rootDir.exists() || !rootDir.isDirectory) return emptySequence()
+    val trashDir = directTrashDir(rootDir)
+    return rootDir
+        .walkTopDown()
+        .onEnter { dir -> dir != trashDir }
+        .filter { file -> file.isFile && file.name.endsWith(DIRECT_MARKDOWN_SUFFIX) }
+}
+
+private fun walkTrashMarkdownFiles(rootDir: File): Sequence<File> {
+    val trashDir = directTrashDir(rootDir)
+    if (!trashDir.exists() || !trashDir.isDirectory) return emptySequence()
+    return trashDir
+        .listFiles { _, name -> name.endsWith(DIRECT_MARKDOWN_SUFFIX) }
+        ?.asSequence()
+        ?.filter(File::isFile)
+        .orEmpty()
+}
 
 internal suspend fun directListMetadata(rootDir: File): List<FileMetadata> =
     withContext(Dispatchers.IO) {
-        if (!rootDir.exists() || !rootDir.isDirectory) {
-            return@withContext emptyList()
-        }
-        rootDir.listFiles { _, name -> name.endsWith(DIRECT_MARKDOWN_SUFFIX) }?.map { file ->
-            FileMetadata(file.name, file.lastModified())
-        } ?: emptyList()
+        walkMainMarkdownFiles(rootDir)
+            .map { file ->
+                FileMetadata(file.relativeLomoPath(rootDir), file.lastModified(), file.length())
+            }.toList()
     }
 
 internal suspend fun directListTrashMetadata(rootDir: File): List<FileMetadata> =
     withContext(Dispatchers.IO) {
-        val trashDir = directTrashDir(rootDir)
-        if (!trashDir.exists() || !trashDir.isDirectory) {
-            return@withContext emptyList()
-        }
-        trashDir.listFiles { _, name -> name.endsWith(DIRECT_MARKDOWN_SUFFIX) }?.map { file ->
-            FileMetadata(file.name, file.lastModified())
-        } ?: emptyList()
+        walkTrashMarkdownFiles(rootDir)
+            .map { file -> FileMetadata(file.name, file.lastModified(), file.length()) }
+            .toList()
     }
 
 internal suspend fun directListMetadataWithIds(rootDir: File): List<FileMetadataWithId> =
@@ -81,7 +70,7 @@ internal suspend fun directGetFileMetadata(
     withContext(Dispatchers.IO) {
         val file = File(rootDir, filename)
         if (file.exists()) {
-            FileMetadata(filename, file.lastModified())
+            FileMetadata(filename, file.lastModified(), file.length())
         } else {
             null
         }
@@ -94,7 +83,7 @@ internal suspend fun directGetTrashFileMetadata(
     withContext(Dispatchers.IO) {
         val file = File(directTrashDir(rootDir), filename)
         if (file.exists()) {
-            FileMetadata(filename, file.lastModified())
+            FileMetadata(filename, file.lastModified(), file.length())
         } else {
             null
         }

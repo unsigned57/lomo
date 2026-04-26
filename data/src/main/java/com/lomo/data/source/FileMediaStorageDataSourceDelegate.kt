@@ -22,6 +22,7 @@ class FileMediaStorageDataSourceDelegate
     ) : MediaStorageDataSource {
         override suspend fun saveImage(uri: Uri): String =
             withContext(Dispatchers.IO) {
+                ImageMagicByteValidator.requireSupportedImage(context.contentResolver, uri)
                 val (backend, _) = backendResolver.mediaBackend(StorageRootType.IMAGE)
                 val filename = buildImageFilename(uri)
                 when (backend) {

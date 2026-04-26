@@ -66,6 +66,68 @@ class MemoSynchronizerUpdateSchedulingTest {
         }
     }
 
+    @Test
+    fun `deleteMemo returns after db-first trash enqueue without waiting for synchronous file rewrite`() {
+        runBlocking {
+            val memo = testMemo()
+            val blockingDeleteGate = CompletableDeferred<Unit>()
+            coEvery { mutationHandler.deleteMemo(memo) } coAnswers {
+                blockingDeleteGate.await()
+            }
+            coEvery { mutationHandler.deleteMemoInDb(memo) } returns 52L
+
+            val synchronizer =
+                MemoSynchronizer(
+                    refreshEngine = refreshEngine,
+                    mutationHandler = mutationHandler,
+                    startOutboxCoordinator = false,
+                )
+            val executor = Executors.newSingleThreadExecutor()
+
+            try {
+                val future = executor.submit<Unit> { runBlocking { synchronizer.deleteMemo(memo) } }
+                future.get(200, TimeUnit.MILLISECONDS)
+            } finally {
+                executor.shutdownNow()
+            }
+
+            coVerify(exactly = 1) { mutationHandler.deleteMemoInDb(memo) }
+            coVerify(exactly = 0) { mutationHandler.deleteMemo(memo) }
+            blockingDeleteGate.complete(Unit)
+        }
+    }
+
+    @Test
+    fun `restoreMemo returns after db-first restore enqueue without waiting for synchronous file rewrite`() {
+        runBlocking {
+            val memo = testMemo().copy(isDeleted = true)
+            val blockingRestoreGate = CompletableDeferred<Unit>()
+            coEvery { mutationHandler.restoreMemo(memo) } coAnswers {
+                blockingRestoreGate.await()
+            }
+            coEvery { mutationHandler.restoreMemoInDb(memo) } returns 63L
+
+            val synchronizer =
+                MemoSynchronizer(
+                    refreshEngine = refreshEngine,
+                    mutationHandler = mutationHandler,
+                    startOutboxCoordinator = false,
+                )
+            val executor = Executors.newSingleThreadExecutor()
+
+            try {
+                val future = executor.submit<Unit> { runBlocking { synchronizer.restoreMemo(memo) } }
+                future.get(200, TimeUnit.MILLISECONDS)
+            } finally {
+                executor.shutdownNow()
+            }
+
+            coVerify(exactly = 1) { mutationHandler.restoreMemoInDb(memo) }
+            coVerify(exactly = 0) { mutationHandler.restoreMemo(memo) }
+            blockingRestoreGate.complete(Unit)
+        }
+    }
+
     private fun testMemo(): Memo =
         Memo(
             id = "memo-update",

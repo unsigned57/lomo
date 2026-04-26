@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import org.eclipse.jgit.api.Git
 import timber.log.Timber
@@ -53,7 +54,7 @@ class GitFileHistoryReader
                     result
                 }
             }.getOrElse { error ->
-                Timber.w(error, "Failed to get file history for %s", filename)
+                Timber.w(error, "Failed to get file history for %s", sanitizePathForLog(filename))
                 emptyList()
             }
         }

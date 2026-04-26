@@ -2,13 +2,16 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoSearchDao
-import com.lomo.data.util.SearchTokenizer
+import com.lomo.data.local.MemoFtsTelemetry
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoSearchRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -62,15 +65,24 @@ class MemoSearchRepositoryImpl
         override fun getActiveDayCount() = memoSearchDao.getActiveDayCount()
 
         private fun memoSearchSource(query: String) =
-            SearchTokenizer
-                .tokenizeQueryTerms(query.trim())
-                .take(MAX_SEARCH_TOKENS)
-                .takeIf(List<String>::isNotEmpty)
-                ?.joinToString(" ") { token -> "$token*" }
-                ?.let(memoSearchDao::searchMemosByFtsFlow)
-                ?: memoSearchDao.searchMemosFlow(query.trim())
+            MemoFtsQueryBuilder
+                .buildMatchQuery(query)
+                ?.let { matchQuery ->
+                    flow {
+                        val startedAt = System.currentTimeMillis()
+                        try {
+                            memoSearchDao.searchMemosByFtsFlow(matchQuery).collect { rows ->
+                                MemoFtsTelemetry.recordSearchResult(
+                                    durationMs = System.currentTimeMillis() - startedAt,
+                                    isEmptyResult = rows.isEmpty(),
+                                )
+                                emit(rows)
+                            }
+                        } catch (e: IllegalArgumentException) {
+                            MemoFtsTelemetry.recordMatchSyntaxError(e)
+                            emit(emptyList())
+                        }
+                    }
+                } ?: flowOf(emptyList())
 
-        private companion object {
-            private const val MAX_SEARCH_TOKENS = 5
-        }
     }

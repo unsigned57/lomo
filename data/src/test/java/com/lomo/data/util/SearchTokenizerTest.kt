@@ -3,6 +3,14 @@ package com.lomo.data.util
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: SearchTokenizer
+ * - Behavior focus: ASCII, CJK, and mixed-text tokenization plus query-term normalization for search input.
+ * - Observable outcomes: emitted tokenized string content and query-term list contents/order.
+ * - Red phase: Not applicable - test-only coverage metadata addition; no production change.
+ * - Excludes: Room/FTS integration, DAO query execution, and UI search-state behavior.
+ */
 class SearchTokenizerTest {
     @Test
     fun `tokenize ASCII text`() {

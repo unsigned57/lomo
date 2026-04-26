@@ -30,13 +30,12 @@ internal fun safeAutoResolvedContent(conflictFile: SyncConflictFile): String? =
     }
 
 internal fun previewInboxMediaReferences(
-    relativePath: String,
     markdown: String,
 ): ImportedInboxContent {
     var rewritten = markdown
     val attachmentReferences = extractInboxAttachmentReferences(markdown)
     attachmentReferences.forEach { attachment ->
-        val destinationFilename = stableImportedInboxFilename(relativePath, attachment.rewriteKey)
+        val destinationFilename = stableImportedInboxFilename(attachment.rewriteKey)
         rewritten =
             rewritten.replace(
                 attachment.referenceText,
@@ -53,24 +52,43 @@ internal suspend fun importInboxMediaReferences(
     context: Context,
     workspaceMediaAccess: WorkspaceMediaAccess,
     inboxRoot: String,
-    relativePath: String,
     markdown: String,
-): ImportedInboxContent {
-    val preview = previewInboxMediaReferences(relativePath = relativePath, markdown = markdown)
-    val importedAttachments = mutableListOf<String>()
+): InboxMediaImportResult {
+    val preview = previewInboxMediaReferences(markdown = markdown)
+    val resolvedAttachments = mutableListOf<Pair<InboxAttachmentReference, ResolvedInboxAttachment>>()
+    val missingAttachments = mutableListOf<String>()
     extractInboxAttachmentReferences(markdown).forEach { attachment ->
         val resolvedAttachment =
             resolveInboxAttachment(
                 context = context,
                 inboxRoot = inboxRoot,
                 attachment = attachment,
-            ) ?: error("Referenced sync inbox attachment not found: ${attachment.sourcePath}")
-        val destinationFilename = stableImportedInboxFilename(relativePath, attachment.rewriteKey)
-        workspaceMediaAccess.writeFile(attachment.category, destinationFilename, resolvedAttachment.bytes)
-        importedAttachments += resolvedAttachment.relativePath
+            )
+        if (resolvedAttachment == null) {
+            missingAttachments += attachment.sourcePath
+            return@forEach
+        }
+        resolvedAttachments += attachment to resolvedAttachment
     }
-    return preview
-        .copy(importedAttachments = importedAttachments.distinct())
+    if (missingAttachments.isNotEmpty()) {
+        return InboxMediaImportResult.MissingAttachments(
+            preview = preview,
+            missingAttachments = missingAttachments.distinct(),
+        )
+    }
+    resolvedAttachments.forEach { (attachment, resolvedAttachment) ->
+        val destinationFilename = stableImportedInboxFilename(attachment.rewriteKey)
+        workspaceMediaAccess.writeFile(attachment.category, destinationFilename, resolvedAttachment.bytes)
+    }
+    return InboxMediaImportResult.Success(
+        preview =
+            preview.copy(
+                importedAttachments =
+                    resolvedAttachments
+                        .map { (_, resolvedAttachment) -> resolvedAttachment.relativePath }
+                        .distinct(),
+            ),
+    )
 }
 
 private fun extractInboxAttachmentReferences(content: String): List<InboxAttachmentReference> {
@@ -164,19 +182,26 @@ private fun inboxAttachmentCategory(sourcePath: String): WorkspaceMediaCategory 
         IMAGE
     }
 
-private fun stableImportedInboxFilename(
-    markdownRelativePath: String,
-    attachmentRelativePath: String,
-): String {
+private fun stableImportedInboxFilename(attachmentRelativePath: String): String {
     val baseName = attachmentRelativePath.substringAfterLast('/').substringBeforeLast('.')
     val extension = attachmentRelativePath.substringAfterLast('.', "")
-    val hashInput = "$markdownRelativePath::$attachmentRelativePath"
     val digest =
         MessageDigest.getInstance("SHA-256")
-            .digest(hashInput.toByteArray())
+            .digest(attachmentRelativePath.toByteArray())
             .joinToString("") { byte -> "%02x".format(byte) }
             .take(IMPORTED_FILENAME_HASH_LENGTH)
     return if (extension.isBlank()) "${baseName}_$digest" else "${baseName}_$digest.$extension"
+}
+
+internal sealed interface InboxMediaImportResult {
+    data class Success(
+        val preview: ImportedInboxContent,
+    ) : InboxMediaImportResult
+
+    data class MissingAttachments(
+        val preview: ImportedInboxContent,
+        val missingAttachments: List<String>,
+    ) : InboxMediaImportResult
 }
 
 internal data class ImportedInboxContent(

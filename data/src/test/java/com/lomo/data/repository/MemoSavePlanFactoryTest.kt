@@ -16,9 +16,9 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: MemoSavePlanFactory
- * - Behavior focus: save-plan normalization, timestamp offsetting, collision suffix calculation, and precomputed-count precedence.
- * - Observable outcomes: generated filename, canonical timestamp, rawContent, memo id, and extracted tags or image URLs.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: save-plan normalization, timestamp offsetting, collision suffix calculation, precomputed-count precedence, and inline attachment extraction coverage.
+ * - Observable outcomes: generated filename, canonical timestamp, rawContent, memo id, and extracted tags or attachment URLs (images + audio links).
+ * - Red phase: "create collects audio link paths in imageUrls alongside image attachments" fails before the fix because extractImages only matches `![...](..)` and `![[...]]`, dropping audio links like `[v](voice_x.m4a)`.
  * - Excludes: file I/O, repository orchestration, and UI state.
  */
 class MemoSavePlanFactoryTest {
@@ -118,6 +118,29 @@ class MemoSavePlanFactoryTest {
         assertEquals(baseTimestamp, plan.timestamp)
         assertEquals(baseId, plan.memo.id)
         assertEquals("- $timeString $content", plan.rawContent)
+    }
+
+    @Test
+    fun `create collects audio link paths in imageUrls alongside image attachments`() {
+        val content = "Visit ![cover](img.png) and play [voice](voice_1234.m4a)"
+
+        val plan =
+            factory.create(
+                content = content,
+                timestamp = timestamp,
+                filenameFormat = StorageFilenameFormats.DEFAULT_PATTERN,
+                timestampFormat = StorageTimestampFormats.DEFAULT_PATTERN,
+                existingFileContent = "",
+            )
+
+        assertTrue(
+            "imageUrls should retain image attachments: ${plan.memo.imageUrls}",
+            plan.memo.imageUrls.contains("img.png"),
+        )
+        assertTrue(
+            "imageUrls should include audio link targets so downstream cleanup can reach them: ${plan.memo.imageUrls}",
+            plan.memo.imageUrls.contains("voice_1234.m4a"),
+        )
     }
 
     private fun expectedDateKey(): String =

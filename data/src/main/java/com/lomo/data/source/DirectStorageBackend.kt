@@ -8,6 +8,7 @@ import java.io.File
  */
 class DirectStorageBackend(
     rootDir: File,
-) : MarkdownStorageBackend by DirectMarkdownStorageBackendDelegate(rootDir),
+    secureWipeBeforeDeleteEnabled: suspend () -> Boolean = { false },
+) : MarkdownStorageBackend by DirectMarkdownStorageBackendDelegate(rootDir, secureWipeBeforeDeleteEnabled),
     WorkspaceConfigBackend by DirectWorkspaceConfigBackendDelegate(rootDir),
     MediaStorageBackend by DirectMediaStorageBackendDelegate(rootDir)

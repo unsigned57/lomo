@@ -3,8 +3,6 @@ package com.lomo.data.repository
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
-import com.lomo.data.local.entity.MemoFtsEntity
-import com.lomo.data.util.SearchTokenizer
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import java.time.Instant
@@ -18,10 +16,10 @@ internal class SaveMemoMutationDelegate(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ) {
+    ) = runtime.mutationGate.withLock {
         val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp, geoLocation)
         persistMainMemoEntity(runtime.daoBundle, MemoEntity.fromDomain(savePlan.memo))
-        flushSavedMemoToFile(savePlan)
+        flushSavedMemoToFileLocked(savePlan)
         runtime.memoVersionRecorder.enqueueLocalRevision(
             memo = savePlan.memo,
             lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
@@ -33,23 +31,29 @@ internal class SaveMemoMutationDelegate(
         content: String,
         timestamp: Long,
         geoLocation: String?,
-    ): SaveDbResult {
-        val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp, geoLocation)
-        val outboxId =
-            persistMemoWithOutbox(
-                daoBundle = runtime.daoBundle,
-                memo = MemoEntity.fromDomain(savePlan.memo),
-                outbox = buildCreateOutbox(savePlan),
+    ): SaveDbResult =
+        runtime.mutationGate.withLock {
+            val savePlan = createSavePlan(runtime, storageFormatProvider, content, timestamp, geoLocation)
+            val outboxId =
+                persistMemoWithOutbox(
+                    daoBundle = runtime.daoBundle,
+                    memo = MemoEntity.fromDomain(savePlan.memo),
+                    outbox = buildCreateOutbox(savePlan),
+                )
+            runtime.memoVersionRecorder.enqueueLocalRevision(
+                memo = savePlan.memo,
+                lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
+                origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_CREATE,
             )
-        runtime.memoVersionRecorder.enqueueLocalRevision(
-            memo = savePlan.memo,
-            lifecycleState = com.lomo.domain.model.MemoRevisionLifecycleState.ACTIVE,
-            origin = com.lomo.domain.model.MemoRevisionOrigin.LOCAL_CREATE,
-        )
-        return SaveDbResult(savePlan = savePlan, outboxId = outboxId)
-    }
+            SaveDbResult(savePlan = savePlan, outboxId = outboxId)
+        }
 
-    override suspend fun flushSavedMemoToFile(savePlan: MemoSavePlan) {
+    override suspend fun flushSavedMemoToFile(savePlan: MemoSavePlan) =
+        runtime.mutationGate.withLock {
+            flushSavedMemoToFileLocked(savePlan)
+        }
+
+    private suspend fun flushSavedMemoToFileLocked(savePlan: MemoSavePlan) {
         appendMainMemoContentAndUpdateState(
             runtime = runtime,
             filename = savePlan.filename,
@@ -106,8 +110,7 @@ internal suspend fun persistMainMemoEntity(
 ) {
     daoBundle.memoWriteDao.insertMemo(entity)
     daoBundle.memoTagDao.replaceTagRefsForMemo(entity)
-    val tokenizedContent = SearchTokenizer.tokenize(entity.content)
-    daoBundle.memoFtsDao.insertMemoFts(MemoFtsEntity(entity.id, tokenizedContent))
+    daoBundle.memoImageDao.replaceImageRefsForMemo(entity)
 }
 
 internal fun buildCreateOutbox(savePlan: MemoSavePlan): MemoFileOutboxEntity =

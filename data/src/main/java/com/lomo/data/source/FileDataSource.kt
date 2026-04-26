@@ -28,11 +28,6 @@ interface WorkspaceConfigSource {
 }
 
 interface MarkdownStorageDataSource {
-    suspend fun listFilesIn(
-        directory: MemoDirectoryType,
-        targetFilename: String? = null,
-    ): List<FileContent>
-
     suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata>
 
     suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId>
@@ -97,6 +92,7 @@ data class FileContent(
 data class FileMetadata(
     val filename: String,
     val lastModified: Long,
+    val size: Long? = null,
 )
 
 data class FileMetadataWithId(

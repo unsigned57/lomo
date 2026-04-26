@@ -8,15 +8,6 @@ internal class SafMarkdownStorageBackendDelegate(
     private val rootUri: Uri,
     private val documentAccess: SafDocumentAccess,
 ) : MarkdownStorageBackend {
-    override suspend fun listFilesIn(
-        directory: MemoDirectoryType,
-        targetFilename: String?,
-    ): List<FileContent> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safListFiles(documentAccess, targetFilename)
-            MemoDirectoryType.TRASH -> safListTrashFiles(documentAccess)
-        }
-
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
         when (directory) {
             MemoDirectoryType.MAIN -> safListMetadata(context, rootUri, documentAccess)

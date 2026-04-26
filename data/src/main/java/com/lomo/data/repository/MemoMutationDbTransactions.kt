@@ -27,7 +27,6 @@ internal suspend fun moveMemoToTrashWithOutbox(
     daoBundle.runInTransaction {
         daoBundle.memoWriteDao.deleteMemoById(sourceMemo.id)
         daoBundle.memoTagDao.deleteTagRefsByMemoId(sourceMemo.id)
-        daoBundle.memoFtsDao.deleteMemoFts(sourceMemo.id)
         daoBundle.memoTrashDao.insertTrashMemo(TrashMemoEntity.fromDomain(sourceMemo.copy(isDeleted = true)))
         outboxId = daoBundle.memoOutboxDao.insertMemoFileOutbox(outbox)
     }

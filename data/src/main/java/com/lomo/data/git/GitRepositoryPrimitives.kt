@@ -1,5 +1,6 @@
 package com.lomo.data.git
 
+import com.lomo.data.util.sanitizePathForLog
 import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.GitSyncResult
 import org.eclipse.jgit.api.Git
@@ -152,7 +153,7 @@ class GitRepositoryPrimitives
                 val loader = git.repository.open(objectId)
                 String(loader.bytes, Charsets.UTF_8)
             }.getOrElse { error ->
-                Timber.w(error, "Failed to read %s at commit %s", filename, commit.name)
+                Timber.w(error, "Failed to read %s at commit %s", sanitizePathForLog(filename), commit.name)
                 null
             }
         }

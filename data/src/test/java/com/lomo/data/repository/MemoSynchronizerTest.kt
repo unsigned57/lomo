@@ -3,7 +3,6 @@ package com.lomo.data.repository
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.parser.MarkdownParser
-import com.lomo.data.source.FileContent
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.FileMetadataWithId
@@ -54,7 +53,9 @@ class MemoSynchronizerTest {
         val mutationHandler =
             MemoMutationHandler(
                 markdownStorageDataSource = fileDataSource,
+                mediaStorageDataSource = fileDataSource,
                 daoBundle = testMemoMutationDaoBundle(memoDao),
+                memoSearchDao = memoDao,
                 localFileStateDao = localFileStateDao,
                 savePlanFactory = MemoSavePlanFactory(parser, processor, memoIdentityPolicy),
                 textProcessor = processor,
@@ -65,7 +66,7 @@ class MemoSynchronizerTest {
                         mediaStorageDataSource = fileDataSource,
                         memoWriteDao = memoDao,
                         memoTagDao = memoDao,
-                        memoFtsDao = memoDao,
+                        memoImageDao = memoDao,
                         memoTrashDao = memoDao,
                         memoSearchDao = memoDao,
                         localFileStateDao = localFileStateDao,
@@ -86,7 +87,7 @@ class MemoSynchronizerTest {
                         memoDao = memoDao,
                         memoWriteDao = memoDao,
                         memoTagDao = memoDao,
-                        memoFtsDao = memoDao,
+                        memoImageDao = memoDao,
                         memoTrashDao = memoDao,
                         localFileStateDao = localFileStateDao,
                         memoVersionJournal = memoVersionJournal,
@@ -130,7 +131,8 @@ class MemoSynchronizerTest {
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns listOf(metadata)
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
             coEvery { fileDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, "doc123") } returns fileContent
-            coEvery { localFileStateDao.getAll() } returns emptyList()
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns emptyList()
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
 
             synchronizer.refresh()
 
@@ -143,7 +145,8 @@ class MemoSynchronizerTest {
         runTest {
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
-            coEvery { localFileStateDao.getAll() } returns emptyList()
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns emptyList()
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
 
             // Should not crash
             synchronizer.refresh()
@@ -152,15 +155,17 @@ class MemoSynchronizerTest {
     @Test
     fun `refresh with target filename uses listFiles path`() =
         runTest {
-            // When targetFilename is specified, refresh uses listFiles instead of incremental sync
-            val fileContent =
-                FileContent(
-                    filename = "2024_01_15.md",
-                    content = "- 10:30:00 Test memo content",
-                    lastModified = System.currentTimeMillis(),
-                )
+            // When targetFilename is specified, refresh reads just that file via metadata + readFileIn.
+            val content = "- 10:30:00 Test memo content"
+            val lastModified = System.currentTimeMillis()
 
-            coEvery { fileDataSource.listFilesIn(MemoDirectoryType.MAIN, "2024_01_15.md") } returns listOf(fileContent)
+            coEvery {
+                fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2024_01_15.md")
+            } returns FileMetadata(filename = "2024_01_15.md", lastModified = lastModified)
+            coEvery {
+                fileDataSource.readFileIn(MemoDirectoryType.MAIN, "2024_01_15.md")
+            } returns content
+            coEvery { localFileStateDao.getByFilename("2024_01_15.md", false) } returns null
 
             synchronizer.refresh(targetFilename = "2024_01_15.md")
 
@@ -186,7 +191,8 @@ class MemoSynchronizerTest {
 
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns listOf(metadata)
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
-            coEvery { localFileStateDao.getAll() } returns listOf(syncEntity)
+            coEvery { localFileStateDao.getAllByTrashStatus(false) } returns listOf(syncEntity)
+            coEvery { localFileStateDao.getAllByTrashStatus(true) } returns emptyList()
 
             synchronizer.refresh()
 

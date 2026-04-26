@@ -26,9 +26,13 @@ import java.nio.file.Files
 /*
  * Test Contract:
  * - Unit under test: SyncInboxRepositoryImpl
- * - Behavior focus: ensuring the required sync-inbox directory structure and importing memo markdown from the dedicated memo subdirectory.
- * - Observable outcomes: created memo/images/voice directories, sync success result, imported memo save call, and removal of processed inbox files.
- * - Red phase: Fails before the fix because selecting a sync inbox does not create the required subdirectories and the importer only scans root-level markdown files.
+ * - Behavior focus: ensuring the required sync-inbox directory structure, importing memo markdown from the
+ *   dedicated memo subdirectory, keeping the batch running when one file is missing an attachment, and
+ *   reusing stable imported attachment filenames across memos to avoid duplicate cache growth.
+ * - Observable outcomes: created memo/images/voice directories, sync result shape, imported memo save calls,
+ *   stable imported attachment names, and removal/preservation of inbox source files.
+ * - Red phase: Fails before the fix because selecting a sync inbox does not create the required subdirectories,
+ *   missing attachments abort the whole batch as an error, and imported attachment names include the markdown path.
  * - Excludes: SAF tree creation mechanics, media attachment import rules already covered elsewhere, and conflict-resolution heuristics.
  */
 class SyncInboxRepositoryStructureTest {
@@ -315,15 +319,94 @@ class SyncInboxRepositoryStructureTest {
 
             val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
 
-            assertTrue(result is UnifiedSyncResult.Error)
+            assertTrue(result is UnifiedSyncResult.Conflict)
             assertEquals(
-                "Referenced sync inbox attachment not found: cover.png",
-                (result as UnifiedSyncResult.Error).error.message,
+                listOf("inbox/memo/2026_04_21.md"),
+                (result as UnifiedSyncResult.Conflict).conflicts.files.map { it.relativePath },
             )
             coVerify(exactly = 0) {
                 markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any())
             }
             coVerify(exactly = 0) { workspaceMediaAccess.writeFile(any(), any(), any()) }
             assertTrue(inboxFile.exists())
+        }
+
+    @Test
+    fun `sync keeps importing later markdown files when one file is missing an attachment`() =
+        runTest {
+            val inboxRoot = Files.createTempDirectory("sync-inbox-missing-attachment-batch").toFile()
+            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+            File(inboxRoot, "images").mkdirs()
+            File(inboxRoot, "voice").mkdirs()
+            val brokenInboxFile =
+                File(memoDirectory, "2026_04_23.md").apply {
+                    writeText("memo with missing image ![missing](images/missing.png)")
+                }
+            val validInboxFile =
+                File(memoDirectory, "2026_04_24.md").apply {
+                    writeText("valid memo after broken attachment")
+                }
+
+            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_23.md") } returns null
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_24.md") } returns null
+
+            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+
+            assertTrue(result is UnifiedSyncResult.Conflict)
+            assertEquals(
+                listOf("inbox/memo/2026_04_23.md"),
+                (result as UnifiedSyncResult.Conflict).conflicts.files.map { it.relativePath },
+            )
+            coVerify(exactly = 1) {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = "2026_04_24.md",
+                    content = "valid memo after broken attachment",
+                    append = false,
+                    uri = null,
+                )
+            }
+            assertTrue(brokenInboxFile.exists())
+            assertTrue(!validInboxFile.exists())
+        }
+
+    @Test
+    fun `sync reuses one imported attachment filename across memos sharing the same source path`() =
+        runTest {
+            val inboxRoot = Files.createTempDirectory("sync-inbox-stable-attachments").toFile()
+            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+            File(inboxRoot, "voice").mkdirs()
+            val imageBytes = "shared-cover".toByteArray()
+            File(imagesDirectory, "cover.png").writeBytes(imageBytes)
+            File(memoDirectory, "2026_04_25.md").writeText("first ![cover](images/cover.png)")
+            File(memoDirectory, "2026_04_26.md").writeText("second ![cover](images/cover.png)")
+            val capturedFilenames = mutableListOf<String>()
+
+            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
+            coEvery {
+                workspaceMediaAccess.writeFile(
+                    category = WorkspaceMediaCategory.IMAGE,
+                    filename = any(),
+                    bytes = match { it.contentEquals(imageBytes) },
+                )
+            } answers {
+                capturedFilenames += secondArg<String>()
+                Unit
+            }
+
+            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+
+            assertEquals(
+                UnifiedSyncResult.Success(
+                    provider = SyncBackendType.INBOX,
+                    message = "Sync inbox processed",
+                ),
+                result,
+            )
+            assertEquals(2, capturedFilenames.size)
+            assertEquals(capturedFilenames.first(), capturedFilenames.last())
         }
 }

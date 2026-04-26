@@ -28,7 +28,7 @@ class WorkspaceTransitionRepositoryImplTest {
                 memoWriteDao = memoDao,
                 memoOutboxDao = memoDao,
                 memoTagDao = memoDao,
-                memoFtsDao = memoDao,
+                memoImageDao = memoDao,
                 memoTrashDao = memoDao,
                 localFileStateDao = localFileStateDao,
             )
@@ -40,9 +40,9 @@ class WorkspaceTransitionRepositoryImplTest {
             coEvery { memoDao.clearMemoFileOutbox() } just runs
             coEvery { localFileStateDao.clearAll() } just runs
             coEvery { memoDao.clearTagRefs() } just runs
+            coEvery { memoDao.clearImageRefs() } just runs
             coEvery { memoDao.clearAll() } just runs
             coEvery { memoDao.clearTrash() } just runs
-            coEvery { memoDao.clearFts() } just runs
 
             repository.clearMemoStateAfterWorkspaceTransition()
 
@@ -50,9 +50,9 @@ class WorkspaceTransitionRepositoryImplTest {
                 memoDao.clearMemoFileOutbox()
                 localFileStateDao.clearAll()
                 memoDao.clearTagRefs()
+                memoDao.clearImageRefs()
                 memoDao.clearAll()
                 memoDao.clearTrash()
-                memoDao.clearFts()
             }
         }
 }
