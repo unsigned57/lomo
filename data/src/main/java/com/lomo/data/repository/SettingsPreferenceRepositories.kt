@@ -176,6 +176,13 @@ class InteractionBehaviorPreferencesRepositoryImpl
         override suspend fun setScrollbarEnabled(enabled: Boolean) {
             dataStore.updateScrollbarEnabled(enabled)
         }
+
+        override fun isSecureWipeBeforeDeleteEnabled(): Flow<Boolean> =
+            dataStore.secureWipeBeforeDeleteEnabled
+
+        override suspend fun setSecureWipeBeforeDeleteEnabled(enabled: Boolean) {
+            dataStore.updateSecureWipeBeforeDeleteEnabled(enabled)
+        }
     }
 
 @Singleton

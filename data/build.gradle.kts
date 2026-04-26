@@ -47,13 +47,15 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.aws.sdk.kotlin.s3)
+    implementation(libs.aws.smithy.kotlin.http.client.engine.okhttp.jvm)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.bouncycastle.bcprov)
 
     // Room
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
+    implementation(libs.androidx.room3.runtime)
+    implementation(libs.androidx.room3.paging)
+    implementation(libs.androidx.sqlite.bundled)
+    ksp(libs.androidx.room3.compiler)
 
     // Hilt
     implementation(libs.hilt.android)
