@@ -45,6 +45,12 @@ coroutines:
   SuspendFunSwallowedCancellation:
     active: true
 exceptions:
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - CancellationException
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
   TooGenericExceptionCaught:
     exceptionNames:
       - Throwable
@@ -62,6 +68,10 @@ style:
         value: "kotlin.text.lowercase(kotlin.String)"
       - reason: "Use an explicit locale when normalizing case for non-user-facing identifiers."
         value: "kotlin.text.uppercase(kotlin.String)"
+      - reason: "String.hashCode() is not stable across JVM runs; use SHA-256 (toVersionHash) for persistence."
+        value: "kotlin.text.hashCode(kotlin.String)"
+      - reason: "ConcurrentHashMap with credentials in key leaks entries after credential changes."
+        value: "java.util.concurrent.ConcurrentHashMap.getOrPut"
   ForbiddenComment:
     comments:
       - reason: "Resolve backlog markers before merge."
@@ -78,6 +88,16 @@ style:
       - androidx.lifecycle.ViewModel
       - androidx.compose.*
   NullableBooleanCheck:
+    active: true
+  CanBeNonNullable:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UseEmptyCounterpart:
+    active: true
+  UseIsNullOrEmpty:
+    active: true
+  VarCouldBeVal:
     active: true
   ReturnCount:
     max: 4

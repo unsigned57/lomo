@@ -39,6 +39,12 @@ coroutines:
   SuspendFunSwallowedCancellation:
     active: true
 exceptions:
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - CancellationException
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
   TooGenericExceptionCaught:
     exceptionNames:
       - Throwable
@@ -70,6 +76,16 @@ style:
     forbiddenImports:
       - com.lomo.data.*
   NullableBooleanCheck:
+    active: true
+  CanBeNonNullable:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UseEmptyCounterpart:
+    active: true
+  UseIsNullOrEmpty:
+    active: true
+  VarCouldBeVal:
     active: true
   ReturnCount:
     max: 4

@@ -35,6 +35,7 @@ Read in this order and only when the task actually requires the next layer:
 
 ## 3. AI Code Rules
 
+- **Root-Cause Over Patch**: Prefer solutions that eliminate the root cause rather than work around symptoms. A patch is acceptable for an isolated, low-risk bug fix. For architectural issues—cross-cutting duplication, missing abstractions, design-level inconsistencies—the fix must address the structural problem itself. Adding a workaround layer, an extra `if`, or a NoOp fallback on top of a broken abstraction is not an acceptable remedy. When an audit or review identifies an architectural debt, the response must be a structural refactor, not a patch.
 - **Review Grade**: Write with review-grade clarity and correctness. Assume code will be reviewed by Claude.
 - **No Suppress**: Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings`.
 - **Statics First**: Fix static check complaints by refactoring or moving logic, not by suppressing.
