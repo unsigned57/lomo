@@ -562,6 +562,20 @@ internal class GitSyncBehaviorStoreImpl(
     override suspend fun updateSyncBackendType(type: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = type }
     }
+
+    override suspend fun setRemoteSyncBackendFlags(
+        backendType: String,
+        gitEnabled: Boolean,
+        webdavEnabled: Boolean,
+        s3Enabled: Boolean,
+    ) {
+        dataStore.editPreferences {
+            this[LomoDataStoreKeys.SYNC_BACKEND_TYPE] = backendType
+            this[LomoDataStoreKeys.GIT_SYNC_ENABLED] = gitEnabled
+            this[LomoDataStoreKeys.WEBDAV_SYNC_ENABLED] = webdavEnabled
+            this[LomoDataStoreKeys.S3_SYNC_ENABLED] = s3Enabled
+        }
+    }
 }
 
 internal class GitIdentityStoreImpl(

@@ -5,12 +5,20 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import java.time.LocalDate
 
 /**
  * Core repository for memo data operations: CRUD, search, trash, stats, and sync.
  */
 interface MemoQueryRepository {
     fun getAllMemosList(): Flow<List<Memo>>
+
+    fun getMemosByDateRange(
+        startDate: LocalDate?,
+        endDate: LocalDate?,
+    ): Flow<List<Memo>>
+
+    fun getGalleryMemosList(): Flow<List<Memo>>
 
     suspend fun getRecentMemos(limit: Int): List<Memo>
 

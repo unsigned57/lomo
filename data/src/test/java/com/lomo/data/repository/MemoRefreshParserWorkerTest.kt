@@ -169,6 +169,37 @@ class MemoRefreshParserWorkerTest {
         }
 
     @Test
+    fun `parse prefers same-content id when multiple existing memos share timestamp`() =
+        runTest {
+            val mainMeta = fileMeta("2026_03_07.md", 707L, "main-stable-collision", "content://lomo/main-stable-collision")
+            val existingAlpha = memo(id = "memo-existing-alpha", dateKey = "2026_03_07", content = "alpha")
+            val existingBeta = memo(id = "memo-existing-beta", dateKey = "2026_03_07", content = "beta")
+            val reparsedMemo =
+                existingBeta.copy(
+                    id = "memo-reparsed-random",
+                    rawContent = "- 10:00 beta",
+                )
+
+            coEvery {
+                markdownStorageDataSource.readFileByDocumentIdIn(MemoDirectoryType.MAIN, mainMeta.documentId)
+            } returns "- 10:00 beta"
+            every {
+                parser.parseContent("- 10:00 beta", "2026_03_07", 707L)
+            } returns listOf(reparsedMemo)
+            coEvery { dao.getMemosByDates(listOf("2026_03_07")) } returns
+                listOf(
+                    MemoEntity.fromDomain(existingAlpha),
+                    MemoEntity.fromDomain(existingBeta),
+                )
+
+            val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
+
+            assertEquals(1, result.mainMemos.size)
+            assertEquals("memo-existing-beta", result.mainMemos.single().id)
+            coVerify(exactly = 1) { dao.getMemosByDates(listOf("2026_03_07")) }
+        }
+
+    @Test
     fun `parse filters trash memos that already exist in main db while keeping metadata`() =
         runTest {
             val trashMeta = fileMeta("2026_03_05.md", 505L, "trash-filter", "content://lomo/trash-filter")

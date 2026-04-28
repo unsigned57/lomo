@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.lomo.data.local.dao.DefaultMainListDao
+import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.DefaultMainListMemoRow
@@ -14,6 +15,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,6 +25,7 @@ class MemoQueryRepositoryImpl
     @Inject
     constructor(
         private val memoDao: MemoDao,
+        private val memoBrowseDao: MemoBrowseDao,
         private val defaultMainListDao: DefaultMainListDao,
         private val memoPinDao: MemoPinDao,
         private val synchronizer: MemoSynchronizer,
@@ -29,6 +33,32 @@ class MemoQueryRepositoryImpl
         override fun getAllMemosList(): Flow<List<Memo>> =
             combine(
                 memoDao.getAllMemosFlow(),
+                memoPinDao.getPinnedMemoIdsFlow().map { pinnedIds -> pinnedIds.toSet() },
+            ) { entities, pinnedMemoIds ->
+                entities.mapToPinnedDomain(pinnedMemoIds)
+            }.flowOn(Dispatchers.Default)
+
+        override fun getMemosByDateRange(
+            startDate: LocalDate?,
+            endDate: LocalDate?,
+        ): Flow<List<Memo>> {
+            val normalizedRange = listOfNotNull(startDate, endDate).sorted()
+            val normalizedStart = normalizedRange.firstOrNull()
+            val normalizedEnd = normalizedRange.lastOrNull()
+            return combine(
+                memoBrowseDao.getMemosByTimestampRangeFlow(
+                    startTimestampInclusive = normalizedStart.toStartOfDayEpochMillis(),
+                    endTimestampExclusive = normalizedEnd.toExclusiveEndOfDayEpochMillis(),
+                ),
+                memoPinDao.getPinnedMemoIdsFlow().map { pinnedIds -> pinnedIds.toSet() },
+            ) { entities, pinnedMemoIds ->
+                entities.mapToPinnedDomain(pinnedMemoIds)
+            }.flowOn(Dispatchers.Default)
+        }
+
+        override fun getGalleryMemosList(): Flow<List<Memo>> =
+            combine(
+                memoBrowseDao.getGalleryMemosFlow(),
                 memoPinDao.getPinnedMemoIdsFlow().map { pinnedIds -> pinnedIds.toSet() },
             ) { entities, pinnedMemoIds ->
                 entities.mapToPinnedDomain(pinnedMemoIds)
@@ -74,6 +104,22 @@ internal fun List<MemoEntity>.mapToPinnedDomain(pinnedMemoIds: Set<String>): Lis
 
 private fun DefaultMainListMemoRow.toDomain(): Memo = memo.toDomain(isPinned = isPinned)
 
+private fun LocalDate?.toStartOfDayEpochMillis(): Long =
+    this
+        ?.atStartOfDay(ZoneId.systemDefault())
+        ?.toInstant()
+        ?.toEpochMilli()
+        ?: Long.MIN_VALUE
+
+private fun LocalDate?.toExclusiveEndOfDayEpochMillis(): Long =
+    this
+        ?.takeUnless { it == LocalDate.MAX }
+        ?.plusDays(1)
+        ?.atStartOfDay(ZoneId.systemDefault())
+        ?.toInstant()
+        ?.toEpochMilli()
+        ?: Long.MAX_VALUE
+
 private class MemoRowMappingPagingSource(
     private val source: PagingSource<Int, DefaultMainListMemoRow>,
 ) : PagingSource<Int, Memo>() {
@@ -96,8 +142,30 @@ private class MemoRowMappingPagingSource(
         }
 
     override fun getRefreshKey(state: PagingState<Int, Memo>): Int? =
-        state.anchorPosition?.let { anchor ->
-            val pageSize = state.config.pageSize.takeIf { it > 0 } ?: return null
-            anchor / pageSize
-        }
+        source.getRefreshKey(state.toDefaultMainListRowState())
 }
+
+private fun PagingState<Int, Memo>.toDefaultMainListRowState(): PagingState<Int, DefaultMainListMemoRow> =
+    PagingState(
+        pages =
+            pages.map { page ->
+                PagingSource.LoadResult.Page(
+                    data =
+                        page.data.map { memo ->
+                            DefaultMainListMemoRow(
+                                memo = MemoEntity.fromDomain(memo),
+                                isPinned = memo.isPinned,
+                            )
+                        },
+                    prevKey = page.prevKey,
+                    nextKey = page.nextKey,
+                    itemsBefore = page.itemsBefore,
+                    itemsAfter = page.itemsAfter,
+                )
+            },
+        anchorPosition = anchorPosition,
+        config = config,
+        // PagingState does not expose leadingPlaceholderCount in this artifact.
+        // We keep it at 0 because placeholders are disabled for this list.
+        leadingPlaceholderCount = 0,
+    )

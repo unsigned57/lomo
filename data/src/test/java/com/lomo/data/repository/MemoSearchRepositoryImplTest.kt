@@ -19,8 +19,9 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: MemoSearchRepositoryImpl
  * - Behavior focus: tokenized FTS routing for Latin and CJK input, supported MATCH query generation, tag-query parameterization,
- *   pinned-state merge, and count/tag row mapping.
- * - Observable outcomes: returned memo ids with pinned flags, selected query path outputs, and mapped date-count or tag-count domain structures.
+ *   pinned-state merge, count/tag row mapping, and LIKE wildcard escaping.
+ * - Observable outcomes: returned memo ids with pinned flags, selected query path outputs, mapped date-count or tag-count domain
+ *   structures, and correctly escaped LIKE query strings.
  * - Red phase: Fails before the fix because search can drift away from the tokenized FTS5 query contract used
  *   by the persisted index and break Latin or CJK prefix search behavior.
  * - Excludes: Room SQL execution correctness, SearchTokenizer internals, and dispatcher/threading behavior.
@@ -204,6 +205,27 @@ class MemoSearchRepositoryImplTest {
             verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("or* and* not*") }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
+
+    @Test
+    fun `escapeLikeQuery escapes percent sign so it is treated as literal`() {
+        assertEquals("\\%", repository.escapeLikeQuery("%"))
+    }
+
+    @Test
+    fun `escapeLikeQuery escapes underscore so it is treated as literal`() {
+        assertEquals("\\_", repository.escapeLikeQuery("_"))
+    }
+
+    @Test
+    fun `escapeLikeQuery escapes backslash before percent and underscore`() {
+        assertEquals("50\\%", repository.escapeLikeQuery("50%"))
+        assertEquals("file\\_name", repository.escapeLikeQuery("file_name"))
+    }
+
+    @Test
+    fun `escapeLikeQuery leaves ordinary characters unchanged`() {
+        assertEquals("hello world", repository.escapeLikeQuery("hello world"))
+    }
 
     private fun memoEntity(
         id: String,

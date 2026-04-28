@@ -12,7 +12,7 @@ interface MemoSearchDao {
     @Query(
         """
         SELECT * FROM Lomo 
-        WHERE content LIKE '%' || :query || '%' 
+        WHERE content LIKE '%' || :query || '%' ESCAPE '\'
         ORDER BY timestamp DESC, id DESC
         """,
     )

@@ -64,6 +64,13 @@ class MemoSearchRepositoryImpl
 
         override fun getActiveDayCount() = memoSearchDao.getActiveDayCount()
 
+        /**
+         * Escapes LIKE wildcard characters (`%` and `_`) using backslash so that user-supplied
+         * query strings are treated as literal text by the SQL `LIKE … ESCAPE '\'` clause.
+         */
+        internal fun escapeLikeQuery(raw: String): String =
+            raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
         private fun memoSearchSource(query: String) =
             MemoFtsQueryBuilder
                 .buildMatchQuery(query)
@@ -79,6 +86,7 @@ class MemoSearchRepositoryImpl
                                 emit(rows)
                             }
                         } catch (e: IllegalArgumentException) {
+                            Timber.w(e, "FTS MATCH syntax error; falling back to empty results. query=%s", matchQuery)
                             MemoFtsTelemetry.recordMatchSyntaxError(e)
                             emit(emptyList())
                         }

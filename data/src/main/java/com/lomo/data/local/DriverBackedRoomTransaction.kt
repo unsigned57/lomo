@@ -9,3 +9,16 @@ suspend fun <T> MemoDatabase.withDriverTransaction(block: suspend () -> T): T =
             block()
         }
     }
+
+suspend fun <T> MemoDatabase.withDriverTransactionAndSuspendedMemoFtsTriggers(block: suspend () -> T): T =
+    useWriterConnection { transactor ->
+        transactor.immediateTransaction {
+            dropMemoFtsExternalContentTriggers(transactor)
+            try {
+                block()
+            } finally {
+                createMemoFtsExternalContentTriggers(transactor)
+                rebuildMemoFtsExternalContentIndex(transactor)
+            }
+        }
+    }

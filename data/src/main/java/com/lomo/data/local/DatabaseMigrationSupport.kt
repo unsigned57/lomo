@@ -23,7 +23,7 @@ private const val LOCAL_FILE_STATE_LEGACY_TABLE = "local_file_state_legacy_v22"
 private const val MEMO_FILE_OUTBOX_LEGACY_TABLE = "MemoFileOutbox_legacy_v22"
 internal const val LEGACY_ROW_ID_TEXT_EXPR = "'legacy_' || rowid"
 internal const val CURRENT_TIME_MILLIS_SQL = "(CAST(strftime('%s','now') AS INTEGER) * 1000)"
-internal const val UPDATE_OPERATION_SQL = "'UPDATE'"
+internal const val UPDATE_OPERATION_SQL = "1"
 
 internal fun migrateLegacyMemosTable(db: SQLiteConnection) {
     val columns = db.tableColumns(LEGACY_MEMOS_TABLE)

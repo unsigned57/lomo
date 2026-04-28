@@ -280,6 +280,11 @@ private fun rememberResolvedMemoActionSheetActions(
 internal val MemoActionSheetAction.reorderKey: String
     get() = id?.storageKey ?: "no-id-$label"
 
+internal enum class MemoActionRowLayoutMode {
+    LAZY_ROW,
+    EQUAL_WIDTH_STATIC,
+}
+
 @Composable
 private fun MemoActionRow(
     actions: androidx.compose.runtime.snapshots.SnapshotStateList<MemoActionSheetAction>,
@@ -294,37 +299,98 @@ private fun MemoActionRow(
     onActionOrderChanged: (List<MemoActionId>) -> Unit,
 ) {
     val haptic = LocalAppHapticFeedback.current
-
-    LazyRow(
-        state = lazyRowState,
-        userScrollEnabled = useHorizontalScroll,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    when (
+        resolveMemoActionRowLayoutMode(
+            equalWidthActions = equalWidthActions,
+            useHorizontalScroll = useHorizontalScroll,
+        )
     ) {
-        items(
-            items = actions,
-            key = { it.reorderKey },
-        ) { action ->
-            ReorderableItem(
-                state = reorderableLazyRowState,
-                key = action.reorderKey,
-            ) { isDragging ->
-                ReorderableActionChip(
-                    action = action,
-                    isDragging = isDragging,
-                    equalWidthActions = equalWidthActions,
-                    haptic = haptic,
-                    memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-                    onActionInvoked = onActionInvoked,
-                    onActionOrderChanged = {
-                        onActionOrderChanged(actions.mapNotNull(MemoActionSheetAction::id))
-                    },
-                    onPerformHaptic = onPerformHaptic,
-                    onDismiss = onDismiss,
-                )
+        MemoActionRowLayoutMode.LAZY_ROW ->
+            LazyRow(
+                state = lazyRowState,
+                userScrollEnabled = useHorizontalScroll,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(
+                    items = actions,
+                    key = { it.reorderKey },
+                ) { action ->
+                    ReorderableItem(
+                        state = reorderableLazyRowState,
+                        key = action.reorderKey,
+                    ) { isDragging ->
+                        ReorderableActionChip(
+                            action = action,
+                            isDragging = isDragging,
+                            equalWidthActions = equalWidthActions,
+                            haptic = haptic,
+                            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                            onActionInvoked = onActionInvoked,
+                            onActionOrderChanged = {
+                                onActionOrderChanged(actions.mapNotNull(MemoActionSheetAction::id))
+                            },
+                            onPerformHaptic = onPerformHaptic,
+                            onDismiss = onDismiss,
+                        )
+                    }
+                }
             }
-        }
+
+        MemoActionRowLayoutMode.EQUAL_WIDTH_STATIC ->
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+            ) {
+                val itemSpacing = 12.dp
+                val actionWidth =
+                    if (actions.size <= 1) {
+                        maxWidth
+                    } else {
+                        (maxWidth - itemSpacing * (actions.size - 1)) / actions.size
+                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(itemSpacing),
+                ) {
+                    actions.forEach { action ->
+                        EqualWidthActionChip(
+                            action = action,
+                            modifier = Modifier.width(actionWidth),
+                            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+                            onActionInvoked = onActionInvoked,
+                            onPerformHaptic = onPerformHaptic,
+                            onDismiss = onDismiss,
+                        )
+                    }
+                }
+            }
     }
+}
+
+@Composable
+private fun EqualWidthActionChip(
+    action: MemoActionSheetAction,
+    memoActionAutoReorderEnabled: Boolean,
+    onActionInvoked: (MemoActionId) -> Unit,
+    onPerformHaptic: (MemoActionHaptic) -> Unit,
+    modifier: Modifier = Modifier,
+    onDismiss: () -> Unit,
+) {
+    ActionChip(
+        icon = action.icon,
+        label = action.label,
+        isDestructive = action.isDestructive,
+        isHighlighted = action.isHighlighted,
+        modifier = modifier.benchmarkAnchor(action.benchmarkTag),
+        onClick = {
+            onPerformHaptic(action.haptic)
+            action.id
+                ?.takeIf { memoActionAutoReorderEnabled }
+                ?.let(onActionInvoked)
+            action.onClick()
+            if (action.dismissAfterClick) onDismiss()
+        }
+    )
 }
 
 @Composable

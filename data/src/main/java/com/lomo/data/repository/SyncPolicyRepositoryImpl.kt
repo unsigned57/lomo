@@ -54,38 +54,12 @@ class SyncPolicyRepositoryImpl
             dataStore.syncBackendType.map(::syncBackendFromPreference)
 
         override suspend fun setRemoteSyncBackend(type: SyncBackendType) {
-            dataStore.updateSyncBackendType(type.preferenceValue)
-            when (type) {
-                SyncBackendType.NONE -> {
-                    dataStore.updateGitSyncEnabled(false)
-                    dataStore.updateWebDavSyncEnabled(false)
-                    dataStore.updateS3SyncEnabled(false)
-                }
-
-                SyncBackendType.GIT -> {
-                    dataStore.updateGitSyncEnabled(true)
-                    dataStore.updateWebDavSyncEnabled(false)
-                    dataStore.updateS3SyncEnabled(false)
-                }
-
-                SyncBackendType.WEBDAV -> {
-                    dataStore.updateGitSyncEnabled(false)
-                    dataStore.updateWebDavSyncEnabled(true)
-                    dataStore.updateS3SyncEnabled(false)
-                }
-
-                SyncBackendType.S3 -> {
-                    dataStore.updateGitSyncEnabled(false)
-                    dataStore.updateWebDavSyncEnabled(false)
-                    dataStore.updateS3SyncEnabled(true)
-                }
-
-                SyncBackendType.INBOX -> {
-                    dataStore.updateGitSyncEnabled(false)
-                    dataStore.updateWebDavSyncEnabled(false)
-                    dataStore.updateS3SyncEnabled(false)
-                }
-            }
+            dataStore.setRemoteSyncBackendFlags(
+                backendType = type.preferenceValue,
+                gitEnabled = type == SyncBackendType.GIT,
+                webdavEnabled = type == SyncBackendType.WEBDAV,
+                s3Enabled = type == SyncBackendType.S3,
+            )
         }
 
         override suspend fun applyRemoteSyncPolicy() {

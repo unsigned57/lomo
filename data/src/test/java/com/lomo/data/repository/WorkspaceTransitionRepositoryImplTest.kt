@@ -8,6 +8,7 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 
@@ -39,6 +40,7 @@ class WorkspaceTransitionRepositoryImplTest {
                 memoImageDao = memoDao,
                 memoTrashDao = memoDao,
                 localFileStateDao = localFileStateDao,
+                runInTransaction = { block -> block() },
             )
     }
 
@@ -62,5 +64,47 @@ class WorkspaceTransitionRepositoryImplTest {
                 memoDao.clearAll()
                 memoDao.clearTrash()
             }
+        }
+
+    @Test
+    fun `clearMemoStateAfterWorkspaceTransition wraps cleanup in provided transaction runner`() =
+        runTest {
+            val callTrace = mutableListOf<String>()
+            val transactionalRepository =
+                WorkspaceTransitionRepositoryImpl(
+                    memoWriteDao = memoDao,
+                    memoOutboxDao = memoDao,
+                    memoTagDao = memoDao,
+                    memoImageDao = memoDao,
+                    memoTrashDao = memoDao,
+                    localFileStateDao = localFileStateDao,
+                    runInTransaction = { block ->
+                        callTrace += "tx-start"
+                        block()
+                        callTrace += "tx-end"
+                    },
+                )
+            coEvery { memoDao.clearMemoFileOutbox() } coAnswers { callTrace += "outbox" }
+            coEvery { localFileStateDao.clearAll() } coAnswers { callTrace += "local-state" }
+            coEvery { memoDao.clearTagRefs() } coAnswers { callTrace += "tags" }
+            coEvery { memoDao.clearImageRefs() } coAnswers { callTrace += "images" }
+            coEvery { memoDao.clearAll() } coAnswers { callTrace += "memos" }
+            coEvery { memoDao.clearTrash() } coAnswers { callTrace += "trash" }
+
+            transactionalRepository.clearMemoStateAfterWorkspaceTransition()
+
+            assertEquals(
+                listOf(
+                    "tx-start",
+                    "outbox",
+                    "local-state",
+                    "tags",
+                    "images",
+                    "memos",
+                    "trash",
+                    "tx-end",
+                ),
+                callTrace,
+            )
         }
 }

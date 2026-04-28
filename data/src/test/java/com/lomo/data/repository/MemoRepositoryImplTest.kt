@@ -47,6 +47,7 @@ class MemoRepositoryImplTest {
                 queryRepository =
                     MemoQueryRepositoryImpl(
                         memoDao = dao,
+                        memoBrowseDao = dao,
                         defaultMainListDao = dao,
                         memoPinDao = dao,
                         synchronizer = synchronizer,

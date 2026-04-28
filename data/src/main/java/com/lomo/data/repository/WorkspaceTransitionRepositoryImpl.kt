@@ -7,10 +7,8 @@ import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
 import com.lomo.domain.repository.WorkspaceTransitionRepository
-import javax.inject.Inject
 
 class WorkspaceTransitionRepositoryImpl
-    @Inject
     constructor(
         private val memoWriteDao: MemoWriteDao,
         private val memoOutboxDao: MemoOutboxDao,
@@ -18,13 +16,16 @@ class WorkspaceTransitionRepositoryImpl
         private val memoImageDao: MemoImageDao,
         private val memoTrashDao: MemoTrashDao,
         private val localFileStateDao: LocalFileStateDao,
+        private val runInTransaction: suspend (suspend () -> Unit) -> Unit,
     ) : WorkspaceTransitionRepository {
         override suspend fun clearMemoStateAfterWorkspaceTransition() {
-            memoOutboxDao.clearMemoFileOutbox()
-            localFileStateDao.clearAll()
-            memoTagDao.clearTagRefs()
-            memoImageDao.clearImageRefs()
-            memoWriteDao.clearAll()
-            memoTrashDao.clearTrash()
+            runInTransaction {
+                memoOutboxDao.clearMemoFileOutbox()
+                localFileStateDao.clearAll()
+                memoTagDao.clearTagRefs()
+                memoImageDao.clearImageRefs()
+                memoWriteDao.clearAll()
+                memoTrashDao.clearTrash()
+            }
         }
     }

@@ -15,6 +15,7 @@ internal fun backfillMemoSearchContentTokens(db: SQLiteConnection) {
         return
     }
 
+    val pendingUpdates = mutableListOf<Pair<String, String>>()
     val cursor =
         db.query(
             """
@@ -52,14 +53,22 @@ internal fun backfillMemoSearchContentTokens(db: SQLiteConnection) {
                     dateKey = dateKey,
                 )?.content ?: storedContent
             if (visibleContent != storedContent) {
-                db.execSQL(
-                    "UPDATE `$MEMO_TABLE` SET `$COLUMN_CONTENT` = ? WHERE `id` = ?",
-                    arrayOf(visibleContent, memoId),
-                )
+                pendingUpdates += visibleContent to memoId
             }
         } while (cursor.moveToNext())
     } finally {
         cursor.close()
+    }
+
+    if (pendingUpdates.isNotEmpty()) {
+        db.usePreparedBatch(
+            sql = "UPDATE `$MEMO_TABLE` SET `$COLUMN_CONTENT` = ? WHERE `id` = ?",
+            items = pendingUpdates,
+        ) { statement, (content, id) ->
+            statement.bindText(1, content)
+            statement.bindText(2, id)
+            statement.step()
+        }
     }
 }
 
@@ -78,6 +87,7 @@ internal fun backfillMemoSearchContentColumn(db: SQLiteConnection) {
     }
     ensureMemoSearchContentColumn(db)
 
+    val pendingSearchUpdates = mutableListOf<Pair<String, String>>()
     db.query("SELECT `id`, `$COLUMN_CONTENT`, `$COLUMN_SEARCH_CONTENT` FROM `$MEMO_TABLE`").use { cursor ->
         val idIndex = cursor.getColumnIndex("id")
         val contentIndex = cursor.getColumnIndex(COLUMN_CONTENT)
@@ -88,11 +98,18 @@ internal fun backfillMemoSearchContentColumn(db: SQLiteConnection) {
             val searchContent = cursor.getString(searchContentIndex).orEmpty()
             val tokenizedContent = SearchTokenizer.tokenize(content)
             if (tokenizedContent != searchContent) {
-                db.execSQL(
-                    "UPDATE `$MEMO_TABLE` SET `$COLUMN_SEARCH_CONTENT` = ? WHERE `id` = ?",
-                    arrayOf(tokenizedContent, memoId),
-                )
+                pendingSearchUpdates += tokenizedContent to memoId
             }
+        }
+    }
+    if (pendingSearchUpdates.isNotEmpty()) {
+        db.usePreparedBatch(
+            sql = "UPDATE `$MEMO_TABLE` SET `$COLUMN_SEARCH_CONTENT` = ? WHERE `id` = ?",
+            items = pendingSearchUpdates,
+        ) { statement, (tokenized, id) ->
+            statement.bindText(1, tokenized)
+            statement.bindText(2, id)
+            statement.step()
         }
     }
 }

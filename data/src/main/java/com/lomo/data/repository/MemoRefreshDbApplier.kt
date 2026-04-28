@@ -6,6 +6,7 @@ import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoTagDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.dao.MemoWriteDao
+import com.lomo.data.local.dao.ROOM_MAX_BIND_PARAMETER_COUNT
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
@@ -116,9 +117,11 @@ class MemoRefreshDbApplier(
 
     private suspend fun deleteMainMemosByIds(ids: List<String>) {
         if (ids.isEmpty()) return
-        memoTagDao.deleteTagRefsByMemoIds(ids)
-        memoImageDao.deleteImageRefsByMemoIds(ids)
-        memoWriteDao.deleteMemosByIds(ids)
+        ids.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+            memoTagDao.deleteTagRefsByMemoIds(chunk)
+            memoImageDao.deleteImageRefsByMemoIds(chunk)
+            memoWriteDao.deleteMemosByIds(chunk)
+        }
     }
 
     private suspend fun deleteConflictingTrash(mainIds: Set<String>) {

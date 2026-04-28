@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.repository.DailyReviewSessionRepository
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
 import javax.inject.Inject
@@ -14,16 +15,20 @@ class DailyReviewSessionRepositoryImpl
     constructor(
         private val dataStore: LomoDataStore,
     ) : DailyReviewSessionRepository {
-        override suspend fun getSession(): DailyReviewSession? {
-            val date = dataStore.dailyReviewSessionDate.first()?.let(::parseDate) ?: return null
-            val seed = dataStore.dailyReviewSessionSeed.first() ?: return null
-            val pageIndex = dataStore.dailyReviewSessionPageIndex.first() ?: 0
-            return DailyReviewSession(
-                date = date,
-                seed = seed,
-                pageIndex = pageIndex,
-            )
-        }
+        override suspend fun getSession(): DailyReviewSession? =
+            combine(
+                dataStore.dailyReviewSessionDate,
+                dataStore.dailyReviewSessionSeed,
+                dataStore.dailyReviewSessionPageIndex,
+            ) { dateStr, seed, pageIndex ->
+                val date = dateStr?.let(::parseDate) ?: return@combine null
+                val resolvedSeed = seed ?: return@combine null
+                DailyReviewSession(
+                    date = date,
+                    seed = resolvedSeed,
+                    pageIndex = pageIndex ?: 0,
+                )
+            }.first()
 
         override suspend fun saveSession(session: DailyReviewSession) {
             dataStore.updateDailyReviewSession(

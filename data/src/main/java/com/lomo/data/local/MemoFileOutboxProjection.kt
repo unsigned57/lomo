@@ -19,6 +19,22 @@ internal data class MemoFileOutboxProjection(
     val claimUpdatedAtExpr: String,
 )
 
+private fun pickMemoFileOutboxOperationExpr(columns: Set<String>): String {
+    if ("operation" !in columns) {
+        return UPDATE_OPERATION_SQL
+    }
+    return """
+        CASE
+            WHEN typeof(`operation`) = 'integer' THEN CAST(`operation` AS INTEGER)
+            WHEN CAST(`operation` AS TEXT) = 'CREATE' THEN 0
+            WHEN CAST(`operation` AS TEXT) = 'UPDATE' THEN 1
+            WHEN CAST(`operation` AS TEXT) = 'DELETE' THEN 2
+            WHEN CAST(`operation` AS TEXT) = 'RESTORE' THEN 3
+            ELSE NULL
+        END
+    """.trimIndent()
+}
+
 internal fun pickTextExpr(
     columns: Set<String>,
     vararg candidates: String,
@@ -95,7 +111,7 @@ internal fun legacyMemoIdExpr(columns: Set<String>): String =
 internal fun memoFileOutboxProjection(columns: Set<String>): MemoFileOutboxProjection =
     MemoFileOutboxProjection(
         idExpr = pickNullableIntExpr(columns, "id"),
-        operationExpr = pickTextExpr(columns, "operation", defaultExpr = UPDATE_OPERATION_SQL),
+        operationExpr = pickMemoFileOutboxOperationExpr(columns),
         memoIdExpr = pickTextExpr(columns, "memoId", "id"),
         memoDateExpr = pickTextExpr(columns, "memoDate", "date"),
         memoTimestampExpr = pickIntExpr(columns, "memoTimestamp", COLUMN_TIMESTAMP),

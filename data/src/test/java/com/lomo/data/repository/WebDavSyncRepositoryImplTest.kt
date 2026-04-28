@@ -6,6 +6,7 @@ import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavClientFactory
@@ -45,6 +46,9 @@ class WebDavSyncRepositoryImplTest {
 
     @MockK(relaxed = true)
     private lateinit var credentialStore: WebDavCredentialStore
+
+    @MockK(relaxed = true)
+    private lateinit var configurationClientFactory: Dav4jvmWebDavClientFactory
 
     @MockK(relaxed = true)
     private lateinit var endpointResolver: WebDavEndpointResolver
@@ -118,6 +122,7 @@ class WebDavSyncRepositoryImplTest {
                     WebDavSyncConfigurationMutationRepositoryImpl(
                         dataStore = dataStore,
                         credentialStore = credentialStore,
+                        clientFactory = configurationClientFactory,
                     ),
                 operationRepository =
                     WebDavSyncOperationRepositoryImpl(

@@ -1,6 +1,15 @@
+/*
+ * Test Contract:
+ * - Unit under test: TestMemoDaoSuite (test helper, not production code).
+ * - Behavior focus: aggregates all memo DAO interfaces for mutation test fixtures.
+ * - Observable outcomes: memoMutationDaoBundle() produces a valid MemoMutationDaoBundle.
+ * - Red phase: Not applicable - test infrastructure, no production behavior change.
+ * - Excludes: database queries, Room implementation.
+ */
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.DefaultMainListDao
+import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoFtsDao
 import com.lomo.data.local.dao.MemoImageDao
@@ -14,6 +23,7 @@ import com.lomo.data.local.dao.MemoWriteDao
 
 internal interface TestMemoDaoSuite :
     DefaultMainListDao,
+    MemoBrowseDao,
     MemoDao,
     MemoWriteDao,
     MemoTagDao,

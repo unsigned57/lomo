@@ -64,6 +64,33 @@ class DriverBackedRoomTransactionContractTest {
         )
     }
 
+    @Test
+    fun `memo refresh transaction helper suspends FTS triggers and rebuilds once per batch`() {
+        val helperFile =
+            dataModuleSource.resolve("com/lomo/data/local/DriverBackedRoomTransaction.kt")
+        val content = helperFile.readText()
+
+        assertTrue(
+            "Memo refresh transaction helper must drop FTS triggers before batch writes.",
+            content.contains("dropMemoFtsExternalContentTriggers"),
+        )
+        assertTrue(
+            "Memo refresh transaction helper must recreate FTS triggers after batch writes.",
+            content.contains("createMemoFtsExternalContentTriggers"),
+        )
+        assertTrue(
+            "Memo refresh transaction helper must rebuild the external-content FTS index once after batch writes.",
+            content.contains("rebuildMemoFtsExternalContentIndex"),
+        )
+
+        val dataModuleContent =
+            dataModuleSource.resolve("com/lomo/data/di/DataModule.kt").readText()
+        assertTrue(
+            "MemoRefreshDbApplier must use the FTS-suspending driver-backed transaction helper.",
+            dataModuleContent.contains("withDriverTransactionAndSuspendedMemoFtsTriggers"),
+        )
+    }
+
     private fun resolveModuleRoot(moduleName: String): File {
         val currentDirPath = System.getProperty("user.dir") ?: "."
         val currentDir = File(currentDirPath)
