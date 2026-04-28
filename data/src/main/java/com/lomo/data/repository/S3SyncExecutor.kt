@@ -24,11 +24,11 @@ class S3SyncExecutor
         private val encodingSupport: S3SyncEncodingSupport,
         private val fileBridge: S3SyncFileBridge,
         private val actionApplier: S3SyncActionApplier,
-        private val protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
-        private val localChangeJournalStore: S3LocalChangeJournalStore = DisabledS3LocalChangeJournalStore,
-        private val remoteIndexStore: S3RemoteIndexStore = DisabledS3RemoteIndexStore,
-        private val remoteShardStateStore: S3RemoteShardStateStore = DisabledS3RemoteShardStateStore,
-        private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
+        private val protocolStateStore: S3SyncProtocolStateStore,
+        private val localChangeJournalStore: S3LocalChangeJournalStore,
+        private val remoteIndexStore: S3RemoteIndexStore,
+        private val remoteShardStateStore: S3RemoteShardStateStore,
+        private val pendingConflictStore: PendingSyncConflictStore,
     ) {
         private val preparedActionVerificationGate =
             S3PreparedActionVerificationGate(

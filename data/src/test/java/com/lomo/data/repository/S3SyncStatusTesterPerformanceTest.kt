@@ -139,6 +139,8 @@ class S3SyncStatusTesterPerformanceTest {
                     memoSynchronizer = memoSynchronizer,
                     planner = S3SyncPlanner(timestampToleranceMs = 0L),
                     stateHolder = S3SyncStateHolder(),
+                    performanceTuner = DisabledSyncPerformanceTuner,
+                    transactionRunner = NoOpS3SyncTransactionRunner,
                 )
             val tester =
                 S3SyncStatusTester(
@@ -215,6 +217,8 @@ class S3SyncStatusTesterPerformanceTest {
                     memoSynchronizer = memoSynchronizer,
                     planner = S3SyncPlanner(timestampToleranceMs = 0L),
                     stateHolder = S3SyncStateHolder(),
+                    performanceTuner = DisabledSyncPerformanceTuner,
+                    transactionRunner = NoOpS3SyncTransactionRunner,
                 )
             val tester =
                 S3SyncStatusTester(

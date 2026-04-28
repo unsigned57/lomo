@@ -134,6 +134,8 @@ class S3SyncExecutorPerformancePolicyTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
         val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
@@ -144,6 +146,11 @@ class S3SyncExecutorPerformancePolicyTest {
                 encodingSupport = encodingSupport,
                 fileBridge = fileBridge,
                 actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+                protocolStateStore = DisabledS3SyncProtocolStateStore,
+                localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+                remoteIndexStore = DisabledS3RemoteIndexStore,
+                remoteShardStateStore = DisabledS3RemoteShardStateStore,
+                pendingConflictStore = DisabledPendingSyncConflictStore,
             )
     }
 

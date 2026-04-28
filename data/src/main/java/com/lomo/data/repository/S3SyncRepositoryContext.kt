@@ -49,7 +49,7 @@ class S3SyncRepositoryContext
         val metadataDao: S3SyncMetadataDao,
         val memoSynchronizer: MemoSynchronizer,
         val planner: S3SyncPlanner,
-        val performanceTuner: SyncPerformanceTuner = DisabledSyncPerformanceTuner,
+        val performanceTuner: SyncPerformanceTuner,
         val stateHolder: S3SyncStateHolder,
-        val transactionRunner: S3SyncTransactionRunner = NoOpS3SyncTransactionRunner,
+        val transactionRunner: S3SyncTransactionRunner,
     )

@@ -132,8 +132,8 @@ class MemoMutationHandler private constructor(
         trashMutationHandler: MemoTrashMutationHandler,
         memoIdentityPolicy: MemoIdentityPolicy,
         memoVersionJournal: MemoVersionJournal,
-        s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-        webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+        s3LocalChangeRecorder: S3LocalChangeRecorder,
+        webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
         mutationGate: MemoMutationGate = MemoMutationGate(),
         settingsScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
     ) : this(
@@ -226,9 +226,9 @@ internal class MemoMutationRuntime(
     val trashMutationHandler: MemoTrashMutationHandler,
     val memoIdentityPolicy: MemoIdentityPolicy,
     val memoVersionRecorder: MemoVersionRecorder,
-    val s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-    val webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
-    val mutationGate: MemoMutationGate = MemoMutationGate(),
+    val s3LocalChangeRecorder: S3LocalChangeRecorder,
+    val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
+    val mutationGate: MemoMutationGate,
 )
 
 class MemoMutationDaoBundle(

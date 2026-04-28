@@ -92,9 +92,12 @@ class MemoMutationFileOpsSafetyTest {
                         localFileStateDao = localFileStateDao,
                         textProcessor = textProcessor,
                         memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
-                    ),
+                ),
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionRecorder = AsyncMemoVersionRecorder(memoVersionJournal),
+                s3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
+                webDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+                mutationGate = MemoMutationGate(),
             )
         storageFormatProvider = MemoStorageFormatProvider(dataStore)
         trashMutationHandler = runtime.trashMutationHandler

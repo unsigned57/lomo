@@ -532,6 +532,7 @@ class S3ConflictResolverTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = stateHolder,
+                performanceTuner = DisabledSyncPerformanceTuner,
                 transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()

@@ -1183,6 +1183,7 @@ class S3SyncIncrementalExecutorTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
                 transactionRunner = transactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
@@ -1196,6 +1197,8 @@ class S3SyncIncrementalExecutorTest {
             protocolStateStore = protocolStateStore,
             localChangeJournalStore = localChangeJournalStore,
             remoteIndexStore = remoteIndexStore,
+            remoteShardStateStore = DisabledS3RemoteShardStateStore,
+            pendingConflictStore = DisabledPendingSyncConflictStore,
         )
     }
 
@@ -1216,6 +1219,8 @@ class S3SyncIncrementalExecutorTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         val stateHolder = runtime.stateHolder
         val encodingSupport = S3SyncEncodingSupport()

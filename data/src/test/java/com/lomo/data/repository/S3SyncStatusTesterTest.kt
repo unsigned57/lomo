@@ -100,6 +100,8 @@ class S3SyncStatusTesterTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         tester =
             S3SyncStatusTester(

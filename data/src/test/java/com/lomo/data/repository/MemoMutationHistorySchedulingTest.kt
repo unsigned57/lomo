@@ -75,6 +75,8 @@ class MemoMutationHistorySchedulingTest {
                 trashMutationHandler = trashMutationHandler,
                 memoIdentityPolicy = MemoIdentityPolicy(),
                 memoVersionJournal = memoVersionJournal,
+                s3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
+                webDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
             )
     }
 
