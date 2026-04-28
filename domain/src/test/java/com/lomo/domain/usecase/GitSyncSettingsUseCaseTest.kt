@@ -224,7 +224,13 @@ class GitSyncSettingsUseCaseTest {
             every { gitSyncRepository.getAutoSyncInterval() } returns flowOf("30m")
             every { gitSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
             every { gitSyncRepository.observeLastSyncTimeMillis() } returns flowOf(1234L)
-            every { gitSyncRepository.syncState() } returns flowOf(com.lomo.domain.model.SyncEngineState.Syncing.Pulling)
+            every { gitSyncRepository.syncState() } returns
+                flowOf(
+                    com.lomo.domain.model.UnifiedSyncState.Running(
+                        provider = com.lomo.domain.model.SyncBackendType.GIT,
+                        phase = com.lomo.domain.model.UnifiedSyncPhase.PULLING,
+                    ),
+                )
 
             assertEquals(true, useCase.observeGitSyncEnabled().first())
             assertEquals("https://example.com/repo.git", useCase.observeRemoteUrl().first())
@@ -235,7 +241,10 @@ class GitSyncSettingsUseCaseTest {
             assertEquals(true, useCase.observeSyncOnRefreshEnabled().first())
             assertEquals(1234L, useCase.observeLastSyncTimeMillis().first())
             assertEquals(
-                com.lomo.domain.model.SyncEngineState.Syncing.Pulling,
+                com.lomo.domain.model.UnifiedSyncState.Running(
+                    provider = com.lomo.domain.model.SyncBackendType.GIT,
+                    phase = com.lomo.domain.model.UnifiedSyncPhase.PULLING,
+                ),
                 useCase.observeSyncState().first(),
             )
         }

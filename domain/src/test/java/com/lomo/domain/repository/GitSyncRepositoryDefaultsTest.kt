@@ -2,7 +2,7 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -99,7 +99,7 @@ class GitSyncRepositoryDefaultsTest {
 
         override suspend fun forcePushLocalToRemote(): GitSyncResult = GitSyncResult.NotConfigured
 
-        override fun syncState(): Flow<SyncEngineState> = flowOf(SyncEngineState.Idle)
+        override fun syncState(): Flow<UnifiedSyncState> = flowOf(UnifiedSyncState.Idle)
 
         override suspend fun resolveConflicts(
             resolution: com.lomo.domain.model.SyncConflictResolution,

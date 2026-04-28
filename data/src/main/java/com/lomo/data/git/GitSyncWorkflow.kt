@@ -6,7 +6,7 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncPhase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -115,7 +115,7 @@ class GitSyncWorkflow
         suspend fun sync(
             rootDir: File,
             remoteUrl: String,
-            onSyncingState: (SyncEngineState.Syncing) -> Unit,
+            onSyncingState: (UnifiedSyncPhase) -> Unit,
         ): GitSyncResult =
             withContext(Dispatchers.IO) {
                 val credentials =
@@ -165,7 +165,7 @@ class GitSyncWorkflow
                         return@withContext rebaseResult
                     }
 
-                    onSyncingState(SyncEngineState.Syncing.Pushing)
+                    onSyncingState(UnifiedSyncPhase.PUSHING)
                     primitives.tryPush(
                         git = git,
                         credentialStrategy = credentialStrategy,
@@ -251,9 +251,9 @@ private suspend fun stageAndCommitIfNeeded(
     branch: String,
     dataStore: LomoDataStore,
     primitives: GitRepositoryPrimitives,
-    onSyncingState: (SyncEngineState.Syncing) -> Unit,
+    onSyncingState: (UnifiedSyncPhase) -> Unit,
 ) {
-    onSyncingState(SyncEngineState.Syncing.Committing)
+    onSyncingState(UnifiedSyncPhase.COMMITTING)
     stageAllChanges(git)
     if (!hasPendingChanges(git)) {
         return
@@ -293,9 +293,9 @@ private fun fetchRemoteOrPushOnly(
     credentials: List<UsernamePasswordCredentialsProvider>,
     credentialStrategy: GitCredentialStrategy,
     primitives: GitRepositoryPrimitives,
-    onSyncingState: (SyncEngineState.Syncing) -> Unit,
+    onSyncingState: (UnifiedSyncPhase) -> Unit,
 ): GitSyncResult? {
-    onSyncingState(SyncEngineState.Syncing.Pulling)
+    onSyncingState(UnifiedSyncPhase.PULLING)
     return runNonFatalCatching {
         credentialStrategy.runWithCredentialFallback(credentials, "Fetch") { provider ->
             git
@@ -307,7 +307,7 @@ private fun fetchRemoteOrPushOnly(
         null
     }.getOrElse { error ->
         Timber.w(error, "Fetch failed")
-        onSyncingState(SyncEngineState.Syncing.Pushing)
+        onSyncingState(UnifiedSyncPhase.PUSHING)
         primitives.tryPush(
             git = git,
             credentialStrategy = credentialStrategy,

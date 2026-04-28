@@ -2,7 +2,7 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import kotlinx.coroutines.CancellationException
@@ -25,7 +25,7 @@ interface GitSyncSettingsStateObservation {
 
     fun observeLastSyncTimeMillis(): Flow<Long?>
 
-    fun observeSyncState(): Flow<SyncEngineState>
+    fun observeSyncState(): Flow<UnifiedSyncState>
 }
 
 interface GitSyncSettingsValidation {
@@ -111,7 +111,7 @@ private class GitSyncSettingsStateObservationImpl(
 
     override fun observeLastSyncTimeMillis(): Flow<Long?> = gitSyncRepository.observeLastSyncTimeMillis()
 
-    override fun observeSyncState(): Flow<SyncEngineState> = gitSyncRepository.syncState()
+    override fun observeSyncState(): Flow<UnifiedSyncState> = gitSyncRepository.syncState()
 }
 
 private class GitSyncSettingsValidationImpl(

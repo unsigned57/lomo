@@ -11,46 +11,6 @@ enum class GitSyncErrorCode {
     UNKNOWN,
 }
 
-sealed interface SyncEngineState {
-    data object Idle : SyncEngineState
-
-    sealed interface Syncing : SyncEngineState {
-        data object Pulling : Syncing
-
-        data object Committing : Syncing
-
-        data object Pushing : Syncing
-    }
-
-    data class Success(
-        val timestamp: Long,
-        val summary: String,
-    ) : SyncEngineState
-
-    data class Error(
-        val code: GitSyncErrorCode,
-        val message: String,
-        val timestamp: Long,
-    ) : SyncEngineState {
-        constructor(
-            message: String,
-            timestamp: Long,
-        ) : this(
-            code = gitSyncErrorCodeFromMessage(message),
-            message = message,
-            timestamp = timestamp,
-        )
-    }
-
-    data object NotConfigured : SyncEngineState
-
-    data object Initializing : SyncEngineState
-
-    data class ConflictDetected(
-        val conflicts: SyncConflictSet,
-    ) : SyncEngineState
-}
-
 data class GitSyncStatus(
     val hasLocalChanges: Boolean,
     val aheadCount: Int,

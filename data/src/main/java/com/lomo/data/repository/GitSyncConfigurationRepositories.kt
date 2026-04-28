@@ -3,7 +3,7 @@ package com.lomo.data.repository
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.git.GitSyncEngine
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.repository.GitSyncConfigurationMutationRepository
 import com.lomo.domain.repository.GitSyncConfigurationRepository
 import com.lomo.domain.repository.GitSyncStateRepository
@@ -84,5 +84,5 @@ class GitSyncStateRepositoryImpl
     constructor(
         private val gitSyncEngine: GitSyncEngine,
     ) : GitSyncStateRepository {
-        override fun syncState(): Flow<SyncEngineState> = gitSyncEngine.syncState
+        override fun syncState(): Flow<UnifiedSyncState> = gitSyncEngine.syncState
     }
