@@ -5,6 +5,7 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
 import kotlinx.coroutines.flow.Flow
+import java.time.LocalDate
 import javax.inject.Inject
 
 class MemoUiCoordinator
@@ -13,6 +14,11 @@ class MemoUiCoordinator
         private val memoRepository: MemoRepository,
     ) {
         val allMemos: () -> Flow<List<Memo>> = { memoRepository.getAllMemosList() }
+
+        val memosByDateRange: (LocalDate?, LocalDate?) -> Flow<List<Memo>> =
+            { startDate, endDate -> memoRepository.getMemosByDateRange(startDate, endDate) }
+
+        val galleryMemos: () -> Flow<List<Memo>> = { memoRepository.getGalleryMemosList() }
 
         val defaultMainListPagingSource: () -> PagingSource<Int, Memo> =
             { memoRepository.getDefaultMainListPagingSource() }

@@ -9,6 +9,7 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.main.mapToUiModelState
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -69,28 +70,13 @@ class TrashViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            combine(trashMemos, rootDirectory, imageDirectory, imageMap) {
-                memos,
-                rootDir,
-                imageDir,
-                currentImageMap,
-                ->
-                UiMemoMappingInput(
-                    memos = memos,
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                )
-            }.distinctUntilChanged()
-                .mapLatest { input ->
-                    memoUiMapper.mapToUiModels(
-                        memos = input.memos,
-                        rootPath = input.rootDirectory,
-                        imagePath = input.imageDirectory,
-                        imageMap = input.imageMap,
-                    )
-                }
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+            trashMemos.mapToUiModelState(
+                rootDirectory = rootDirectory,
+                imageDirectory = imageDirectory,
+                imageMap = imageMap,
+                memoUiMapper = memoUiMapper,
+                scope = viewModelScope,
+            )
         private val visibleTrashMemoListTracker =
             RetainedVisibleListTracker(
                 scope = viewModelScope,
@@ -168,10 +154,4 @@ class TrashViewModel
             _errorMessage.value = null
         }
 
-        private data class UiMemoMappingInput(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-        )
     }

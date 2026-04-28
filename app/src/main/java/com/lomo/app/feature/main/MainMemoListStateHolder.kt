@@ -24,14 +24,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
 
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
 private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 30
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = 60
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
-private val OPEN_RANGE_START: LocalDate = LocalDate.MIN
-private val OPEN_RANGE_END: LocalDate = LocalDate.MAX
 
 internal class MainMemoListStateHolder(
     scope: CoroutineScope,
@@ -39,7 +36,6 @@ internal class MainMemoListStateHolder(
     memoUiMapper: MemoUiMapper,
     searchQuery: StateFlow<String>,
     memoListFilter: StateFlow<MemoListFilter>,
-    allMemos: StateFlow<List<Memo>>,
     rootDirectory: StateFlow<String?>,
     imageDirectory: StateFlow<String?>,
     imageMap: StateFlow<Map<String, android.net.Uri>>,
@@ -52,7 +48,7 @@ internal class MainMemoListStateHolder(
             searchQuery.debounce(SEARCH_DEBOUNCE_MILLIS).distinctUntilChanged(),
             memoListFilter,
         ) { query: String, filter: MemoListFilter ->
-            MemoQueryInput(query = query, filter = filter.toEffectiveDateRangeFilter())
+            MemoQueryInput(query = query, filter = filter)
         }.stateIn(
             scope,
             appWhileSubscribed(),
@@ -85,7 +81,7 @@ internal class MainMemoListStateHolder(
                 MainListPresentationMode.FilteredList ->
                     resolveMemoFlow(
                         query = input.query,
-                        allMemos = allMemos,
+                        filter = input.filter,
                         memoUiCoordinator = memoUiCoordinator,
                         resolveMainMemoQueryUseCase = resolveMainMemoQueryUseCase,
                     ).map { sourceMemos ->
@@ -96,23 +92,19 @@ internal class MainMemoListStateHolder(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
-        combine(mainListPresentationMode, rootDirectory, imageDirectory, imageMap, allMemos) {
+        combine(mainListPresentationMode, rootDirectory, imageDirectory, imageMap) {
             mode,
             rootDir,
             imageDir,
             currentImageMap,
-            currentAllMemos,
             ->
             mode to
                 UiMemoMappingInput(
+                    memos = emptyList(),
                     rootDirectory = rootDir,
                     imageDirectory = imageDir,
                     imageMap = currentImageMap,
-                    imageDependencySignature =
-                        buildMemoListImageDependencySignature(
-                            memos = currentAllMemos,
-                            imageMap = currentImageMap,
-                        ),
+                    imageDependencySignature = "",
                     prioritizedMemoIds = emptySet(),
                 )
         }.distinctUntilChanged { old, new ->
@@ -147,113 +139,46 @@ internal class MainMemoListStateHolder(
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val uiMemos: StateFlow<List<MemoUiModel>> =
-        combine(memos, rootDirectory, imageDirectory, imageMap) {
-            currentMemos,
-            rootDir,
-            imageDir,
-            currentImageMap,
-            ->
-            currentMemos to
-                UiMemoMappingInput(
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                    imageDependencySignature =
-                        buildMemoListImageDependencySignature(
-                            memos = currentMemos,
-                            imageMap = currentImageMap,
-                        ),
-                    prioritizedMemoIds = emptySet(),
-                )
-        }.distinctUntilChanged { old, new ->
-            old.first == new.first && old.second.hasSameUiDependencies(new.second)
-        }
-            .mapLatest { (currentMemos, input) ->
-                memoUiMapper.mapToUiModels(
-                    memos = currentMemos,
-                    rootPath = input.rootDirectory,
-                    imagePath = input.imageDirectory,
-                    imageMap = input.imageMap,
-                    prioritizedMemoIds = input.prioritizedMemoIds,
-                )
-            }.stateIn(scope, appWhileSubscribed(), emptyList())
+        memos.mapToUiModelState(
+            rootDirectory = rootDirectory,
+            imageDirectory = imageDirectory,
+            imageMap = imageMap,
+            memoUiMapper = memoUiMapper,
+            scope = scope,
+        )
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val galleryUiMemos: StateFlow<List<MemoUiModel>> =
-        combine(allMemos, rootDirectory, imageDirectory, imageMap) {
-            currentMemos,
-            rootDir,
-            imageDir,
-            currentImageMap,
-            ->
-            currentMemos
-                .asSequence()
-                .filter { memo -> memo.imageUrls.any { path -> !isAudioAttachmentPath(path) } }
-                .sortedByDescending { memo -> memo.timestamp }
-                .toList() to
-                UiMemoMappingInput(
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                    imageDependencySignature =
-                        buildMemoListImageDependencySignature(
-                            memos = currentMemos,
-                            imageMap = currentImageMap,
-                        ),
-                    prioritizedMemoIds = emptySet(),
-                )
-        }.distinctUntilChanged { old, new ->
-            old.first == new.first && old.second.hasSameUiDependencies(new.second)
-        }
-            .mapLatest { (currentMemos, input) ->
-                memoUiMapper.mapToUiModels(
-                    memos = currentMemos,
-                    rootPath = input.rootDirectory,
-                    imagePath = input.imageDirectory,
-                    imageMap = input.imageMap,
-                    prioritizedMemoIds = input.prioritizedMemoIds,
-                )
-            }.stateIn(scope, appWhileSubscribed(), emptyList())
+        memoUiCoordinator.galleryMemos().mapToUiModelState(
+            rootDirectory = rootDirectory,
+            imageDirectory = imageDirectory,
+            imageMap = imageMap,
+            memoUiMapper = memoUiMapper,
+            scope = scope,
+            transformMemos = { currentMemos ->
+                currentMemos
+                    .asSequence()
+                    .filter { memo -> memo.imageUrls.any { path -> !isAudioAttachmentPath(path) } }
+                    .sortedByDescending { memo -> memo.timestamp }
+                    .toList()
+            },
+        )
 }
 
 private fun resolveMemoFlow(
     query: String,
-    allMemos: Flow<List<Memo>>,
+    filter: MemoListFilter,
     memoUiCoordinator: MemoUiCoordinator,
     resolveMainMemoQueryUseCase: ResolveMainMemoQueryUseCase,
 ): Flow<List<Memo>> =
     when (val resolvedQuery = resolveMainMemoQueryUseCase(query = query)) {
         is ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText ->
             memoUiCoordinator.searchMemos(resolvedQuery.query)
-        ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos -> allMemos
+        ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos ->
+            memoUiCoordinator.memosByDateRange(filter.startDate, filter.endDate)
     }
-
-private data class UiMemoMappingInput(
-    val rootDirectory: String?,
-    val imageDirectory: String?,
-    val imageMap: Map<String, android.net.Uri>,
-    val imageDependencySignature: String,
-    val prioritizedMemoIds: Set<String>,
-)
-
-private fun UiMemoMappingInput.hasSameUiDependencies(other: UiMemoMappingInput): Boolean =
-    rootDirectory == other.rootDirectory &&
-        imageDirectory == other.imageDirectory &&
-        imageDependencySignature == other.imageDependencySignature &&
-        prioritizedMemoIds == other.prioritizedMemoIds
 
 private data class MemoQueryInput(
     val query: String,
     val filter: MemoListFilter,
 )
-
-private fun MemoListFilter.toEffectiveDateRangeFilter(): MemoListFilter =
-    when {
-        startDate != null && endDate != null -> this
-        startDate == null && endDate == null -> this
-        else ->
-            copy(
-                startDate = startDate ?: OPEN_RANGE_START,
-                endDate = endDate ?: OPEN_RANGE_END,
-            )
-    }

@@ -1,6 +1,6 @@
 package com.lomo.app.feature.main
 
-import com.lomo.domain.model.Memo
+import com.lomo.data.local.entity.MemoEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -47,15 +47,15 @@ class MemoUiMapperStorageHeaderRecoveryTest {
               虽尽我所有,难耐此夕寒。
             """.trimIndent()
         val staleMemo =
-            Memo(
+            MemoEntity(
                 id = "2022_08_18_00:00:00_bad",
                 timestamp = midnightTimestampOf(2022, 8, 18),
-                updatedAt = midnightTimestampOf(2022, 8, 18),
                 content = rawContent,
                 rawContent = rawContent,
-                dateKey = "2022_08_18",
-                tags = listOf("收藏/诗词"),
-            )
+                date = "2022_08_18",
+                tags = "收藏/诗词",
+                imageUrls = "",
+            ).toDomain()
 
         val uiModel =
             mapper.mapToUiModel(
@@ -82,15 +82,15 @@ class MemoUiMapperStorageHeaderRecoveryTest {
     @Test
     fun `mapToUiModel keeps existing content when raw storage header has no body`() {
         val memo =
-            Memo(
+            MemoEntity(
                 id = "2026_03_25_21:00:00_header_only",
                 timestamp = midnightTimestampOf(2026, 3, 25),
-                updatedAt = midnightTimestampOf(2026, 3, 25),
                 content = "still visible body",
                 rawContent = "- 21:00",
-                dateKey = "2026_03_25",
-                tags = emptyList(),
-            )
+                date = "2026_03_25",
+                tags = "",
+                imageUrls = "",
+            ).toDomain()
 
         val uiModel =
             mapper.mapToUiModel(
@@ -111,15 +111,15 @@ class MemoUiMapperStorageHeaderRecoveryTest {
     fun `mapToUiModel recovers plain markdown raw content when memo content is blank`() {
         val rawContent = "https://example.com/url-only"
         val memo =
-            Memo(
+            MemoEntity(
                 id = "2026_03_25_00:00:00_plain_markdown_blank",
                 timestamp = midnightTimestampOf(2026, 3, 25),
-                updatedAt = midnightTimestampOf(2026, 3, 25),
                 content = "",
                 rawContent = rawContent,
-                dateKey = "2026_03_25",
-                tags = emptyList(),
-            )
+                date = "2026_03_25",
+                tags = "",
+                imageUrls = "",
+            ).toDomain()
 
         val uiModel =
             mapper.mapToUiModel(

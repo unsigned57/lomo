@@ -8,6 +8,7 @@ import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.main.mapToUiModelState
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.Memo
@@ -76,27 +77,13 @@ class TagFilterViewModel
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val uiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =
-            combine(memos, rootDir, imageDir, imageMap) {
-                currentMemos,
-                rootDirectory,
-                imageDirectory,
-                currentImageMap,
-                ->
-                UiMemoMappingInput(
-                    memos = currentMemos,
-                    rootDirectory = rootDirectory,
-                    imageDirectory = imageDirectory,
-                    imageMap = currentImageMap,
-                )
-            }.distinctUntilChanged()
-                .mapLatest { input ->
-                    memoUiMapper.mapToUiModels(
-                        memos = input.memos,
-                        rootPath = input.rootDirectory,
-                        imagePath = input.imageDirectory,
-                        imageMap = input.imageMap,
-                    )
-                }.stateIn(viewModelScope, appWhileSubscribed(), emptyList())
+            memos.mapToUiModelState(
+                rootDirectory = rootDir,
+                imageDirectory = imageDir,
+                imageMap = imageMap,
+                memoUiMapper = memoUiMapper,
+                scope = viewModelScope,
+            )
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
@@ -159,10 +146,4 @@ class TagFilterViewModel
             _errorMessage.value = null
         }
 
-        private data class UiMemoMappingInput(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-        )
     }

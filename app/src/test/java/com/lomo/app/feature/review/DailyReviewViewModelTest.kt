@@ -20,6 +20,7 @@ import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.Dispatchers
@@ -144,20 +145,21 @@ class DailyReviewViewModelTest {
         }
 
     @Test
-    fun `updateMemo success reloads daily review`() =
+    fun `updateMemo success keeps current list without triggering full reload`() =
         runTest {
-            val memo = sampleMemo(id = "memo-update-success")
-            coEvery { dailyReviewQueryUseCase(1L) } throws IllegalStateException("initial failed") andThen emptyList()
+            val memo = sampleMemo(id = "memo-update-success", content = "before")
+            val keep = sampleMemo(id = "memo-keep", content = "stable")
+            coEvery { dailyReviewQueryUseCase(1L) } returns listOf(memo, keep)
             val viewModel = createViewModel()
             advanceUntilIdle()
-            assertTrue(viewModel.uiState.value is UiState.Error)
 
             viewModel.updateMemo(memo, "updated")
             advanceUntilIdle()
 
             val reloadedState = viewModel.uiState.value as UiState.Success
-            assertTrue(reloadedState.data.isEmpty())
+            assertEquals(listOf(memo.id, keep.id), reloadedState.data.map { it.memo.id })
             assertNull(viewModel.errorMessage.value)
+            coVerify(exactly = 1) { dailyReviewQueryUseCase(1L) }
         }
 
     @Test
@@ -174,20 +176,20 @@ class DailyReviewViewModelTest {
         }
 
     @Test
-    fun `deleteMemo success reloads daily review`() =
+    fun `deleteMemo success removes memo in place without full reload`() =
         runTest {
             val memo = sampleMemo(id = "memo-delete-success")
-            coEvery { dailyReviewQueryUseCase(1L) } throws IllegalStateException("initial failed") andThen emptyList()
+            coEvery { dailyReviewQueryUseCase(1L) } returns listOf(memo, sampleMemo("memo-keep"))
             val viewModel = createViewModel()
             advanceUntilIdle()
-            assertTrue(viewModel.uiState.value is UiState.Error)
 
             viewModel.deleteMemo(memo)
             advanceUntilIdle()
 
             val state = viewModel.uiState.value as UiState.Success
-            assertTrue(state.data.isEmpty())
+            assertEquals(listOf("memo-keep"), state.data.map { it.memo.id })
             assertNull(viewModel.errorMessage.value)
+            coVerify(exactly = 1) { dailyReviewQueryUseCase(1L) }
         }
 
     @Test

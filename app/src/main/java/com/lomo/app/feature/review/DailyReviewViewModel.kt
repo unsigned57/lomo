@@ -8,6 +8,7 @@ import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
+import com.lomo.app.feature.main.mapToUiModels
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.domain.model.DailyReviewSession
@@ -97,27 +98,13 @@ class DailyReviewViewModel
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         private fun observeMappedUiModels() {
             viewModelScope.launch {
-                combine(
-                    rawMemos.filterNotNull(),
-                    rootDirectory,
-                    imageDirectory,
-                    imageMapProvider.imageMap,
-                ) { memos, rootDir, imageDir, currentImageMap ->
-                    UiMemoMappingInput(
-                        memos = memos,
-                        rootDirectory = rootDir,
-                        imageDirectory = imageDir,
-                        imageMap = currentImageMap,
-                    )
-                }.distinctUntilChanged()
-                    .mapLatest { input ->
-                        memoUiMapper.mapToUiModels(
-                            memos = input.memos,
-                            rootPath = input.rootDirectory,
-                            imagePath = input.imageDirectory,
-                            imageMap = input.imageMap,
-                        )
-                    }.collect { uiModels ->
+                rawMemos.filterNotNull()
+                    .mapToUiModels(
+                        rootDirectory = rootDirectory,
+                        imageDirectory = imageDirectory,
+                        imageMap = imageMapProvider.imageMap,
+                        memoUiMapper = memoUiMapper,
+                    ).collect { uiModels ->
                         _uiState.value = UiState.Success(uiModels)
                     }
             }
@@ -208,7 +195,17 @@ class DailyReviewViewModel
                 runCatching {
                     updateMemoContentUseCase(memo, newContent)
                 }.onSuccess {
-                    loadDailyReview()
+                    rawMemos.value =
+                        rawMemos.value?.map { current ->
+                            if (current.id == memo.id) {
+                                current.copy(
+                                    content = newContent,
+                                    rawContent = newContent,
+                                )
+                            } else {
+                                current
+                            }
+                        }
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -223,7 +220,10 @@ class DailyReviewViewModel
                 runCatching {
                     deleteMemoUseCase(memo)
                 }.onSuccess {
-                    loadDailyReview()
+                    rawMemos.value =
+                        rawMemos.value?.filterNot { current ->
+                            current.id == memo.id
+                        }
                 }.onFailure { throwable ->
                     if (throwable is kotlinx.coroutines.CancellationException) {
                         throw throwable
@@ -265,10 +265,4 @@ class DailyReviewViewModel
             _errorMessage.value = null
         }
 
-        private data class UiMemoMappingInput(
-            val memos: List<Memo>,
-            val rootDirectory: String?,
-            val imageDirectory: String?,
-            val imageMap: Map<String, android.net.Uri>,
-        )
     }

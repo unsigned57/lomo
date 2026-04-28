@@ -8,8 +8,8 @@ import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.S3SyncState
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.ThemeMode
+import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncState
@@ -112,7 +112,7 @@ class SettingsViewModelTest {
         every { gitSyncSettingsUseCase.observeAutoSyncInterval() } returns flowOf("15m")
         every { gitSyncSettingsUseCase.observeSyncOnRefreshEnabled() } returns flowOf(false)
         every { gitSyncSettingsUseCase.observeLastSyncTimeMillis() } returns flowOf(null)
-        every { gitSyncSettingsUseCase.observeSyncState() } returns flowOf(SyncEngineState.Idle)
+        every { gitSyncSettingsUseCase.observeSyncState() } returns flowOf(UnifiedSyncState.Idle)
         every { gitSyncSettingsUseCase.isValidRemoteUrl(any()) } returns true
 
         every { webDavSyncSettingsUseCase.observeWebDavSyncEnabled() } returns flowOf(false)

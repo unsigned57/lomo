@@ -148,10 +148,6 @@ class MainViewModel
                 .voiceDirectory()
                 .stateIn(viewModelScope, appWhileSubscribed(), null)
 
-        val allMemos: StateFlow<List<Memo>> =
-            memoUiCoordinator
-                .allMemos()
-                .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
         private val memoListStateHolder =
             MainMemoListStateHolder(
                 scope = viewModelScope,
@@ -159,7 +155,6 @@ class MainViewModel
                 memoUiMapper = memoUiMapper,
                 searchQuery = searchQuery,
                 memoListFilter = memoListFilter,
-                allMemos = allMemos,
                 rootDirectory = rootDirectory,
                 imageDirectory = imageDirectory,
                 imageMap = imageMap,
@@ -429,10 +424,9 @@ class MainViewModel
         }
 
         val resolveMemoById: suspend (String) -> Memo? = { memoId ->
-            allMemos.value.firstOrNull { it.id == memoId }
-                ?: withContext(Dispatchers.IO) {
-                    memoUiCoordinator.getMemoById(memoId)
-                }
+            withContext(Dispatchers.IO) {
+                memoUiCoordinator.getMemoById(memoId)
+            }
         }
 
         val resolveDefaultMainListIndex: suspend (String) -> Int? = { memoId ->
