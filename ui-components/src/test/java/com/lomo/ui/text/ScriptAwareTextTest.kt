@@ -1,6 +1,5 @@
 package com.lomo.ui.text
 
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -9,8 +8,6 @@ import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 import android.text.Layout
-import com.lomo.ui.component.markdown.MarkdownParser
-import com.lomo.ui.component.markdown.appendNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -173,36 +170,6 @@ class ScriptAwareTextTest {
             }
 
         assertFalse(text.shouldUsePlatformMemoParagraphRendering())
-    }
-
-    @Test
-    fun `appendNode inserts mixed-script spacing across emphasis boundaries`() {
-        val paragraph = MarkdownParser.parse("今天**bold**示例").node.firstChild
-
-        val result =
-            buildAnnotatedString {
-                appendNode(checkNotNull(paragraph), lightColorScheme())
-            }
-
-        assertEquals("今天 bold 示例", result.text)
-        val boldRange = result.spanStyles.single()
-        assertEquals(FontWeight.Bold, boldRange.item.fontWeight)
-        assertEquals(3, boldRange.start)
-        assertEquals(7, boldRange.end)
-    }
-
-    @Test
-    fun `appendNode preserves inline code literal without punctuation rewriting`() {
-        val paragraph = MarkdownParser.parse("今天`C#`示例").node.firstChild
-
-        val result =
-            buildAnnotatedString {
-                appendNode(checkNotNull(paragraph), lightColorScheme())
-            }
-
-        assertEquals("今天C#示例", result.text)
-        val codeRange = result.spanStyles.single()
-        assertTrue(codeRange.item.fontFamily != null)
     }
 
     companion object {

@@ -115,6 +115,8 @@ class S3SyncExecutorTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         executor =
             S3SyncExecutor(
@@ -123,6 +125,11 @@ class S3SyncExecutorTest {
                 encodingSupport = S3SyncEncodingSupport(),
                 fileBridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport()),
                 actionApplier = S3SyncActionApplier(runtime, S3SyncEncodingSupport(), S3SyncFileBridge(runtime, S3SyncEncodingSupport())),
+                protocolStateStore = DisabledS3SyncProtocolStateStore,
+                localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+                remoteIndexStore = DisabledS3RemoteIndexStore,
+                remoteShardStateStore = DisabledS3RemoteShardStateStore,
+                pendingConflictStore = DisabledPendingSyncConflictStore,
             )
     }
 

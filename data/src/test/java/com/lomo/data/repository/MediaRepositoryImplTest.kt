@@ -37,6 +37,9 @@ class MediaRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var s3LocalChangeRecorder: S3LocalChangeRecorder
 
+    @MockK(relaxed = true)
+    private lateinit var webDavLocalChangeRecorder: WebDavLocalChangeRecorder
+
     private lateinit var repository: MediaRepositoryImpl
 
     @Before
@@ -47,6 +50,7 @@ class MediaRepositoryImplTest {
                 workspaceConfigSource = dataSource,
                 mediaStorageDataSource = dataSource,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
+                webDavLocalChangeRecorder = webDavLocalChangeRecorder,
             )
     }
 

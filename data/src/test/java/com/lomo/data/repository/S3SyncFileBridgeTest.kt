@@ -77,6 +77,8 @@ class S3SyncFileBridgeTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         bridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport())
     }

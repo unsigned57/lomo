@@ -75,6 +75,8 @@ class MemoSynchronizerTest {
                     ),
                 memoIdentityPolicy = memoIdentityPolicy,
                 memoVersionJournal = memoVersionJournal,
+                s3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
+                webDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
             )
         val refreshEngine =
             MemoRefreshEngine(

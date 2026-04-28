@@ -22,8 +22,8 @@ class MediaRepositoryImpl
     constructor(
         private val workspaceConfigSource: WorkspaceConfigSource,
         private val mediaStorageDataSource: MediaStorageDataSource,
-        private val s3LocalChangeRecorder: S3LocalChangeRecorder = NoOpS3LocalChangeRecorder,
-        private val webDavLocalChangeRecorder: WebDavLocalChangeRecorder = NoOpWebDavLocalChangeRecorder,
+        private val s3LocalChangeRecorder: S3LocalChangeRecorder,
+        private val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
     ) : MediaRepository {
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 

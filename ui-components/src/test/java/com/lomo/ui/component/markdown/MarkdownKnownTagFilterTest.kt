@@ -1,3 +1,11 @@
+/*
+ * Test Contract:
+ * - Unit under test: MarkdownKnownTagFilter
+ * - Behavior focus: tag stripping and erasure from markdown text and AST nodes.
+ * - Observable outcomes: inline tags removed, tree nodes erased, edge cases (code blocks, nested formatting).
+ * - Red phase: Not applicable - test-only update; no production behavior change.
+ * - Excludes: full markdown rendering pipeline.
+ */
 package com.lomo.ui.component.markdown
 
 import org.commonmark.node.FencedCodeBlock
@@ -5,6 +13,12 @@ import org.commonmark.node.Link
 import org.commonmark.node.Node
 import org.commonmark.node.Paragraph
 import org.commonmark.node.Text
+import org.commonmark.ext.autolink.AutolinkExtension
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
+import org.commonmark.ext.gfm.tables.TablesExtension
+import org.commonmark.ext.task.list.items.TaskListItemsExtension
+import org.commonmark.parser.IncludeSourceSpans
+import org.commonmark.parser.Parser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,7 +30,7 @@ class MarkdownKnownTagFilterTest {
         val root =
             MarkdownKnownTagFilter.eraseKnownTags(
                 root =
-                    MarkdownParser.parse(
+                    parseMarkdown(
                         """
                         #todo #work
                         [jump](https://example.com/#todo)
@@ -70,5 +84,22 @@ class MarkdownKnownTagFilterTest {
 
         traverse(root)
         return nodes
+    }
+
+    private fun parseMarkdown(content: String): ImmutableNode = ImmutableNode(commonMarkParser.parse(content))
+
+    private companion object {
+        val commonMarkParser: Parser =
+            Parser
+                .builder()
+                .extensions(
+                    listOf(
+                        StrikethroughExtension.create(),
+                        TablesExtension.create(),
+                        AutolinkExtension.create(),
+                        TaskListItemsExtension.create(),
+                    ),
+                ).includeSourceSpans(IncludeSourceSpans.BLOCKS)
+                .build()
     }
 }

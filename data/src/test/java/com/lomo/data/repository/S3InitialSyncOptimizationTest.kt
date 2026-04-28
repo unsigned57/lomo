@@ -375,6 +375,8 @@ class S3InitialSyncOptimizationTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         val fileBridge = S3SyncFileBridge(runtime, encodingSupport)
         return S3SyncExecutor(
@@ -383,6 +385,11 @@ class S3InitialSyncOptimizationTest {
             encodingSupport = encodingSupport,
             fileBridge = fileBridge,
             actionApplier = S3SyncActionApplier(runtime, encodingSupport, fileBridge),
+            protocolStateStore = DisabledS3SyncProtocolStateStore,
+            localChangeJournalStore = DisabledS3LocalChangeJournalStore,
+            remoteIndexStore = DisabledS3RemoteIndexStore,
+            remoteShardStateStore = DisabledS3RemoteShardStateStore,
+            pendingConflictStore = DisabledPendingSyncConflictStore,
         )
     }
 

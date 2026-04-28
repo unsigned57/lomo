@@ -217,6 +217,8 @@ class S3SyncIncrementalStatusTesterTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(timestampToleranceMs = 0L),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         val encodingSupport = S3SyncEncodingSupport()
         return S3SyncStatusTester(

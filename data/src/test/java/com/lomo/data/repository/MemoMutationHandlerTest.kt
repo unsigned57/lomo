@@ -63,6 +63,9 @@ class MemoMutationHandlerTest {
     @MockK(relaxed = true)
     private lateinit var s3LocalChangeRecorder: S3LocalChangeRecorder
 
+    @MockK(relaxed = true)
+    private lateinit var webDavLocalChangeRecorder: WebDavLocalChangeRecorder
+
     private lateinit var handler: MemoMutationHandler
 
     @Before
@@ -84,6 +87,7 @@ class MemoMutationHandlerTest {
                 memoIdentityPolicy = MemoIdentityPolicy(),
                 memoVersionJournal = memoVersionJournal,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
+                webDavLocalChangeRecorder = webDavLocalChangeRecorder,
             )
     }
 
@@ -412,6 +416,8 @@ class MemoMutationHandlerTest {
                     trashMutationHandler = trashMutationHandler,
                     memoIdentityPolicy = MemoIdentityPolicy(),
                     memoVersionJournal = memoVersionJournal,
+                    s3LocalChangeRecorder = s3LocalChangeRecorder,
+                    webDavLocalChangeRecorder = webDavLocalChangeRecorder,
                 )
 
             withTimeout(2_000) {

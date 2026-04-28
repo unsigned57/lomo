@@ -117,6 +117,8 @@ class S3SyncActionApplierTest {
                 memoSynchronizer = memoSynchronizer,
                 planner = S3SyncPlanner(),
                 stateHolder = S3SyncStateHolder(),
+                performanceTuner = DisabledSyncPerformanceTuner,
+                transactionRunner = NoOpS3SyncTransactionRunner,
             )
         encodingSupport = S3SyncEncodingSupport()
         fileBridge = S3SyncFileBridge(runtime, encodingSupport)

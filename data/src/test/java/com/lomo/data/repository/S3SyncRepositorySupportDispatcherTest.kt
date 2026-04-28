@@ -71,6 +71,8 @@ class S3SyncRepositorySupportDispatcherTest {
                     memoSynchronizer = memoSynchronizer,
                     planner = S3SyncPlanner(),
                     stateHolder = S3SyncStateHolder(),
+                    performanceTuner = DisabledSyncPerformanceTuner,
+                    transactionRunner = NoOpS3SyncTransactionRunner,
                 ),
             )
     }
