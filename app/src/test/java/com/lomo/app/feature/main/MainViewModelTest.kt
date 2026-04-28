@@ -53,6 +53,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
@@ -130,6 +131,8 @@ class MainViewModelTest {
 
         every { repository.isSyncing() } returns flowOf(false)
         every { repository.getAllMemosList() } returns flowOf(emptyList<Memo>())
+        every { repository.getGalleryMemosList() } returns flowOf(emptyList<Memo>())
+        every { repository.getMemosByDateRange(any(), any()) } returns flowOf(emptyList<Memo>())
         every { repository.searchMemosList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMemosByTagList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMemoCountFlow() } returns flowOf(0)
@@ -249,7 +252,8 @@ class MainViewModelTest {
                     dateKey = "2026_03_07",
                     imageUrls = listOf("images/old.jpg"),
                 )
-            every { repository.getAllMemosList() } returns flowOf(listOf(newerImageMemo, noImageMemo, olderImageMemo))
+            every { repository.getGalleryMemosList() } returns flowOf(listOf(newerImageMemo, noImageMemo, olderImageMemo))
+            every { repository.getAllMemosList() } returns flow { error("full memo flow should stay unused for gallery") }
 
             val viewModel = createViewModel()
             val galleryUiMemos = viewModel.galleryUiMemos.first { it.size == 2 }
@@ -268,10 +272,37 @@ class MainViewModelTest {
         }
 
     @Test
+    fun `date filtered memos use range query instead of collecting full memo flow`() =
+        runTest {
+            val memo = memo("memo-date-range", LocalDate.of(2026, 3, 1), 10)
+            every {
+                repository.getMemosByDateRange(
+                    LocalDate.of(2026, 3, 1),
+                    LocalDate.of(2026, 3, 1),
+                )
+            } returns flowOf(listOf(memo))
+            every { repository.getAllMemosList() } returns flow { error("full memo flow should stay unused for date filtering") }
+
+            val viewModel = createViewModel()
+            viewModel.updateMemoStartDate(LocalDate.of(2026, 3, 1))
+            viewModel.updateMemoEndDate(LocalDate.of(2026, 3, 1))
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            val memos = viewModel.memos.first { items -> items.size == 1 }
+
+            assertEquals(listOf("memo-date-range"), memos.map { it.id })
+        }
+
+    @Test
     fun `delete animation state does not rebuild uiMemos list`() =
         runTest {
             val memo = memo("memo-delete", LocalDate.of(2026, 3, 8), 10)
-            every { repository.getAllMemosList() } returns flowOf(listOf(memo))
+            every {
+                repository.getMemosByDateRange(
+                    LocalDate.of(2026, 3, 8),
+                    LocalDate.of(2026, 3, 8),
+                )
+            } returns flowOf(listOf(memo))
 
             val viewModel = createViewModel()
             viewModel.filterMemosByDate(LocalDate.of(2026, 3, 8))
@@ -314,7 +345,12 @@ class MainViewModelTest {
                 )
             imageMapProvider = mockk(relaxed = true)
             every { imageMapProvider.imageMap } returns imageMapFlow
-            every { repository.getAllMemosList() } returns flowOf(listOf(memo))
+            every {
+                repository.getMemosByDateRange(
+                    memoDate,
+                    memoDate,
+                )
+            } returns flowOf(listOf(memo))
 
             val viewModel = createViewModel()
             viewModel.filterMemosByDate(memoDate)
@@ -358,7 +394,12 @@ class MainViewModelTest {
                 )
             imageMapProvider = mockk(relaxed = true)
             every { imageMapProvider.imageMap } returns imageMapFlow
-            every { repository.getAllMemosList() } returns flowOf(listOf(memo))
+            every {
+                repository.getMemosByDateRange(
+                    memoDate,
+                    memoDate,
+                )
+            } returns flowOf(listOf(memo))
 
             val viewModel = createViewModel()
             viewModel.filterMemosByDate(memoDate)
@@ -424,6 +465,54 @@ class MainViewModelTest {
             collectJob.cancel()
         }
 
+    @Test
+    fun `pagedUiMemos does not emit new paging data when allMemos list changes without ui dependency change`() =
+        runTest {
+            val memoDate = LocalDate.of(2026, 3, 8)
+            val pagedMemo =
+                Memo(
+                    id = "memo-paged-stable",
+                    timestamp =
+                        memoDate
+                            .atTime(10, 0)
+                            .atZone(ZoneId.systemDefault())
+                            .toInstant()
+                            .toEpochMilli(),
+                    content = "plain text",
+                    rawContent = "plain text",
+                    dateKey = "2026_03_08",
+                    localDate = memoDate,
+                )
+            val allMemosFlow = MutableStateFlow(listOf(pagedMemo))
+            every { repository.getAllMemosList() } returns allMemosFlow
+            every { repository.getDefaultMainListPagingSource() } returns fixedPagingSource(listOf(pagedMemo))
+
+            val viewModel = createViewModel()
+            val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+            val collectJob =
+                backgroundScope.launch {
+                    viewModel.pagedUiMemos.take(2).toList(pagingEmissions)
+                }
+
+            runCurrent()
+            assertEquals(1, pagingEmissions.size)
+
+            allMemosFlow.value =
+                listOf(
+                    pagedMemo,
+                    pagedMemo.copy(
+                        id = "memo-extra",
+                        timestamp = pagedMemo.timestamp - 1,
+                        content = "no image markup either",
+                        rawContent = "no image markup either",
+                    ),
+                )
+            advanceUntilIdle()
+
+            assertEquals(1, pagingEmissions.size)
+            collectJob.cancel()
+        }
+
     /*
      * Test Change Justification:
      * - Reason category: product contract changed.
@@ -443,7 +532,12 @@ class MainViewModelTest {
             val memo = memo("memo-visible-delete", LocalDate.of(2026, 3, 8), 10)
             val memosFlow = MutableStateFlow(listOf(memo))
             val finishDelete = CompletableDeferred<Unit>()
-            every { repository.getAllMemosList() } returns memosFlow
+            every {
+                repository.getMemosByDateRange(
+                    LocalDate.of(2026, 3, 8),
+                    LocalDate.of(2026, 3, 8),
+                )
+            } returns memosFlow
             coEvery { repository.deleteMemo(memo) } coAnswers {
                 finishDelete.await()
                 memosFlow.value = emptyList()
@@ -555,10 +649,14 @@ class MainViewModelTest {
     @Test
     fun `start date only keeps memos on and after selected day`() =
         runTest {
-            every { repository.getAllMemosList() } returns
+            every {
+                repository.getMemosByDateRange(
+                    LocalDate.of(2026, 3, 1),
+                    null,
+                )
+            } returns
                 flowOf(
                     listOf(
-                        memo("before", LocalDate.of(2026, 2, 28), 8),
                         memo("start", LocalDate.of(2026, 3, 1), 8),
                         memo("after", LocalDate.of(2026, 3, 2), 8),
                     ),
@@ -574,12 +672,16 @@ class MainViewModelTest {
     @Test
     fun `end date only keeps memos on and before selected day`() =
         runTest {
-            every { repository.getAllMemosList() } returns
+            every {
+                repository.getMemosByDateRange(
+                    null,
+                    LocalDate.of(2026, 3, 1),
+                )
+            } returns
                 flowOf(
                     listOf(
                         memo("before", LocalDate.of(2026, 2, 28), 8),
                         memo("end", LocalDate.of(2026, 3, 1), 8),
-                        memo("after", LocalDate.of(2026, 3, 2), 8),
                     ),
                 )
             val viewModel = createViewModel()
