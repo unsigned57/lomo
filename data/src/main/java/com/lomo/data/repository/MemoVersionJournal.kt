@@ -17,6 +17,7 @@ import com.lomo.domain.model.MemoRevisionPage
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
+import com.lomo.domain.model.MediaFileExtensions
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
@@ -606,7 +607,7 @@ class MemoVersionJournal
                     memoTagDao = memoTagDao,
                     memoImageDao = memoImageDao,
                     memoTrashDao = memoTrashDao,
-                ) ?: return
+                ) ?: throw IllegalStateException("Memo restore requires memo persistence stores for deleted revisions.")
             runInTransaction {
                 stores.memoWriteDao.deleteMemoById(revision.memoId)
                 stores.memoTagDao.deleteTagRefsByMemoId(revision.memoId)
@@ -783,5 +784,5 @@ internal const val UNASSIGNED_REVISION_ID = "__pending__"
 internal const val VERSION_MARKDOWN_CONTENT_ENCODING = "text/markdown;charset=utf-8"
 internal const val DEFAULT_MAX_REVISIONS_PER_MEMO = 100
 internal const val MILLIS_PER_DAY = 24L * 60L * 60L * 1000L
-internal val AUDIO_EXTENSIONS = setOf("m4a", "mp3", "aac", "ogg", "wav")
-internal val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif")
+internal val AUDIO_EXTENSIONS = MediaFileExtensions.AUDIO
+internal val IMAGE_EXTENSIONS = MediaFileExtensions.IMAGE

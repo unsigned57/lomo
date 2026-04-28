@@ -80,7 +80,6 @@ internal const val IMAGE_MARKER_SUFFIX = "\uFFFC"
 internal val IMAGE_MARKER_PATTERN = Regex("""\uFFFCIMG(\d+)\uFFFC""")
 internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
 internal val MD_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
-internal val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav")
 
 internal data class PreprocessedShareCardContent(
     val contentForProcessing: String,

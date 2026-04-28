@@ -1,12 +1,13 @@
 package com.lomo.data.repository
 
+import com.lomo.domain.model.MediaFileExtensions
 import java.util.Locale
 
 internal fun resolveAttachmentCategory(filename: String): WorkspaceMediaCategory? {
-    val extension = filename.substringAfterLast('.', "").lowercase(Locale.ROOT)
+    val extension = MediaFileExtensions.extensionOf(filename)
     return when {
-        extension in IMAGE_EXTENSIONS -> WorkspaceMediaCategory.IMAGE
-        extension in AUDIO_EXTENSIONS -> WorkspaceMediaCategory.VOICE
+        extension in MediaFileExtensions.IMAGE -> WorkspaceMediaCategory.IMAGE
+        extension in MediaFileExtensions.AUDIO -> WorkspaceMediaCategory.VOICE
         else -> null
     }
 }

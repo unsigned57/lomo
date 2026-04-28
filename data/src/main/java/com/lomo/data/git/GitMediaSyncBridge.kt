@@ -3,6 +3,7 @@ package com.lomo.data.git
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.MediaSyncCategory
+import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -326,16 +327,11 @@ private fun accepts(
     filename: String,
 ): Boolean =
     when (category) {
-        MediaSyncCategory.IMAGE -> filename.hasExtension(IMAGE_EXTENSIONS)
-        MediaSyncCategory.VOICE -> filename.hasExtension(VOICE_EXTENSIONS)
+        MediaSyncCategory.IMAGE -> filename.hasExtension(MediaFileExtensions.IMAGE)
+        MediaSyncCategory.VOICE -> filename.hasExtension(MediaFileExtensions.AUDIO)
     }
 
 private fun String.hasExtension(extensions: Set<String>): Boolean =
     substringAfterLast('.', "").lowercase(java.util.Locale.ROOT).let { extension ->
         extension.isNotBlank() && extension in extensions
     }
-
-private val IMAGE_EXTENSIONS =
-    setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
-
-private val VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")

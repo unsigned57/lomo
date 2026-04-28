@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.domain.model.MediaFileExtensions
 import java.util.Locale
 
 internal fun String.matchesLegacyFolder(folder: String): Boolean = this == folder || startsWith("$folder/")
@@ -72,10 +73,9 @@ internal val VOICE_CONTENT_TYPES =
         "ogg" to "audio/ogg",
     )
 
-internal val S3_SYNC_IMAGE_EXTENSIONS =
-    setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
+internal val S3_SYNC_IMAGE_EXTENSIONS = MediaFileExtensions.IMAGE
 
-internal val S3_SYNC_VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")
+internal val S3_SYNC_VOICE_EXTENSIONS = MediaFileExtensions.AUDIO
 
 internal const val DEFAULT_IMAGE_CONTENT_TYPE = "image/jpeg"
 internal const val DEFAULT_VOICE_CONTENT_TYPE = "audio/mp4"

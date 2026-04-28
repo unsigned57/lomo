@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.source.safIsImageFilename
+import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -129,10 +130,8 @@ private fun workspaceAudioMimeType(filename: String): String =
     }
 
 private fun isWorkspaceSafAudioFilename(name: String): Boolean {
-    val extension = name.substringAfterLast('.', "")
-    return extension.isNotBlank() && extension.lowercase(java.util.Locale.ROOT) in SAF_AUDIO_EXTENSIONS
+    return MediaFileExtensions.hasAudioExtension(name)
 }
 
 private const val AUDIO_MIME_PREFIX = "audio/"
 private const val IMAGE_MIME_PREFIX = "image/"
-private val SAF_AUDIO_EXTENSIONS = setOf("m4a", "mp3", "aac", "ogg", "wav")

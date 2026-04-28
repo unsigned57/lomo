@@ -3,6 +3,7 @@ package com.lomo.data.repository
 import android.content.Context
 import com.lomo.data.repository.WorkspaceMediaCategory.IMAGE
 import com.lomo.data.repository.WorkspaceMediaCategory.VOICE
+import com.lomo.domain.model.MediaFileExtensions
 import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolutionChoice
@@ -13,11 +14,13 @@ private const val INBOX_IMAGE_DIRECTORY = "images"
 private const val INBOX_VOICE_DIRECTORY = "voice"
 private const val INBOX_RECORDING_DIRECTORY = "recording"
 private const val IMPORTED_FILENAME_HASH_LENGTH = 10
-private val SYNC_INBOX_AUDIO_EXTENSIONS = setOf("m4a", "mp3", "ogg", "wav", "aac")
 private val IMAGE_PATTERN = Regex("""!\[.*?]\((.*?)\)""")
 private val WIKI_IMAGE_PATTERN = Regex("""!\[\[(.*?)]]""")
 private val AUDIO_PATTERN =
-    Regex("""(?<!!)\[[^\]]*]\((.+?\.(?:m4a|mp3|ogg|wav|aac))\)""", RegexOption.IGNORE_CASE)
+    Regex(
+        """(?<!!)\[[^\]]*]\((.+?\.(?:${MediaFileExtensions.AUDIO.joinToString("|")}))\)""",
+        RegexOption.IGNORE_CASE,
+    )
 
 internal fun safeAutoResolvedContent(conflictFile: SyncConflictFile): String? =
     when (SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(conflictFile)) {
@@ -176,7 +179,7 @@ private fun normalizeInboxAttachmentPath(path: String): String? =
         }
 
 private fun inboxAttachmentCategory(sourcePath: String): WorkspaceMediaCategory =
-    if (sourcePath.substringAfterLast('.', "").lowercase() in SYNC_INBOX_AUDIO_EXTENSIONS) {
+    if (MediaFileExtensions.hasAudioExtension(sourcePath)) {
         VOICE
     } else {
         IMAGE

@@ -8,9 +8,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: preprocessShareCardContent and buildShareBodyLines
- * - Behavior focus: share-card body preprocessing for image markers, audio preservation, body-line classification, blank-line collapsing, and max-line truncation.
+ * - Behavior focus: share-card body preprocessing for image markers, audio preservation across supported voice formats, body-line classification, blank-line collapsing, and max-line truncation.
  * - Observable outcomes: processed share-card text, image slot count, parsed ShareBodyLine types/text/imageIndex, and enforced line cap.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because `.ogg` voice attachments are treated like images and replaced with image markers instead of being preserved as audio markdown.
  * - Excludes: bitmap pixel rendering, Android resources, and share intent/file-provider wiring.
  */
 class ShareCardBitmapRendererBodyTest {
@@ -21,7 +21,7 @@ class ShareCardBitmapRendererBodyTest {
             Intro
             ![[cover.png]]
             ![photo](gallery/day-1.jpg)
-            ![voice](recordings/memo.m4a)
+            ![voice](recordings/memo.ogg)
             Outro
             """.trimIndent()
 
@@ -31,7 +31,7 @@ class ShareCardBitmapRendererBodyTest {
         assertEquals(2, result.totalImageSlots)
         assertTrue(result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX"))
         assertTrue(result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX"))
-        assertTrue(result.contentForProcessing.contains("![voice](recordings/memo.m4a)"))
+        assertTrue(result.contentForProcessing.contains("![voice](recordings/memo.ogg)"))
         assertFalse(result.contentForProcessing.contains("cover.png"))
         assertFalse(result.contentForProcessing.contains("gallery/day-1.jpg"))
     }

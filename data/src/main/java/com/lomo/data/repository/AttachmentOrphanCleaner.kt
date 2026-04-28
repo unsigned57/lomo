@@ -2,13 +2,11 @@ package com.lomo.data.repository
 
 import com.lomo.data.local.dao.MemoSearchDao
 import com.lomo.data.source.MediaStorageDataSource
-
-private val VOICE_ATTACHMENT_SUFFIXES = setOf(".m4a", ".mp3", ".aac", ".wav", ".ogg")
+import com.lomo.domain.model.MediaFileExtensions
 
 internal fun String.looksLikeVoiceAttachmentPath(): Boolean {
     if (startsWith("voice_", ignoreCase = true)) return true
-    val lower = lowercase()
-    return VOICE_ATTACHMENT_SUFFIXES.any { suffix -> lower.endsWith(suffix) }
+    return MediaFileExtensions.hasAudioExtension(this)
 }
 
 /**
