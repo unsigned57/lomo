@@ -84,7 +84,7 @@ class MemoSynchronizerOutboxPolicyTest {
     private fun outboxItem(
         id: Long,
         retryCount: Int,
-        operation: String,
+        operation: MemoFileOutboxOp,
     ): MemoFileOutboxEntity =
         MemoFileOutboxEntity(
             id = id,

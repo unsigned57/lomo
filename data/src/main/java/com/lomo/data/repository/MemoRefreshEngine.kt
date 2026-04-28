@@ -29,11 +29,13 @@ class MemoRefreshEngine
         private suspend fun refreshWithOrigin(
             targetFilename: String?,
             origin: MemoRevisionOrigin,
-        ) = mutationGate.withLock {
+        ) {
             withContext(Dispatchers.IO) {
                 runNonFatalCatching {
                     if (targetFilename != null) {
-                        refreshTargetFile(targetFilename, origin)
+                        mutationGate.withLock {
+                            refreshTargetFile(targetFilename, origin)
+                        }
                     } else {
                         val refreshStartedAt = now()
                         val mainSyncMetadata = localFileStateDao.getAllByTrashStatus(isTrash = false)
@@ -88,11 +90,13 @@ class MemoRefreshEngine
                             localFileStateDao.upsertAll(missingResolution.pendingMissingStates)
                         }
 
-                        refreshDbApplier.apply(
-                            parseResult = normalizedParseResult,
-                            filesToDeleteInDb = missingResolution.filesToDeleteInDb,
-                            origin = origin,
-                        )
+                        mutationGate.withLock {
+                            refreshDbApplier.apply(
+                                parseResult = normalizedParseResult,
+                                filesToDeleteInDb = missingResolution.filesToDeleteInDb,
+                                origin = origin,
+                            )
+                        }
                     }
                 }.getOrElse { error ->
                     Timber.e(error, "Error during refresh")

@@ -1,3 +1,11 @@
+/*
+ * Test Contract:
+ * - Unit under test: ApplyMainMemoFilterUseCase
+ * - Behavior focus: sort and filter memo lists by date range, sort option, pinned priority.
+ * - Observable outcomes: correct ordering, date range filtering, pinned-first sort.
+ * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Excludes: repository internals, UI rendering.
+ */
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
@@ -129,6 +137,38 @@ class ApplyMainMemoFilterUseCaseTest {
             )
 
         assertEquals(listOf("in"), result.map { it.id })
+    }
+
+    @Test
+    fun `start date without end date keeps memos on and after selected day`() {
+        val result =
+            useCase(
+                memos =
+                    listOf(
+                        memo(id = "before", date = "2026_02_28", timestamp = timestampOf(2026, 2, 28, 8, 0)),
+                        memo(id = "start", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 8, 0)),
+                        memo(id = "after", date = "2026_03_02", timestamp = timestampOf(2026, 3, 2, 8, 0)),
+                    ),
+                filter = MemoListFilter(startDate = LocalDate.of(2026, 3, 1)),
+            )
+
+        assertEquals(listOf("after", "start"), result.map { it.id })
+    }
+
+    @Test
+    fun `end date without start date keeps memos on and before selected day`() {
+        val result =
+            useCase(
+                memos =
+                    listOf(
+                        memo(id = "before", date = "2026_02_28", timestamp = timestampOf(2026, 2, 28, 8, 0)),
+                        memo(id = "end", date = "2026_03_01", timestamp = timestampOf(2026, 3, 1, 8, 0)),
+                        memo(id = "after", date = "2026_03_02", timestamp = timestampOf(2026, 3, 2, 8, 0)),
+                    ),
+                filter = MemoListFilter(endDate = LocalDate.of(2026, 3, 1)),
+            )
+
+        assertEquals(listOf("end", "before"), result.map { it.id })
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.lomo.data.local.entity
 
 import androidx.room3.Entity
 import androidx.room3.Index
+import androidx.room3.Ignore
 import androidx.room3.PrimaryKey
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.data.util.SearchTokenizer
@@ -28,28 +29,39 @@ data class MemoEntity(
     val imageUrls: String, // Comma separated
     val geoLocation: String? = null, // "lat,lng" coordinate pair
 ) {
-    fun toDomain(isPinned: Boolean = false): Memo =
-        StoredMemoRecovery.recoverOrNull(
+    @Ignore
+    private var cachedDomainWithoutPin: Memo? = null
+
+    fun toDomain(isPinned: Boolean = false): Memo {
+        val cached = cachedDomainWithoutPin
+        if (cached != null) {
+            return if (cached.isPinned == isPinned) cached else cached.copy(isPinned = isPinned)
+        }
+        val recovered =
+            StoredMemoRecovery.recoverOrNull(
             rawContent = rawContent,
             storedContent = content,
             storedTimestamp = timestamp,
             dateKey = date,
-        ).let { recovered ->
-            Memo(
-            id = id,
-            timestamp = recovered?.timestamp ?: timestamp,
-            updatedAt = if (recovered != null && updatedAt == timestamp) recovered.timestamp else updatedAt,
-            content = recovered?.content ?: content,
-            rawContent = rawContent,
-            dateKey = date,
-            localDate = MemoLocalDateResolver.resolve(date),
-            tags = decodeStoredMemoStringList(tags),
-            imageUrls = decodeStoredMemoStringList(imageUrls),
-            isPinned = isPinned,
-            isDeleted = false,
-            geoLocation = geoLocation,
         )
-        }
+        val domain =
+            Memo(
+                id = id,
+                timestamp = recovered?.timestamp ?: timestamp,
+                updatedAt = if (recovered != null && updatedAt == timestamp) recovered.timestamp else updatedAt,
+                content = recovered?.content ?: content,
+                rawContent = rawContent,
+                dateKey = date,
+                localDate = MemoLocalDateResolver.resolve(date),
+                tags = decodeStoredMemoStringList(tags),
+                imageUrls = decodeStoredMemoStringList(imageUrls),
+                isPinned = false,
+                isDeleted = false,
+                geoLocation = geoLocation,
+            )
+        cachedDomainWithoutPin = domain
+        return if (isPinned) domain.copy(isPinned = true) else domain
+    }
 
     companion object {
         fun fromDomain(memo: Memo): MemoEntity =

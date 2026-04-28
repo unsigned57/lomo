@@ -271,9 +271,21 @@ internal fun Memo.withStableRefreshId(
     existingMemosByTimestamp: Map<Long, List<MemoEntity>>,
 ): Memo {
     val existingMatches = existingMemosByTimestamp[timestamp].orEmpty()
-    return if (existingMatches.size == 1) {
-        copy(id = existingMatches.single().id)
-    } else {
-        this
+    return when {
+        existingMatches.isEmpty() -> this
+        existingMatches.size == 1 -> copy(id = existingMatches.single().id)
+        else -> {
+            // Multiple existing memos share this timestamp. Use content
+            // similarity to pick the best match, preventing ID flip-flop
+            // across refresh cycles.
+            val contentMatch = existingMatches.firstOrNull { it.content == content }
+            if (contentMatch != null) {
+                copy(id = contentMatch.id)
+            } else {
+                // No exact content match; keep the current (new) ID so
+                // the caller can reconcile via its own deduplication pass.
+                this
+            }
+        }
     }
 }

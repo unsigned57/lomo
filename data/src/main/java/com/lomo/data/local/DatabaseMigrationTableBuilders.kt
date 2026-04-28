@@ -56,7 +56,7 @@ internal fun createMemoFileOutboxTable(db: SQLiteConnection) {
         """
         CREATE TABLE IF NOT EXISTS `$MEMO_FILE_OUTBOX_TABLE` (
             `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-            `operation` TEXT NOT NULL,
+            `operation` INTEGER NOT NULL,
             `memoId` TEXT NOT NULL,
             `memoDate` TEXT NOT NULL,
             `memoTimestamp` INTEGER NOT NULL,

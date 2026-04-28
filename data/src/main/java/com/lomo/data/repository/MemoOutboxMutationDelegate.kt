@@ -47,7 +47,6 @@ internal class MemoOutboxMutationDelegate(
                 MemoFileOutboxOp.DELETE -> flushDeleteFromOutbox(runtime, item)
                 MemoFileOutboxOp.RESTORE ->
                     runtime.trashMutationHandler.restoreFromTrashFileOnly(outboxSourceMemo(item))
-                else -> false
             }
         }
 }

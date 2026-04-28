@@ -41,7 +41,9 @@ interface MemoImageDao {
 
     suspend fun replaceImageRefsForMemos(memos: List<MemoEntity>) {
         if (memos.isEmpty()) return
-        deleteImageRefsByMemoIds(memos.map(MemoEntity::id))
+        memos.map(MemoEntity::id).chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+            deleteImageRefsByMemoIds(chunk)
+        }
         val refs = memos.asSequence().flatMap { it.toImageAttachmentRefs().asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)
@@ -50,7 +52,9 @@ interface MemoImageDao {
 
     suspend fun replaceImageRefsForTrashMemos(memos: List<TrashMemoEntity>) {
         if (memos.isEmpty()) return
-        deleteImageRefsByMemoIds(memos.map(TrashMemoEntity::id))
+        memos.map(TrashMemoEntity::id).chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+            deleteImageRefsByMemoIds(chunk)
+        }
         val refs = memos.asSequence().flatMap { it.toImageAttachmentRefs().asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertImageRefs(refs)

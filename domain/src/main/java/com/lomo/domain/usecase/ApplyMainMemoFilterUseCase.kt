@@ -12,8 +12,18 @@ class ApplyMainMemoFilterUseCase {
         memos: List<Memo>,
         filter: MemoListFilter,
     ): List<Memo> {
-        val normalizedStartDate = minOfOrNull(filter.startDate, filter.endDate)
-        val normalizedEndDate = maxOfOrNull(filter.startDate, filter.endDate)
+        val normalizedStartDate =
+            if (filter.startDate != null && filter.endDate != null) {
+                minOfOrNull(filter.startDate, filter.endDate)
+            } else {
+                filter.startDate
+            }
+        val normalizedEndDate =
+            if (filter.startDate != null && filter.endDate != null) {
+                maxOfOrNull(filter.startDate, filter.endDate)
+            } else {
+                filter.endDate
+            }
         val comparator =
             if (filter.sortAscending) {
                 compareByDescending<Memo> { memo -> memo.isPinned }

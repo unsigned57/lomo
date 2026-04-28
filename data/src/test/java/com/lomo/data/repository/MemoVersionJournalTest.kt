@@ -265,6 +265,54 @@ class MemoVersionJournalTest {
         }
 
     @Test
+    fun `restoreDeletedRevision throws when persistence dependencies are unavailable`() =
+        runTest {
+            val deleted =
+                memo(
+                    id = "memo-deleted-restore",
+                    content = "deleted",
+                    rawContent = "- 09:00 deleted",
+                )
+
+            journal.appendLocalRevision(
+                memo = deleted,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            journal.appendImportedRefreshRevisions(
+                changes =
+                    listOf(
+                        ImportedMemoRevisionChange.Delete(
+                            memoId = deleted.id,
+                            dateKey = deleted.dateKey,
+                            rawContent = deleted.rawContent,
+                            content = deleted.content,
+                            timestamp = deleted.timestamp,
+                            updatedAt = deleted.updatedAt,
+                        ),
+                    ),
+                origin = MemoRevisionOrigin.IMPORT_REFRESH,
+            )
+
+            val deletedRevision =
+                journal
+                    .listMemoRevisions(memo = deleted, cursor = null, limit = 10)
+                    .items
+                    .first()
+
+            val failure =
+                runCatching {
+                    journal.restoreMemoRevision(currentMemo = deleted.copy(isDeleted = true), revisionId = deletedRevision.revisionId)
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertEquals(
+                "Memo restore requires memo persistence stores for deleted revisions.",
+                failure?.message,
+            )
+        }
+
+    @Test
     fun `restoreRevision followed by imported refresh keeps edited history and marks only one current revision`() =
         runTest {
             val versionA =

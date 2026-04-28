@@ -44,14 +44,14 @@ import org.junit.Test
  */
 class DatabaseMigrationsTest {
     @Test
-    fun `database version remains 52 for trigger managed fts5 external content`() {
-        assertEquals(52, MEMO_DATABASE_VERSION)
+    fun `database version remains 53 for memo file outbox enum persistence`() {
+        assertEquals(53, MEMO_DATABASE_VERSION)
     }
 
     @Test
-    fun `migration list includes direct 51 to 52 upgrade path`() {
+    fun `migration list includes direct 52 to 53 upgrade path`() {
         assertTrue(
-            ALL_DATABASE_MIGRATIONS.any { it.startVersion == 51 && it.endVersion == 52 },
+            ALL_DATABASE_MIGRATIONS.any { it.startVersion == 52 && it.endVersion == 53 },
         )
     }
 
@@ -228,6 +228,68 @@ class DatabaseMigrationsTest {
             )
         }
         verify { db.execSQL("INSERT INTO `lomo_fts`(`lomo_fts`) VALUES ('rebuild')") }
+    }
+
+    @Test
+    fun `migration 52 to 53 rebuilds memo outbox operation column as integer enum`() {
+        val db = RecordingSQLiteConnection()
+        val outboxColumns =
+            setOf(
+                "id",
+                "operation",
+                "memoId",
+                "memoDate",
+                "memoTimestamp",
+                "memoRawContent",
+                "newContent",
+                "createRawContent",
+                "createdAt",
+                "updatedAt",
+                "retryCount",
+                "lastError",
+                "claimToken",
+                "claimUpdatedAt",
+            )
+
+        db.queryHandler = { sql, _ ->
+            when {
+                sql.contains("sqlite_master") -> {
+                    val tableName = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
+                    mockCursor(tableName == "MemoFileOutbox")
+                }
+
+                sql.contains("PRAGMA table_info(`MemoFileOutbox`)") -> {
+                    mockColumnsCursor(outboxColumns)
+                }
+
+                else -> {
+                    mockCursor(false)
+                }
+            }
+        }
+
+        MIGRATION_52_53.migrateForTest(db)
+
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("CREATE TABLE IF NOT EXISTS `MemoFileOutbox`") &&
+                        it.contains("`operation` INTEGER NOT NULL")
+                },
+            )
+        }
+        verify {
+            db.execSQL(
+                match {
+                    it.contains("INSERT OR REPLACE INTO `MemoFileOutbox`") &&
+                        it.contains("CASE") &&
+                        it.contains("WHEN CAST(`operation` AS TEXT) = 'CREATE' THEN 0") &&
+                        it.contains("WHEN CAST(`operation` AS TEXT) = 'UPDATE' THEN 1") &&
+                        it.contains("WHEN CAST(`operation` AS TEXT) = 'DELETE' THEN 2") &&
+                        it.contains("WHEN CAST(`operation` AS TEXT) = 'RESTORE' THEN 3")
+                },
+            )
+        }
     }
 
 

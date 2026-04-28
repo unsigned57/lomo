@@ -1,10 +1,12 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.DefaultMainListDao
+import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.DefaultMainListMemoRow
 import com.lomo.data.local.entity.MemoEntity
+import androidx.paging.PagingSource
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -17,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 /*
  * Test Contract:
@@ -28,6 +31,7 @@ import org.junit.Test
  */
 class MemoQueryRepositoryImplTest {
     private val memoDao: MemoDao = mockk()
+    private val memoBrowseDao: MemoBrowseDao = mockk()
     private val defaultMainListDao: DefaultMainListDao = mockk()
     private val memoPinDao: MemoPinDao = mockk()
     private val synchronizer: MemoSynchronizer = mockk(relaxed = true)
@@ -35,6 +39,7 @@ class MemoQueryRepositoryImplTest {
     private val repository =
         MemoQueryRepositoryImpl(
             memoDao = memoDao,
+            memoBrowseDao = memoBrowseDao,
             defaultMainListDao = defaultMainListDao,
             memoPinDao = memoPinDao,
             synchronizer = synchronizer,
@@ -96,6 +101,37 @@ class MemoQueryRepositoryImplTest {
         }
 
     @Test
+    fun `getMemosByDateRange and getGalleryMemosList merge pinned ids into domain output`() =
+        runTest {
+            val rangeEntities =
+                listOf(
+                    memoEntity(id = "memo-range-2", timestamp = 200L),
+                    memoEntity(id = "memo-range-1", timestamp = 100L),
+                )
+            val galleryEntities =
+                listOf(
+                    memoEntity(id = "memo-gallery-2", timestamp = 220L),
+                    memoEntity(id = "memo-gallery-1", timestamp = 120L),
+                )
+            every { memoBrowseDao.getMemosByTimestampRangeFlow(any(), any()) } returns flowOf(rangeEntities)
+            every { memoBrowseDao.getGalleryMemosFlow() } returns flowOf(galleryEntities)
+            every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(listOf("memo-range-1", "memo-gallery-2"))
+
+            val range =
+                repository
+                    .getMemosByDateRange(
+                        startDate = LocalDate.of(2026, 3, 1),
+                        endDate = LocalDate.of(2026, 3, 5),
+                    ).first()
+            val gallery = repository.getGalleryMemosList().first()
+
+            assertEquals(listOf("memo-range-2", "memo-range-1"), range.map { it.id })
+            assertEquals(listOf(false, true), range.map { it.isPinned })
+            assertEquals(listOf("memo-gallery-2", "memo-gallery-1"), gallery.map { it.id })
+            assertEquals(listOf(true, false), gallery.map { it.isPinned })
+        }
+
+    @Test
     fun `getMemoById returns null when dao misses and skips pinned lookup`() =
         runTest {
             coEvery { memoDao.getMemo("missing") } returns null
@@ -131,6 +167,37 @@ class MemoQueryRepositoryImplTest {
 
             syncing.value = true
             assertEquals(true, repository.isSyncing().first())
+        }
+
+    @Test
+    fun `getDefaultMainListPagingSource keeps source refresh key for offset paging`() =
+        runTest {
+            val source =
+                object : PagingSource<Int, DefaultMainListMemoRow>() {
+                    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, DefaultMainListMemoRow> =
+                        LoadResult.Page(
+                            data = emptyList(),
+                            prevKey = null,
+                            nextKey = null,
+                        )
+
+                    override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
+                        42
+                }
+            coEvery { defaultMainListDao.getPagingSource() } returns source
+
+            val pagingSource = repository.getDefaultMainListPagingSource()
+            val refreshKey =
+                pagingSource.getRefreshKey(
+                    androidx.paging.PagingState(
+                        pages = emptyList(),
+                        anchorPosition = 90,
+                        config = androidx.paging.PagingConfig(pageSize = 30),
+                        leadingPlaceholderCount = 0,
+                    ),
+                )
+
+            assertEquals(42, refreshKey)
         }
 
     private fun memoEntity(

@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.datastore.LomoDataStore
+import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
 import com.lomo.data.webdav.WebDavCredentialStore
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncState
@@ -8,6 +9,7 @@ import com.lomo.domain.repository.WebDavSyncConfigurationMutationRepository
 import com.lomo.domain.repository.WebDavSyncConfigurationRepository
 import com.lomo.domain.repository.WebDavSyncStateRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,6 +46,7 @@ class WebDavSyncConfigurationMutationRepositoryImpl
     constructor(
         private val dataStore: LomoDataStore,
         private val credentialStore: WebDavCredentialStore,
+        private val clientFactory: Dav4jvmWebDavClientFactory,
     ) : WebDavSyncConfigurationMutationRepository {
         override suspend fun setWebDavSyncEnabled(enabled: Boolean) {
             dataStore.updateWebDavSyncEnabled(enabled)
@@ -69,6 +72,11 @@ class WebDavSyncConfigurationMutationRepositoryImpl
 
         override suspend fun setPassword(password: String) {
             credentialStore.setPassword(password.trim())
+            val endpointUrl = dataStore.webDavEndpointUrl.first()
+            val username = dataStore.webDavUsername.first()
+            if (!endpointUrl.isNullOrBlank() && !username.isNullOrBlank()) {
+                clientFactory.invalidate(endpointUrl, username)
+            }
         }
 
         override suspend fun isPasswordConfigured(): Boolean = !credentialStore.getPassword().isNullOrBlank()

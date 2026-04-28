@@ -32,7 +32,9 @@ interface MemoTagDao {
 
     suspend fun replaceTagRefsForMemos(memos: List<MemoEntity>) {
         if (memos.isEmpty()) return
-        deleteTagRefsByMemoIds(memos.map { it.id })
+        memos.map { it.id }.chunked(ROOM_MAX_BIND_PARAMETER_COUNT).forEach { chunk ->
+            deleteTagRefsByMemoIds(chunk)
+        }
         val refs = memos.asSequence().flatMap { it.toTagCrossRefs().asSequence() }.toList()
         if (refs.isNotEmpty()) {
             insertTagRefs(refs)

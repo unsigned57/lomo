@@ -10,8 +10,10 @@ import com.lomo.data.local.DatabaseTransitionStrategy
 import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
 import com.lomo.data.local.withDriverTransaction
+import com.lomo.data.local.withDriverTransactionAndSuspendedMemoFtsTriggers
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.MemoDao
+import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoFtsDao
 import com.lomo.data.local.dao.MemoImageDao
 import com.lomo.data.local.dao.MemoIdentityDao
@@ -153,6 +155,10 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideMemoDao(database: MemoDatabase): MemoDao = database.memoDao()
+
+    @Provides
+    @Singleton
+    fun provideMemoBrowseDao(database: MemoDatabase): MemoBrowseDao = database.memoBrowseDao()
 
     @Provides
     @Singleton
@@ -322,6 +328,7 @@ object MemoRefreshModule {
     @Provides
     @Singleton
     fun provideWorkspaceTransitionRepositoryImpl(
+        database: MemoDatabase,
         memoWriteDao: MemoWriteDao,
         memoOutboxDao: MemoOutboxDao,
         memoTagDao: MemoTagDao,
@@ -336,6 +343,11 @@ object MemoRefreshModule {
             memoImageDao = memoImageDao,
             memoTrashDao = memoTrashDao,
             localFileStateDao = localFileStateDao,
+            runInTransaction = { block ->
+                database.withDriverTransaction {
+                    block()
+                }
+            },
         )
 
     @Provides
@@ -380,7 +392,7 @@ object MemoRefreshModule {
             localFileStateDao = localFileStateDao,
             memoVersionJournal = memoVersionJournal,
             runInTransaction = { block ->
-                database.withDriverTransaction {
+                database.withDriverTransactionAndSuspendedMemoFtsTriggers {
                     block()
                 }
             },

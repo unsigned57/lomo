@@ -4,6 +4,11 @@ import androidx.room3.Entity
 import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
+private const val MEMO_FILE_OUTBOX_OP_CREATE = 0
+private const val MEMO_FILE_OUTBOX_OP_UPDATE = 1
+private const val MEMO_FILE_OUTBOX_OP_DELETE = 2
+private const val MEMO_FILE_OUTBOX_OP_RESTORE = 3
+
 @Entity(
     tableName = "MemoFileOutbox",
     indices =
@@ -17,7 +22,7 @@ import androidx.room3.PrimaryKey
 data class MemoFileOutboxEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0L,
-    val operation: String,
+    val operation: MemoFileOutboxOp,
     val memoId: String,
     val memoDate: String,
     val memoTimestamp: Long,
@@ -32,9 +37,18 @@ data class MemoFileOutboxEntity(
     val claimUpdatedAt: Long? = null,
 )
 
-object MemoFileOutboxOp {
-    const val CREATE = "CREATE"
-    const val UPDATE = "UPDATE"
-    const val DELETE = "DELETE"
-    const val RESTORE = "RESTORE"
+enum class MemoFileOutboxOp(
+    val persistedValue: Int,
+) {
+    CREATE(MEMO_FILE_OUTBOX_OP_CREATE),
+    UPDATE(MEMO_FILE_OUTBOX_OP_UPDATE),
+    DELETE(MEMO_FILE_OUTBOX_OP_DELETE),
+    RESTORE(MEMO_FILE_OUTBOX_OP_RESTORE),
+    ;
+
+    companion object {
+        fun fromPersistedValue(value: Int): MemoFileOutboxOp =
+            entries.firstOrNull { operation -> operation.persistedValue == value }
+                ?: throw IllegalArgumentException("Unknown memo file outbox operation value: $value")
+    }
 }

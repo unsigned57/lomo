@@ -62,6 +62,16 @@ class Dav4jvmWebDavClientFactory
                         ),
                 )
             }
+
+        /**
+         * Removes the cached client whose key matches [endpointUrl] + [username] regardless of the
+         * stored password. Call this whenever the password for that account changes so the next
+         * [create] call builds a fresh client with the new credentials instead of reusing the stale
+         * one.
+         */
+        fun invalidate(endpointUrl: String, username: String) {
+            clients.keys.removeAll { key -> key.endpointUrl == endpointUrl && key.username == username }
+        }
     }
 
 class Dav4jvmWebDavClient(

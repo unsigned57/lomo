@@ -21,7 +21,7 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: SyncPolicyRepositoryImpl
  * - Behavior focus: backend preference mapping and scheduler enable/cancel policy.
- * - Observable outcomes: observed SyncBackendType values, datastore flag mutations, and scheduler calls.
+ * - Observable outcomes: observed SyncBackendType values, atomic datastore flag mutation, and scheduler calls.
  * - Red phase: Fails before the fix because the S3 backend cannot be persisted or rescheduled, so remote sync policy never activates the S3 scheduler.
  * - Excludes: WorkManager request construction and Android context-driven worker registration.
  */
@@ -50,36 +50,35 @@ class SyncPolicyRepositoryImplTest {
         }
 
     @Test
-    fun `setRemoteSyncBackend enables git and disables webdav for git backend`() =
+    fun `setRemoteSyncBackend writes all four keys atomically for git backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.GIT)
 
-            coVerify(exactly = 1) { dataStore.updateSyncBackendType("git") }
-            coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(true) }
-            coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
-            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.setRemoteSyncBackendFlags("git", true, false, false) }
+            coVerify(exactly = 0) { dataStore.updateSyncBackendType(any()) }
+            coVerify(exactly = 0) { dataStore.updateGitSyncEnabled(any()) }
+            coVerify(exactly = 0) { dataStore.updateWebDavSyncEnabled(any()) }
+            coVerify(exactly = 0) { dataStore.updateS3SyncEnabled(any()) }
         }
 
     @Test
-    fun `setRemoteSyncBackend disables both remote backends for NONE`() =
+    fun `setRemoteSyncBackend writes all four keys atomically for NONE backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.NONE)
 
-            coVerify(exactly = 1) { dataStore.updateSyncBackendType("none") }
-            coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(false) }
-            coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
-            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(false) }
+            coVerify(exactly = 1) { dataStore.setRemoteSyncBackendFlags("none", false, false, false) }
+            coVerify(exactly = 0) { dataStore.updateSyncBackendType(any()) }
+            coVerify(exactly = 0) { dataStore.updateGitSyncEnabled(any()) }
         }
 
     @Test
-    fun `setRemoteSyncBackend enables s3 and disables git webdav for s3 backend`() =
+    fun `setRemoteSyncBackend writes all four keys atomically for s3 backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.S3)
 
-            coVerify(exactly = 1) { dataStore.updateSyncBackendType("s3") }
-            coVerify(exactly = 1) { dataStore.updateGitSyncEnabled(false) }
-            coVerify(exactly = 1) { dataStore.updateWebDavSyncEnabled(false) }
-            coVerify(exactly = 1) { dataStore.updateS3SyncEnabled(true) }
+            coVerify(exactly = 1) { dataStore.setRemoteSyncBackendFlags("s3", false, false, true) }
+            coVerify(exactly = 0) { dataStore.updateSyncBackendType(any()) }
+            coVerify(exactly = 0) { dataStore.updateS3SyncEnabled(any()) }
         }
 
     @Test

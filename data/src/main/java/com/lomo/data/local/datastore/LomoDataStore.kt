@@ -204,6 +204,17 @@ interface LomoGitSyncBehaviorStore {
     suspend fun updateGitSyncOnRefresh(enabled: Boolean)
 
     suspend fun updateSyncBackendType(type: String)
+
+    /**
+     * Atomically persists the backend type together with the three enabled flags in a single
+     * DataStore transaction, preventing partially-written state if a write fails mid-way.
+     */
+    suspend fun setRemoteSyncBackendFlags(
+        backendType: String,
+        gitEnabled: Boolean,
+        webdavEnabled: Boolean,
+        s3Enabled: Boolean,
+    )
 }
 
 interface LomoGitIdentityStore {

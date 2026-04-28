@@ -90,6 +90,24 @@ internal fun SQLiteConnection.execSQL(
     }
 }
 
+/**
+ * Prepares [sql] once, then calls [block] for each item in [items].
+ * Inside [block], bind parameters and call `step()` + `reset()`.
+ * The statement is closed automatically after iteration completes.
+ */
+internal inline fun <T> SQLiteConnection.usePreparedBatch(
+    sql: String,
+    items: Iterable<T>,
+    block: (SQLiteStatement, T) -> Unit,
+) {
+    prepare(sql).use { statement ->
+        items.forEach { item ->
+            block(statement, item)
+            statement.reset()
+        }
+    }
+}
+
 private fun SQLiteStatement.bindSqlValue(
     index: Int,
     value: Any?,

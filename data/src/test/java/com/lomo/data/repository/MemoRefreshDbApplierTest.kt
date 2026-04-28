@@ -1,6 +1,7 @@
 package com.lomo.data.repository
 
 import com.lomo.data.local.dao.LocalFileStateDao
+import com.lomo.data.local.dao.ROOM_MAX_BIND_PARAMETER_COUNT
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.domain.model.MemoRevisionOrigin
@@ -217,7 +218,6 @@ class MemoRefreshDbApplierTest {
             assertEquals(1, transactionCalls)
         }
 
-    @Test
     fun `apply keeps memos present in both db and parse result untouched`() =
         runTest {
             val stableId = "memo_stable"
@@ -245,6 +245,51 @@ class MemoRefreshDbApplierTest {
             coVerify(exactly = 1) { dao.deleteTagRefsByMemoIds(listOf(staleId)) }
             coVerify(exactly = 1) { dao.deleteMemosByIds(listOf(staleId)) }
             coVerify(exactly = 0) { dao.deleteMemosByDate(any()) }
+        }
+
+    @Test
+    fun `apply chunks stale main memo deletions to stay under sqlite bind limit`() =
+        runTest {
+            val date = "2024_02_01"
+            val staleMemos =
+                (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index ->
+                    memoEntity(
+                        id = "memo-stale-$index",
+                        date = date,
+                        content = "stale-$index",
+                    )
+                }
+            coEvery { dao.getMemosByDate(date) } returns staleMemos
+
+            val parseResult =
+                MemoRefreshParseResult(
+                    mainMemos = emptyList(),
+                    trashMemos = emptyList(),
+                    metadataToUpdate = emptyList(),
+                    mainDatesToReplace = setOf(date),
+                    trashDatesToReplace = emptySet(),
+                )
+
+            applier.apply(parseResult, filesToDeleteInDb = emptySet())
+
+            coVerify(exactly = 1) {
+                dao.deleteTagRefsByMemoIds(match { ids -> ids.size == ROOM_MAX_BIND_PARAMETER_COUNT })
+            }
+            coVerify(exactly = 1) {
+                dao.deleteTagRefsByMemoIds(match { ids -> ids.size == 1 })
+            }
+            coVerify(exactly = 1) {
+                dao.deleteImageRefsByMemoIds(match { ids -> ids.size == ROOM_MAX_BIND_PARAMETER_COUNT })
+            }
+            coVerify(exactly = 1) {
+                dao.deleteImageRefsByMemoIds(match { ids -> ids.size == 1 })
+            }
+            coVerify(exactly = 1) {
+                dao.deleteMemosByIds(match { ids -> ids.size == ROOM_MAX_BIND_PARAMETER_COUNT })
+            }
+            coVerify(exactly = 1) {
+                dao.deleteMemosByIds(match { ids -> ids.size == 1 })
+            }
         }
 
     @Test

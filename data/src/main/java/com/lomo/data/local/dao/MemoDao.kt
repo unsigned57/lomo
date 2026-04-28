@@ -11,7 +11,12 @@ interface MemoDao {
     fun getAllMemosFlow(): Flow<List<MemoEntity>>
 
     @Query("SELECT * FROM Lomo ORDER BY RANDOM() LIMIT :limit")
-    suspend fun getRandomMemos(limit: Int): List<MemoEntity>
+    suspend fun getRandomMemosDirect(limit: Int): List<MemoEntity>
+
+    suspend fun getRandomMemos(limit: Int): List<MemoEntity> {
+        if (limit <= 0) return emptyList()
+        return getRandomMemosDirect(limit)
+    }
 
     @Query("SELECT * FROM Lomo ORDER BY timestamp DESC LIMIT :limit")
     suspend fun getRecentMemos(limit: Int): List<MemoEntity>

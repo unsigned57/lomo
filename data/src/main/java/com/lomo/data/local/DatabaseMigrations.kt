@@ -37,6 +37,7 @@ const val SCHEMA_VERSION_49 = 49
 const val SCHEMA_VERSION_50 = 50
 const val SCHEMA_VERSION_51 = 51
 const val SCHEMA_VERSION_52 = 52
+const val SCHEMA_VERSION_53 = 53
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
@@ -364,6 +365,14 @@ val MIGRATION_51_52: Migration =
         }
     }
 
+val MIGRATION_52_53: Migration =
+    object : Migration(SCHEMA_VERSION_52, SCHEMA_VERSION_53) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            normalizeMemoFileOutboxTable(db)
+        }
+    }
+
 /**
  * Consolidation migrations that bring ANY schema version directly to the
  * current [MEMO_DATABASE_VERSION] in a single step.
@@ -421,6 +430,7 @@ private val INCREMENTAL_MIGRATIONS: Array<Migration> =
         MIGRATION_49_50,
         MIGRATION_50_51,
         MIGRATION_51_52,
+        MIGRATION_52_53,
     )
 
 val ALL_DATABASE_MIGRATIONS: Array<Migration> =
@@ -464,6 +474,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase X: Apply v49→v50 changes (external-content FTS token backfill).
  * Phase Y: Apply v50→v51 changes (application-managed FTS5 index).
  * Phase Z: Apply v51→v52 changes (trigger-managed external-content FTS5 index).
+ * Phase AA: Apply v52→v53 changes (memo outbox operation enum persistence).
  *
  * Hard migration rule for memo search:
  * Any migration that rebuilds, replaces, or bulk-copies the `Lomo` table must run
@@ -589,6 +600,9 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     ensureMemoFtsMaintenanceTable(db)
     rebuildMemoFtsExternalContentInfrastructure(db)
     db.setMemoFtsContentVersion(CURRENT_MEMO_FTS_CONTENT_VERSION)
+
+    // ── Phase AA: v52 → v53 (memo outbox operation enum persistence) ─
+    normalizeMemoFileOutboxTable(db)
 }
 
 private fun normalizeS3SyncMetadataTable(db: SQLiteConnection) {
