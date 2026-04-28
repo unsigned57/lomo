@@ -3,7 +3,7 @@ package com.lomo.data.git
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncPhase
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.spyk
@@ -179,7 +179,7 @@ class GitSyncWorkflowTest {
             }
 
             val workflow = createWorkflow(token = "token")
-            val phases = mutableListOf<SyncEngineState.Syncing>()
+            val phases = mutableListOf<UnifiedSyncPhase>()
 
             val result =
                 workflow.sync(
@@ -189,9 +189,9 @@ class GitSyncWorkflowTest {
                 )
 
             assertEquals(GitSyncResult.Success("Synced"), result)
-            assertTrue(phases.contains(SyncEngineState.Syncing.Committing))
-            assertTrue(phases.contains(SyncEngineState.Syncing.Pulling))
-            assertTrue(phases.contains(SyncEngineState.Syncing.Pushing))
+            assertTrue(phases.contains(UnifiedSyncPhase.COMMITTING))
+            assertTrue(phases.contains(UnifiedSyncPhase.PULLING))
+            assertTrue(phases.contains(UnifiedSyncPhase.PUSHING))
         }
 
     private fun createWorkflow(

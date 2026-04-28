@@ -5,11 +5,8 @@ import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.GitSyncFailureException
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.PreferenceDefaults
-import com.lomo.domain.model.SyncBackendType
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.UnifiedSyncState
 import com.lomo.domain.usecase.GitSyncSettingsUseCase
-import com.lomo.domain.usecase.toUnifiedState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -109,7 +106,6 @@ class SettingsGitCoordinator(
     val gitSyncState: StateFlow<UnifiedSyncState> =
         gitSyncSettingsUseCase
             .observeSyncState()
-            .map { state -> state.toUnifiedState(SyncBackendType.GIT) }
             .stateIn(
                 scope,
                 settingsWhileSubscribed(),

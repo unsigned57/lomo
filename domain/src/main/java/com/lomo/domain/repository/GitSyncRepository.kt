@@ -4,7 +4,7 @@ import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.time.Instant
@@ -82,7 +82,7 @@ interface GitSyncConflictRepository {
 }
 
 interface GitSyncStateRepository {
-    fun syncState(): Flow<SyncEngineState>
+    fun syncState(): Flow<UnifiedSyncState>
 }
 
 interface GitSyncRepository :

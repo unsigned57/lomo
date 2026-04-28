@@ -9,7 +9,6 @@ import com.lomo.domain.model.S3SyncState
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictResolution
 import com.lomo.domain.model.SyncConflictSet
-import com.lomo.domain.model.SyncEngineState
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncError
 import com.lomo.domain.model.UnifiedSyncResult
@@ -37,8 +36,7 @@ class GitUnifiedSyncProvider(
 
     override fun isSyncOnRefreshEnabled(): Flow<Boolean> = repository.getSyncOnRefreshEnabled()
 
-    override fun syncState(): Flow<UnifiedSyncState> =
-        repository.syncState().map { state -> state.toUnifiedState(backendType) }
+    override fun syncState(): Flow<UnifiedSyncState> = repository.syncState()
 
     override suspend fun sync(operation: UnifiedSyncOperation): UnifiedSyncResult =
         when (operation) {
@@ -323,28 +321,6 @@ private fun S3SyncResult.toUnifiedResult(
                 message = message,
                 conflicts = conflicts,
             )
-    }
-
-fun SyncEngineState.toUnifiedState(provider: SyncBackendType): UnifiedSyncState =
-    when (this) {
-        SyncEngineState.Idle -> UnifiedSyncState.Idle
-        SyncEngineState.Initializing -> UnifiedSyncState.Running(provider, UnifiedSyncPhase.INITIALIZING)
-        SyncEngineState.Syncing.Pulling -> UnifiedSyncState.Running(provider, UnifiedSyncPhase.PULLING)
-        SyncEngineState.Syncing.Committing -> UnifiedSyncState.Running(provider, UnifiedSyncPhase.COMMITTING)
-        SyncEngineState.Syncing.Pushing -> UnifiedSyncState.Running(provider, UnifiedSyncPhase.PUSHING)
-        is SyncEngineState.Success -> UnifiedSyncState.Success(provider, timestamp, summary)
-        is SyncEngineState.Error ->
-            UnifiedSyncState.Error(
-                error =
-                    UnifiedSyncError(
-                        provider = provider,
-                        message = message,
-                        providerCode = code.name,
-                    ),
-                timestamp = timestamp,
-            )
-        SyncEngineState.NotConfigured -> UnifiedSyncState.NotConfigured(provider)
-        is SyncEngineState.ConflictDetected -> UnifiedSyncState.ConflictDetected(provider, conflicts)
     }
 
 fun WebDavSyncState.toUnifiedState(provider: SyncBackendType): UnifiedSyncState =

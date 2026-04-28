@@ -2,7 +2,7 @@ package com.lomo.data.git
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
-import com.lomo.domain.model.SyncEngineState
+import com.lomo.domain.model.UnifiedSyncPhase
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,7 +24,7 @@ internal class GitSyncCommitSyncCoordinator
         suspend fun sync(
             rootDir: File,
             remoteUrl: String,
-            onSyncingState: (SyncEngineState.Syncing) -> Unit,
+            onSyncingState: (UnifiedSyncPhase) -> Unit,
         ): SyncOutcome {
             val result = workflow.sync(rootDir, remoteUrl, onSyncingState)
             return if (result is GitSyncResult.Success) {
