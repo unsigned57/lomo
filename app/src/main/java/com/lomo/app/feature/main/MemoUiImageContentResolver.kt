@@ -5,7 +5,6 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import java.io.File
 import java.net.URI
-import java.util.Locale
 
 internal const val CONTENT_URI_PREFIX = "content://"
 internal const val FILE_URI_PREFIX = "file://"
@@ -24,8 +23,6 @@ internal val WIKI_IMAGE_REGEX = Regex("""!\[\[(.*?)\]\]""")
 internal val MARKDOWN_IMAGE_REGEX = Regex("""!\[(.*?)\]\((.*?)\)""")
 private val EXTRACT_IMAGE_URL_REGEX = Regex("""!\[.*?\]\((.*?)\)""")
 private val MANAGED_IMAGE_FILENAME_REGEX = Regex("""img_\d+\.(png|jpg|jpeg|gif|webp)""")
-private val AUDIO_EXTENSIONS = setOf(".m4a", ".mp3", ".aac", ".wav", ".ogg")
-
 internal class MemoUiImageContentResolver {
     fun buildProcessedContent(
         content: String,

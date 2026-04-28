@@ -1,5 +1,6 @@
 package com.lomo.data.source
 
+import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 
 internal const val SAF_MARKDOWN_SUFFIX = ".md"
@@ -7,19 +8,6 @@ internal const val SAF_TRASH_DIR_NAME = ".trash"
 private const val SAF_MAX_IO_PARALLELISM = 4
 
 internal val SAF_IO_DISPATCHER = Dispatchers.IO.limitedParallelism(SAF_MAX_IO_PARALLELISM)
-
-private val SAF_IMAGE_EXTENSIONS =
-    setOf(
-        "jpg",
-        "jpeg",
-        "png",
-        "gif",
-        "webp",
-        "bmp",
-        "heic",
-        "heif",
-        "avif",
-    )
 
 internal fun safMatchesMarkdownTarget(
     name: String?,
@@ -30,6 +18,5 @@ internal fun safMatchesMarkdownTarget(
         (targetFilename == null || name == targetFilename)
 
 internal fun safIsImageFilename(name: String): Boolean {
-    val extension = name.substringAfterLast('.', "")
-    return extension.isNotBlank() && extension.lowercase(java.util.Locale.ROOT) in SAF_IMAGE_EXTENSIONS
+    return MediaFileExtensions.hasImageExtension(name)
 }

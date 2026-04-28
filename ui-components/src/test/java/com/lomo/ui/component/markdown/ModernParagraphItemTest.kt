@@ -11,9 +11,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: modern markdown paragraph item builder.
- * - Behavior focus: plain and mixed-content memo paragraphs must emit visible text items instead of collapsing to an empty body, while inline images still split into dedicated media items.
- * - Observable outcomes: emitted paragraph item kinds, text payloads, and image destinations.
- * - Red phase: Fails before the fix because leaf text nodes in the modern paragraph path produce empty annotated strings, so normal memo bodies render no paragraph items at all.
+ * - Behavior focus: plain and mixed-content memo paragraphs must emit visible text items instead of collapsing to an empty body, while inline images and voice attachments still split into dedicated media items.
+ * - Observable outcomes: emitted paragraph item kinds, text payloads, image destinations, and voice memo destinations.
+ * - Red phase: Fails before the fix because leaf text nodes in the modern paragraph path produce empty annotated strings, and `.ogg` attachments are not recognized as voice memos.
  * - Excludes: Compose widget rendering, TextView layout, image loading, and top-level block planning.
  */
 class ModernParagraphItemTest {
@@ -88,6 +88,17 @@ class ModernParagraphItemTest {
         assertEquals(1, items.size)
         val imageItem = items.single() as ModernParagraphItem.Image
         assertEquals("cover.png", imageItem.image.destination)
+    }
+
+    @Test
+    fun `voice memo paragraph emits a dedicated voice memo item for ogg attachments`() {
+        val content = "![voice](recordings/memo.ogg)"
+
+        val items = buildModernParagraphItemsFor(content)
+
+        assertEquals(1, items.size)
+        val voiceMemoItem = items.single() as ModernParagraphItem.VoiceMemo
+        assertEquals("recordings/memo.ogg", voiceMemoItem.url)
     }
 
     private fun buildModernParagraphItemsFor(content: String): List<ModernParagraphItem> =

@@ -6,6 +6,7 @@ import androidx.core.net.toUri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.SyncDirectoryLayout
+import com.lomo.domain.model.MediaFileExtensions
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -20,8 +21,6 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private val IMAGE_EXTENSIONS = setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "heic", "heif", "avif")
-private val VOICE_EXTENSIONS = setOf("m4a", "mp3", "aac", "wav", "ogg")
 private val IMAGE_CONTENT_TYPES =
     mapOf(
         "png" to "image/png",
@@ -346,10 +345,10 @@ internal fun accepts(
 ): Boolean =
     when (category) {
         MediaSyncCategory.IMAGE ->
-            mimeType?.startsWith("image/") == true || filename.hasExtension(IMAGE_EXTENSIONS)
+            mimeType?.startsWith("image/") == true || filename.hasExtension(MediaFileExtensions.IMAGE)
 
         MediaSyncCategory.VOICE ->
-            mimeType?.startsWith("audio/") == true || filename.hasExtension(VOICE_EXTENSIONS)
+            mimeType?.startsWith("audio/") == true || filename.hasExtension(MediaFileExtensions.AUDIO)
     }
 
 private fun contentTypeFor(

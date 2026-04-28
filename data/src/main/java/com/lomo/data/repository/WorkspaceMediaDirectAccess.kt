@@ -2,6 +2,7 @@ package com.lomo.data.repository
 
 import com.lomo.data.source.directEnsureRootExists
 import com.lomo.data.source.directIsImageFilename
+import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -79,8 +80,5 @@ private fun workspaceMatchesDirectCategory(
     }
 
 private fun isWorkspaceAudioFilename(name: String): Boolean {
-    val extension = name.substringAfterLast('.', "")
-    return extension.isNotBlank() && extension.lowercase(java.util.Locale.ROOT) in DIRECT_AUDIO_EXTENSIONS
+    return MediaFileExtensions.hasAudioExtension(name)
 }
-
-private val DIRECT_AUDIO_EXTENSIONS = setOf("m4a", "mp3", "aac", "ogg", "wav")

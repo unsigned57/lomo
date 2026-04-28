@@ -1,5 +1,6 @@
 package com.lomo.app.util
 
+import com.lomo.domain.model.MediaFileExtensions
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 
 internal fun preprocessShareCardContent(
@@ -125,8 +126,7 @@ private fun replaceInlineImageMarkers(
         text
     }
 
-private fun String.isAudioPath(): Boolean =
-    AUDIO_EXTENSIONS.any { extension -> lowercase().endsWith(extension) }
+private fun String.isAudioPath(): Boolean = MediaFileExtensions.hasAudioExtension(this)
 
 private fun String.isBulletShareLine(): Boolean =
     startsWith(UNCHECKED_TODO_PREFIX) ||

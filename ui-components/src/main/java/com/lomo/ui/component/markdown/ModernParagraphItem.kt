@@ -2,6 +2,7 @@ package com.lomo.ui.component.markdown
 
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import com.lomo.domain.model.MediaFileExtensions
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 
@@ -178,8 +179,4 @@ internal fun ASTNode.isBlankWhitespaceNode(content: String): Boolean =
 internal fun ModernMarkdownImage.toCommonMarkImage(): org.commonmark.node.Image =
     org.commonmark.node.Image(destination, title)
 
-internal fun String.isVoiceMemoPath(): Boolean =
-    endsWith(".m4a", ignoreCase = true) ||
-        endsWith(".mp3", ignoreCase = true) ||
-        endsWith(".aac", ignoreCase = true) ||
-        endsWith(".wav", ignoreCase = true)
+internal fun String.isVoiceMemoPath(): Boolean = MediaFileExtensions.hasAudioExtension(this)
