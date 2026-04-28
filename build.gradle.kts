@@ -284,6 +284,7 @@ subprojects {
                 config.setFrom(moduleConfig)
                 buildUponDefaultConfig = true
                 allRules = false
+                disableDefaultRuleSets = false
                 autoCorrect = false
                 ignoreFailures = false
                 basePath.set(rootProject.layout.projectDirectory)
@@ -301,6 +302,8 @@ subprojects {
                 include("**/*.kt", "**/*.kts")
                 exclude("**/build/**")
                 buildUponDefaultConfig.set(true)
+                allRules.set(false)
+                disableDefaultRuleSets.set(false)
                 ignoreFailures.set(false)
                 config.setFrom(moduleConfig)
                 basePath.set(rootProject.projectDir.absolutePath)

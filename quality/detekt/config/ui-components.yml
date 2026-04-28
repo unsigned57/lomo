@@ -38,7 +38,20 @@ coroutines:
     active: true
   SuspendFunSwallowedCancellation:
     active: true
+empty-blocks:
+  EmptyCatchBlock:
+    active: true
+  EmptyFinallyBlock:
+    active: true
+  EmptyIfBlock:
+    active: true
 exceptions:
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - CancellationException
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
   TooGenericExceptionCaught:
     exceptionNames:
       - Throwable
@@ -73,6 +86,16 @@ style:
       - com.lomo.domain.repository.*
       - com.lomo.domain.usecase.*
   NullableBooleanCheck:
+    active: true
+  CanBeNonNullable:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UseEmptyCounterpart:
+    active: true
+  UseIsNullOrEmpty:
+    active: true
+  VarCouldBeVal:
     active: true
   ReturnCount:
     max: 4

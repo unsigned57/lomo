@@ -37,6 +37,12 @@ coroutines:
   SuspendFunSwallowedCancellation:
     active: true
 exceptions:
+  SwallowedException:
+    active: true
+    ignoredExceptionTypes:
+      - CancellationException
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
   TooGenericExceptionCaught:
     exceptionNames:
       - Throwable
@@ -71,6 +77,18 @@ style:
       - org.eclipse.jgit.*
       - com.lomo.data.*
   NullableBooleanCheck:
+    active: true
+  CanBeNonNullable:
+    active: true
+  UnusedPrivateProperty:
+    active: true
+  UnusedPrivateClass:
+    active: true
+  UseEmptyCounterpart:
+    active: true
+  UseIsNullOrEmpty:
+    active: true
+  VarCouldBeVal:
     active: true
   ReturnCount:
     max: 4
