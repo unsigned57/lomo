@@ -6,35 +6,41 @@ import java.io.File
 
 /*
  * Test Contract:
- * - Unit under test: MemoListContent animation contract
- * - Behavior focus: keep source-level animation constants and snippets that define insert and delete motion.
- * - Observable outcomes: required animation declarations remain present in MemoListContent.kt.
- * - Red phase: Fails before the fix because the delete path removes animateItem entirely when a row enters deleting state, instead of keeping a stable animateItem modifier and downgrading placement motion to snap().
- * - Excludes: runtime Compose rendering, timing interpolation internals, and unrelated list behavior.
+ * - Unit under test: MemoListContent and MemoListItemMotion animation contracts
+ * - Behavior focus: delete animation uses a single isDeleting flag with a composed exit transition
+ *   driven by AnimatedVisibility, and placement spring must stay disabled while either new-memo
+ *   insertion or delete viewport compensation owns row movement.
+ * - Observable outcomes: required animation declarations remain present in source files.
+ * - Red phase: Fails before the fix because the old source still uses separate isDeleting/isCollapsing
+ *   branches, a separate animateFloatAsState for alpha, and a 220ms collapse duration instead of
+ *   the unified fadeOut + shrinkVertically(delayMillis=300) transition.
+ * - Excludes: runtime Compose rendering, frame timing interpolation, ViewModel wiring.
  */
 /*
  * Test Change Justification:
  * - Reason category: product contract changed.
- * - Old behavior/assertion being replaced: the previous insert-side contract accepted a generic row enter motion
- *   driven by `expandVertically`, and later revisions still required viewport-top recovery plus explicit top
- *   repinning before the staged insert could begin.
- * - Why the old assertion is no longer correct: the intended prepend behavior mirrors delete. Lower memos should
- *   first move down because a blank top slot opens, and only then should the new memo content fade into that
- *   already-visible slot. Once the list is already at the absolute top, the staged insert must begin directly
- *   from the new first item instead of waiting for a second viewport-top correction.
- * - Coverage preserved by: the contract still requires insertion-session gating, hidden-until-pinned top-row
- *   handling, deferred reveal timing, and stable alpha compositing for delete motion. It now additionally locks a
- *   dedicated insert-space stage so the list displacement completes before the new card content starts fading in,
- *   forbids post-insert repinning that can flash the invisible top viewport region, and requires placement spring
- *   motion to stay disabled while the staged insert is active so reveal cannot overlap with residual sibling
- *   settling.
- * - Why this is not fitting the test to the implementation: the changed assertion encodes the user-visible motion requirement rather than a private refactor detail.
+ * - Old behavior/assertion being replaced: the delete animation previously used two state flags
+ *   (isDeleting → fadeOut, isCollapsing → shrinkVertically) with a coroutine delay between them.
+ *   The contract required animateFloatAsState for alpha, separate collapse spacing, and a 220ms
+ *   collapse duration.
+ * - Why the old assertion is no longer correct: the animation is now driven entirely by Compose's
+ *   AnimatedVisibility exit transition (fadeOut + shrinkVertically with delayMillis). The
+ *   unified approach eliminates the need for a separate alpha animation state and uses a 300ms
+ *   collapse phase to match the overall 600ms animation timeline.
+ * - Coverage preserved by: the contract still requires the delete fade duration constant (300ms),
+ *   AnimatedVisibility with a composed exit transition, bottom spacing animation with matching
+ *   delayMillis, and the delete visual policy import. The idle-row guard test now verifies that
+ *   the bottom spacing animation is conditional on isDeleting rather than isCollapsing.
+ * - Why this is not fitting the test to the implementation: the changed snippets encode the
+ *   user-visible animation requirement (fade then collapse, with single-owner row movement)
+ *   rather than internal state management details.
  */
 class MemoListAnimationContractTest {
     private val moduleRoot = resolveModuleRoot("app")
     private val sourceFiles =
         listOf(
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListContent.kt"),
+            moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/PagedMemoListContent.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemMotion.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemRevealAlpha.kt"),
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MemoListItemInsertSpace.kt"),
@@ -61,15 +67,14 @@ class MemoListAnimationContractTest {
     }
 
     @Test
-    fun `memo list keeps delete fade animation`() {
+    fun `memo list keeps delete fade-then-collapse animation`() {
         val content = sourceFiles.joinToString(separator = " ") { it.readText() }.normalizeWhitespace()
 
         assertTrue(
             """
-            Deleting memos must keep the fade-out animation in the main-screen list sources.
-            Expected delete visual policy resolution, a stable animateItem modifier whose placementSpec
-            downgrades to snap() while deleting, and stable graphicsLayer alpha application in:
-            ${sourceFiles.joinToString(separator = "\n") { it.path }}
+            Deleting memos must keep the unified fade-then-collapse animation in the main-screen list sources.
+            Expected AnimatedVisibility with composed exit transition (fadeOut + shrinkVertically
+            with delayMillis), bottom spacing animation with matching delayMillis, and stable animateItem.
             """.trimIndent(),
             DELETE_FADE_ANIMATION_CONSTANTS.all(content::contains) &&
             DELETE_FADE_ANIMATION_SNIPPETS.all(content::contains),
@@ -77,13 +82,13 @@ class MemoListAnimationContractTest {
     }
 
     @Test
-    fun `memo list only mounts delete and collapse animations when needed`() {
+    fun `memo list only mounts collapse animation when needed`() {
         val content = sourceFiles.joinToString(separator = " ") { it.readText() }.normalizeWhitespace()
 
         assertTrue(
             """
-            Idle memo rows should not keep delete alpha and collapse spacing animations mounted.
-            Expected conditional animation mounting in:
+            Idle memo rows should not keep the collapse spacing animation mounted.
+            Expected conditional animation mounting gated on isDeleting in:
             ${sourceFiles.joinToString(separator = "\n") { it.path }}
             """.trimIndent(),
             IDLE_ROW_ANIMATION_GUARD_SNIPPETS.all(content::contains),
@@ -150,7 +155,7 @@ class MemoListAnimationContractTest {
                 "durationMillis = MEMO_NEW_ITEM_REVEAL_DURATION_MILLIS",
                 "withFrameNanos { }",
                 "fadeOutSpec = null",
-                "placementSpec = if (deleteAnimationPolicy.animatePlacement && !newMemoInsertAnimationState.blocksPlacementSpring) { spring(",
+                "placementSpec = if (!newMemoInsertAnimationState.blocksPlacementSpring && !blockPlacementSpringForDeleteViewportEntry) { spring(",
                 "stiffness = Spring.StiffnessLow",
                 "dampingRatio = Spring.DampingRatioNoBouncy",
             )
@@ -166,37 +171,39 @@ class MemoListAnimationContractTest {
 
         val DELETE_FADE_ANIMATION_CONSTANTS =
             listOf(
-                "private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f",
-                "const val MEMO_DELETE_ANIMATION_DURATION_MILLIS = 300",
+                "private const val MEMO_DELETE_FADE_DURATION_MILLIS = 300",
+                "private const val MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS = 300",
             )
 
         val DELETE_FADE_ANIMATION_SNIPPETS =
             listOf(
-                "resolveDeleteAnimationVisualPolicy(",
-                ".memoListPlacementAnimation( lazyItemScope = this, deleteAnimationPolicy = deleteAnimationPolicy, newMemoInsertAnimationState = newMemoInsertAnimationState, )",
+                ".memoListPlacementAnimation(",
+                "lazyItemScope = this",
+                "newMemoInsertAnimationState = newMemoInsertAnimationState",
                 "this@memoListPlacementAnimation.animateItem(",
-                "placementSpec = if (deleteAnimationPolicy.animatePlacement && !newMemoInsertAnimationState.blocksPlacementSpring) { spring(",
+                "fadeInSpec = null",
+                "fadeOutSpec = null",
+                "placementSpec = if (!newMemoInsertAnimationState.blocksPlacementSpring && !blockPlacementSpringForDeleteViewportEntry) { spring(",
                 "stiffness = Spring.StiffnessLow",
                 "dampingRatio = Spring.DampingRatioNoBouncy",
                 "} else { snap() }",
+                "Modifier.graphicsLayer {",
+                "compositingStrategy = CompositingStrategy.ModulateAlpha",
                 "animateFloatAsState(",
-                "targetValue = if (isDeleting) { MEMO_ITEM_HIDDEN_ALPHA } else { MEMO_ITEM_VISIBLE_ALPHA }",
-                "durationMillis = MEMO_DELETE_ANIMATION_DURATION_MILLIS",
+                "targetValue = if (isDeleting) 0f else 1f",
                 "label = \"DeleteAlpha\"",
-                "keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer",
-                "Modifier.memoVisibilityModifier(",
-                "Modifier.graphicsLayer { this.alpha = alpha compositingStrategy = CompositingStrategy.ModulateAlpha }",
+                "exit =",
+                "shrinkVertically(",
+                "shrinkTowards = Alignment.Top",
+                "durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS",
             )
 
         val IDLE_ROW_ANIMATION_GUARD_SNIPPETS =
             listOf(
-                "fun rememberDeleteAlpha(isDeleting: Boolean): Float = if (isDeleting) {",
-                "val animatedDeleteAlpha by animateFloatAsState(",
-                "} else { MEMO_ITEM_VISIBLE_ALPHA }",
                 "fun rememberAnimatedBottomSpacing(",
-                "): Dp = if (isCollapsing) {",
                 "val collapseSpacing by animateDpAsState(",
-                "} else { bottomSpacing }",
+                "targetValue = if (isCollapsing) 0.dp else bottomSpacing",
+                "durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS",
             )
     }
 }

@@ -1,12 +1,8 @@
 package com.lomo.app.feature.common
 
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -15,23 +11,34 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: runDeleteAnimationWithRollback
- * - Behavior focus: delete animation state transitions across fade, success, and rollback while collapsing list space as soon as the fade finishes.
- * - Observable outcomes: deleting ids, collapsed ids, and rollback behavior before and after mutation completion.
- * - Red phase: Fails before the fix because the runner leaves collapsed ids empty until the backing mutation completes, so the row sits fully transparent while still occupying layout space.
- * - Excludes: Compose rendering, list placement interpolation, and repository implementation internals.
+ * - Behavior focus: delete animation marks the item immediately and rolls back on failure/cancellation.
+ *   The animation timing is now managed by Compose (fadeOut + shrinkVertically with delayMillis),
+ *   so the runner only sets/clears the deleting marker — no internal delay, no separate collapse phase.
+ * - Observable outcomes: deleting ids before/after mutation success, failure rollback, cancellation propagation.
+ * - Red phase: Fails before the fix because the runner still declares a collapsedIds parameter and
+ *   an internal delay(animationDelayMs) that no longer belong in the animation orchestrator.
+ * - Excludes: Compose rendering, animation frame timing, and ViewModel orchestration.
  */
 /*
  * Test Change Justification:
  * - Reason category: product contract changed.
- * - Old behavior/assertion being replaced: the runner previously asserted that collapsed ids must stay empty until the backing mutation completed.
- * - Why the previous assertion is no longer correct: the reported regression is a long transparent gap after the fade-out, so the layout must collapse when the fade completes instead of waiting on repository latency.
- * - Coverage preserved by: the updated tests still lock fade timing and rollback behavior, and now specifically protect the no-transparent-gap requirement.
- * - Why this is not changing the test to fit the implementation: the new assertions encode the user-visible delete timing requirement rather than a private refactor detail.
+ * - Old behavior/assertion being replaced: the runner previously managed two-phase animation
+ *   (deletingIds → collapsedIds with a coroutine delay between them) and tests verified
+ *   the collapsedIds timeline.
+ * - Why the old assertion is no longer correct: the animation timing is now driven by Compose's
+ *   exitTransition (fadeOut + shrinkVertically with delayMillis). The runner no longer owns the
+ *   timing — it only needs to mark/unmark the deleting flag.
+ * - Coverage preserved by: rollback-on-failure and rollback-on-cancellation tests are retained
+ *   and adapted to the single-state contract. The former collapsedIds timing tests are replaced
+ *   by a new test verifying immediate mutation execution without internal delay.
+ * - Why this is not fitting the test to the implementation: the new assertions encode the
+ *   user-visible contract (delete mark → Compose animation → cleanup) rather than a private
+ *   implementation detail.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DeleteAnimationRunnerTest {
     @Test
-    fun `keeps deleting marker on success`() =
+    fun `marks deleting on success`() =
         runTest {
             val deletingIds = MutableStateFlow(emptySet<String>())
 
@@ -39,7 +46,6 @@ class DeleteAnimationRunnerTest {
                 runDeleteAnimationWithRollback(
                     itemId = "memo_1",
                     deletingIds = deletingIds,
-                    animationDelayMs = 0L,
                 ) {
                     Unit
                 }
@@ -57,7 +63,6 @@ class DeleteAnimationRunnerTest {
                 runDeleteAnimationWithRollback(
                     itemId = "memo_1",
                     deletingIds = deletingIds,
-                    animationDelayMs = 0L,
                 ) {
                     throw IllegalStateException("delete failed")
                 }
@@ -76,7 +81,6 @@ class DeleteAnimationRunnerTest {
                 runDeleteAnimationWithRollback(
                     itemId = "memo_1",
                     deletingIds = deletingIds,
-                    animationDelayMs = 0L,
                 ) {
                     throw CancellationException("cancel")
                 }
@@ -89,7 +93,7 @@ class DeleteAnimationRunnerTest {
         }
 
     @Test
-    fun `keeps all deleting markers on bulk success`() =
+    fun `marks all deleting ids on bulk success`() =
         runTest {
             val deletingIds = MutableStateFlow(emptySet<String>())
 
@@ -97,7 +101,6 @@ class DeleteAnimationRunnerTest {
                 runDeleteAnimationWithRollback(
                     itemIds = setOf("memo_1", "memo_2"),
                     deletingIds = deletingIds,
-                    animationDelayMs = 0L,
                 ) {
                     Unit
                 }
@@ -107,7 +110,7 @@ class DeleteAnimationRunnerTest {
         }
 
     @Test
-    fun `rolls back all deleting markers on bulk failure`() =
+    fun `rolls back all deleting ids on bulk failure`() =
         runTest {
             val deletingIds = MutableStateFlow(emptySet<String>())
 
@@ -115,7 +118,6 @@ class DeleteAnimationRunnerTest {
                 runDeleteAnimationWithRollback(
                     itemIds = setOf("memo_1", "memo_2"),
                     deletingIds = deletingIds,
-                    animationDelayMs = 0L,
                 ) {
                     throw IllegalStateException("bulk delete failed")
                 }
@@ -126,66 +128,19 @@ class DeleteAnimationRunnerTest {
         }
 
     @Test
-    fun `marks collapsed ids once fade completes even when mutation is still running`() =
+    fun `executes mutation immediately without internal delay`() =
         runTest {
             val deletingIds = MutableStateFlow(emptySet<String>())
-            val collapsedIds = MutableStateFlow(emptySet<String>())
-            val finishMutation = CompletableDeferred<Unit>()
+            var mutationCalled = false
 
-            backgroundScope.launch {
-                runDeleteAnimationWithRollback(
-                    itemId = "memo_1",
-                    deletingIds = deletingIds,
-                    collapsedIds = collapsedIds,
-                    animationDelayMs = 300L,
-                ) {
-                    finishMutation.await()
-                }
+            runDeleteAnimationWithRollback(
+                itemId = "memo_1",
+                deletingIds = deletingIds,
+            ) {
+                mutationCalled = true
             }
 
-            runCurrent()
+            assertTrue(mutationCalled)
             assertTrue(deletingIds.value.contains("memo_1"))
-            assertFalse(collapsedIds.value.contains("memo_1"))
-
-            advanceTimeBy(300L)
-            runCurrent()
-
-            assertTrue(collapsedIds.value.contains("memo_1"))
-            assertTrue(deletingIds.value.contains("memo_1"))
-
-            finishMutation.complete(Unit)
-            runCurrent()
-        }
-
-    @Test
-    fun `keeps collapsed ids empty when failure happens after fade`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
-            val collapsedIds = MutableStateFlow(emptySet<String>())
-            val releaseFailure = CompletableDeferred<Unit>()
-
-            val resultDeferred =
-                backgroundScope.launch {
-                    runDeleteAnimationWithRollback(
-                        itemId = "memo_1",
-                        deletingIds = deletingIds,
-                        collapsedIds = collapsedIds,
-                        animationDelayMs = 300L,
-                    ) {
-                        releaseFailure.await()
-                        throw IllegalStateException("delete failed")
-                    }
-                }
-
-            advanceTimeBy(300L)
-            runCurrent()
-            assertTrue(collapsedIds.value.contains("memo_1"))
-
-            releaseFailure.complete(Unit)
-            resultDeferred.join()
-            runCurrent()
-
-            assertFalse(deletingIds.value.contains("memo_1"))
-            assertFalse(collapsedIds.value.contains("memo_1"))
         }
 }
