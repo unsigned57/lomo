@@ -21,12 +21,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.lomo.domain.model.Memo
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -189,6 +192,10 @@ class MainScreenNewMemoAnimationDeviceTest {
         val currentListTopMemoId = harness.memos.value.firstOrNull()?.memo?.id
         val latestTopMemoId = rememberUpdatedState(currentListTopMemoId)
         var nextNewMemoIndex by remember { mutableIntStateOf(0) }
+        val pagedMemos =
+            remember(harness.memos.value) {
+                flowOf(PagingData.from(harness.memos.value))
+            }.collectAsLazyPagingItems()
 
         val coordinator =
             remember(listState, scope) {
@@ -261,9 +268,9 @@ class MainScreenNewMemoAnimationDeviceTest {
 
         MaterialTheme {
             MemoListContent(
-                memos = harness.memos.value,
+                pagedMemos = pagedMemos,
                 deletingMemoIds = persistentSetOf(),
-                collapsingMemoIds = persistentSetOf(),
+                onDeleteAnimationSettled = {},
                 newMemoInsertAnimationState = animationSession.state,
                 onNewMemoSpacePrepared = animationSession::markBlankSpacePrepared,
                 onNewMemoRevealConsumed = animationSession::clearReveal,

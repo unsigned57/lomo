@@ -2,10 +2,8 @@ package com.lomo.data.source
 
 import android.content.Context
 import android.net.Uri
-import com.lomo.data.local.datastore.LomoDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
@@ -17,30 +15,30 @@ class FileMediaStorageDataSourceDelegate
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
-        private val dataStore: LomoDataStore,
         private val backendResolver: FileStorageBackendResolver,
     ) : MediaStorageDataSource {
         override suspend fun saveImage(uri: Uri): String =
             withContext(Dispatchers.IO) {
                 ImageMagicByteValidator.requireSupportedImage(context.contentResolver, uri)
-                val (backend, _) = backendResolver.mediaBackend(StorageRootType.IMAGE)
+                val resolvedRoot =
+                    backendResolver.resolvedMediaRoot(StorageRootType.IMAGE)
+                        ?: throw IOException("No image directory configured")
                 val filename = buildImageFilename(uri)
-                when (backend) {
-                    is SafStorageBackend -> backend.saveImage(uri, filename)
-                    is DirectStorageBackend -> saveToDirectImageDirectory(uri, filename)
-                    null -> throw IOException("No image directory configured")
+                when (val vfs = resolvedRoot.vfs) {
+                    is WorkspaceVfs.Saf -> resolvedRoot.backend.saveImage(uri, filename)
+                    is WorkspaceVfs.Direct -> saveToDirectImageDirectory(vfs.rootDir, uri, filename)
                 }
                 filename
             }
 
         override suspend fun listImageFiles(): List<Pair<String, String>> =
-            backendResolver.mediaBackend(StorageRootType.IMAGE).first?.listImageFiles() ?: emptyList()
+            resolvedImageBackend()?.listImageFiles() ?: emptyList()
 
         override suspend fun getImageLocation(filename: String): String? =
-            backendResolver.mediaBackend(StorageRootType.IMAGE).first?.getImageLocation(filename)
+            resolvedImageBackend()?.getImageLocation(filename)
 
         override suspend fun deleteImage(filename: String) {
-            backendResolver.mediaBackend(StorageRootType.IMAGE).first?.deleteImage(filename)
+            resolvedImageBackend()?.deleteImage(filename)
         }
 
         override suspend fun createVoiceFile(filename: String): Uri =
@@ -49,6 +47,9 @@ class FileMediaStorageDataSourceDelegate
         override suspend fun deleteVoiceFile(filename: String) {
             backendResolver.voiceBackend()?.deleteVoiceFile(filename)
         }
+
+        private suspend fun resolvedImageBackend(): MediaStorageBackend? =
+            backendResolver.resolvedMediaRoot(StorageRootType.IMAGE)?.backend
 
         private fun buildImageFilename(uri: Uri): String {
             val timestamp = System.currentTimeMillis()
@@ -65,18 +66,17 @@ class FileMediaStorageDataSourceDelegate
         }
 
         private suspend fun saveToDirectImageDirectory(
+            rootDir: File,
             uri: Uri,
             filename: String,
         ) {
-            val imageDirectory = dataStore.imageDirectory.first() ?: throw IOException("No image directory configured")
             val inputStream =
                 context.contentResolver.openInputStream(uri)
                     ?: throw IOException("Cannot open source image URI")
-            val targetDir = File(imageDirectory)
-            if (!targetDir.exists()) {
-                targetDir.mkdirs()
+            if (!rootDir.exists()) {
+                rootDir.mkdirs()
             }
-            val targetFile = File(targetDir, filename)
+            val targetFile = File(rootDir, filename)
             targetFile.outputStream().use { outputStream ->
                 inputStream.use { input -> input.copyTo(outputStream) }
             }

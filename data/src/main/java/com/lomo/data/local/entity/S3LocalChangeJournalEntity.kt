@@ -2,9 +2,13 @@ package com.lomo.data.local.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
-@Entity(tableName = "s3_local_change_journal")
+@Entity(
+    tableName = "s3_local_change_journal",
+    indices = [Index(value = ["updated_at"])],
+)
 data class S3LocalChangeJournalEntity(
     @PrimaryKey val id: String,
     val kind: String,

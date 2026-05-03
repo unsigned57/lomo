@@ -2,6 +2,7 @@ package com.lomo.app.feature.common
 
 import androidx.paging.PagingSource
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoTagCount
 import com.lomo.domain.repository.MemoRepository
 import kotlinx.coroutines.flow.Flow
@@ -20,8 +21,8 @@ class MemoUiCoordinator
 
         val galleryMemos: () -> Flow<List<Memo>> = { memoRepository.getGalleryMemosList() }
 
-        val defaultMainListPagingSource: () -> PagingSource<Int, Memo> =
-            { memoRepository.getDefaultMainListPagingSource() }
+        val mainListPagingSource: (String, MemoListFilter) -> PagingSource<Int, Memo> =
+            { query, filter -> memoRepository.getMainListPagingSource(query, filter) }
 
         val deletedMemos: () -> Flow<List<Memo>> = { memoRepository.getDeletedMemosList() }
 

@@ -10,6 +10,16 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Before
 import org.junit.Test
 
+/*
+ * Test Contract:
+ * - Unit under test: FileDataSourceImpl delegation.
+ * - Behavior focus: ensuring that setting storage roots (Image, Root, etc.) correctly
+ *   dispatches to the underlying DataStore for both raw file paths and content URIs.
+ * - Observable outcomes: DataStore update calls for directory paths and URI strings.
+ * - Red phase: Fails before the fix because FileDataSourceImpl was not yet updated to
+ *   handle the dual path/URI storage model, so setting a URI would attempt to persist it as a file path.
+ * - Excludes: actual file I/O, SAF permission granting, and cross-backend resolution logic.
+ */
 class FileDataSourceImplTest {
     @MockK(relaxed = true)
     private lateinit var context: Context
@@ -27,7 +37,7 @@ class FileDataSourceImplTest {
             FileDataSourceImpl(
                 workspaceConfigSource = FileWorkspaceConfigSourceDelegate(context, dataStore, resolver),
                 markdownStorageDataSource = FileMarkdownStorageDataSourceDelegate(resolver),
-                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(context, dataStore, resolver),
+                mediaStorageDataSource = FileMediaStorageDataSourceDelegate(context, resolver),
             )
     }
 

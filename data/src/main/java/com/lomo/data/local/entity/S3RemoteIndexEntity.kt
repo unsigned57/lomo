@@ -2,9 +2,13 @@ package com.lomo.data.local.entity
 
 import androidx.room3.ColumnInfo
 import androidx.room3.Entity
+import androidx.room3.Index
 import androidx.room3.PrimaryKey
 
-@Entity(tableName = "s3_remote_index")
+@Entity(
+    tableName = "s3_remote_index",
+    indices = [Index(value = ["scan_priority", "last_verified_at"])],
+)
 data class S3RemoteIndexEntity(
     @PrimaryKey
     @ColumnInfo(name = "relative_path") val relativePath: String,

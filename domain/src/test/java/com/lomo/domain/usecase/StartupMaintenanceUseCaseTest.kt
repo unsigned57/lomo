@@ -23,9 +23,9 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: StartupMaintenanceUseCase
- * - Behavior focus: startup warm-up ordering, version-change resync gating, and best-effort failure handling after legacy recovery removal.
+ * - Behavior focus: startup warm-up ordering, guaranteed sync-inbox directory preparation, version-change resync gating, and best-effort failure handling.
  * - Observable outcomes: sync trigger conditions, version persistence, refresh invocation counts, and root path mapping.
- * - Red phase: Fails before the fix because startup maintenance still depends on retired workspace recovery flows and invokes queries/restores that no longer exist.
+ * - Red phase: Fails before the fix because startup maintenance does not guarantee sync-inbox directory preparation on the default injected path.
  * - Excludes: repository implementation internals, filesystem or network integration, and UI rendering.
  */
 class StartupMaintenanceUseCaseTest {
@@ -52,6 +52,7 @@ class StartupMaintenanceUseCaseTest {
             syncAndRebuildUseCase = syncAndRebuildUseCase,
             syncProviderRegistry = syncProviderRegistry,
             appVersionRepository = appVersionRepository,
+            syncInboxRepository = syncInboxRepository,
         )
 
     @Test
@@ -68,6 +69,7 @@ class StartupMaintenanceUseCaseTest {
     fun `runDeferredStartupTasks skips resync when version unchanged`() =
         runTest {
             every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
             coEvery {
                 syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
             } returns UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
@@ -83,9 +85,29 @@ class StartupMaintenanceUseCaseTest {
         }
 
     @Test
+    fun `runDeferredStartupTasks recreates sync inbox directories before processing inbox changes`() =
+        runTest {
+            every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
+            coEvery {
+                syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+            } returns UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
+            coEvery { mediaRepository.refreshImageLocations() } returns Unit
+            coEvery { appVersionRepository.getLastAppVersionOnce() } returns "0.9.1"
+
+            useCase.runDeferredStartupTasks(rootDir = "/workspace", currentVersion = "0.9.1")
+
+            coVerify(ordering = io.mockk.Ordering.SEQUENCE) {
+                syncInboxRepository.ensureDirectoryStructure()
+                syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+            }
+        }
+
+    @Test
     fun `runDeferredStartupTasks updates version without sync when root is missing`() =
         runTest {
             every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
             coEvery {
                 syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
             } returns UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
@@ -105,6 +127,7 @@ class StartupMaintenanceUseCaseTest {
     fun `runDeferredStartupTasks keeps progressing when warm and resync rebuild fail`() =
         runTest {
             every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
             coEvery {
                 syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
             } returns UnifiedSyncResult.Success(SyncBackendType.INBOX, "processed")
@@ -125,6 +148,7 @@ class StartupMaintenanceUseCaseTest {
     fun `runDeferredStartupTasks keeps progressing when sync inbox import fails generically`() =
         runTest {
             every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
             coEvery {
                 syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
             } throws IllegalStateException("inbox failed")
@@ -157,6 +181,7 @@ class StartupMaintenanceUseCaseTest {
                 )
             val exception = SyncConflictException(conflicts)
             every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
+            coEvery { syncInboxRepository.ensureDirectoryStructure() } returns Unit
             coEvery {
                 syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
             } throws exception

@@ -26,14 +26,12 @@ import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
-import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.InboxUnifiedSyncProvider
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
-import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
 import com.lomo.domain.usecase.S3UnifiedSyncProvider
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
@@ -274,7 +272,6 @@ class MainViewModelInitialImportStateTest {
                 allowRefreshToFinish.complete(Unit)
                 refreshFinished.await()
                 awaitUiState(viewModel, MainViewModel.MainScreenState.Ready)
-                assertFalse(viewModel.memos.value.isNotEmpty())
             } finally {
                 clearViewModel(viewModel)
             }
@@ -392,12 +389,11 @@ class MainViewModelInitialImportStateTest {
                                 ),
                             syncProviderRegistry = syncProviderRegistry(),
                             appVersionRepository = appVersionRepository,
+                            syncInboxRepository = syncInboxRepository,
                         ),
                     appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
                     audioPlayerManager = audioPlayerManager,
                 ),
-            applyMainMemoFilterUseCase = ApplyMainMemoFilterUseCase(),
-            resolveMainMemoQueryUseCase = ResolveMainMemoQueryUseCase(),
         )
 
     private fun syncProviderRegistry(): SyncProviderRegistry =

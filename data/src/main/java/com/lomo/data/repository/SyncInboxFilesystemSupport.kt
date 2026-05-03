@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.IOException
+import java.io.OutputStream
 
 internal suspend fun deleteInboxFile(
     context: Context,
@@ -28,14 +29,14 @@ internal suspend fun deleteInboxFile(
 internal suspend fun listInboxMarkdownFiles(
     context: Context,
     inboxRoot: String,
-): List<InboxMarkdownFile> =
+): List<InboxMarkdownFileMetadata> =
     if (isContentUriRoot(inboxRoot)) {
         listSafInboxMarkdownFiles(context, inboxRoot)
     } else {
         listDirectInboxMarkdownFiles(inboxRoot)
     }
 
-private suspend fun listDirectInboxMarkdownFiles(inboxRoot: String): List<InboxMarkdownFile> =
+private suspend fun listDirectInboxMarkdownFiles(inboxRoot: String): List<InboxMarkdownFileMetadata> =
     withContext(Dispatchers.IO) {
         val root = File(inboxRoot)
         val memoRoot = File(root, INBOX_MEMO_DIRECTORY)
@@ -43,16 +44,15 @@ private suspend fun listDirectInboxMarkdownFiles(inboxRoot: String): List<InboxM
             root.listFiles()
                 ?.asSequence()
                 ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
-                ?.map { file -> InboxMarkdownFile(file.name, file.readText(), file.lastModified()) }
+                ?.map { file -> InboxMarkdownFileMetadata(file.name, file.lastModified()) }
                 .orEmpty()
         val memoFiles =
             memoRoot.listFiles()
                 ?.asSequence()
                 ?.filter { it.isFile && it.extension.equals("md", ignoreCase = true) }
                 ?.map { file ->
-                    InboxMarkdownFile(
+                    InboxMarkdownFileMetadata(
                         relativePath = "$INBOX_MEMO_DIRECTORY/${file.name}",
-                        content = file.readText(),
                         lastModified = file.lastModified(),
                     )
                 }.orEmpty()
@@ -62,7 +62,7 @@ private suspend fun listDirectInboxMarkdownFiles(inboxRoot: String): List<InboxM
 private suspend fun listSafInboxMarkdownFiles(
     context: Context,
     inboxRoot: String,
-): List<InboxMarkdownFile> =
+): List<InboxMarkdownFileMetadata> =
     withContext(Dispatchers.IO) {
         val root = DocumentFile.fromTreeUri(context, inboxRoot.toUri()) ?: return@withContext emptyList()
         val rootLevelFiles =
@@ -71,8 +71,7 @@ private suspend fun listSafInboxMarkdownFiles(
                 .filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
                 .mapNotNull { file ->
                     val name = file.name ?: return@mapNotNull null
-                    val content = readSafDocumentText(context, file) ?: return@mapNotNull null
-                    InboxMarkdownFile(name, content, file.lastModified())
+                    InboxMarkdownFileMetadata(name, file.lastModified())
                 }
         val memoFiles =
             root.findFile(INBOX_MEMO_DIRECTORY)
@@ -82,8 +81,7 @@ private suspend fun listSafInboxMarkdownFiles(
                 ?.filter { it.isFile && it.name?.endsWith(".md", ignoreCase = true) == true }
                 ?.mapNotNull { file ->
                     val name = file.name ?: return@mapNotNull null
-                    val content = readSafDocumentText(context, file) ?: return@mapNotNull null
-                    InboxMarkdownFile("$INBOX_MEMO_DIRECTORY/$name", content, file.lastModified())
+                    InboxMarkdownFileMetadata("$INBOX_MEMO_DIRECTORY/$name", file.lastModified())
                 }.orEmpty()
         (rootLevelFiles + memoFiles).sortedBy { it.relativePath }.toList()
     }
@@ -113,6 +111,52 @@ internal suspend fun readInboxBinaryFile(
         withContext(Dispatchers.IO) {
             val target = File(inboxRoot, relativePath)
             if (target.exists() && target.isFile) target.readBytes() else null
+        }
+    }
+
+internal suspend fun inboxBinaryFileExists(
+    context: Context,
+    inboxRoot: String,
+    relativePath: String,
+): Boolean =
+    if (isContentUriRoot(inboxRoot)) {
+        withContext(Dispatchers.IO) {
+            resolveSafInboxFile(context, inboxRoot, relativePath)
+                ?.isFile == true
+        }
+    } else {
+        withContext(Dispatchers.IO) {
+            val target = File(inboxRoot, relativePath)
+            target.exists() && target.isFile
+        }
+    }
+
+internal suspend fun copyInboxBinaryFileTo(
+    context: Context,
+    inboxRoot: String,
+    relativePath: String,
+    output: OutputStream,
+): Boolean =
+    if (isContentUriRoot(inboxRoot)) {
+        withContext(Dispatchers.IO) {
+            val target =
+                resolveSafInboxFile(context, inboxRoot, relativePath)
+                    ?.takeIf { it.isFile }
+                    ?: return@withContext false
+            context.contentResolver.openInputStream(target.uri)?.use { input ->
+                input.copyTo(output)
+                true
+            } ?: false
+        }
+    } else {
+        withContext(Dispatchers.IO) {
+            val target = File(inboxRoot, relativePath)
+            if (target.exists() && target.isFile) {
+                target.inputStream().use { input -> input.copyTo(output) }
+                true
+            } else {
+                false
+            }
         }
     }
 
@@ -151,16 +195,7 @@ private fun resolveSafInboxFile(
     return current
 }
 
-private fun readSafDocumentText(
-    context: Context,
-    file: DocumentFile,
-): String? =
-    context.contentResolver.openInputStream(file.uri)?.use { input ->
-        input.readBytes().toString(Charsets.UTF_8)
-    }
-
-internal data class InboxMarkdownFile(
+internal data class InboxMarkdownFileMetadata(
     val relativePath: String,
-    val content: String,
     val lastModified: Long,
 )

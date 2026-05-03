@@ -47,7 +47,7 @@ import java.time.LocalDate
 @Composable
 internal fun MainScreenNavigationRender(
     screenState: MainScreenUiSnapshot,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
     viewModel: MainViewModel,
     actions: MainScreenActions,
@@ -61,7 +61,6 @@ internal fun MainScreenNavigationRender(
     onSidebarTagReorder: (List<String>) -> Unit,
 ) {
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
-    val collapsingMemoIds by viewModel.collapsingMemoIds.collectAsStateWithLifecycle()
     MainScreenRenderHost(
         isExpanded = hostState.isExpanded,
         drawerState = hostState.drawerState,
@@ -74,13 +73,9 @@ internal fun MainScreenNavigationRender(
         isFilterActive = screenState.memoListFilter.hasDateRange,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
-        hasRawItems = screenState.hasRawItems,
-        usesPagedMainList = screenState.usesPagedMainList,
         pagedUiMemos = pagedUiMemos,
-        uiMemos = screenState.uiMemos,
-        visibleUiMemos = screenState.visibleUiMemos,
         deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
-        collapsingMemoIds = remember(collapsingMemoIds) { collapsingMemoIds.toImmutableSet() },
+        onPagedDeleteAnimationSettled = viewModel::onPagedDeleteAnimationSettled,
         newMemoInsertAnimationState = hostState.newMemoInsertAnimationSession.state,
         onNewMemoSpacePrepared = hostState.newMemoInsertAnimationSession::markBlankSpacePrepared,
         onNewMemoRevealConsumed = hostState.newMemoInsertAnimationSession::clearReveal,
@@ -118,13 +113,9 @@ internal fun MainScreenRenderHost(
     isFilterActive: Boolean,
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
-    hasRawItems: Boolean,
-    usesPagedMainList: Boolean,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
-    uiMemos: ImmutableList<MemoUiModel>,
-    visibleUiMemos: ImmutableList<MemoUiModel>,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
+    onPagedDeleteAnimationSettled: (String) -> Unit,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -165,13 +156,9 @@ internal fun MainScreenRenderHost(
             scrollBehavior = scrollBehavior,
             searchQuery = searchQuery,
             uiState = uiState,
-            hasRawItems = hasRawItems,
-            usesPagedMainList = usesPagedMainList,
             pagedUiMemos = pagedUiMemos,
-            uiMemos = uiMemos,
-            visibleUiMemos = visibleUiMemos,
             deletingMemoIds = deletingMemoIds,
-            collapsingMemoIds = collapsingMemoIds,
+            onPagedDeleteAnimationSettled = onPagedDeleteAnimationSettled,
             newMemoInsertAnimationState = newMemoInsertAnimationState,
             onNewMemoSpacePrepared = onNewMemoSpacePrepared,
             onNewMemoRevealConsumed = onNewMemoRevealConsumed,
@@ -258,13 +245,9 @@ private fun MainScreenSidebarContent(
 internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
-    hasRawItems: Boolean,
-    usesPagedMainList: Boolean,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
-    uiMemos: ImmutableList<MemoUiModel>,
-    visibleUiMemos: ImmutableList<MemoUiModel>,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
+    onPagedDeleteAnimationSettled: (String) -> Unit,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -307,14 +290,10 @@ internal fun MainScreenAnimatedBody(
 
             is MainViewModel.MainScreenState.Ready -> {
                 MainReadyContent(
-                    hasRawItems = hasRawItems,
-                    usesPagedMainList = usesPagedMainList,
                     pagedUiMemos = pagedUiMemos,
                     searchQuery = searchQuery,
-                    uiMemos = uiMemos,
-                    visibleUiMemos = visibleUiMemos,
                     deletingMemoIds = deletingMemoIds,
-                    collapsingMemoIds = collapsingMemoIds,
+                    onPagedDeleteAnimationSettled = onPagedDeleteAnimationSettled,
                     newMemoInsertAnimationState = newMemoInsertAnimationState,
                     onNewMemoSpacePrepared = onNewMemoSpacePrepared,
                     onNewMemoRevealConsumed = onNewMemoRevealConsumed,
@@ -350,14 +329,10 @@ private fun MainInitialImportingState(modifier: Modifier = Modifier) {
 
 @Composable
 private fun MainReadyContent(
-    hasRawItems: Boolean,
-    usesPagedMainList: Boolean,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     searchQuery: String,
-    uiMemos: ImmutableList<MemoUiModel>,
-    visibleUiMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
+    onPagedDeleteAnimationSettled: (String) -> Unit,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -377,14 +352,10 @@ private fun MainReadyContent(
     onSettings: () -> Unit,
 ) {
     val readyContentState =
-        if (usesPagedMainList && pagedUiMemos != null) {
-            resolvePagedMainReadyContentState(
-                itemCount = pagedUiMemos.itemCount,
-                refreshState = pagedUiMemos.loadState.refresh,
-            )
-        } else {
-            resolveMainReadyContentState(hasRawItems = hasRawItems, uiMemos = uiMemos)
-        }
+        resolvePagedMainReadyContentState(
+            itemCount = pagedUiMemos.itemCount,
+            refreshState = pagedUiMemos.loadState.refresh,
+        )
     MainReadyStateEnterContainer {
         Crossfade(
             targetState = readyContentState,
@@ -404,51 +375,27 @@ private fun MainReadyContent(
                         onSettings = onSettings,
                     )
                 MainReadyContentState.List ->
-                    if (usesPagedMainList && pagedUiMemos != null) {
-                        MemoListContent(
-                            pagedMemos = pagedUiMemos,
-                            deletingMemoIds = deletingMemoIds,
-                            collapsingMemoIds = collapsingMemoIds,
-                            newMemoInsertAnimationState = newMemoInsertAnimationState,
-                            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-                            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-                            listState = listState,
-                            isRefreshing = isRefreshing,
-                            onRefresh = onRefresh,
-                            onTodoClick = onTodoClick,
-                            dateFormat = dateFormat,
-                            timeFormat = timeFormat,
-                            onMemoDoubleClick = onMemoDoubleClick,
-                            doubleTapEditEnabled = doubleTapEditEnabled,
-                            freeTextCopyEnabled = freeTextCopyEnabled,
-                            scrollbarEnabled = scrollbarEnabled,
-                            onTagClick = onTagClick,
-                            onImageClick = onImageClick,
-                            onShowMemoMenu = onShowMemoMenu,
-                        )
-                    } else {
-                        MemoListContent(
-                            memos = visibleUiMemos,
-                            deletingMemoIds = deletingMemoIds,
-                            collapsingMemoIds = collapsingMemoIds,
-                            newMemoInsertAnimationState = newMemoInsertAnimationState,
-                            onNewMemoSpacePrepared = onNewMemoSpacePrepared,
-                            onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-                            listState = listState,
-                            isRefreshing = isRefreshing,
-                            onRefresh = onRefresh,
-                            onTodoClick = onTodoClick,
-                            dateFormat = dateFormat,
-                            timeFormat = timeFormat,
-                            onMemoDoubleClick = onMemoDoubleClick,
-                            doubleTapEditEnabled = doubleTapEditEnabled,
-                            freeTextCopyEnabled = freeTextCopyEnabled,
-                            scrollbarEnabled = scrollbarEnabled,
-                            onTagClick = onTagClick,
-                            onImageClick = onImageClick,
-                            onShowMemoMenu = onShowMemoMenu,
-                        )
-                    }
+                    MemoListContent(
+                        pagedMemos = pagedUiMemos,
+                        deletingMemoIds = deletingMemoIds,
+                        onDeleteAnimationSettled = onPagedDeleteAnimationSettled,
+                        newMemoInsertAnimationState = newMemoInsertAnimationState,
+                        onNewMemoSpacePrepared = onNewMemoSpacePrepared,
+                        onNewMemoRevealConsumed = onNewMemoRevealConsumed,
+                        listState = listState,
+                        isRefreshing = isRefreshing,
+                        onRefresh = onRefresh,
+                        onTodoClick = onTodoClick,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        onMemoDoubleClick = onMemoDoubleClick,
+                        doubleTapEditEnabled = doubleTapEditEnabled,
+                        freeTextCopyEnabled = freeTextCopyEnabled,
+                        scrollbarEnabled = scrollbarEnabled,
+                        onTagClick = onTagClick,
+                        onImageClick = onImageClick,
+                        onShowMemoMenu = onShowMemoMenu,
+                    )
             }
         }
     }
@@ -459,16 +406,6 @@ internal enum class MainReadyContentState {
     Empty,
     List,
 }
-
-internal fun resolveMainReadyContentState(
-    hasRawItems: Boolean,
-    uiMemos: ImmutableList<MemoUiModel>,
-): MainReadyContentState =
-    when {
-        uiMemos.isNotEmpty() -> MainReadyContentState.List
-        hasRawItems -> MainReadyContentState.Loading
-        else -> MainReadyContentState.Empty
-    }
 
 internal fun resolvePagedMainReadyContentState(
     itemCount: Int,

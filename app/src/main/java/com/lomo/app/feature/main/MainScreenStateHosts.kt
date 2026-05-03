@@ -1,5 +1,8 @@
 package com.lomo.app.feature.main
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
@@ -13,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -25,6 +29,7 @@ import com.lomo.app.feature.memo.rememberMemoEditorController
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -34,14 +39,35 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
+@OptIn(ExperimentalFoundationApi::class)
+private val MAIN_MEMO_LIST_CACHE_WINDOW =
+    LazyLayoutCacheWindow(
+        aheadFraction = 1f,
+        behindFraction = 0.5f,
+    )
+
+@OptIn(ExperimentalFoundationApi::class)
+private val MainMemoListStateSaver =
+    listSaver<LazyListState, Int>(
+        save = { state ->
+            listOf(
+                state.firstVisibleItemIndex,
+                state.firstVisibleItemScrollOffset,
+            )
+        },
+        restore = { restored ->
+            LazyListState(
+                cacheWindow = MAIN_MEMO_LIST_CACHE_WINDOW,
+                firstVisibleItemIndex = restored[0],
+                firstVisibleItemScrollOffset = restored[1],
+            )
+        },
+    )
+
 @Composable
 internal fun collectMainScreenUiSnapshot(
     dependencies: MainScreenDependencies,
 ): MainScreenUiSnapshot {
-    val memos by dependencies.mainViewModel.memos.collectAsStateWithLifecycle()
-    val uiMemos by dependencies.mainViewModel.uiMemos.collectAsStateWithLifecycle()
-    val visibleUiMemos by dependencies.mainViewModel.visibleUiMemos.collectAsStateWithLifecycle()
-    val usesPagedMainList by dependencies.mainViewModel.usesPagedMainList.collectAsStateWithLifecycle()
     val searchQuery by dependencies.sidebarViewModel.searchQuery.collectAsStateWithLifecycle()
     val memoListFilter by dependencies.mainViewModel.memoListFilter.collectAsStateWithLifecycle()
     val sidebarUiState by dependencies.sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
@@ -51,10 +77,9 @@ internal fun collectMainScreenUiSnapshot(
         dependencies.mainViewModel.pendingNewMemoCreationRequest.collectAsStateWithLifecycle()
 
     return MainScreenUiSnapshot(
-        uiMemos = uiMemos.toImmutableList(),
-        visibleUiMemos = visibleUiMemos.toImmutableList(),
-        hasRawItems = memos.isNotEmpty(),
-        usesPagedMainList = usesPagedMainList,
+        uiMemos = persistentListOf(),
+        visibleUiMemos = persistentListOf(),
+        hasRawItems = false,
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
         sidebarUiState = sidebarUiState,
@@ -75,7 +100,7 @@ internal fun collectMainScreenUiSnapshot(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun rememberMainScreenHostState(): MainScreenHostState {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -83,8 +108,10 @@ internal fun rememberMainScreenHostState(): MainScreenHostState {
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(rememberTopAppBarState())
     val listState =
-        rememberSaveable(saver = androidx.compose.foundation.lazy.LazyListState.Saver) {
-            androidx.compose.foundation.lazy.LazyListState()
+        rememberSaveable(saver = MainMemoListStateSaver) {
+            LazyListState(
+                cacheWindow = MAIN_MEMO_LIST_CACHE_WINDOW,
+            )
         }
     val editorController = rememberMemoEditorController()
     val windowSizeClass = currentWindowAdaptiveInfo().windowSizeClass
@@ -153,7 +180,7 @@ internal fun MainScreenConflictHost(
 @Composable
 internal fun MainScreenContentHost(
     screenState: MainScreenUiSnapshot,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
     dependencies: MainScreenDependencies,
     unknownErrorMessage: String,
@@ -233,7 +260,7 @@ internal fun MainScreenContentHost(
 @Composable
 private fun MainScreenNavigationContent(
     screenState: MainScreenUiSnapshot,
-    pagedUiMemos: LazyPagingItems<MemoUiModel>?,
+    pagedUiMemos: LazyPagingItems<MemoUiModel>,
     hostState: MainScreenHostState,
     dependencies: MainScreenDependencies,
     isRefreshing: Boolean,

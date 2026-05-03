@@ -6,6 +6,7 @@ import androidx.room3.RoomDatabase
 import androidx.room3.useReaderConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.lomo.data.local.ALL_DATABASE_MIGRATIONS
+import com.lomo.data.local.ALL_DATABASE_MIGRATION_EDGES
 import com.lomo.data.local.DatabaseTransitionStrategy
 import com.lomo.data.local.MEMO_DATABASE_VERSION
 import com.lomo.data.local.MemoDatabase
@@ -113,6 +114,7 @@ object DatabaseModule {
         DatabaseTransitionStrategy.prepareBeforeOpen(
             context = context,
             targetVersion = MEMO_DATABASE_VERSION,
+            migrationEdges = ALL_DATABASE_MIGRATION_EDGES,
         )
 
         val db = buildMemoDatabase(context)

@@ -75,6 +75,7 @@ internal fun insertLegacyMemoRows(
     sourceTable: String,
     idExpr: String,
     timestampExpr: String,
+    updatedAtExpr: String? = null,
     contentExpr: String,
     rawContentExpr: String,
     dateExpr: String,
@@ -82,14 +83,16 @@ internal fun insertLegacyMemoRows(
     imageUrlsExpr: String,
     whereClause: String = "",
 ) {
+    val updatedAtColumns = if (updatedAtExpr == null) "" else ", `updatedAt`"
+    val updatedAtSelect = if (updatedAtExpr == null) "" else ",\n            $updatedAtExpr"
     db.execSQL(
         """
         INSERT OR REPLACE INTO `$targetTable` (
-            `id`, `$COLUMN_TIMESTAMP`, `$COLUMN_CONTENT`, `$COLUMN_RAW_CONTENT`, `date`, `tags`, `imageUrls`
+            `id`, `$COLUMN_TIMESTAMP`$updatedAtColumns, `$COLUMN_CONTENT`, `$COLUMN_RAW_CONTENT`, `date`, `tags`, `imageUrls`
         )
         SELECT
             $idExpr,
-            $timestampExpr,
+            $timestampExpr$updatedAtSelect,
             $contentExpr,
             $rawContentExpr,
             $dateExpr,
