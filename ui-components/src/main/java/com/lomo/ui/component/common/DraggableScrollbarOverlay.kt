@@ -3,16 +3,19 @@ package com.lomo.ui.component.common
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,17 +24,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.foundation.systemGestureExclusion
 import com.lomo.ui.theme.MotionTokens
+import com.lomo.ui.util.AppHapticFeedback
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
 
 @Composable
@@ -67,6 +75,8 @@ internal class DraggableScrollbarInteractionState {
 internal fun BoxScope.DraggableScrollbarOverlay(
     visible: Boolean,
     isThumbDragged: Boolean,
+    isScrollInProgress: Boolean,
+    recentlyScrolled: Boolean,
     thumbFraction: Float,
     thumbExtentPx: Float,
     onThumbFractionChanged: (Float) -> Unit,
@@ -74,8 +84,15 @@ internal fun BoxScope.DraggableScrollbarOverlay(
 ) {
     var trackHeightPx by remember { mutableFloatStateOf(0f) }
     var draggedThumbOffsetPx by remember { mutableFloatStateOf(0f) }
+    val visualState =
+        resolveScrollbarThumbVisualState(
+            isThumbDragged = isThumbDragged,
+            isScrollInProgress = isScrollInProgress,
+            recentlyScrolled = recentlyScrolled,
+        )
     val thumbWidthPx = rememberAnimatedThumbWidthPx(isThumbDragged = isThumbDragged)
-    val thumbColor = rememberDraggableScrollbarThumbColor(isThumbDragged = isThumbDragged)
+    val thumbColor = rememberDraggableScrollbarThumbColor(visualState = visualState)
+    val haptics = LocalAppHapticFeedback.current
 
     AnimatedVisibility(
         visible = visible,
@@ -85,7 +102,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
                 .padding(
                     top = DraggableScrollbarTrackPadding,
                     bottom = DraggableScrollbarTrackPadding,
-                    end = DraggableScrollbarTrackPadding,
+                    end = DraggableScrollbarEndPadding,
                 ),
         enter = draggableScrollbarFadeInTransition(),
         exit = draggableScrollbarFadeOutTransition(),
@@ -96,6 +113,11 @@ internal fun BoxScope.DraggableScrollbarOverlay(
                 thumbExtentPx = thumbExtentPx,
                 scrollFraction = thumbFraction,
             )
+        val animatedSettledOffsetPx by animateFloatAsState(
+            targetValue = thumbMetrics.thumbOffsetPx,
+            animationSpec = spring(stiffness = Spring.StiffnessHigh, dampingRatio = Spring.DampingRatioNoBouncy),
+            label = "ScrollbarThumbOffset",
+        )
         LaunchedEffect(thumbMetrics.thumbOffsetPx, visible, isThumbDragged) {
             if (shouldSyncDraggedThumbOffsetFromExternal(visible = visible, isThumbDragged = isThumbDragged)) {
                 draggedThumbOffsetPx = thumbMetrics.thumbOffsetPx
@@ -105,7 +127,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
             resolveDisplayedThumbOffsetPx(
                 isThumbDragged = isThumbDragged,
                 draggedThumbOffsetPx = draggedThumbOffsetPx,
-                settledThumbOffsetPx = thumbMetrics.thumbOffsetPx,
+                settledThumbOffsetPx = animatedSettledOffsetPx,
             )
         Canvas(
             modifier =
@@ -117,7 +139,7 @@ internal fun BoxScope.DraggableScrollbarOverlay(
                     onDraggedThumbOffsetChanged = { draggedThumbOffsetPx = it },
                     onThumbFractionChanged = onThumbFractionChanged,
                     onDragStateChanged = onDragStateChanged,
-                    isThumbDragged = isThumbDragged,
+                    haptics = haptics,
                 ),
         ) {
             if (size.height <= 0f || size.width <= 0f) {
@@ -145,12 +167,14 @@ private fun rememberAnimatedThumbWidthPx(isThumbDragged: Boolean): Float {
 }
 
 @Composable
-private fun rememberDraggableScrollbarThumbColor(isThumbDragged: Boolean) =
-    if (isThumbDragged) {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = DRAGGABLE_SCROLLBAR_DRAG_ALPHA)
-    } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = DRAGGABLE_SCROLLBAR_IDLE_ALPHA)
-    }
+private fun rememberDraggableScrollbarThumbColor(visualState: ScrollbarThumbVisualState): Color {
+    val animatedAlpha by animateFloatAsState(
+        targetValue = resolveScrollbarThumbAlpha(visualState),
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "ScrollbarThumbAlpha",
+    )
+    return MaterialTheme.colorScheme.onSurface.copy(alpha = animatedAlpha)
+}
 
 private fun draggableScrollbarFadeInTransition() =
     fadeIn(
@@ -179,61 +203,93 @@ private fun Modifier.draggableScrollbarCanvasModifier(
     onDraggedThumbOffsetChanged: (Float) -> Unit,
     onThumbFractionChanged: (Float) -> Unit,
     onDragStateChanged: (Boolean) -> Unit,
-    isThumbDragged: Boolean,
+    haptics: AppHapticFeedback,
 ): Modifier {
-    val touchTargetWidthDp = DraggableScrollbarTouchTargetWidth
-    val baseWidth = this
+    val touchTargetWidthPx = with(LocalDensity.current) { DraggableScrollbarTouchTargetWidth.toPx() }
+    val trackHeightRef = rememberUpdatedState(trackHeightPx)
+    val thumbExtentRef = rememberUpdatedState(thumbExtentPx)
+    val settledThumbOffsetRef = rememberUpdatedState(thumbMetrics.thumbOffsetPx)
+    val onDraggedThumbOffsetChangedRef = rememberUpdatedState(onDraggedThumbOffsetChanged)
+    val onThumbFractionChangedRef = rememberUpdatedState(onThumbFractionChanged)
+    val onDragStateChangedRef = rememberUpdatedState(onDragStateChanged)
+    val hapticsRef = rememberUpdatedState(haptics)
+    return this
         .fillMaxHeight()
-        .width(touchTargetWidthDp)
+        .width(DraggableScrollbarTouchTargetWidth)
+        .systemGestureExclusion()
         .onSizeChanged { size -> onTrackHeightChanged(size.height.toFloat()) }
-    val withGestureExclusion =
-        if (isThumbDragged) baseWidth.systemGestureExclusion() else baseWidth
-    return withGestureExclusion
-        .pointerInput(trackHeightPx, thumbExtentPx, thumbMetrics.thumbOffsetPx) {
-            var currentOffset = thumbMetrics.thumbOffsetPx
-            detectDragGesturesAfterLongPress(
-                onDragStart = { startPosition ->
-                    if (trackHeightPx <= 0f) return@detectDragGesturesAfterLongPress
-                    val initialOffset =
-                        resolveInitialThumbOffsetFromPress(
-                            pressY = startPosition.y,
-                            currentThumbOffsetPx = thumbMetrics.thumbOffsetPx,
-                            thumbExtentPx = thumbExtentPx,
-                            trackHeightPx = trackHeightPx,
-                        )
-                    currentOffset = initialOffset
-                    onDragStateChanged(true)
-                    onDraggedThumbOffsetChanged(initialOffset)
-                    onThumbFractionChanged(
-                        mapDraggedThumbOffsetToFraction(
-                            draggedThumbOffsetPx = initialOffset,
-                            trackExtentPx = trackHeightPx,
-                            thumbExtentPx = thumbExtentPx,
-                        ),
+        .pointerInput(touchTargetWidthPx) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = true)
+                val trackPx = trackHeightRef.value
+                val thumbPx = thumbExtentRef.value
+                if (trackPx <= 0f) return@awaitEachGesture
+                val canvasWidthPx = size.width.toFloat()
+                val pressedInZone =
+                    isPointInScrollbarTouchZone(
+                        pointerXPx = down.position.x,
+                        canvasWidthPx = canvasWidthPx,
+                        touchTargetWidthPx = touchTargetWidthPx,
                     )
-                },
-                onDrag = { change, dragAmount ->
-                    if (trackHeightPx <= 0f) return@detectDragGesturesAfterLongPress
-                    change.consume()
-                    currentOffset =
-                        resolveDraggedThumbOffsetPx(
-                            currentOffsetPx = currentOffset,
-                            dragAmount = dragAmount.y,
-                            trackHeightPx = trackHeightPx,
-                            thumbExtentPx = thumbExtentPx,
-                        )
-                    onDraggedThumbOffsetChanged(currentOffset)
-                    onThumbFractionChanged(
-                        mapDraggedThumbOffsetToFraction(
-                            draggedThumbOffsetPx = currentOffset,
-                            trackExtentPx = trackHeightPx,
-                            thumbExtentPx = thumbExtentPx,
-                        ),
+                if (!pressedInZone) {
+                    return@awaitEachGesture
+                }
+                down.consume()
+                hapticsRef.value.longPress()
+                var currentOffset =
+                    resolveInitialThumbOffsetFromPress(
+                        pressY = down.position.y,
+                        currentThumbOffsetPx = settledThumbOffsetRef.value,
+                        thumbExtentPx = thumbPx,
+                        trackHeightPx = trackPx,
                     )
-                },
-                onDragEnd = { onDragStateChanged(false) },
-                onDragCancel = { onDragStateChanged(false) },
-            )
+                onDragStateChangedRef.value(true)
+                onDraggedThumbOffsetChangedRef.value(currentOffset)
+                onThumbFractionChangedRef.value(
+                    mapDraggedThumbOffsetToFraction(
+                        draggedThumbOffsetPx = currentOffset,
+                        trackExtentPx = trackPx,
+                        thumbExtentPx = thumbPx,
+                    ),
+                )
+                try {
+                    var keepDragging = true
+                    while (keepDragging) {
+                        val event = awaitPointerEvent()
+                        val change: PointerInputChange? =
+                            event.changes.firstOrNull { it.id == down.id }
+                        if (change == null) {
+                            keepDragging = false
+                        } else if (change.pressed) {
+                            val dy = change.positionChange().y
+                            if (dy != 0f) {
+                                val activeTrack = trackHeightRef.value
+                                val activeThumb = thumbExtentRef.value
+                                currentOffset =
+                                    resolveDraggedThumbOffsetPx(
+                                        currentOffsetPx = currentOffset,
+                                        dragAmount = dy,
+                                        trackHeightPx = activeTrack,
+                                        thumbExtentPx = activeThumb,
+                                    )
+                                onDraggedThumbOffsetChangedRef.value(currentOffset)
+                                onThumbFractionChangedRef.value(
+                                    mapDraggedThumbOffsetToFraction(
+                                        draggedThumbOffsetPx = currentOffset,
+                                        trackExtentPx = activeTrack,
+                                        thumbExtentPx = activeThumb,
+                                    ),
+                                )
+                            }
+                        } else {
+                            keepDragging = false
+                        }
+                        change?.consume()
+                    }
+                } finally {
+                    onDragStateChangedRef.value(false)
+                }
+            }
         }
 }
 

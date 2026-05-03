@@ -1,41 +1,39 @@
 package com.lomo.ui.component.common
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal const val DRAGGABLE_SCROLLBAR_FADE_OUT_DELAY_MS = 1200L
 internal val DraggableScrollbarTrackPadding = 2.dp
+internal val DraggableScrollbarEndPadding = 8.dp
 internal val DraggableScrollbarIdleWidth = 4.dp
-internal val DraggableScrollbarDragWidth = 10.dp
-internal val DraggableScrollbarTouchTargetWidth = 24.dp
+internal val DraggableScrollbarDragWidth = 12.dp
+internal val DraggableScrollbarTouchTargetWidth = 32.dp
 internal val DraggableScrollbarThumbHeight = 36.dp
-internal const val DRAGGABLE_SCROLLBAR_IDLE_ALPHA = 0.25f
+internal const val DRAGGABLE_SCROLLBAR_IDLE_ALPHA = 0.12f
+internal const val DRAGGABLE_SCROLLBAR_ACTIVE_ALPHA = 0.25f
 internal const val DRAGGABLE_SCROLLBAR_DRAG_ALPHA = 0.55f
 
-internal fun shouldShowDraggableScrollbar(
-    canScroll: Boolean,
-    isScrollInProgress: Boolean,
-    isThumbDragged: Boolean,
-    recentlyScrolled: Boolean,
-): Boolean = canScroll && (isScrollInProgress || isThumbDragged || recentlyScrolled)
+internal fun shouldShowDraggableScrollbar(canScroll: Boolean): Boolean = canScroll
 
 @Stable
 internal data class ScrollbarThumbMetrics(
@@ -79,54 +77,57 @@ internal fun mapDraggedThumbOffsetToFraction(
     return (draggedThumbOffsetPx / draggableExtent).coerceIn(0f, 1f)
 }
 
-internal fun mapThumbFractionToLazyListPosition(
-    thumbFraction: Float,
-    totalItemsCount: Int,
-    targetItemSizePx: Int?,
-): LazyListScrollTarget {
-    val safeTotalItemsCount = totalItemsCount.coerceAtLeast(0)
-    if (safeTotalItemsCount <= 1) {
-        return LazyListScrollTarget(index = 0, scrollOffsetPx = 0)
-    }
-    val lastIndex = safeTotalItemsCount - 1
-    val scaledIndex = thumbFraction.coerceIn(0f, 1f) * lastIndex.toFloat()
-    val index = floor(scaledIndex).toInt().coerceIn(0, lastIndex)
-    val intraItemFraction = (scaledIndex - index.toFloat()).coerceIn(0f, 1f)
-    val intraItemOffset =
-        targetItemSizePx
-            ?.coerceAtLeast(0)
-            ?.let { itemSize ->
-                (itemSize * intraItemFraction)
-                    .roundToInt()
-                    .coerceIn(0, itemSize.coerceAtLeast(1) - 1)
-            } ?: 0
-    return LazyListScrollTarget(
-        index = index,
-        scrollOffsetPx = intraItemOffset,
-    )
-}
-
-internal fun resolveLazyListThumbFraction(
+/** Forward mapping: thumb fraction = scrolledPx / maxScrollPx, so 1.0 means the list is at its real bottom. */
+internal fun resolveLazyListThumbFractionByPixels(
     firstVisibleItemIndex: Int,
     firstVisibleItemScrollOffsetPx: Int,
-    firstVisibleItemSizePx: Int,
+    avgItemSizePx: Float,
+    viewportSizePx: Int,
     totalItemsCount: Int,
 ): Float {
-    val safeTotalItemsCount = totalItemsCount.coerceAtLeast(0)
-    if (safeTotalItemsCount <= 1) {
-        return 0f
+    if (avgItemSizePx <= 0f || viewportSizePx <= 0 || totalItemsCount <= 0) return 0f
+    val totalContentPx = avgItemSizePx * totalItemsCount
+    val maxScrollPx = (totalContentPx - viewportSizePx).coerceAtLeast(0f)
+    if (maxScrollPx <= 0f) return 0f
+    val safeFirst = firstVisibleItemIndex.coerceAtLeast(0)
+    val safeOffset = firstVisibleItemScrollOffsetPx.coerceAtLeast(0)
+    val scrolledPx = safeFirst * avgItemSizePx + safeOffset.toFloat()
+    return (scrolledPx / maxScrollPx).coerceIn(0f, 1f)
+}
+
+/** Inverse of [resolveLazyListThumbFractionByPixels]; round-trips exactly so drag-to-bottom hits the real bottom. */
+internal fun mapThumbFractionToLazyListPositionByPixels(
+    fraction: Float,
+    avgItemSizePx: Float,
+    viewportSizePx: Int,
+    totalItemsCount: Int,
+): LazyListScrollTarget {
+    if (avgItemSizePx <= 0f || totalItemsCount <= 0) {
+        return LazyListScrollTarget(index = 0, scrollOffsetPx = 0)
     }
-    val lastIndex = safeTotalItemsCount - 1
-    val safeIndex = firstVisibleItemIndex.coerceIn(0, lastIndex)
-    val intraItemFraction =
-        if (firstVisibleItemSizePx <= 0) {
-            0f
-        } else {
-            firstVisibleItemScrollOffsetPx
-                .coerceAtLeast(0)
-                .toFloat() / firstVisibleItemSizePx.toFloat()
-        }.coerceIn(0f, 1f)
-    return ((safeIndex.toFloat() + intraItemFraction) / lastIndex.toFloat()).coerceIn(0f, 1f)
+    val totalContentPx = avgItemSizePx * totalItemsCount
+    val maxScrollPx =
+        (totalContentPx - viewportSizePx.coerceAtLeast(0).toFloat()).coerceAtLeast(0f)
+    val targetScrollPx = fraction.coerceIn(0f, 1f) * maxScrollPx
+    val targetIndex =
+        (targetScrollPx / avgItemSizePx).toInt()
+            .coerceIn(0, (totalItemsCount - 1).coerceAtLeast(0))
+    val intraOffsetPx = (targetScrollPx - targetIndex * avgItemSizePx).toInt().coerceAtLeast(0)
+    return LazyListScrollTarget(index = targetIndex, scrollOffsetPx = intraOffsetPx)
+}
+
+/** Pins the thumb to the rail extremes when the list cannot scroll any further in that direction. */
+internal fun resolveLazyListThumbFractionAtBoundaries(
+    rawFraction: Float,
+    canScrollBackward: Boolean,
+    canScrollForward: Boolean,
+): Float {
+    val clamped = rawFraction.coerceIn(0f, 1f)
+    return when {
+        !canScrollForward -> 1f
+        !canScrollBackward -> 0f
+        else -> clamped
+    }
 }
 
 @Composable
@@ -163,14 +164,10 @@ fun WithDraggableScrollbar(
     Box(modifier = Modifier.then(modifier)) {
         content()
         DraggableScrollbarOverlay(
-            visible =
-                shouldShowDraggableScrollbar(
-                    canScroll = canScroll,
-                    isScrollInProgress = state.isScrollInProgress,
-                    isThumbDragged = interaction.isThumbDragged,
-                    recentlyScrolled = interaction.recentlyScrolled,
-                ),
+            visible = shouldShowDraggableScrollbar(canScroll = canScroll),
             isThumbDragged = interaction.isThumbDragged,
+            isScrollInProgress = state.isScrollInProgress,
+            recentlyScrolled = interaction.recentlyScrolled,
             thumbFraction = thumbFraction,
             thumbExtentPx = thumbExtentPx,
             onThumbFractionChanged = { fraction ->
@@ -193,6 +190,7 @@ fun WithDraggableScrollbar(
     state: LazyListState,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    contentGeneration: Any? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     if (!enabled) {
@@ -201,11 +199,36 @@ fun WithDraggableScrollbar(
     }
     val thumbExtentPx = with(LocalDensity.current) { DraggableScrollbarThumbHeight.toPx() }
     val dragScope = rememberCoroutineScope()
-    val lazyMetrics by remember(state) {
-        derivedStateOf { state.layoutInfo.toLazyListScrollbarMetrics() }
+    val lazyMetrics by produceState<LazyListScrollbarMetrics?>(
+        initialValue = null,
+        state,
+        contentGeneration,
+    ) {
+        val estimator = LazyListScrollbarEstimator()
+        snapshotFlow {
+            state.layoutInfo.toLazyListScrollbarSnapshot(
+                canScrollBackward = state.canScrollBackward,
+                canScrollForward = state.canScrollForward,
+            )
+        }.collect { snapshot ->
+            value = estimator.update(snapshot = snapshot, contentGeneration = contentGeneration)
+        }
     }
     val canScroll = lazyMetrics != null
     val thumbFraction = lazyMetrics?.scrollFraction ?: 0f
+    val scrollRequestDispatcher =
+        remember(state) {
+            LazyListScrollRequestDispatcher { target ->
+                CoroutineLazyListScrollRequest(
+                    dragScope.launch {
+                        state.scrollToItem(target.index, target.scrollOffsetPx)
+                    },
+                )
+            }
+        }
+    DisposableEffect(scrollRequestDispatcher) {
+        onDispose { scrollRequestDispatcher.cancelActiveRequest() }
+    }
     val interaction =
         rememberDraggableScrollbarInteractionState(
             canScroll = canScroll,
@@ -215,32 +238,15 @@ fun WithDraggableScrollbar(
     Box(modifier = Modifier.then(modifier)) {
         content()
         DraggableScrollbarOverlay(
-            visible =
-                shouldShowDraggableScrollbar(
-                    canScroll = canScroll,
-                    isScrollInProgress = state.isScrollInProgress,
-                    isThumbDragged = interaction.isThumbDragged,
-                    recentlyScrolled = interaction.recentlyScrolled,
-                ),
+            visible = shouldShowDraggableScrollbar(canScroll = canScroll),
             isThumbDragged = interaction.isThumbDragged,
+            isScrollInProgress = state.isScrollInProgress,
+            recentlyScrolled = interaction.recentlyScrolled,
             thumbFraction = thumbFraction,
             thumbExtentPx = thumbExtentPx,
             onThumbFractionChanged = { fraction ->
                 val metrics = lazyMetrics ?: return@DraggableScrollbarOverlay
-                val targetIndex =
-                    floor(
-                        fraction.coerceIn(0f, 1f) *
-                            (metrics.totalItemsCount - 1).coerceAtLeast(0).toFloat(),
-                    ).toInt()
-                val target =
-                    mapThumbFractionToLazyListPosition(
-                        thumbFraction = fraction,
-                        totalItemsCount = metrics.totalItemsCount,
-                        targetItemSizePx = metrics.visibleItemSizePxByIndex[targetIndex],
-                    )
-                dragScope.launch {
-                    state.scrollToItem(target.index, target.scrollOffsetPx)
-                }
+                scrollRequestDispatcher.dispatch(metrics.targetForFraction(fraction))
             },
             onDragStateChanged = { interaction.isThumbDragged = it },
         )
@@ -280,14 +286,10 @@ fun WithDraggableScrollbar(
     Box(modifier = Modifier.then(modifier)) {
         content()
         DraggableScrollbarOverlay(
-            visible =
-                shouldShowDraggableScrollbar(
-                    canScroll = state.canScroll,
-                    isScrollInProgress = state.isScrollInProgress,
-                    isThumbDragged = interaction.isThumbDragged,
-                    recentlyScrolled = interaction.recentlyScrolled,
-                ),
+            visible = shouldShowDraggableScrollbar(canScroll = state.canScroll),
             isThumbDragged = interaction.isThumbDragged,
+            isScrollInProgress = state.isScrollInProgress,
+            recentlyScrolled = interaction.recentlyScrolled,
             thumbFraction = state.scrollFraction,
             thumbExtentPx = thumbExtentPx,
             onThumbFractionChanged = { fraction ->
@@ -296,44 +298,4 @@ fun WithDraggableScrollbar(
             onDragStateChanged = { interaction.isThumbDragged = it },
         )
     }
-}
-
-private data class LazyListScrollbarMetrics(
-    val totalItemsCount: Int,
-    val scrollFraction: Float,
-    val visibleItemSizePxByIndex: Map<Int, Int>,
-)
-
-private fun androidx.compose.foundation.lazy.LazyListLayoutInfo
-    .toLazyListScrollbarMetrics(): LazyListScrollbarMetrics? {
-    val visibleItems = visibleItemsInfo
-    if (visibleItems.isEmpty()) {
-        return null
-    }
-    val viewportSize = (viewportEndOffset - viewportStartOffset).coerceAtLeast(0)
-    if (viewportSize <= 0 || totalItemsCount <= 0) {
-        return null
-    }
-    val firstVisible = visibleItems.first()
-    val lastVisible = visibleItems.last()
-    val canScroll =
-        firstVisible.index > 0 ||
-            firstVisible.offset < viewportStartOffset ||
-            lastVisible.index < totalItemsCount - 1 ||
-            (lastVisible.offset + lastVisible.size) > viewportEndOffset
-    if (!canScroll) {
-        return null
-    }
-    val firstVisibleItemScrollOffsetPx = (viewportStartOffset - firstVisible.offset).coerceAtLeast(0)
-    return LazyListScrollbarMetrics(
-        totalItemsCount = totalItemsCount,
-        scrollFraction =
-            resolveLazyListThumbFraction(
-                firstVisibleItemIndex = firstVisible.index,
-                firstVisibleItemScrollOffsetPx = firstVisibleItemScrollOffsetPx,
-                firstVisibleItemSizePx = firstVisible.size,
-                totalItemsCount = totalItemsCount,
-            ),
-        visibleItemSizePxByIndex = visibleItems.associate { it.index to it.size },
-    )
 }
