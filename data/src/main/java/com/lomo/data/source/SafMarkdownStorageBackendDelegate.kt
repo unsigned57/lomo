@@ -9,43 +9,48 @@ internal class SafMarkdownStorageBackendDelegate(
     private val documentAccess: SafDocumentAccess,
 ) : MarkdownStorageBackend {
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safListMetadata(context, rootUri, documentAccess)
-            MemoDirectoryType.TRASH -> safListTrashMetadata(documentAccess)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safListMetadata(context, rootUri, documentAccess) },
+            onTrash = { safListTrashMetadata(documentAccess) },
+        )
 
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safListMetadataWithIds(context, rootUri, documentAccess)
-            MemoDirectoryType.TRASH -> safListTrashMetadataWithIds(context, rootUri, documentAccess)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safListMetadataWithIds(context, rootUri, documentAccess) },
+            onTrash = { safListTrashMetadataWithIds(context, rootUri, documentAccess) },
+        )
 
     override suspend fun getFileMetadataIn(
         directory: MemoDirectoryType,
         filename: String,
     ): FileMetadata? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safGetFileMetadata(documentAccess, filename)
-            MemoDirectoryType.TRASH -> safGetTrashFileMetadata(documentAccess, filename)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safGetFileMetadata(documentAccess, filename) },
+            onTrash = { safGetTrashFileMetadata(documentAccess, filename) },
+        )
 
     override suspend fun readFileIn(
         directory: MemoDirectoryType,
         filename: String,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safReadFile(documentAccess, filename)
-            MemoDirectoryType.TRASH -> safReadTrashFile(documentAccess, filename)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safReadFile(documentAccess, filename) },
+            onTrash = { safReadTrashFile(documentAccess, filename) },
+        )
 
     override suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safReadFileByDocumentId(rootUri, documentAccess, documentId)
-            MemoDirectoryType.TRASH -> safReadTrashFileByDocumentId(rootUri, documentAccess, documentId)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safReadFileByDocumentId(rootUri, documentAccess, documentId) },
+            onTrash = { safReadTrashFileByDocumentId(rootUri, documentAccess, documentId) },
+        )
 
     override suspend fun readFile(uri: Uri): String? = safReadFileUri(documentAccess, uri)
 
@@ -56,22 +61,24 @@ internal class SafMarkdownStorageBackendDelegate(
         append: Boolean,
         uri: Uri?,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> safSaveFile(rootUri, documentAccess, filename, content, append, uri)
-            MemoDirectoryType.TRASH -> {
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safSaveFile(rootUri, documentAccess, filename, content, append, uri) },
+            onTrash = {
                 safSaveTrashFile(documentAccess, filename, content, append)
                 null
-            }
-        }
+            },
+        )
 
     override suspend fun deleteFileIn(
         directory: MemoDirectoryType,
         filename: String,
         uri: Uri?,
     ) {
-        when (directory) {
-            MemoDirectoryType.MAIN -> safDeleteFile(context, documentAccess, filename, uri)
-            MemoDirectoryType.TRASH -> safDeleteTrashFile(documentAccess, filename)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { safDeleteFile(context, documentAccess, filename, uri) },
+            onTrash = { safDeleteTrashFile(documentAccess, filename) },
+        )
     }
 }

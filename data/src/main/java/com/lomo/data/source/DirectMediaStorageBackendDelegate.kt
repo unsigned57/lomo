@@ -17,7 +17,7 @@ internal class DirectMediaStorageBackendDelegate(
         withContext(Dispatchers.IO) {
             directEnsureRootExists(rootDir)
             throw UnsupportedOperationException(
-                "DirectStorageBackend requires Context to resolve source URIs. " +
+                "Direct image storage requires Context to resolve source URIs. " +
                     "Use FileDataSourceImpl.saveImage() instead.",
             )
         }

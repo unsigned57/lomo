@@ -10,6 +10,7 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
@@ -22,7 +23,8 @@ import org.junit.Test
  * - Unit under test: FileStorageBackendResolver
  * - Behavior focus: root-backend selection, cache invalidation on root changes, media-root precedence, and voice fallback behavior.
  * - Observable outcomes: resolved backend types, returned configured SAF uri markers, nullability for missing roots, and cache reuse vs refresh.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because the resolver does not expose an explicit WorkspaceVfs
+ *   shape for resolved roots, leaving the media bridge to branch on concrete backend types.
  * - Excludes: SAF document traversal, backend file I/O, and DataStore persistence implementation internals.
  */
 class FileStorageBackendResolverTest {
@@ -76,9 +78,9 @@ class FileStorageBackendResolverTest {
             rootDirectory.value = "/vault/root-b"
             val refreshed = resolver.markdownBackend()
 
-            assertTrue(first is DirectStorageBackend)
+            assertTrue(first?.javaClass?.simpleName == "VfsStorageBackend")
             assertSame(first, second)
-            assertTrue(refreshed is DirectStorageBackend)
+            assertTrue(refreshed?.javaClass?.simpleName == "VfsStorageBackend")
             assertNotSame(first, refreshed)
         }
 
@@ -91,8 +93,20 @@ class FileStorageBackendResolverTest {
             val backend = resolver.workspaceBackend()
             val markdownBackend = resolver.markdownBackend()
 
-            assertTrue(backend is SafStorageBackend)
+            assertTrue(backend?.javaClass?.simpleName == "VfsStorageBackend")
             assertSame(backend, markdownBackend)
+        }
+
+    @Test
+    fun `root vfs prefers saf root when root uri is configured`() =
+        runTest {
+            rootDirectory.value = "/vault/fallback"
+            rootUri.value = "content://tree/root"
+
+            val vfs = resolver.rootVfs()
+
+            assertTrue(vfs is WorkspaceVfs.Saf)
+            assertSame(parsedUri("content://tree/root"), (vfs as WorkspaceVfs.Saf).rootUri)
         }
 
     @Test
@@ -101,12 +115,12 @@ class FileStorageBackendResolverTest {
             rootDirectory.value = "/vault/root"
             imageUri.value = "content://tree/images"
 
-            val (imageBackend, imageMarker) = resolver.mediaBackend(StorageRootType.IMAGE)
+            val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE)
             val voiceBackend = resolver.voiceBackend()
 
-            assertTrue(imageBackend is SafStorageBackend)
-            assertTrue(voiceBackend is DirectStorageBackend)
-            assertTrue(imageMarker == "content://tree/images")
+            assertTrue(imageRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertTrue(voiceBackend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertTrue(imageRoot?.configuredUriMarker == "content://tree/images")
         }
 
     @Test
@@ -114,10 +128,24 @@ class FileStorageBackendResolverTest {
         runTest {
             imageDirectory.value = "/typed/images"
 
-            val (imageBackend, imageMarker) = resolver.mediaBackend(StorageRootType.IMAGE)
+            val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE)
 
-            assertTrue(imageBackend is DirectStorageBackend)
-            assertNull(imageMarker)
+            assertTrue(imageRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertNull(imageRoot?.configuredUriMarker)
+        }
+
+    @Test
+    fun `resolved media root exposes direct workspace vfs for typed directory root`() =
+        runTest {
+            imageDirectory.value = "/typed/images"
+
+            val resolvedRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE)
+
+            assertTrue(resolvedRoot != null)
+            assertTrue(resolvedRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertTrue(resolvedRoot?.vfs is WorkspaceVfs.Direct)
+            assertEquals("/typed/images", (resolvedRoot?.vfs as WorkspaceVfs.Direct).rootDir.path)
+            assertNull(resolvedRoot.configuredUriMarker)
         }
 
     @Test
@@ -126,10 +154,10 @@ class FileStorageBackendResolverTest {
             imageUri.value = "content://tree/images"
             imageDirectory.value = "/typed/images"
 
-            val (imageBackend, imageMarker) = resolver.mediaBackend(StorageRootType.IMAGE)
+            val imageRoot = resolver.resolvedMediaRoot(StorageRootType.IMAGE)
 
-            assertTrue(imageBackend is SafStorageBackend)
-            assertTrue(imageMarker == "content://tree/images")
+            assertTrue(imageRoot?.backend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertTrue(imageRoot?.configuredUriMarker == "content://tree/images")
         }
 
     @Test
@@ -139,11 +167,11 @@ class FileStorageBackendResolverTest {
             voiceDirectory.value = "/typed/voice"
 
             val voiceBackend = resolver.voiceBackend()
+            val rootMedia = resolver.resolvedMediaRoot(StorageRootType.MAIN)
 
-            assertTrue(voiceBackend is DirectStorageBackend)
-            val (rootMediaBackend, _) = resolver.mediaBackend(StorageRootType.MAIN)
-            assertTrue(rootMediaBackend is DirectStorageBackend)
-            assertNotSame(rootMediaBackend, voiceBackend)
+            assertTrue(voiceBackend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertTrue(rootMedia?.backend?.javaClass?.simpleName == "VfsStorageBackend")
+            assertNotSame(rootMedia?.backend, voiceBackend)
         }
 
     @Test
@@ -153,7 +181,7 @@ class FileStorageBackendResolverTest {
 
             val voiceBackend = resolver.voiceBackend()
 
-            assertTrue(voiceBackend is SafStorageBackend)
+            assertTrue(voiceBackend?.javaClass?.simpleName == "VfsStorageBackend")
         }
 
     private fun parsedUri(value: String): Uri =

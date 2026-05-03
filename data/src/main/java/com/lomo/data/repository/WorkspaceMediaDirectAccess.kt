@@ -6,6 +6,7 @@ import com.lomo.domain.model.MediaFileExtensions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.OutputStream
 
 internal suspend fun listWorkspaceDirectFiles(
     category: WorkspaceMediaCategory,
@@ -55,6 +56,19 @@ internal suspend fun writeWorkspaceDirectFile(
     withContext(Dispatchers.IO) {
         directEnsureRootExists(root)
         File(root, filename).writeBytes(bytes)
+    }
+}
+
+internal suspend fun writeWorkspaceDirectFileFromStream(
+    root: File,
+    filename: String,
+    source: suspend (OutputStream) -> Unit,
+) {
+    withContext(Dispatchers.IO) {
+        directEnsureRootExists(root)
+        File(root, filename).outputStream().use { output ->
+            source(output)
+        }
     }
 }
 
