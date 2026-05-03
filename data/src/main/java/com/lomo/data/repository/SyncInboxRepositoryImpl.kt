@@ -24,6 +24,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -133,47 +134,7 @@ class SyncInboxRepositoryImpl
 
         state.value = UnifiedSyncState.Running(SyncBackendType.INBOX, UnifiedSyncPhase.LISTING)
         return runCatching {
-            val conflicts = mutableListOf<SyncConflictFile>()
-            val importedAttachmentsToDelete = linkedSetOf<String>()
-            listInboxMarkdownFiles(context, inboxRoot).forEach { file ->
-                val outcome =
-                    processMarkdownFile(
-                    inboxRoot = inboxRoot,
-                    inboxFile = file,
-                )
-                outcome.conflict?.let(conflicts::add)
-                importedAttachmentsToDelete += outcome.importedAttachmentsToDelete
-            }
-            importedAttachmentsToDelete.forEach { attachment ->
-                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
-            }
-            if (conflicts.isNotEmpty()) {
-                val conflictSet =
-                    SyncConflictSet(
-                        source = SyncBackendType.INBOX,
-                        files = conflicts,
-                        timestamp = System.currentTimeMillis(),
-                    )
-                pendingConflictStore.write(conflictSet)
-                state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, conflictSet)
-                return@runCatching UnifiedSyncResult.Conflict(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox conflict detected",
-                    conflicts = conflictSet,
-                )
-            }
-            val result =
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                )
-            state.value =
-                UnifiedSyncState.Success(
-                    provider = SyncBackendType.INBOX,
-                    timestamp = System.currentTimeMillis(),
-                    summary = result.message,
-                )
-            result
+            resolveBatchResult(processInboxBatch(inboxRoot))
         }.getOrElse { throwable ->
             val error =
                 UnifiedSyncError(
@@ -193,6 +154,107 @@ class SyncInboxRepositoryImpl
         }
     }
 
+    private suspend fun processInboxBatch(inboxRoot: String): ProcessInboxBatchResult {
+        val conflicts = mutableListOf<SyncConflictFile>()
+        val failures = mutableListOf<Pair<String, Throwable>>()
+        val committedFiles = mutableListOf<CommittedInboxFile>()
+        listInboxMarkdownFiles(context, inboxRoot).forEach { file ->
+            val outcome =
+                runCatching {
+                    processMarkdownFile(
+                        inboxRoot = inboxRoot,
+                        inboxFile = file,
+                    )
+                }.getOrElse { throwable ->
+                    ProcessMarkdownFileOutcome(
+                        failure = throwable,
+                        relativePath = file.relativePath,
+                    )
+                }
+            outcome.committedFile?.let(committedFiles::add)
+            outcome.conflict?.let(conflicts::add)
+            outcome.failure?.let { throwable ->
+                failures += requireNotNull(outcome.relativePath) to throwable
+            }
+        }
+        if (committedFiles.isNotEmpty()) {
+            memoSynchronizer.refreshImportedSync()
+        }
+        cleanupImportedAttachments(inboxRoot = inboxRoot, committedFiles = committedFiles)
+        Timber.i(
+            "SyncInbox processed=%d committed=%d conflicts=%d failures=%d",
+            conflicts.size + failures.size + committedFiles.size,
+            committedFiles.size,
+            conflicts.size,
+            failures.size,
+        )
+        return ProcessInboxBatchResult(
+            conflicts = conflicts,
+            failures = failures,
+        )
+    }
+
+    private suspend fun cleanupImportedAttachments(
+        inboxRoot: String,
+        committedFiles: List<CommittedInboxFile>,
+    ) {
+        committedFiles
+            .asSequence()
+            .flatMap { committed -> committed.importedAttachmentsToDelete.asSequence() }
+            .distinct()
+            .forEach { attachment ->
+                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
+            }
+    }
+
+    private suspend fun resolveBatchResult(batchResult: ProcessInboxBatchResult): UnifiedSyncResult {
+        if (batchResult.conflicts.isNotEmpty()) {
+            val conflictSet =
+                SyncConflictSet(
+                    source = SyncBackendType.INBOX,
+                    files = batchResult.conflicts,
+                    timestamp = System.currentTimeMillis(),
+                )
+            pendingConflictStore.write(conflictSet)
+            state.value = UnifiedSyncState.ConflictDetected(SyncBackendType.INBOX, conflictSet)
+            return UnifiedSyncResult.Conflict(
+                provider = SyncBackendType.INBOX,
+                message = "Sync inbox conflict detected",
+                conflicts = conflictSet,
+            )
+        }
+        if (batchResult.failures.isNotEmpty()) {
+            val firstFailure = batchResult.failures.first().second
+            val error =
+                UnifiedSyncError(
+                    provider = SyncBackendType.INBOX,
+                    message = firstFailure.message ?: "Sync inbox failed",
+                    cause = firstFailure,
+                )
+            state.value =
+                UnifiedSyncState.Error(
+                    error = error,
+                    timestamp = System.currentTimeMillis(),
+                )
+            return UnifiedSyncResult.Error(
+                provider = SyncBackendType.INBOX,
+                error = error,
+            )
+        }
+        val result =
+            UnifiedSyncResult.Success(
+                provider = SyncBackendType.INBOX,
+                message = "Sync inbox processed",
+            )
+        state.value =
+            UnifiedSyncState.Success(
+                provider = SyncBackendType.INBOX,
+                timestamp = System.currentTimeMillis(),
+                summary = result.message,
+            )
+        return result
+    }
+
     private fun notConfiguredResult(): UnifiedSyncResult.NotConfigured {
         val error =
             UnifiedSyncError(
@@ -208,13 +270,19 @@ class SyncInboxRepositoryImpl
 
     private suspend fun processMarkdownFile(
         inboxRoot: String,
-        inboxFile: InboxMarkdownFile,
+        inboxFile: InboxMarkdownFileMetadata,
     ): ProcessMarkdownFileOutcome {
+        val relativePath = inboxFile.relativePath
+        val markdown =
+            readInboxTextFile(
+                context = context,
+                inboxRoot = inboxRoot,
+                relativePath = relativePath,
+            ) ?: error("Missing inbox markdown file: $relativePath")
         val imported =
             previewInboxMediaReferences(
-                markdown = inboxFile.content,
+                markdown = markdown,
             )
-        val relativePath = inboxFile.relativePath
         val targetFilename = relativePath.substringAfterLast('/')
         val localContent = markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, targetFilename)
         val localLastModified =
@@ -239,9 +307,9 @@ class SyncInboxRepositoryImpl
         if (resolvedContent == null) {
             return ProcessMarkdownFileOutcome(conflict = conflictFile)
         }
-        val importedAttachments = commitImportedFile(inboxRoot, relativePath, inboxFile.content, resolvedContent)
-        return if (importedAttachments != null) {
-            ProcessMarkdownFileOutcome(importedAttachmentsToDelete = importedAttachments)
+        val committedFile = commitImportedFile(inboxRoot, relativePath, markdown, resolvedContent)
+        return if (committedFile != null) {
+            ProcessMarkdownFileOutcome(committedFile = committedFile)
         } else {
             ProcessMarkdownFileOutcome(conflict = conflictFile)
         }
@@ -286,7 +354,7 @@ class SyncInboxRepositoryImpl
         conflictSet: SyncConflictSet,
         resolution: SyncConflictResolution,
     ): List<SyncConflictFile> {
-        val importedAttachmentsToDelete = linkedSetOf<String>()
+        val committedFiles = mutableListOf<CommittedInboxFile>()
         val unresolvedFiles =
             applyFileConflictChoices(
             conflictSet = conflictSet,
@@ -310,17 +378,24 @@ class SyncInboxRepositoryImpl
                         )
                     SyncConflictResolutionChoice.SKIP_FOR_NOW -> null
                 } ?: return@applyFileConflictChoices FileConflictApplication.Unresolved
-            val importedAttachments = commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
-            if (importedAttachments != null) {
-                importedAttachmentsToDelete += importedAttachments
+            val committedFile = commitImportedFile(inboxRoot, relativePath, inboxContent, targetContent)
+            if (committedFile != null) {
+                committedFiles += committedFile
                 FileConflictApplication.Applied(Unit)
             } else {
                 FileConflictApplication.Unresolved
             }
         }.unresolvedFiles
-        importedAttachmentsToDelete.forEach { attachment ->
-            deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
+        if (committedFiles.isNotEmpty()) {
+            memoSynchronizer.refreshImportedSync()
         }
+        committedFiles
+            .asSequence()
+            .flatMap { committed -> committed.importedAttachmentsToDelete.asSequence() }
+            .distinct()
+            .forEach { attachment ->
+                deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = attachment)
+            }
         return unresolvedFiles
     }
 
@@ -329,7 +404,7 @@ class SyncInboxRepositoryImpl
         relativePath: String,
         originalMarkdown: String,
         targetContent: String,
-    ): List<String>? {
+    ): CommittedInboxFile? {
         val importResult =
             importInboxMediaReferences(
                 context = context,
@@ -349,13 +424,25 @@ class SyncInboxRepositoryImpl
             content = targetContent,
             append = false,
         )
-        memoSynchronizer.refreshImportedSync(targetFilename)
         deleteInboxFile(context = context, inboxRoot = inboxRoot, relativePath = relativePath)
-        return imported.importedAttachments
+        return CommittedInboxFile(
+            importedAttachmentsToDelete = imported.importedAttachments,
+        )
     }
 }
 
 private data class ProcessMarkdownFileOutcome(
+    val committedFile: CommittedInboxFile? = null,
     val conflict: SyncConflictFile? = null,
-    val importedAttachmentsToDelete: List<String> = emptyList(),
+    val failure: Throwable? = null,
+    val relativePath: String? = null,
+)
+
+private data class CommittedInboxFile(
+    val importedAttachmentsToDelete: List<String>,
+)
+
+private data class ProcessInboxBatchResult(
+    val conflicts: List<SyncConflictFile>,
+    val failures: List<Pair<String, Throwable>>,
 )
