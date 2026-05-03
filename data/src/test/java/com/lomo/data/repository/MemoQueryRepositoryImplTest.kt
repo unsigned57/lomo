@@ -7,6 +7,7 @@ import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.DefaultMainListMemoRow
 import com.lomo.data.local.entity.MemoEntity
 import androidx.paging.PagingSource
+import com.lomo.domain.model.MemoListFilter
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -170,7 +171,7 @@ class MemoQueryRepositoryImplTest {
         }
 
     @Test
-    fun `getDefaultMainListPagingSource keeps source refresh key for offset paging`() =
+    fun `getMainListPagingSource keeps source refresh key for offset paging`() =
         runTest {
             val source =
                 object : PagingSource<Int, DefaultMainListMemoRow>() {
@@ -184,9 +185,17 @@ class MemoQueryRepositoryImplTest {
                     override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
                         42
                 }
-            coEvery { defaultMainListDao.getPagingSource() } returns source
+            every {
+                defaultMainListDao.getPagingSource(
+                    query = "",
+                    startDate = null,
+                    endDate = null,
+                    sortOption = "CREATED_TIME",
+                    sortAscending = false,
+                )
+            } returns source
 
-            val pagingSource = repository.getDefaultMainListPagingSource()
+            val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
             val refreshKey =
                 pagingSource.getRefreshKey(
                     androidx.paging.PagingState(

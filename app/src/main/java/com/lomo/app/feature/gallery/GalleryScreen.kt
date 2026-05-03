@@ -39,6 +39,7 @@ import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableSet
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -50,6 +51,7 @@ fun GalleryScreen(
 ) {
     val viewModel: MainViewModel = activityHiltViewModel()
     val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
+    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -96,6 +98,7 @@ fun GalleryScreen(
                 timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
                 freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+                deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
                 padding = padding,
                 onEditMemo = { memo ->
                     viewModel.requestOpenMemo(memo.id)
@@ -103,6 +106,7 @@ fun GalleryScreen(
                 },
                 onShowMenu = showMenu,
                 onNavigateToImage = onNavigateToImage,
+                onDeleteAnimationSettled = viewModel::onPagedDeleteAnimationSettled,
             )
         }
     }
@@ -173,10 +177,12 @@ private fun GalleryScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    deletingMemoIds: kotlinx.collections.immutable.ImmutableSet<String>,
     padding: PaddingValues,
     onEditMemo: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     onNavigateToImage: (ImageViewerRequest) -> Unit,
+    onDeleteAnimationSettled: (String) -> Unit,
 ) {
     if (memos.isEmpty()) {
         Box(
@@ -204,6 +210,8 @@ private fun GalleryScreenContent(
         onShowMenu = onShowMenu,
         onImageClick = onNavigateToImage,
         animation = MemoCardListAnimation.Placement,
+        deletingMemoIds = deletingMemoIds,
+        onDeleteAnimationSettled = onDeleteAnimationSettled,
         contentPadding =
             PaddingValues(
                 top = padding.calculateTopPadding() + AppSpacing.Medium,

@@ -2,6 +2,7 @@ package com.lomo.domain.repository
 
 import androidx.paging.PagingSource
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoTagCount
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -40,12 +41,10 @@ interface MemoQueryRepository {
 
     suspend fun getMemoCount(): Int
 
-    /**
-     * Returns a PagingSource using the repository's default main-list ordering.
-     *
-     * Implementations should override for database-backed invalidation and stable ordering.
-     */
-    fun getDefaultMainListPagingSource(): PagingSource<Int, Memo>
+    fun getMainListPagingSource(
+        query: String,
+        filter: MemoListFilter,
+    ): PagingSource<Int, Memo>
 
     /**
      * Returns the zero-based index of a memo in the repository's default main-list ordering.

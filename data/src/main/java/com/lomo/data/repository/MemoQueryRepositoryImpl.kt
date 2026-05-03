@@ -9,6 +9,7 @@ import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.DefaultMainListMemoRow
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.domain.model.Memo
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.repository.MemoQueryRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -81,10 +82,24 @@ class MemoQueryRepositoryImpl
 
         override suspend fun getMemoCount(): Int = memoDao.getMemoCountSync()
 
-        override fun getDefaultMainListPagingSource(): PagingSource<Int, Memo> =
-            MemoRowMappingPagingSource(
-                source = defaultMainListDao.getPagingSource(),
+        override fun getMainListPagingSource(
+            query: String,
+            filter: MemoListFilter,
+        ): PagingSource<Int, Memo> {
+            val normalizedRange = listOfNotNull(filter.startDate, filter.endDate).sorted()
+            val normalizedStart = normalizedRange.firstOrNull() ?: filter.startDate
+            val normalizedEnd = normalizedRange.lastOrNull() ?: filter.endDate
+            return MemoRowMappingPagingSource(
+                source =
+                    defaultMainListDao.getPagingSource(
+                        query = MemoFtsQueryBuilder.buildMatchQuery(query) ?: "",
+                        startDate = normalizedStart?.toString()?.replace("-", "_"),
+                        endDate = normalizedEnd?.toString()?.replace("-", "_"),
+                        sortOption = filter.sortOption.name,
+                        sortAscending = filter.sortAscending,
+                    ),
             )
+        }
 
         override suspend fun getDefaultMainListIndex(id: String): Int? = defaultMainListDao.getIndex(id)
 

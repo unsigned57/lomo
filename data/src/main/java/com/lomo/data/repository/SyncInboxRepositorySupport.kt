@@ -8,6 +8,7 @@ import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
 import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictResolutionChoice
 import java.security.MessageDigest
+import java.io.OutputStream
 
 internal const val INBOX_MEMO_DIRECTORY = "memo"
 private const val INBOX_IMAGE_DIRECTORY = "images"
@@ -58,11 +59,11 @@ internal suspend fun importInboxMediaReferences(
     markdown: String,
 ): InboxMediaImportResult {
     val preview = previewInboxMediaReferences(markdown = markdown)
-    val resolvedAttachments = mutableListOf<Pair<InboxAttachmentReference, ResolvedInboxAttachment>>()
+    val resolvedAttachments = mutableListOf<Pair<InboxAttachmentReference, ResolvedInboxAttachmentSource>>()
     val missingAttachments = mutableListOf<String>()
     extractInboxAttachmentReferences(markdown).forEach { attachment ->
         val resolvedAttachment =
-            resolveInboxAttachment(
+            resolveInboxAttachmentSource(
                 context = context,
                 inboxRoot = inboxRoot,
                 attachment = attachment,
@@ -81,7 +82,11 @@ internal suspend fun importInboxMediaReferences(
     }
     resolvedAttachments.forEach { (attachment, resolvedAttachment) ->
         val destinationFilename = stableImportedInboxFilename(attachment.rewriteKey)
-        workspaceMediaAccess.writeFile(attachment.category, destinationFilename, resolvedAttachment.bytes)
+        workspaceMediaAccess.writeFileFromStream(
+            category = attachment.category,
+            filename = destinationFilename,
+            source = resolvedAttachment.copyTo,
+        )
     }
     return InboxMediaImportResult.Success(
         preview =
@@ -155,14 +160,36 @@ private fun inboxAttachmentReference(
     )
 }
 
-private suspend fun resolveInboxAttachment(
+private suspend fun resolveInboxAttachmentSource(
     context: Context,
     inboxRoot: String,
     attachment: InboxAttachmentReference,
-): ResolvedInboxAttachment? {
+): ResolvedInboxAttachmentSource? {
     attachment.sourceCandidates.forEach { candidate ->
-        val bytes = readInboxBinaryFile(context, inboxRoot, candidate) ?: return@forEach
-        return ResolvedInboxAttachment(relativePath = candidate, bytes = bytes)
+        val exists =
+            inboxBinaryFileExists(
+                context = context,
+                inboxRoot = inboxRoot,
+                relativePath = candidate,
+            )
+        if (!exists) {
+            return@forEach
+        }
+        return ResolvedInboxAttachmentSource(
+            relativePath = candidate,
+            copyTo = { output ->
+                check(
+                    copyInboxBinaryFileTo(
+                        context = context,
+                        inboxRoot = inboxRoot,
+                        relativePath = candidate,
+                        output = output,
+                    ),
+                ) {
+                    "Cannot open inbox attachment stream: $candidate"
+                }
+            },
+        )
     }
     return null
 }
@@ -227,7 +254,7 @@ private data class InboxAttachmentReference(
         }
 }
 
-private data class ResolvedInboxAttachment(
+private data class ResolvedInboxAttachmentSource(
     val relativePath: String,
-    val bytes: ByteArray,
+    val copyTo: suspend (OutputStream) -> Unit,
 )

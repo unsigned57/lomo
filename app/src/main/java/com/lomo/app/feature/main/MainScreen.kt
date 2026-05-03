@@ -100,23 +100,19 @@ fun MainScreen(
         }
     val screenState = collectMainScreenUiSnapshot(dependencies = dependencies)
     val hostState = rememberMainScreenHostState()
-    val pagedUiMemos: LazyPagingItems<MemoUiModel>? =
-        if (screenState.usesPagedMainList) {
-            dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
-        } else {
-            null
-        }
+    val pagedUiMemos: LazyPagingItems<MemoUiModel> =
+        dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
     val displayedVisibleUiMemos =
-        remember(screenState.usesPagedMainList, pagedUiMemos?.itemSnapshotList, screenState.visibleUiMemos) {
-            if (screenState.usesPagedMainList) {
-                pagedUiMemos
-                    ?.itemSnapshotList
-                    ?.items
-                    ?.toImmutableList()
-                    ?: persistentListOf()
-            } else {
-                screenState.visibleUiMemos
-            }
+        remember(pagedUiMemos.itemSnapshotList) {
+            pagedUiMemos.itemSnapshotList.items.toImmutableList()
+        }
+    val renderState =
+        remember(screenState, displayedVisibleUiMemos) {
+            screenState.copy(
+                uiMemos = displayedVisibleUiMemos,
+                visibleUiMemos = displayedVisibleUiMemos,
+                hasRawItems = displayedVisibleUiMemos.isNotEmpty(),
+            )
         }
     val currentListTopMemoId = displayedVisibleUiMemos.firstOrNull()?.memo?.id
     val unknownErrorMessage = stringResource(R.string.error_unknown)
@@ -128,10 +124,10 @@ fun MainScreen(
     )
     MainScreenAutomaticRefreshEffect(
         onRequestAutomaticRefresh = dependencies.mainViewModel.requestAutomaticRefreshForVisibleScreen,
-        uiState = screenState.uiState,
+        uiState = renderState.uiState,
     )
     MainScreenPendingNewMemoCreationEffect(
-        pendingRequest = screenState.pendingNewMemoCreationRequest,
+        pendingRequest = renderState.pendingNewMemoCreationRequest,
         listState = hostState.listState,
         currentListTopMemoId = currentListTopMemoId,
         newMemoInsertAnimationSession = hostState.newMemoInsertAnimationSession,
@@ -147,19 +143,20 @@ fun MainScreen(
     MainScreenTransientEffects(
         dependencies = dependencies,
         visibleUiMemos = displayedVisibleUiMemos,
-        usesPagedMainList = screenState.usesPagedMainList,
+        canResolveOffscreenMainListFocus =
+            renderState.searchQuery.isBlank() && !renderState.memoListFilter.isActive,
         listState = hostState.listState,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,
         snackbarHostState = hostState.snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
         canOpenCreateMemo =
-            screenState.uiState is MainViewModel.MainScreenState.Ready &&
-                screenState.pendingNewMemoCreationRequest == null,
+            renderState.uiState is MainViewModel.MainScreenState.Ready &&
+                renderState.pendingNewMemoCreationRequest == null,
     )
     MainScreenConflictHost(dependencies = dependencies)
     MainScreenContentHost(
-        screenState = screenState,
+        screenState = renderState,
         pagedUiMemos = pagedUiMemos,
         hostState = hostState,
         dependencies = dependencies,
@@ -311,7 +308,6 @@ internal data class MainScreenUiSnapshot(
     val uiMemos: ImmutableList<MemoUiModel>,
     val visibleUiMemos: ImmutableList<MemoUiModel>,
     val hasRawItems: Boolean,
-    val usesPagedMainList: Boolean,
     val searchQuery: String,
     val memoListFilter: MemoListFilter,
     val sidebarUiState: SidebarViewModel.SidebarUiState,
@@ -378,7 +374,7 @@ private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
 private fun MainScreenTransientEffects(
     dependencies: MainScreenDependencies,
     visibleUiMemos: ImmutableList<MemoUiModel>,
-    usesPagedMainList: Boolean,
+    canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
     directoryGuideController: MainDirectoryGuideController,
@@ -419,7 +415,7 @@ private fun MainScreenTransientEffects(
                     visibleUiMemos = visibleUiMemos,
                     scroller = MainScreenFocusScroller { index -> listState.scrollToItem(index) },
                 )
-            if (focusedInVisibleItems || !usesPagedMainList) {
+            if (focusedInVisibleItems || !canResolveOffscreenMainListFocus) {
                 focusedInVisibleItems
             } else {
                 val index = dependencies.mainViewModel.resolveDefaultMainListIndex(memoId)

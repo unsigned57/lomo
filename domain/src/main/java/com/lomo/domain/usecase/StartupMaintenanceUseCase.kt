@@ -13,7 +13,7 @@ class StartupMaintenanceUseCase
         private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
         private val syncProviderRegistry: SyncProviderRegistry,
         private val appVersionRepository: AppVersionRepository,
-        private val syncInboxRepository: SyncInboxRepository? = null,
+        private val syncInboxRepository: SyncInboxRepository,
     ) {
         suspend fun initializeRootDirectory(): String? = initializeWorkspaceUseCase.currentRootLocation()?.raw
 
@@ -28,7 +28,7 @@ class StartupMaintenanceUseCase
 
         private suspend fun processSyncInboxOnStartup() {
             try {
-                syncInboxRepository?.ensureDirectoryStructure()
+                syncInboxRepository.ensureDirectoryStructure()
                 syncProviderRegistry
                     .get(SyncBackendType.INBOX)
                     ?.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
