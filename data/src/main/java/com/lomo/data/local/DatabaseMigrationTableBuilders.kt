@@ -2,16 +2,22 @@ package com.lomo.data.local
 
 import androidx.sqlite.SQLiteConnection
 
+// These builders define the canonical current-era table/index layout. Incremental migrations use them when
+// rebuilding specific tables, and consolidation uses the same helpers to land on the final schema directly.
+// Changing a builder therefore changes both migration paths and should be reviewed as a schema change.
 internal fun createMemoTable(
     db: SQLiteConnection,
     tableName: String,
     withContentIndex: Boolean,
+    withUpdatedAt: Boolean = false,
 ) {
+    val updatedAtColumnDefinition = if (withUpdatedAt) "\n            `updatedAt` INTEGER NOT NULL," else ""
     db.execSQL(
         """
         CREATE TABLE IF NOT EXISTS `$tableName` (
             `id` TEXT NOT NULL,
             `$COLUMN_TIMESTAMP` INTEGER NOT NULL,
+            $updatedAtColumnDefinition
             `$COLUMN_CONTENT` TEXT NOT NULL,
             `$COLUMN_RAW_CONTENT` TEXT NOT NULL,
             `date` TEXT NOT NULL,
@@ -25,6 +31,9 @@ internal fun createMemoTable(
         "CREATE INDEX IF NOT EXISTS `index_${tableName}_$COLUMN_TIMESTAMP` " +
             "ON `$tableName` (`$COLUMN_TIMESTAMP`)",
     )
+    if (withUpdatedAt) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_updatedAt` ON `$tableName` (`updatedAt`)")
+    }
     db.execSQL("CREATE INDEX IF NOT EXISTS `index_${tableName}_date` ON `$tableName` (`date`)")
     if (withContentIndex) {
         db.execSQL(

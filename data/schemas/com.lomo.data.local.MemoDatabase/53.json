@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 53,
-    "identityHash": "110f172ec7c8d8ed690bd2f7427a86e2",
+    "identityHash": "8d46483bb92e7d96bed3974d9bab8ccc",
     "entities": [
       {
         "tableName": "Lomo",
@@ -802,7 +802,19 @@
           "columnNames": [
             "relative_path"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_s3_remote_index_scan_priority_last_verified_at",
+            "unique": false,
+            "columnNames": [
+              "scan_priority",
+              "last_verified_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_s3_remote_index_scan_priority_last_verified_at` ON `${TABLE_NAME}` (`scan_priority`, `last_verified_at`)"
+          }
+        ]
       },
       {
         "tableName": "s3_remote_shard_state",
@@ -981,7 +993,18 @@
           "columnNames": [
             "id"
           ]
-        }
+        },
+        "indices": [
+          {
+            "name": "index_s3_local_change_journal_updated_at",
+            "unique": false,
+            "columnNames": [
+              "updated_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_s3_local_change_journal_updated_at` ON `${TABLE_NAME}` (`updated_at`)"
+          }
+        ]
       },
       {
         "tableName": "version_commit",
@@ -1331,7 +1354,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '110f172ec7c8d8ed690bd2f7427a86e2')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '8d46483bb92e7d96bed3974d9bab8ccc')"
     ]
   }
 }

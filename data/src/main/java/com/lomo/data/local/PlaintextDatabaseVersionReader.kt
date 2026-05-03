@@ -4,23 +4,57 @@ import androidx.sqlite.SQLiteDriver
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import java.io.File
 
+internal data class PlaintextDatabaseInspection(
+    val userVersion: Int,
+    val quickCheckPassed: Boolean,
+)
+
 internal object PlaintextDatabaseVersionReader {
     private const val UNKNOWN_DB_VERSION = -1
+
+    fun inspect(
+        databaseFile: File,
+        driver: SQLiteDriver = BundledSQLiteDriver(),
+    ): PlaintextDatabaseInspection {
+        val connection = driver.open(databaseFile.path)
+        try {
+            val userVersion = readSingleIntPragma(connection, "PRAGMA user_version")
+            val quickCheckPassed = readSingleTextPragma(connection, "PRAGMA quick_check(1)") == "ok"
+            return PlaintextDatabaseInspection(
+                userVersion = userVersion,
+                quickCheckPassed = quickCheckPassed,
+            )
+        } finally {
+            connection.close()
+        }
+    }
 
     fun readUserVersion(
         databaseFile: File,
         driver: SQLiteDriver = BundledSQLiteDriver(),
+    ): Int = inspect(databaseFile, driver).userVersion
+
+    private fun readSingleIntPragma(
+        connection: androidx.sqlite.SQLiteConnection,
+        sql: String,
     ): Int {
-        val connection = driver.open(databaseFile.path)
+        val statement = connection.prepare(sql)
         try {
-            val statement = connection.prepare("PRAGMA user_version")
-            try {
-                return if (statement.step()) statement.getLong(0).toInt() else UNKNOWN_DB_VERSION
-            } finally {
-                statement.close()
-            }
+            return if (statement.step()) statement.getLong(0).toInt() else UNKNOWN_DB_VERSION
         } finally {
-            connection.close()
+            statement.close()
+        }
+    }
+
+    private fun readSingleTextPragma(
+        connection: androidx.sqlite.SQLiteConnection,
+        sql: String,
+    ): String? {
+        val statement = connection.prepare(sql)
+        try {
+            return if (statement.step()) statement.getText(0).trim() else null
+        } finally {
+            statement.close()
         }
     }
 }

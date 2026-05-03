@@ -13,7 +13,11 @@ const val SCHEMA_VERSION_23 = 23
 const val SCHEMA_VERSION_24 = 24
 const val SCHEMA_VERSION_25 = 25
 const val SCHEMA_VERSION_26 = 26
+// Version 27 only existed on an unreleased internal branch. It is intentionally a terminal edge in the
+// incremental graph, so unsupported 27-era databases are reset by the pre-open migration policy.
 const val SCHEMA_VERSION_27 = 27
+// Version 28 is kept only to document the historical schema handoff into 28->29 memo revision migrations.
+// No supported upgrade path reaches it directly.
 const val SCHEMA_VERSION_28 = 28
 const val SCHEMA_VERSION_29 = 29
 const val SCHEMA_VERSION_30 = 30
@@ -370,25 +374,20 @@ val MIGRATION_52_53: Migration =
         override suspend fun migrate(connection: SQLiteConnection) {
             val db = connection
             normalizeMemoFileOutboxTable(db)
+            ensureS3RemoteIndexSupportingIndex(db)
+            ensureS3LocalChangeJournalIndex(db)
         }
     }
 
 /**
- * Consolidation migrations that bring ANY schema version directly to the
- * current [MEMO_DATABASE_VERSION] in a single step.
+ * Direct migrations are only retained for DB versions that shipped in stable releases.
  *
- * Room resolves migration paths using shortest-path (fewest hops).
- * Because each of these migrations jumps directly from version N to
- * [MEMO_DATABASE_VERSION], Room will always prefer them over the
- * incremental chain (e.g. 21→22→23→24), eliminating fragile multi-step
- * migrations that can fail at intermediate points.
- *
- * The implementation is detection-based: it inspects actual table names
- * and column names at runtime rather than assuming a specific schema layout,
- * so it handles all intermediate schema states safely.
+ * Internal unreleased schema steps still advance through the adjacent incremental chain, but we do not keep
+ * a universal direct migration from every historical schema version forever.
  */
-private val CONSOLIDATION_MIGRATIONS: Array<Migration> =
-    (1 until MEMO_DATABASE_VERSION)
+val STABLE_BASELINE_DIRECT_MIGRATIONS: Array<Migration> =
+    StableDatabaseBaselineCatalog
+        .supportedSourceDatabaseVersions()
         .map { startVersion ->
             object : Migration(startVersion, MEMO_DATABASE_VERSION) {
                 override suspend fun migrate(connection: SQLiteConnection) {
@@ -434,13 +433,16 @@ private val INCREMENTAL_MIGRATIONS: Array<Migration> =
     )
 
 val ALL_DATABASE_MIGRATIONS: Array<Migration> =
-    Array(CONSOLIDATION_MIGRATIONS.size + INCREMENTAL_MIGRATIONS.size) { index ->
-        if (index < CONSOLIDATION_MIGRATIONS.size) {
-            CONSOLIDATION_MIGRATIONS[index]
+    Array(STABLE_BASELINE_DIRECT_MIGRATIONS.size + INCREMENTAL_MIGRATIONS.size) { index ->
+        if (index < STABLE_BASELINE_DIRECT_MIGRATIONS.size) {
+            STABLE_BASELINE_DIRECT_MIGRATIONS[index]
         } else {
-            INCREMENTAL_MIGRATIONS[index - CONSOLIDATION_MIGRATIONS.size]
+            INCREMENTAL_MIGRATIONS[index - STABLE_BASELINE_DIRECT_MIGRATIONS.size]
         }
     }
+
+val ALL_DATABASE_MIGRATION_EDGES: List<Pair<Int, Int>> =
+    ALL_DATABASE_MIGRATIONS.map { migration -> migration.startVersion to migration.endVersion }
 
 /**
  * Brings any schema state directly to the current version ([MEMO_DATABASE_VERSION]).
@@ -462,7 +464,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase L: Apply v36→v37 changes (external refresh protection state).
  * Phase M: Apply v37→v38 changes (S3 incremental protocol/journal tables).
  * Phase N: Apply v38→v39 changes (memo revision asset fingerprints).
- * Phase O: Apply v39→v40 changes (S3 remote index and richer protocol state).
+ * Phase O: Apply v39→v41 changes (S3 remote index and protocol state normalization).
  * Phase P: Apply v41→v42 changes (S3 remote shard reconcile state).
  * Phase Q: Apply v42→v43 changes (richer shard scheduling telemetry).
  * Phase R: Apply v43→v44 changes (pending sync conflict persistence).
@@ -471,9 +473,7 @@ val ALL_DATABASE_MIGRATIONS: Array<Migration> =
  * Phase U: Apply v46→v47 changes (geo-location column on memos).
  * Phase V: Apply v47→v48 changes (WebDAV fingerprint cache and local journal).
  * Phase W: Apply v48→v49 changes (memo image attachment index).
- * Phase X: Apply v49→v50 changes (external-content FTS token backfill).
- * Phase Y: Apply v50→v51 changes (application-managed FTS5 index).
- * Phase Z: Apply v51→v52 changes (trigger-managed external-content FTS5 index).
+ * Phase X: Apply v49→v52 changes (direct final external-content FTS5 index build).
  * Phase AA: Apply v52→v53 changes (memo outbox operation enum persistence).
  *
  * Hard migration rule for memo search:
@@ -509,7 +509,6 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     normalizeMemoFileOutboxTable(db)
 
     // A5: Rebuild derived tables from normalized Lomo data.
-    rebuildMemoFts4Table(db)
     rebuildMemoTagCrossRefTable(db)
     rebuildMemoImageAttachmentTable(db)
 
@@ -558,7 +557,7 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     // ── Phase N: v38 → v39 (memo revision asset fingerprints) ─────
     migrateMemoRevisionAssetFingerprintColumn(db)
 
-    // ── Phase O: v39 → v40 (S3 remote index and richer protocol state) ──
+    // ── Phase O: v39 → v41 (S3 remote index and protocol state normalization) ──
     createS3RemoteIndexTable(db)
     normalizeS3SyncProtocolStateTable(db)
 
@@ -587,14 +586,7 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     // ── Phase W: v48 → v49 (memo image attachment index) ────────────────
     rebuildMemoImageAttachmentTable(db)
 
-    // ── Phase X: v49 → v50 (FTS4 rebuild with tokenized index content) ───
-    backfillMemoSearchContentTokens(db)
-    rebuildMemoFts4Table(db)
-
-    // ── Phase Y: v50 → v51 (application-managed FTS5) ─────────────────
-    rebuildMemoFts5Table(db)
-
-    // ── Phase Z: v51 → v52 (trigger-managed external-content FTS5) ───
+    // ── Phase X: v49 → v52 (direct final external-content FTS5) ───────
     ensureMemoSearchContentColumn(db)
     backfillMemoSearchContentColumn(db)
     ensureMemoFtsMaintenanceTable(db)
@@ -603,6 +595,8 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
 
     // ── Phase AA: v52 → v53 (memo outbox operation enum persistence) ─
     normalizeMemoFileOutboxTable(db)
+    ensureS3RemoteIndexSupportingIndex(db)
+    ensureS3LocalChangeJournalIndex(db)
 }
 
 private fun normalizeS3SyncMetadataTable(db: SQLiteConnection) {
@@ -619,6 +613,7 @@ private fun normalizeS3SyncMetadataTable(db: SQLiteConnection) {
     val legacyTable = "${S3_SYNC_METADATA_TABLE}_legacy_v45"
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
     db.execSQL("ALTER TABLE `$S3_SYNC_METADATA_TABLE` RENAME TO `$legacyTable`")
+    db.dropExplicitIndices(legacyTable)
     createS3SyncMetadataTable(db)
     val legacyColumns = db.tableColumns(legacyTable)
     db.execSQL(
@@ -679,6 +674,7 @@ private fun normalizeWebDavSyncMetadataTable(db: SQLiteConnection) {
     val legacyTable = "${WEBDAV_SYNC_METADATA_TABLE}_legacy_v46"
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
     db.execSQL("ALTER TABLE `$WEBDAV_SYNC_METADATA_TABLE` RENAME TO `$legacyTable`")
+    db.dropExplicitIndices(legacyTable)
     createWebDavSyncMetadataTable(db)
     val legacyColumns = db.tableColumns(legacyTable)
     db.execSQL(
@@ -723,6 +719,7 @@ private fun normalizeS3SyncProtocolStateTable(db: SQLiteConnection) {
     val legacyTable = "${S3_SYNC_PROTOCOL_STATE_TABLE}_legacy_v41"
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
     db.execSQL("ALTER TABLE `$S3_SYNC_PROTOCOL_STATE_TABLE` RENAME TO `$legacyTable`")
+    db.dropExplicitIndices(legacyTable)
     createS3SyncProtocolStateTable(db)
     val legacyColumns = db.tableColumns(legacyTable)
     db.execSQL(

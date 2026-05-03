@@ -1,5 +1,14 @@
+/*
+ * Test Contract:
+ * - Unit under test: DatabaseMigrations
+ * - Behavior focus: SQL schema migration logic and table transformations.
+ * - Observable outcomes: table existence, column schema validity, data migration integrity.
+ * - Red phase: Not applicable - regression coverage for database schema evolution.
+ * - Excludes: file system I/O, Room internals, repository logic.
+ */
 package com.lomo.data.local
 
+import androidx.room3.migration.Migration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,8 +23,8 @@ import org.junit.Test
  *   upgrades WebDAV metadata to carry a stable local fingerprint baseline, and migrates memo search
  *   to the application-managed FTS5 external-content index used by the current schema with the FTS
  *   column carrying tokenized search text while the main memo column stays as user-visible plaintext.
- * - Observable outcomes: emitted migration SQL for surviving version-to-version and consolidation paths,
- *   plus direct-migration coverage to the current target version, and FTS index population that emits
+ * - Observable outcomes: emitted migration SQL for surviving version-to-version and retained stable-baseline
+ *   direct migrations to the current target version, plus FTS index population that emits
  *   per-row INSERTs whose bound values are the tokenized form of each memo's content.
  * - Red phase: Fails before the fix because the schema target assertion and FTS migration coverage drifted
  *   onto an unsupported FTS4 fork instead of the real FTS5 contract; and (for the FTS-tokenization
@@ -42,6 +51,19 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the old SQL is the encoded bug; preserving it
  *   in tests would lock in the diagnosed defect.
  */
+/*
+ * Test Change Justification (release-window migration policy):
+ * - Reason category: migration support contract changed.
+ * - Old behavior/assertion being replaced: the effective contract allowed universal direct-to-current
+ *   migrations from nearly every historical schema version via generated consolidation migrations.
+ * - Why old assertion is no longer correct: the supported upgrade surface is now intentionally limited to
+ *   retained stable release DB baselines plus adjacent internal schema hops, so universal direct coverage
+ *   would preserve the dead mechanism we are removing.
+ * - Coverage preserved by: direct source-baseline assertions, adjacent 52->53 coverage, and explicit absence
+ *   checks for unsupported universal direct migrations.
+ * - Why this is not fitting the test to the implementation: the support-window reduction is the product
+ *   decision being implemented; keeping the old universal contract would reject the intended simplification.
+ */
 class DatabaseMigrationsTest {
     @Test
     fun `database version remains 53 for memo file outbox enum persistence`() {
@@ -52,6 +74,56 @@ class DatabaseMigrationsTest {
     fun `migration list includes direct 52 to 53 upgrade path`() {
         assertTrue(
             ALL_DATABASE_MIGRATIONS.any { it.startVersion == 52 && it.endVersion == 53 },
+        )
+    }
+
+    @Test
+    fun `stable baseline direct migrations only cover retained released source versions`() {
+        assertEquals(
+            StableDatabaseBaselineCatalog.supportedSourceDatabaseVersions(),
+            STABLE_BASELINE_DIRECT_MIGRATIONS.map(Migration::startVersion),
+        )
+        assertTrue(
+            STABLE_BASELINE_DIRECT_MIGRATIONS.all { it.endVersion == MEMO_DATABASE_VERSION },
+        )
+    }
+
+    @Test
+    fun `migration list no longer includes universal direct current migration from unsupported legacy versions`() {
+        assertTrue(
+            ALL_DATABASE_MIGRATIONS.none { it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION },
+        )
+        assertTrue(
+            ALL_DATABASE_MIGRATIONS.none { it.startVersion == 43 && it.endVersion == MEMO_DATABASE_VERSION },
+        )
+    }
+
+    @Test
+    fun `stable baseline direct migration builds only final external content fts infrastructure`() {
+        val db = RecordingSQLiteConnection()
+        db.queryHandler = { sql, _ ->
+            when {
+                sql.contains("sqlite_master") -> mockCursor(false)
+                sql.contains("PRAGMA table_info") -> mockColumnsCursor(emptySet())
+                else -> mockCursor(false)
+            }
+        }
+
+        STABLE_BASELINE_DIRECT_MIGRATIONS
+            .first { it.startVersion == 44 && it.endVersion == MEMO_DATABASE_VERSION }
+            .migrateForTest(db)
+
+        db.assertDidNotExecuteSql { sql ->
+            sql.contains("USING FTS4", ignoreCase = true) ||
+                (sql.contains("USING fts5", ignoreCase = true) &&
+                    !sql.contains("content='Lomo'", ignoreCase = true))
+        }
+        assertTrue(
+            db.executedStatements.any { statement ->
+                statement.sql.contains("USING fts5", ignoreCase = true) &&
+                    statement.sql.contains("content='Lomo'", ignoreCase = true) &&
+                    statement.sql.contains("content_rowid='rowid'", ignoreCase = true)
+            },
         )
     }
 
@@ -297,12 +369,7 @@ class DatabaseMigrationsTest {
     fun `local file state schema includes missing confirmation columns`() {
         val db = RecordingSQLiteConnection()
 
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 36 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-
-        migration.migrateForTest(db)
+        MIGRATION_36_37.migrateForTest(db)
 
         verify {
             db.execSQL(
@@ -583,11 +650,7 @@ class DatabaseMigrationsTest {
     fun `migration 29 to 30 drops retired workspace history tables`() {
         val db = RecordingSQLiteConnection()
 
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 29 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
+        MIGRATION_29_30.migrateForTest(db)
 
         verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_mutation`") }
         verify(exactly = 1) { db.execSQL("DROP TABLE IF EXISTS `workspace_head`") }
@@ -781,322 +844,6 @@ class DatabaseMigrationsTest {
         }
         verify(exactly = 1) {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_MemoPin_pinnedAt` ON `MemoPin` (`pinnedAt`)")
-        }
-    }
-
-    @Test
-    fun `consolidation migrations cover every version from 1 to target-1`() {
-        val target = MEMO_DATABASE_VERSION
-        val coveredVersions =
-            ALL_DATABASE_MIGRATIONS
-                .filter { it.endVersion == target }
-                .map { it.startVersion }
-                .toSet()
-
-        assertEquals(
-            "Every version 1..(target-1) should have a direct migration to target",
-            (1 until target).toSet(),
-            coveredVersions,
-        )
-    }
-
-    @Test
-    fun `consolidation from v7 splits memos table and applies all phases`() {
-        val db = RecordingSQLiteConnection()
-        val v7MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls", "isDeleted")
-        val v22MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls")
-
-        // Track table existence as migration creates/drops tables.
-        val existingTables = mutableSetOf("memos")
-        val tableNamePattern = Regex("""`(\w+)`""")
-
-        db.onExec = { sql, _ ->
-            val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
-            if (tableName != null) {
-                when {
-                    sql.trimStart().startsWith("CREATE TABLE") ||
-                        sql.trimStart().startsWith("CREATE VIRTUAL TABLE") -> existingTables.add(tableName)
-
-                    sql.trimStart().startsWith("DROP TABLE") -> existingTables.remove(tableName)
-                }
-            }
-        }
-
-        db.queryHandler = { sql, _ ->
-            when {
-                sql.contains("sqlite_master") -> {
-                    val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
-                    mockCursor(name != null && name in existingTables)
-                }
-
-                sql.contains("PRAGMA table_info") -> {
-                    val name = tableNamePattern.find(sql)?.groupValues?.get(1)
-                    when (name) {
-                        "memos" -> mockColumnsCursor(v7MemoColumns)
-                        "Lomo", "LomoTrash" -> mockColumnsCursor(v22MemoColumns)
-                        else -> mockColumnsCursor(emptySet())
-                    }
-                }
-
-                else -> {
-                    mockCursor(false)
-                }
-            }
-        }
-
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 7 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
-
-        // Phase A: memos split into Lomo + LomoTrash
-        verify { db.execSQL(match { it.contains("INSERT OR REPLACE INTO `Lomo`") && it.contains("isDeleted") }) }
-        verify { db.execSQL(match { it.contains("INSERT OR REPLACE INTO `LomoTrash`") && it.contains("isDeleted") }) }
-
-        // Phase B: content index dropped
-        verify { db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`") }
-
-        // Phase C: updatedAt added
-        verify { db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0") }
-        verify { db.execSQL("ALTER TABLE `LomoTrash` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0") }
-
-        // Phase E: memo pin table created
-        verify { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") }) }
-
-        // Phase I: memo revision indexes tightened
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
-                        it.contains(
-                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
-                        )
-                },
-            )
-        }
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath`") &&
-                        it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `consolidation from v21 normalizes tables and applies all phases`() {
-        val db = RecordingSQLiteConnection()
-        val v21MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls")
-        val localFileStateColumns = setOf("filename", "isTrash", "saf_uri", "last_known_modified_time")
-        val outboxColumns =
-            setOf(
-                "id",
-                "operation",
-                "memoId",
-                "memoDate",
-                "memoTimestamp",
-                "memoRawContent",
-                "newContent",
-                "createRawContent",
-                "createdAt",
-                "updatedAt",
-                "retryCount",
-                "lastError",
-            )
-
-        val existingTables = mutableSetOf("Lomo", "LomoTrash", "local_file_state", "MemoFileOutbox")
-        val tableNamePattern = Regex("""`(\w+)`""")
-
-        db.onExec = { sql, _ ->
-            val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
-            if (tableName != null) {
-                when {
-                    sql.trimStart().startsWith("CREATE TABLE") ||
-                        sql.trimStart().startsWith("CREATE VIRTUAL TABLE") -> {
-                        existingTables.add(tableName)
-                    }
-
-                    sql.trimStart().startsWith("DROP TABLE") -> {
-                        existingTables.remove(tableName)
-                    }
-
-                    sql.trimStart().startsWith("ALTER TABLE") && sql.contains("RENAME TO") -> {
-                        val newName =
-                            sql.substringAfterLast("`").let {
-                                sql.substringBeforeLast("`").substringAfterLast("`")
-                            }
-                        existingTables.remove(tableName)
-                        if (newName.isNotBlank()) existingTables.add(newName)
-                    }
-                }
-            }
-        }
-
-        db.queryHandler = { sql, _ ->
-            when {
-                sql.contains("sqlite_master") -> {
-                    val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
-                    mockCursor(name != null && name in existingTables)
-                }
-
-                sql.contains("PRAGMA table_info") -> {
-                    val name = tableNamePattern.find(sql)?.groupValues?.get(1)
-                    when {
-                        name == "Lomo" || name == "LomoTrash" ||
-                            name == "Lomo_legacy_v22" || name == "LomoTrash_legacy_v22" -> mockColumnsCursor(v21MemoColumns)
-
-                        name == "local_file_state" || name == "local_file_state_legacy_v22" -> mockColumnsCursor(localFileStateColumns)
-
-                        name == "MemoFileOutbox" || name == "MemoFileOutbox_legacy_v22" -> mockColumnsCursor(outboxColumns)
-
-                        else -> mockColumnsCursor(emptySet())
-                    }
-                }
-
-                else -> {
-                    mockCursor(false)
-                }
-            }
-        }
-
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 21 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
-
-        // Phase A: tables normalized (rename + rebuild)
-        verify { db.execSQL(match { it.contains("Lomo") && it.contains("RENAME TO") }) }
-
-        // Phase B: content index dropped
-        verify { db.execSQL("DROP INDEX IF EXISTS `index_Lomo_content`") }
-
-        // Phase C: updatedAt added
-        verify { db.execSQL("ALTER TABLE `Lomo` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0") }
-        verify { db.execSQL("ALTER TABLE `LomoTrash` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0") }
-
-        // Phase E: memo pin table created
-        verify { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `MemoPin`") }) }
-
-        // Phase I: memo revision indexes tightened
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_memoId_lifecycleState_contentHash_rawMarkdownBlobHash_assetFingerprint`") &&
-                        it.contains(
-                            "ON `memo_revision` (`memoId`, `lifecycleState`, `contentHash`, `rawMarkdownBlobHash`, `assetFingerprint`)",
-                        )
-                },
-            )
-        }
-        verify {
-            db.execSQL(
-                match {
-                    it.contains("CREATE INDEX IF NOT EXISTS `index_memo_revision_asset_revisionId_logicalPath`") &&
-                        it.contains("ON `memo_revision_asset` (`revisionId`, `logicalPath`)")
-                },
-            )
-        }
-    }
-
-    @Test
-    fun `consolidation to current schema does not recreate retired workspace history tables`() {
-        val db = RecordingSQLiteConnection()
-
-        db.queryHandler = { sql, _ ->
-            when {
-                sql.contains("sqlite_master") -> mockCursor(false)
-                else -> mockCursor(false)
-            }
-        }
-
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
-
-        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot`") }) }
-        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_snapshot_entry`") }) }
-        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_head`") }) }
-        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `workspace_mutation`") }) }
-        verify(exactly = 0) { db.execSQL(match { it.contains("CREATE TABLE IF NOT EXISTS `snapshot_blob`") }) }
-    }
-
-    @Test
-    fun `consolidation from v7 migrates file_sync_metadata to local_file_state`() {
-        val db = RecordingSQLiteConnection()
-        val v7MemoColumns = setOf("id", "timestamp", "content", "rawContent", "date", "tags", "imageUrls", "isDeleted")
-        val fileSyncColumns = setOf("filename", "lastModified", "isTrash")
-
-        val existingTables = mutableSetOf("memos", "file_sync_metadata")
-        val tableNamePattern = Regex("""`(\w+)`""")
-
-        db.onExec = { sql, _ ->
-            val tableName = tableNamePattern.find(sql)?.groupValues?.get(1)
-            if (tableName != null) {
-                when {
-                    sql.trimStart().startsWith("CREATE TABLE") ||
-                        sql.trimStart().startsWith("CREATE VIRTUAL TABLE") -> existingTables.add(tableName)
-
-                    sql.trimStart().startsWith("DROP TABLE") -> existingTables.remove(tableName)
-                }
-            }
-        }
-
-        db.queryHandler = { sql, _ ->
-            when {
-                sql.contains("sqlite_master") -> {
-                    val name = Regex("""name='(\w+)'""").find(sql)?.groupValues?.get(1)
-                    mockCursor(name != null && name in existingTables)
-                }
-
-                sql.contains("PRAGMA table_info") -> {
-                    val name = tableNamePattern.find(sql)?.groupValues?.get(1)
-                    when (name) {
-                        "memos" -> mockColumnsCursor(v7MemoColumns)
-                        "file_sync_metadata" -> mockColumnsCursor(fileSyncColumns)
-                        else -> mockColumnsCursor(emptySet())
-                    }
-                }
-
-                else -> {
-                    mockCursor(false)
-                }
-            }
-        }
-
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 7 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
-
-        verify { db.execSQL(match { it.contains("INSERT OR REPLACE INTO `local_file_state`") && it.contains("file_sync_metadata") }) }
-    }
-
-    @Test
-    fun `consolidation drops all legacy tables`() {
-        val db = RecordingSQLiteConnection()
-
-        db.queryHandler = { sql, _ ->
-            when {
-                sql.contains("sqlite_master") -> mockCursor(false)
-                else -> mockCursor(false)
-            }
-        }
-
-        val migration =
-            ALL_DATABASE_MIGRATIONS.first {
-                it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION
-            }
-        migration.migrateForTest(db)
-
-        val legacyTables = listOf("memos", "image_cache", "tags", "memo_tag_cross_ref", "memos_fts", "file_sync_metadata")
-        for (table in legacyTables) {
-            verify { db.execSQL("DROP TABLE IF EXISTS `$table`") }
         }
     }
 

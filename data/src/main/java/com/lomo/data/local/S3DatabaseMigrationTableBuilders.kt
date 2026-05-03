@@ -2,6 +2,8 @@ package com.lomo.data.local
 
 import androidx.sqlite.SQLiteConnection
 
+// These S3 builders are the canonical current-schema definition for manually managed tables. They are shared
+// by incremental migrations and consolidation, so any added column or index here also changes direct upgrades.
 internal fun createS3SyncMetadataTable(db: SQLiteConnection) {
     db.execSQL(
         """
@@ -43,6 +45,10 @@ internal fun createS3RemoteIndexTable(db: SQLiteConnection) {
         )
         """.trimIndent(),
     )
+    ensureS3RemoteIndexSupportingIndex(db)
+}
+
+internal fun ensureS3RemoteIndexSupportingIndex(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE INDEX IF NOT EXISTS `index_${S3_REMOTE_INDEX_TABLE}_scan_priority_last_verified_at`
@@ -68,21 +74,28 @@ internal fun createS3RemoteShardStateTable(db: SQLiteConnection) {
 }
 
 internal fun addS3RemoteShardTelemetryColumns(db: SQLiteConnection) {
-    db.execSQL(
-        "ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE` ADD COLUMN `idle_scan_streak` INTEGER NOT NULL DEFAULT 0",
-    )
-    db.execSQL(
-        """
-        ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE`
-        ADD COLUMN `last_verification_attempt_count` INTEGER NOT NULL DEFAULT 0
-        """.trimIndent(),
-    )
-    db.execSQL(
-        """
-        ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE`
-        ADD COLUMN `last_verification_failure_count` INTEGER NOT NULL DEFAULT 0
-        """.trimIndent(),
-    )
+    val columns = db.tableColumns(S3_REMOTE_SHARD_STATE_TABLE)
+    if ("idle_scan_streak" !in columns) {
+        db.execSQL(
+            "ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE` ADD COLUMN `idle_scan_streak` INTEGER NOT NULL DEFAULT 0",
+        )
+    }
+    if ("last_verification_attempt_count" !in columns) {
+        db.execSQL(
+            """
+            ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE`
+            ADD COLUMN `last_verification_attempt_count` INTEGER NOT NULL DEFAULT 0
+            """.trimIndent(),
+        )
+    }
+    if ("last_verification_failure_count" !in columns) {
+        db.execSQL(
+            """
+            ALTER TABLE `$S3_REMOTE_SHARD_STATE_TABLE`
+            ADD COLUMN `last_verification_failure_count` INTEGER NOT NULL DEFAULT 0
+            """.trimIndent(),
+        )
+    }
 }
 
 internal fun createS3SyncProtocolStateTable(db: SQLiteConnection) {
@@ -119,6 +132,10 @@ internal fun createS3LocalChangeJournalTable(db: SQLiteConnection) {
         )
         """.trimIndent(),
     )
+    ensureS3LocalChangeJournalIndex(db)
+}
+
+internal fun ensureS3LocalChangeJournalIndex(db: SQLiteConnection) {
     db.execSQL(
         """
         CREATE INDEX IF NOT EXISTS `index_${S3_LOCAL_CHANGE_JOURNAL_TABLE}_updated_at`
