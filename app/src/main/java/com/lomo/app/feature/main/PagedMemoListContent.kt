@@ -16,17 +16,21 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.paging.compose.LazyPagingItems
-import com.lomo.app.feature.common.DeleteAnimationVisualPolicy
-import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
+import com.lomo.app.feature.common.rememberRetainedVisibleItems
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.WithDraggableScrollbar
 import com.lomo.ui.component.menu.MemoMenuState
+import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
+
+private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER = 31
 
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
@@ -37,7 +41,7 @@ import kotlinx.collections.immutable.toImmutableList
 internal fun MemoListContent(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
+    onDeleteAnimationSettled: (String) -> Unit,
     listState: LazyListState,
     isRefreshing: Boolean,
     onRefresh: () -> Unit,
@@ -79,9 +83,9 @@ internal fun MemoListContent(
         },
     ) {
         MemoPagedListColumn(
-            pagedMemos = pagedMemos,
+            snapshotMemos = snapshotMemos,
             deletingIds = deletingMemoIds,
-            collapsingIds = collapsingMemoIds,
+            onDeleteAnimationSettled = onDeleteAnimationSettled,
             newMemoInsertAnimationState = newMemoInsertAnimationState,
             onNewMemoSpacePrepared = onNewMemoSpacePrepared,
             onNewMemoRevealConsumed = onNewMemoRevealConsumed,
@@ -102,9 +106,9 @@ internal fun MemoListContent(
 
 @Composable
 private fun MemoPagedListColumn(
-    pagedMemos: LazyPagingItems<MemoUiModel>,
+    snapshotMemos: ImmutableList<MemoUiModel>,
     deletingIds: ImmutableSet<String>,
-    collapsingIds: ImmutableSet<String>,
+    onDeleteAnimationSettled: (String) -> Unit,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
@@ -120,18 +124,39 @@ private fun MemoPagedListColumn(
     onImageClick: (ImageViewerRequest) -> Unit,
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
+    val scrollbarContentGeneration = rememberMemoListScrollbarContentGeneration(snapshotMemos, deletingIds)
     WithDraggableScrollbar(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         enabled = scrollbarEnabled,
+        contentGeneration = scrollbarContentGeneration,
     ) {
+        val visiblePagedMemos =
+            rememberRetainedVisibleItems(
+                sourceItems = snapshotMemos,
+                retainedIds = deletingIds,
+                itemId = { it.memo.id },
+                onRetentionSettled = onDeleteAnimationSettled,
+            )
+        val viewportEntryCompensation =
+            rememberDeleteViewportEntryCompensation(
+                sourceItems = visiblePagedMemos,
+                deletingIds = deletingIds,
+                listState = listState,
+            )
+
         LazyColumn(
             state = listState,
             contentPadding =
                 PaddingValues(
                     top = MEMO_LIST_TOP_PADDING,
                     start = MEMO_LIST_HORIZONTAL_PADDING,
-                    end = MEMO_LIST_HORIZONTAL_PADDING,
+                    end =
+                        if (scrollbarEnabled) {
+                            MEMO_LIST_END_PADDING_WITH_SCROLLBAR
+                        } else {
+                            MEMO_LIST_HORIZONTAL_PADDING
+                        },
                     bottom =
                         WindowInsets.navigationBars
                             .asPaddingValues()
@@ -141,25 +166,29 @@ private fun MemoPagedListColumn(
             modifier = Modifier.fillMaxSize(),
         ) {
             items(
-                count = pagedMemos.itemCount,
-                key = { index -> pagedMemos.peek(index)?.memo?.id ?: "paged-memo-$index" },
-                contentType = { index ->
-                    pagedMemos.peek(index)?.memoListItemContentBucket ?: PAGED_MEMO_PLACEHOLDER_TYPE
-                },
+                count = visiblePagedMemos.size,
+                key = { index -> visiblePagedMemos[index].memo.id },
+                contentType = { index -> visiblePagedMemos[index].memoListItemContentBucket },
             ) { index ->
-                val uiModel = pagedMemos[index] ?: return@items
-                val deleteAnimationPolicy =
-                    resolveDeleteAnimationVisualPolicy(
-                        isDeleting = uiModel.memo.id in deletingIds,
-                    )
+                val uiModel = visiblePagedMemos[index]
+                val deleteViewportSharedCompensation =
+                    viewportEntryCompensation.sharedTopEntryCompensationFor(uiModel.memo.id)
+                val deleteViewportCompensation =
+                    deleteViewportSharedCompensation
+                        ?: viewportEntryCompensation.compensationFor(uiModel.memo.id)
+                val deleteViewportHoldOffset =
+                    if (deleteViewportCompensation == null) {
+                        viewportEntryCompensation.holdOffsetFor(uiModel.memo.id)
+                    } else {
+                        null
+                    }
                 MemoPagedListItem(
                     uiModel = uiModel,
                     index = index,
-                    itemCount = pagedMemos.itemCount,
+                    itemCount = visiblePagedMemos.size,
                     deletingIds = deletingIds,
-                    collapsingIds = collapsingIds,
                     newMemoInsertAnimationState = newMemoInsertAnimationState,
-                    deleteAnimationPolicy = deleteAnimationPolicy,
+                    viewportEntryCompensation = viewportEntryCompensation,
                     onTodoClick = onTodoClick,
                     dateFormat = dateFormat,
                     timeFormat = timeFormat,
@@ -175,8 +204,17 @@ private fun MemoPagedListColumn(
                         Modifier
                             .memoListPlacementAnimation(
                                 lazyItemScope = this,
-                                deleteAnimationPolicy = deleteAnimationPolicy,
                                 newMemoInsertAnimationState = newMemoInsertAnimationState,
+                                blockPlacementSpringForDeleteViewportEntry =
+                                    deleteViewportCompensation != null ||
+                                        deleteViewportHoldOffset != null,
+                            )
+                            .deleteViewportEntryCompensation(
+                                compensation = deleteViewportCompensation,
+                                holdOffsetPx = deleteViewportHoldOffset,
+                                onAnimationConsumed = {
+                                    viewportEntryCompensation.clearCompensation(uiModel.memo.id)
+                                },
                             )
                             .fillMaxWidth(),
                 )
@@ -186,14 +224,51 @@ private fun MemoPagedListColumn(
 }
 
 @Composable
+private fun rememberMemoListScrollbarContentGeneration(
+    snapshotMemos: ImmutableList<MemoUiModel>,
+    deletingIds: ImmutableSet<String>,
+): MemoListScrollbarContentGeneration =
+    remember(snapshotMemos, deletingIds) {
+        buildMemoListScrollbarContentGeneration(
+            snapshotMemos = snapshotMemos,
+            deletingIds = deletingIds,
+        )
+    }
+
+private data class MemoListScrollbarContentGeneration(
+    val itemCount: Int,
+    val contentHash: Int,
+    val deletingIdsHash: Int,
+)
+
+private fun buildMemoListScrollbarContentGeneration(
+    snapshotMemos: ImmutableList<MemoUiModel>,
+    deletingIds: ImmutableSet<String>,
+): MemoListScrollbarContentGeneration {
+    var contentHash = 1
+    snapshotMemos.forEach { uiModel ->
+        val memo = uiModel.memo
+        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.id.hashCode()
+        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.updatedAt.hashCode()
+        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.rawContent.hashCode()
+        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + uiModel.imageUrls.hashCode()
+        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + uiModel.shouldShowExpand.hashCode()
+    }
+    return MemoListScrollbarContentGeneration(
+        itemCount = snapshotMemos.size,
+        contentHash = contentHash,
+        deletingIdsHash = deletingIds.hashCode(),
+    )
+}
+
+@Composable
 private fun MemoPagedListItem(
     uiModel: MemoUiModel,
     index: Int,
     itemCount: Int,
     deletingIds: ImmutableSet<String>,
-    collapsingIds: ImmutableSet<String>,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
-    deleteAnimationPolicy: DeleteAnimationVisualPolicy,
+    viewportEntryCompensation: DeleteViewportEntryCompensationState,
     onTodoClick: (Memo, Int, Boolean) -> Unit,
     dateFormat: String,
     timeFormat: String,
@@ -207,6 +282,7 @@ private fun MemoPagedListItem(
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val density = LocalDensity.current
     val shouldHoldNewMemoHidden =
         index == 0 &&
             newMemoInsertAnimationState.awaitingInsertedTopMemo &&
@@ -217,16 +293,19 @@ private fun MemoPagedListItem(
         newMemoInsertAnimationState.gapReadyMemoId == uiModel.memo.id
     val shouldAnimateNewMemoReveal =
         newMemoInsertAnimationState.pendingRevealMemoId == uiModel.memo.id
+    val bottomSpacing = if (index == itemCount - 1) 0.dp else MEMO_LIST_ITEM_SPACING
+    val bottomSpacingPx =
+        remember(bottomSpacing, density) {
+            with(density) { bottomSpacing.roundToPx() }
+        }
     MemoListItem(
         uiModel = uiModel,
         isDeleting = uiModel.memo.id in deletingIds,
-        isCollapsing = uiModel.memo.id in collapsingIds,
         shouldHoldNewMemoHidden = shouldHoldNewMemoHidden,
         shouldHoldGapReadyMemoHidden = shouldHoldGapReadyMemoHidden,
         shouldAnimateNewMemoSpace = shouldAnimateNewMemoSpace,
         shouldAnimateNewMemoReveal = shouldAnimateNewMemoReveal,
-        bottomSpacing = if (index == itemCount - 1) 0.dp else MEMO_LIST_ITEM_SPACING,
-        deleteAnimationPolicy = deleteAnimationPolicy,
+        bottomSpacing = bottomSpacing,
         onTodoClick = onTodoClick,
         dateFormat = dateFormat,
         timeFormat = timeFormat,
@@ -238,8 +317,17 @@ private fun MemoPagedListItem(
         onShowMemoMenu = onShowMemoMenu,
         onNewMemoSpacePrepared = onNewMemoSpacePrepared,
         onNewMemoRevealConsumed = onNewMemoRevealConsumed,
-        modifier = modifier,
+        modifier =
+            modifier.then(
+                Modifier.onSizeChanged { size ->
+                    viewportEntryCompensation.onItemMeasured(
+                        itemId = uiModel.memo.id,
+                        itemIndex = index,
+                        isDeleting = uiModel.memo.id in deletingIds,
+                        heightPx = size.height,
+                        bottomSpacingPx = bottomSpacingPx,
+                    )
+                },
+            ),
     )
 }
-
-private const val PAGED_MEMO_PLACEHOLDER_TYPE = "paged-placeholder"

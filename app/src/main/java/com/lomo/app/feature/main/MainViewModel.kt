@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
-import com.lomo.app.feature.common.RetainedVisibleListTracker
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
@@ -15,18 +14,18 @@ import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.domain.model.MemoRevision
-import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
-import com.lomo.domain.usecase.ResolveMainMemoQueryUseCase
 import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -45,6 +44,7 @@ import kotlin.time.TimeSource
 
 private const val DEFERRED_STARTUP_DELAY_MILLIS = 350L
 private const val AUTO_REFRESH_MIN_INTERVAL_MILLIS = 45_000L
+private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 
 @HiltViewModel
 class MainViewModel
@@ -59,8 +59,6 @@ class MainViewModel
         private val mainMemoMutationCoordinator: MainMemoMutationCoordinator,
         private val workspaceCoordinator: MainWorkspaceCoordinator,
         private val startupCoordinator: MainStartupCoordinator,
-        private val applyMainMemoFilterUseCase: ApplyMainMemoFilterUseCase,
-        private val resolveMainMemoQueryUseCase: ResolveMainMemoQueryUseCase,
     ) : ViewModel() {
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage
@@ -125,8 +123,6 @@ class MainViewModel
 
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
-        private val _collapsedMemoIds = MutableStateFlow<Set<String>>(emptySet())
-        val collapsingMemoIds: StateFlow<Set<String>> = _collapsedMemoIds.asStateFlow()
 
         private val _hasResolvedInitialRoot = MutableStateFlow(false)
         private val _isInitialDirectoryImporting = MutableStateFlow(false)
@@ -158,14 +154,7 @@ class MainViewModel
                 rootDirectory = rootDirectory,
                 imageDirectory = imageDirectory,
                 imageMap = imageMap,
-                applyMainMemoFilterUseCase = applyMainMemoFilterUseCase,
-                resolveMainMemoQueryUseCase = resolveMainMemoQueryUseCase,
             )
-
-        internal val mainListPresentationMode: StateFlow<MainListPresentationMode> =
-            memoListStateHolder.mainListPresentationMode
-
-        val usesPagedMainList: StateFlow<Boolean> = memoListStateHolder.usesPagedMainList
 
         val uiState: StateFlow<MainScreenState> =
             combine(_hasResolvedInitialRoot, rootDirectory, _isInitialDirectoryImporting) {
@@ -185,33 +174,11 @@ class MainViewModel
                 MainScreenState.Loading,
             )
 
-        val memos: StateFlow<List<Memo>> = memoListStateHolder.memos
-
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
-
-        val uiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.uiMemos
-        private val visibleMemoListTracker =
-            RetainedVisibleListTracker(
-                scope = viewModelScope,
-                sourceItemsProvider = { uiMemos.value },
-                deletingIds = _deletingMemoIds,
-                retainedIds = _collapsedMemoIds,
-                itemId = { item -> item.memo.id },
-            )
-        val visibleUiMemos: StateFlow<List<MemoUiModel>> = visibleMemoListTracker.visibleItems.asStateFlow()
 
         val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos
 
         init {
-            combine(uiMemos, collapsingMemoIds) { sourceUiMemos, collapsingIds ->
-                sourceUiMemos to collapsingIds
-            }.onEach { (sourceUiMemos, collapsingIds) ->
-                visibleMemoListTracker.reconcile(
-                    sourceItems = sourceUiMemos,
-                    retainedIdsSnapshot = collapsingIds,
-                )
-            }.launchIn(viewModelScope)
-
             // P1-002 Fix: Consolidated initialization to prevent race condition
             // First get initial value synchronously, then listen for subsequent updates
             viewModelScope.launch {
@@ -441,7 +408,6 @@ class MainViewModel
                     runDeleteAnimationWithRollback(
                         itemId = memo.id,
                         deletingIds = _deletingMemoIds,
-                        collapsedIds = _collapsedMemoIds,
                     ) {
                         mainMemoMutationCoordinator.deleteMemo(memo)
                     }
@@ -449,6 +415,10 @@ class MainViewModel
                     _errorMessage.value = throwable.toUserMessage()
                 }
             }
+        }
+
+        internal fun onPagedDeleteAnimationSettled(memoId: String) {
+            _deletingMemoIds.value = _deletingMemoIds.value - memoId
         }
 
         val setMemoPinned: (Memo, Boolean) -> Unit = { memo, pinned ->
@@ -568,6 +538,7 @@ class MainViewModel
             }
         }
 
+        @OptIn(FlowPreview::class)
         private fun loadImageMap() {
             // Image map now provided by ImageMapProvider (P2-001 refactor)
             // No need to collect here - imageMap exposed directly from provider
@@ -575,6 +546,8 @@ class MainViewModel
             // Trigger sync in background whenever image directory changes
             imageDirectory
                 .drop(1)
+                .distinctUntilChanged()
+                .debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
                 .onEach { path: String? ->
                     if (path != null) {
                         workspaceCoordinator.syncImageCacheBestEffort()
