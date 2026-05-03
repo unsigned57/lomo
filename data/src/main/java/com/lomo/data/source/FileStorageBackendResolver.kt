@@ -1,14 +1,11 @@
 package com.lomo.data.source
 
 import android.content.Context
-import androidx.core.net.toUri
 import com.lomo.data.local.datastore.LomoDataStore
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -22,7 +19,8 @@ class FileStorageBackendResolver
         private val backendCacheMutex = Mutex()
         private var currentMarkdownBackend: MarkdownStorageBackend? = null
         private var currentWorkspaceBackend: WorkspaceConfigBackend? = null
-        private var currentRootConfig: String? = null
+        private var currentRootVfs: WorkspaceVfs? = null
+        private var currentRootConfig: StorageRootConfig? = null
 
         suspend fun markdownBackend(): MarkdownStorageBackend? =
             backendCacheMutex.withLock {
@@ -36,86 +34,68 @@ class FileStorageBackendResolver
                 currentWorkspaceBackend
             }
 
-        suspend fun mediaBackend(type: StorageRootType): Pair<MediaStorageBackend?, String?> =
-            buildMediaBackend(
-                configuredUri = readRootUriFlow(type).first(),
-                configuredPath = readRootPathFlow(type).first(),
+        internal suspend fun rootVfs(): WorkspaceVfs? =
+            backendCacheMutex.withLock {
+                resolveRootBackendsLocked()
+                currentRootVfs
+            }
+
+        internal suspend fun resolvedMediaRoot(type: StorageRootType): ResolvedMediaRoot? =
+            buildResolvedMediaRoot(
+                rootConfig = dataStore.readStorageRootConfig(type),
+                context = context,
+                secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
             )
 
         suspend fun voiceBackend(): MediaStorageBackend? {
-            val (configuredVoiceBackend, _) = mediaBackend(StorageRootType.VOICE)
+            val configuredVoiceBackend = resolvedMediaRoot(StorageRootType.VOICE)?.backend
             return configuredVoiceBackend ?: rootMediaBackend()
         }
 
         private suspend fun resolveRootBackendsLocked() {
-            val rootUri = dataStore.rootUri.first()
-            val rootDir = dataStore.rootDirectory.first()
-            val configKey = rootUri ?: rootDir
-            if (currentRootConfig == configKey && currentMarkdownBackend != null) {
+            val rootConfig = dataStore.readStorageRootConfig(StorageRootType.MAIN)
+            if (currentRootConfig == rootConfig && currentMarkdownBackend != null) {
                 return
             }
 
-            val (markdownBackend, workspaceBackend) = buildRootBackends(rootUri, rootDir)
-            currentMarkdownBackend = markdownBackend
-            currentWorkspaceBackend = workspaceBackend
-            currentRootConfig = configKey
+            val rootVfs = rootConfig.toWorkspaceVfs()
+            val backend =
+                rootVfs?.let {
+                    VfsStorageBackend(
+                        context = context,
+                        rootVfs = it,
+                        secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
+                    )
+                }
+            currentMarkdownBackend = backend
+            currentWorkspaceBackend = backend
+            currentRootVfs = rootVfs
+            currentRootConfig = rootConfig
         }
-
-        private fun buildRootBackends(
-            rootUri: String?,
-            rootDir: String?,
-        ): Pair<MarkdownStorageBackend?, WorkspaceConfigBackend?> =
-            when {
-                rootUri != null -> {
-                    val backend = SafStorageBackend(context, rootUri.toUri())
-                    backend to backend
-                }
-
-                rootDir != null -> {
-                    val backend =
-                        DirectStorageBackend(
-                            rootDir = File(rootDir),
-                            secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
-                        )
-                    backend to backend
-                }
-
-                else -> null to null
-            }
 
         private suspend fun rootMediaBackend(): MediaStorageBackend? {
-            val rootUri = dataStore.rootUri.first()
-            val rootDir = dataStore.rootDirectory.first()
-            return buildMediaBackend(rootUri, rootDir).first
+            return buildResolvedMediaRoot(
+                rootConfig = dataStore.readStorageRootConfig(StorageRootType.MAIN),
+                context = context,
+                secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
+            )?.backend
         }
-
-        private fun buildMediaBackend(
-            configuredUri: String?,
-            configuredPath: String?,
-        ): Pair<MediaStorageBackend?, String?> =
-            when {
-                configuredUri != null -> SafStorageBackend(context, configuredUri.toUri()) to configuredUri
-                configuredPath != null ->
-                    DirectStorageBackend(
-                        rootDir = File(configuredPath),
-                        secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
-                    ) to null
-                else -> null to null
-            }
-
-        private fun readRootUriFlow(type: StorageRootType): Flow<String?> =
-            when (type) {
-                StorageRootType.MAIN -> dataStore.rootUri
-                StorageRootType.IMAGE -> dataStore.imageUri
-                StorageRootType.VOICE -> dataStore.voiceUri
-                StorageRootType.SYNC_INBOX -> dataStore.syncInboxUri
-            }
-
-        private fun readRootPathFlow(type: StorageRootType): Flow<String?> =
-            when (type) {
-                StorageRootType.MAIN -> dataStore.rootDirectory
-                StorageRootType.IMAGE -> dataStore.imageDirectory
-                StorageRootType.VOICE -> dataStore.voiceDirectory
-                StorageRootType.SYNC_INBOX -> dataStore.syncInboxDirectory
-            }
     }
+
+private fun buildResolvedMediaRoot(
+    rootConfig: StorageRootConfig,
+    context: Context,
+    secureWipeBeforeDeleteEnabled: suspend () -> Boolean,
+): ResolvedMediaRoot? {
+    val vfs = rootConfig.toWorkspaceVfs() ?: return null
+    return ResolvedMediaRoot(
+        backend =
+            VfsStorageBackend(
+                context = context,
+                rootVfs = vfs,
+                secureWipeBeforeDeleteEnabled = secureWipeBeforeDeleteEnabled,
+            ),
+        vfs = vfs,
+        configuredUriMarker = rootConfig.configuredUri,
+    )
+}

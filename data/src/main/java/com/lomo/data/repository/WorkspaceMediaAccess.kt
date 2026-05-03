@@ -5,7 +5,9 @@ import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -37,6 +39,16 @@ interface WorkspaceMediaAccess {
         bytes: ByteArray,
     )
 
+    suspend fun writeFileFromStream(
+        category: WorkspaceMediaCategory,
+        filename: String,
+        source: suspend (OutputStream) -> Unit,
+    ) {
+        val output = ByteArrayOutputStream()
+        source(output)
+        writeFile(category = category, filename = filename, bytes = output.toByteArray())
+    }
+
     suspend fun deleteFile(
         category: WorkspaceMediaCategory,
         filename: String,
@@ -52,6 +64,12 @@ object NoOpWorkspaceMediaAccess : WorkspaceMediaAccess {
         category: WorkspaceMediaCategory,
         filename: String,
         bytes: ByteArray,
+    ) = Unit
+
+    override suspend fun writeFileFromStream(
+        category: WorkspaceMediaCategory,
+        filename: String,
+        source: suspend (OutputStream) -> Unit,
     ) = Unit
 
     override suspend fun deleteFile(
@@ -97,6 +115,21 @@ class DefaultWorkspaceMediaAccess
                 writeWorkspaceSafFile(context, category, root, filename, bytes)
             } else {
                 writeWorkspaceDirectFile(File(root), filename, bytes)
+            }
+        }
+
+        override suspend fun writeFileFromStream(
+            category: WorkspaceMediaCategory,
+            filename: String,
+            source: suspend (OutputStream) -> Unit,
+        ) {
+            val root = requireNotNull(workspaceMediaRoot(workspaceConfigSource, category)) {
+                "No configured workspace root for ${category.name.lowercase(java.util.Locale.ROOT)} media restore"
+            }
+            if (isContentUriRoot(root)) {
+                writeWorkspaceSafFileFromStream(context, category, root, filename, source)
+            } else {
+                writeWorkspaceDirectFileFromStream(File(root), filename, source)
             }
         }
 

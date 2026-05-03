@@ -81,7 +81,7 @@ internal fun isContentUriRoot(value: String): Boolean =
         java.net.URI(value).scheme.equals("content", ignoreCase = true)
     }.getOrDefault(false)
 
-private fun resolveWorkspaceSafRoot(
+internal fun resolveWorkspaceSafRoot(
     context: Context,
     rootUriString: String,
 ): DocumentFile? = runCatching { DocumentFile.fromTreeUri(context, rootUriString.toUri()) }.getOrNull()
@@ -99,7 +99,7 @@ private fun workspaceMatchesSafCategory(
     }
 }
 
-private fun workspaceMimeTypeFor(
+internal fun workspaceMimeTypeFor(
     category: WorkspaceMediaCategory,
     filename: String,
 ): String =

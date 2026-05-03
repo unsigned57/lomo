@@ -8,7 +8,6 @@ import com.lomo.data.local.datastore.LomoDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -26,22 +25,19 @@ class FileWorkspaceConfigSourceDelegate
         override suspend fun setRoot(
             type: StorageRootType,
             pathOrUri: String,
-        ) {
-            if (isContentUri(pathOrUri)) {
-                updateRootValues(type = type, uri = pathOrUri, path = null)
-            } else {
-                updateRootValues(type = type, uri = null, path = pathOrUri)
-            }
-        }
+        ) = dataStore.updateStorageRoot(type, pathOrUri)
 
         override fun getRootFlow(type: StorageRootType): Flow<String?> =
-            combine(readRootUriFlow(type), readRootPathFlow(type)) { uri, path -> uri ?: path }
+            dataStore.storageRootConfigFlow(type).map(StorageRootConfig::preferredLocation)
 
         override fun getRootDisplayNameFlow(type: StorageRootType): Flow<String?> =
             getRootFlow(type).map { uriOrPath ->
                 when {
                     uriOrPath == null -> null
-                    isContentUri(uriOrPath) -> withContext(Dispatchers.IO) { displayNameForUri(uriOrPath.toUri()) }
+                    isContentStorageUri(uriOrPath) ->
+                        withContext(Dispatchers.IO) {
+                            displayNameForUri(uriOrPath.toUri())
+                        }
                     else -> uriOrPath
                 }
             }
@@ -50,59 +46,10 @@ class FileWorkspaceConfigSourceDelegate
             backendResolver.workspaceBackend()?.createDirectory(name)
                 ?: throw IOException("No storage configured")
 
-        private suspend fun updateRootValues(
-            type: StorageRootType,
-            uri: String?,
-            path: String?,
-        ) {
-            when (type) {
-                StorageRootType.MAIN -> {
-                    dataStore.updateRootUri(uri)
-                    dataStore.updateRootDirectory(path)
-                }
-
-                StorageRootType.IMAGE -> {
-                    dataStore.updateImageUri(uri)
-                    dataStore.updateImageDirectory(path)
-                }
-
-                StorageRootType.VOICE -> {
-                    dataStore.updateVoiceUri(uri)
-                    dataStore.updateVoiceDirectory(path)
-                }
-
-                StorageRootType.SYNC_INBOX -> {
-                    dataStore.updateSyncInboxUri(uri)
-                    dataStore.updateSyncInboxDirectory(path)
-                }
-            }
-        }
-
-        private fun readRootUriFlow(type: StorageRootType): Flow<String?> =
-            when (type) {
-                StorageRootType.MAIN -> dataStore.rootUri
-                StorageRootType.IMAGE -> dataStore.imageUri
-                StorageRootType.VOICE -> dataStore.voiceUri
-                StorageRootType.SYNC_INBOX -> dataStore.syncInboxUri
-            }
-
-        private fun readRootPathFlow(type: StorageRootType): Flow<String?> =
-            when (type) {
-                StorageRootType.MAIN -> dataStore.rootDirectory
-                StorageRootType.IMAGE -> dataStore.imageDirectory
-                StorageRootType.VOICE -> dataStore.voiceDirectory
-                StorageRootType.SYNC_INBOX -> dataStore.syncInboxDirectory
-            }
-
         private fun displayNameForUri(uri: Uri): String =
             try {
                 DocumentFile.fromTreeUri(context, uri)?.name ?: uri.lastPathSegment ?: uri.toString()
             } catch (_: Exception) {
                 uri.lastPathSegment ?: uri.toString()
             }
-
-        private fun isContentUri(value: String): Boolean =
-            runCatching {
-                java.net.URI(value).scheme.equals("content", ignoreCase = true)
-            }.getOrDefault(false)
     }

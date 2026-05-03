@@ -8,43 +8,48 @@ internal class DirectMarkdownStorageBackendDelegate(
     private val secureWipeBeforeDeleteEnabled: suspend () -> Boolean = { false },
 ) : MarkdownStorageBackend {
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directListMetadata(rootDir)
-            MemoDirectoryType.TRASH -> directListTrashMetadata(rootDir)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directListMetadata(rootDir) },
+            onTrash = { directListTrashMetadata(rootDir) },
+        )
 
     override suspend fun listMetadataWithIdsIn(directory: MemoDirectoryType): List<FileMetadataWithId> =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directListMetadataWithIds(rootDir)
-            MemoDirectoryType.TRASH -> directListTrashMetadataWithIds(rootDir)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directListMetadataWithIds(rootDir) },
+            onTrash = { directListTrashMetadataWithIds(rootDir) },
+        )
 
     override suspend fun getFileMetadataIn(
         directory: MemoDirectoryType,
         filename: String,
     ): FileMetadata? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directGetFileMetadata(rootDir, filename)
-            MemoDirectoryType.TRASH -> directGetTrashFileMetadata(rootDir, filename)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directGetFileMetadata(rootDir, filename) },
+            onTrash = { directGetTrashFileMetadata(rootDir, filename) },
+        )
 
     override suspend fun readFileIn(
         directory: MemoDirectoryType,
         filename: String,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directReadFile(rootDir, filename)
-            MemoDirectoryType.TRASH -> directReadTrashFile(rootDir, filename)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directReadFile(rootDir, filename) },
+            onTrash = { directReadTrashFile(rootDir, filename) },
+        )
 
     override suspend fun readFileByDocumentIdIn(
         directory: MemoDirectoryType,
         documentId: String,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directReadFile(rootDir, documentId)
-            MemoDirectoryType.TRASH -> directReadTrashFile(rootDir, documentId)
-        }
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directReadFile(rootDir, documentId) },
+            onTrash = { directReadTrashFile(rootDir, documentId) },
+        )
 
     override suspend fun readFile(uri: Uri): String? = directReadFileUri(uri)
 
@@ -55,33 +60,36 @@ internal class DirectMarkdownStorageBackendDelegate(
         append: Boolean,
         uri: Uri?,
     ): String? =
-        when (directory) {
-            MemoDirectoryType.MAIN -> directSaveFile(rootDir, filename, content, append)
-            MemoDirectoryType.TRASH -> {
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = { directSaveFile(rootDir, filename, content, append) },
+            onTrash = {
                 directSaveTrashFile(rootDir, filename, content, append)
                 null
-            }
-        }
+            },
+        )
 
     override suspend fun deleteFileIn(
         directory: MemoDirectoryType,
         filename: String,
         uri: Uri?,
     ) {
-        when (directory) {
-            MemoDirectoryType.MAIN ->
+        routeMarkdownDirectory(
+            directory = directory,
+            onMain = {
                 directDeleteFile(
                     rootDir = rootDir,
                     filename = filename,
                     overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
                 )
-
-            MemoDirectoryType.TRASH ->
+            },
+            onTrash = {
                 directDeleteTrashFile(
                     rootDir = rootDir,
                     filename = filename,
                     overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
                 )
-        }
+            },
+        )
     }
 }
