@@ -1,18 +1,28 @@
 package com.lomo.app.feature.search
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.DockedSearchBar
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -21,22 +31,33 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
@@ -46,10 +67,14 @@ import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.text.LocalSearchHighlightQuery
 import com.lomo.ui.theme.AppSpacing
+import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
+import kotlin.math.roundToInt
 
 private data class SearchScreenUiSnapshot(
     val query: String,
@@ -65,6 +90,7 @@ private data class SearchScreenUiSnapshot(
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
+    val deletingMemoIds: ImmutableSet<String>,
     val errorMessage: String?,
 )
 
@@ -82,6 +108,11 @@ fun SearchScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val searchResultListState = rememberLazyListState()
+    val resultListActive =
+        uiState.query.isNotEmpty() &&
+            !uiState.showLoading &&
+            uiState.searchResults.isNotEmpty()
 
     SearchScreenEffects(
         errorMessage = uiState.errorMessage,
@@ -116,6 +147,8 @@ fun SearchScreen(
             focusRequester = focusRequester,
             keyboardController = keyboardController,
             snackbarHostState = snackbarHostState,
+            resultListState = searchResultListState,
+            resultListActive = resultListActive,
         ) { padding ->
             SearchScreenContent(
                 query = uiState.query,
@@ -125,9 +158,12 @@ fun SearchScreen(
                 timeFormat = uiState.timeFormat,
                 doubleTapEditEnabled = uiState.doubleTapEditEnabled,
                 freeTextCopyEnabled = uiState.freeTextCopyEnabled,
+                deletingMemoIds = uiState.deletingMemoIds,
+                listState = searchResultListState,
                 padding = padding,
                 onOpenEditor = openEditor,
                 onShowMenu = onShowSearchMenu,
+                onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
             )
         }
     }
@@ -142,6 +178,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
     val imageMap by viewModel.imageMap.collectAsStateWithLifecycle()
+    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
 
     return SearchScreenUiSnapshot(
@@ -158,6 +195,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },
+        deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
         errorMessage = errorMessage,
     )
 }
@@ -172,102 +210,285 @@ private fun SearchScreenScaffold(
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
     snackbarHostState: SnackbarHostState,
+    resultListState: LazyListState,
+    resultListActive: Boolean,
     content: @Composable (PaddingValues) -> Unit,
 ) {
+    var searchBarOffsetPx by remember { mutableFloatStateOf(0f) }
+    var searchBarMaxOffsetPx by remember { mutableFloatStateOf(0f) }
+    val searchBarSynchronizedScrollConnection =
+        rememberSearchBarSynchronizedScrollConnection(
+            listState = resultListState,
+            resultListActive = resultListActive,
+            currentOffsetPx = { searchBarOffsetPx },
+            maxOffsetPx = { searchBarMaxOffsetPx },
+            onOffsetPxChange = { searchBarOffsetPx = it },
+        )
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(
+        resultListActive,
+        resultListState.canScrollBackward,
+        resultListState.canScrollForward,
+        searchBarMaxOffsetPx,
+    ) {
+        val resultListScrollable = resultListState.canScrollBackward || resultListState.canScrollForward
+        if (!resultListActive || !resultListScrollable) {
+            searchBarOffsetPx = 0f
+        } else if (searchBarOffsetPx > searchBarMaxOffsetPx) {
+            searchBarOffsetPx = searchBarMaxOffsetPx
+        }
+    }
+
+    LaunchedEffect(keyboardController) {
+        snapshotFlow { searchBarOffsetPx > 0f }
+            .collect { isHiding ->
+                if (isHiding) {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                }
+            }
+    }
+
     Scaffold(
         modifier = Modifier.benchmarkAnchorRoot(BenchmarkAnchorContract.SEARCH_ROOT),
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        topBar = {
-            SearchTopBar(
-                query = query,
-                onQueryChange = onQueryChange,
-                onBackClick = onBackClick,
-                haptic = haptic,
-                focusRequester = focusRequester,
-                keyboardController = keyboardController,
-            )
+        content = { padding ->
+            val floatingContentPadding = floatingSearchContentPadding(padding)
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .nestedScroll(searchBarSynchronizedScrollConnection),
+            ) {
+                content(floatingContentPadding)
+                FloatingSearchBar(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    onBackClick = onBackClick,
+                    haptic = haptic,
+                    focusRequester = focusRequester,
+                    keyboardController = keyboardController,
+                    searchBarOffsetPx = searchBarOffsetPx,
+                    onMaxOffsetPxChange = { searchBarMaxOffsetPx = it },
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
         },
-        content = content,
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SearchTopBar(
+private fun FloatingSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     onBackClick: () -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
+    searchBarOffsetPx: Float,
+    onMaxOffsetPxChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    val morph = rememberSearchInputMorph(isFocused = isFocused)
+    val focusManager = LocalFocusManager.current
     Box(
         modifier =
-            Modifier
+            modifier
+                .offset { IntOffset(0, -searchBarOffsetPx.roundToInt()) }
                 .fillMaxWidth()
+                .onSizeChanged { size -> onMaxOffsetPxChange(size.height.toFloat()) }
                 .statusBarsPadding()
                 .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
     ) {
-        DockedSearchBar(
-            inputField = {
-                SearchBarDefaults.InputField(
-                    query = query,
-                    onQueryChange = onQueryChange,
-                    onSearch = { keyboardController?.hide() },
-                    expanded = false,
-                    onExpandedChange = {},
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .focusRequester(focusRequester)
-                            .benchmarkAnchor(BenchmarkAnchorContract.SEARCH_INPUT),
-                    placeholder = {
-                        Text(
-                            text = androidx.compose.ui.res.stringResource(R.string.search_hint),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = morph.shape,
+            color = morph.containerColor,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            tonalElevation = morph.tonalElevation,
+            shadowElevation = 0.dp,
+        ) {
+            SearchBarDefaults.InputField(
+                query = query,
+                onQueryChange = onQueryChange,
+                onSearch = {
+                    focusManager.clearFocus(force = true)
+                    keyboardController?.hide()
+                },
+                expanded = true,
+                onExpandedChange = {},
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .focusRequester(focusRequester)
+                        .benchmarkAnchor(BenchmarkAnchorContract.SEARCH_INPUT),
+                placeholder = {
+                    Text(
+                        text = androidx.compose.ui.res.stringResource(R.string.search_hint),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                },
+                leadingIcon = {
+                    IconButton(
+                        onClick = {
+                            haptic.medium()
+                            onBackClick()
+                        },
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
+                            tint = morph.leadingIconTint,
                         )
-                    },
-                    leadingIcon = {
+                    }
+                },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
                         IconButton(
                             onClick = {
                                 haptic.medium()
-                                onBackClick()
+                                onQueryChange("")
                             },
+                            modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
                         ) {
                             Icon(
-                                Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = androidx.compose.ui.res.stringResource(R.string.back),
+                                Icons.Default.Close,
+                                contentDescription =
+                                    androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) {
-                            IconButton(
-                                onClick = {
-                                    haptic.medium()
-                                    onQueryChange("")
-                                },
-                                modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription =
-                                        androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
-                                )
-                            }
-                        }
-                    },
-                    interactionSource = interactionSource,
-                )
-            },
-            expanded = false,
-            onExpandedChange = {},
-            shape = MaterialTheme.shapes.extraLarge,
-            colors = SearchBarDefaults.colors(),
-        ) {}
+                    }
+                },
+                colors =
+                    SearchBarDefaults.inputFieldColors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                    ),
+                interactionSource = interactionSource,
+            )
+        }
     }
+}
+
+@Composable
+private fun floatingSearchContentPadding(scaffoldPadding: PaddingValues): PaddingValues {
+    val layoutDirection = LocalLayoutDirection.current
+    return PaddingValues(
+        start = scaffoldPadding.calculateStartPadding(layoutDirection),
+        top = scaffoldPadding.calculateTopPadding() + SEARCH_FLOATING_CONTENT_TOP_PADDING,
+        end = scaffoldPadding.calculateEndPadding(layoutDirection),
+        bottom = scaffoldPadding.calculateBottomPadding(),
+    )
+}
+
+@Composable
+private fun searchResultListContentPadding(screenPadding: PaddingValues): PaddingValues {
+    val layoutDirection = LocalLayoutDirection.current
+    return PaddingValues(
+        start = screenPadding.calculateStartPadding(layoutDirection) + AppSpacing.Medium,
+        top = screenPadding.calculateTopPadding() + AppSpacing.Medium,
+        end = screenPadding.calculateEndPadding(layoutDirection) + AppSpacing.Medium,
+        bottom = screenPadding.calculateBottomPadding() + AppSpacing.Medium,
+    )
+}
+
+private val SEARCH_FLOATING_CONTENT_TOP_PADDING = 80.dp
+private const val SEARCH_INPUT_FOCUSED_CORNER_DP = 20
+private const val SEARCH_INPUT_RESTING_CORNER_DP = 32
+
+internal data class SearchInputMorphTargets(
+    val containerColor: Color,
+    val leadingIconTint: Color,
+    val cornerRadius: Dp,
+    val tonalElevation: Dp,
+) {
+    companion object {
+        fun fromFocus(
+            isFocused: Boolean,
+            colorScheme: ColorScheme,
+        ): SearchInputMorphTargets =
+            if (isFocused) {
+                SearchInputMorphTargets(
+                    containerColor = colorScheme.surfaceContainerHighest,
+                    leadingIconTint = colorScheme.primary,
+                    cornerRadius = SEARCH_INPUT_FOCUSED_CORNER_DP.dp,
+                    tonalElevation = 6.dp,
+                )
+            } else {
+                SearchInputMorphTargets(
+                    containerColor = colorScheme.surfaceContainerHigh,
+                    leadingIconTint = colorScheme.onSurfaceVariant,
+                    cornerRadius = SEARCH_INPUT_RESTING_CORNER_DP.dp,
+                    tonalElevation = 3.dp,
+                )
+            }
+    }
+}
+
+internal data class SearchInputMorph(
+    val containerColor: Color,
+    val leadingIconTint: Color,
+    val shape: Shape,
+    val tonalElevation: Dp,
+)
+
+@Composable
+internal fun rememberSearchInputMorph(isFocused: Boolean): SearchInputMorph {
+    val colorScheme = MaterialTheme.colorScheme
+    val targets =
+        remember(isFocused, colorScheme) {
+            SearchInputMorphTargets.fromFocus(isFocused = isFocused, colorScheme = colorScheme)
+        }
+    val containerColor by animateColorAsState(
+        targetValue = targets.containerColor,
+        animationSpec =
+            tween(
+                durationMillis = MotionTokens.DurationMedium2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        label = "SearchInputContainerColor",
+    )
+    val leadingIconTint by animateColorAsState(
+        targetValue = targets.leadingIconTint,
+        animationSpec =
+            tween(
+                durationMillis = MotionTokens.DurationMedium2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        label = "SearchInputLeadingIconTint",
+    )
+    val cornerRadius by animateDpAsState(
+        targetValue = targets.cornerRadius,
+        animationSpec =
+            tween(
+                durationMillis = MotionTokens.DurationMedium2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        label = "SearchInputCornerRadius",
+    )
+    val tonalElevation by animateDpAsState(
+        targetValue = targets.tonalElevation,
+        animationSpec =
+            tween(
+                durationMillis = MotionTokens.DurationMedium2,
+                easing = MotionTokens.EasingEmphasizedDecelerate,
+            ),
+        label = "SearchInputTonalElevation",
+    )
+    val shape = remember(cornerRadius) { RoundedCornerShape(cornerRadius) }
+    return SearchInputMorph(
+        containerColor = containerColor,
+        leadingIconTint = leadingIconTint,
+        shape = shape,
+        tonalElevation = tonalElevation,
+    )
 }
 
 @Composable
@@ -311,15 +532,16 @@ private fun SearchScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    deletingMemoIds: ImmutableSet<String>,
+    listState: LazyListState,
     padding: PaddingValues,
     onOpenEditor: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
+    onDeleteAnimationSettled: (String) -> Unit,
 ) {
+    val resultListContentPadding = searchResultListContentPadding(padding)
     Box(
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .padding(padding),
+        modifier = Modifier.fillMaxSize(),
     ) {
         when {
             query.isEmpty() -> {
@@ -327,11 +549,12 @@ private fun SearchScreenContent(
                     icon = Icons.Default.Search,
                     title = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_title),
                     description = androidx.compose.ui.res.stringResource(R.string.search_empty_initial_desc),
+                    modifier = Modifier.padding(padding),
                 )
             }
 
             showLoading -> {
-                SearchLoadingState()
+                SearchLoadingState(modifier = Modifier.padding(padding))
             }
 
             searchResults.isEmpty() -> {
@@ -339,6 +562,7 @@ private fun SearchScreenContent(
                     icon = Icons.Default.Search,
                     title = androidx.compose.ui.res.stringResource(R.string.search_no_results_title),
                     description = androidx.compose.ui.res.stringResource(R.string.search_no_results_desc),
+                    modifier = Modifier.padding(padding),
                 )
             }
 
@@ -355,13 +579,10 @@ private fun SearchScreenContent(
                         onMemoEdit = onOpenEditor,
                         onShowMenu = onShowMenu,
                         animation = MemoCardListAnimation.None,
-                        contentPadding =
-                            PaddingValues(
-                                top = AppSpacing.Medium,
-                                start = AppSpacing.Medium,
-                                end = AppSpacing.Medium,
-                                bottom = AppSpacing.Medium,
-                            ),
+                        deletingMemoIds = deletingMemoIds,
+                        onDeleteAnimationSettled = onDeleteAnimationSettled,
+                        listState = listState,
+                        contentPadding = resultListContentPadding,
                     )
                 }
             }

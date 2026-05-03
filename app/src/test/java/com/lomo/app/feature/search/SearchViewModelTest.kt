@@ -396,6 +396,22 @@ class SearchViewModelTest {
         }
 
     @Test
+    fun `deleteMemo keeps deleting id until search list animation settles`() =
+        runTest {
+            val viewModel = createViewModel()
+            val memo = sampleMemo(id = "memo-delete")
+
+            viewModel.deleteMemo(memo)
+            runCurrent()
+
+            assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
+
+            viewModel.onDeleteAnimationSettled(memo.id)
+
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
+        }
+
+    @Test
     fun `updateMemo exposes mapped error message on failure`() =
         runTest {
             val viewModel = createViewModel()

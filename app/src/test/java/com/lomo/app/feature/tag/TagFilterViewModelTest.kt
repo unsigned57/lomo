@@ -127,6 +127,22 @@ class TagFilterViewModelTest {
         }
 
     @Test
+    fun `deleteMemo keeps deleting id until tag list animation settles`() =
+        runTest {
+            val viewModel = createViewModel(tagName = "work")
+            val memo = sampleMemo(id = "memo-delete")
+
+            viewModel.deleteMemo(memo)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
+
+            viewModel.onDeleteAnimationSettled(memo.id)
+
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
+        }
+
+    @Test
     fun `updateMemo exposes mapped error message on failure`() =
         runTest {
             val viewModel = createViewModel(tagName = "work")

@@ -36,21 +36,20 @@ import java.time.ZoneId
 /*
  * Test Contract:
  * - Unit under test: TrashViewModel
- * - Behavior focus: clear-trash command dispatch plus the rendered-list delete timing during trash restore/delete flows.
- * - Observable outcomes: deleting row ids before execution, one repository clearTrash command instead of per-row permanent deletes, and visible trash rows collapsing when the fade completes instead of leaving transparent gaps while repository work continues.
- * - Red phase: Fails before the fix because trash rows stay structurally present after the fade delay, leaving a long transparent gap while the backing deleted-memo flow waits on repository completion.
+ * - Behavior focus: clear-trash command dispatch plus delete/collapse id timing during trash restore/delete flows.
+ * - Observable outcomes: deleting row ids before execution, one repository clearTrash command instead of per-row permanent deletes, and collapse markers that stay active until the composable-side retention callback settles.
+ * - Red phase: Fails before the fix because TrashViewModel owned a separate visible list tracker, so trash retention behavior could not be driven by the shared composable-side settle contract.
  * - Excludes: Compose rendering, animation interpolation, and repository internals.
  */
 /*
  * Test Change Justification:
  * - Reason category: product contract changed.
- * - Old behavior/assertion being replaced: the trash flows previously asserted that visibleTrashUiMemos becomes
- *   empty as soon as the fade finishes.
- * - Why the previous assertion is no longer correct: removing the row from the rendered list before the backing
- *   repository mutation completes creates a second structural list update that shows up as a rebound in sibling
- *   row motion.
- * - Coverage preserved by: the tests still lock delete/restore timing, deletion markers, and final row removal
- *   after repository completion, while now protecting the single-collapse contract.
+ * - Old behavior/assertion being replaced: the trash flows previously asserted against a ViewModel-owned rendered
+ *   list (`visibleTrashUiMemos`) that disappeared once tracker cleanup ran.
+ * - Why the previous assertion is no longer correct: Trash now follows the same composable-side retained-row model
+ *   as the main list, so the ViewModel contract is to hold delete/collapse ids until the UI reports animation settle.
+ * - Coverage preserved by: the tests still lock delete/restore timing, deletion markers, and final cleanup
+ *   after repository completion, while now protecting the shared settle callback contract.
  * - Why this is not changing the test to fit the implementation: the revised assertion captures the user-visible
  *   motion requirement rather than an internal implementation choice.
  */
@@ -113,18 +112,15 @@ class TrashViewModelTest {
             runCurrent()
 
             assertEquals(setOf(firstMemo.id, secondMemo.id), viewModel.deletingMemoIds.value)
-            coVerify(exactly = 0) { repository.clearTrash() }
-
-            advanceTimeBy(300L)
-            runCurrent()
-
             coVerify(exactly = 1) { repository.clearTrash() }
-            coVerify(exactly = 0) { repository.deletePermanently(firstMemo) }
-            coVerify(exactly = 0) { repository.deletePermanently(secondMemo) }
+
+            viewModel.onDeleteAnimationSettled(firstMemo.id)
+            viewModel.onDeleteAnimationSettled(secondMemo.id)
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
         }
 
     @Test
-    fun `delete permanently keeps trash row rendered until collapse settles after repository removal`() =
+    fun `delete permanently keeps collapse marker until trash animation settles after repository removal`() =
         runTest {
             val memo = memo("trash-delete", LocalDate.of(2026, 3, 8), 9)
             val deletedMemosFlow = MutableStateFlow(listOf(memo))
@@ -141,30 +137,19 @@ class TrashViewModelTest {
             viewModel.deletePermanently(memo)
             runCurrent()
 
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
-
-            advanceTimeBy(300L)
-            runCurrent()
-
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
             assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
-            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
 
             finishDelete.complete(Unit)
             runCurrent()
 
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
-            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
+            assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
 
-            advanceTimeBy(220L)
-            advanceUntilIdle()
-
-            assertTrue(viewModel.visibleTrashUiMemos.first { it.isEmpty() }.isEmpty())
-            assertTrue(viewModel.collapsingMemoIds.value.isEmpty())
+            viewModel.onDeleteAnimationSettled(memo.id)
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
         }
 
     @Test
-    fun `restore keeps trash row rendered until collapse settles after repository removal`() =
+    fun `restore keeps collapse marker until trash animation settles after repository removal`() =
         runTest {
             val memo = memo("trash-restore", LocalDate.of(2026, 3, 8), 9)
             val deletedMemosFlow = MutableStateFlow(listOf(memo))
@@ -181,26 +166,16 @@ class TrashViewModelTest {
             viewModel.restoreMemo(memo)
             runCurrent()
 
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
-
-            advanceTimeBy(300L)
-            runCurrent()
-
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
             assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
-            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
 
             finishRestore.complete(Unit)
             runCurrent()
 
-            assertEquals(listOf(memo.id), viewModel.visibleTrashUiMemos.value.map { it.memo.id })
-            assertTrue(viewModel.collapsingMemoIds.value.contains(memo.id))
+            assertTrue(viewModel.deletingMemoIds.value.contains(memo.id))
 
-            advanceTimeBy(220L)
-            advanceUntilIdle()
-
-            assertTrue(viewModel.visibleTrashUiMemos.first { it.isEmpty() }.isEmpty())
-            assertTrue(viewModel.collapsingMemoIds.value.isEmpty())
+            viewModel.onDeleteAnimationSettled(memo.id)
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
+            assertTrue(viewModel.deletingMemoIds.value.isEmpty())
         }
 
     private fun createViewModel(): TrashViewModel =

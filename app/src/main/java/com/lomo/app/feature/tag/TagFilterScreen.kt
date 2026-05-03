@@ -40,8 +40,10 @@ import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.collections.immutable.toImmutableSet
 
 private val TAG_FILTER_ICON_SIZE = 28.dp
 private val TAG_FILTER_ICON_SPACING = 8.dp
@@ -60,6 +62,7 @@ fun TagFilterScreen(
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
     val memos by viewModel.uiMemos.collectAsStateWithLifecycle()
+    val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDir.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDir.collectAsStateWithLifecycle()
@@ -102,9 +105,11 @@ fun TagFilterScreen(
                 timeFormat = appPreferences.timeFormat,
                 doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
                 freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+                deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
                 onMemoEdit = openEditor,
                 onShowMenu = showMenu,
                 onImageClick = onNavigateToImage,
+                onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
                 modifier = modifier.padding(padding),
             )
         }
@@ -186,9 +191,11 @@ private fun TagFilterScreenContent(
     timeFormat: String,
     doubleTapEditEnabled: Boolean,
     freeTextCopyEnabled: Boolean,
+    deletingMemoIds: ImmutableSet<String>,
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
+    onDeleteAnimationSettled: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -209,6 +216,8 @@ private fun TagFilterScreenContent(
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
                 animation = MemoCardListAnimation.Placement,
+                deletingMemoIds = deletingMemoIds,
+                onDeleteAnimationSettled = onDeleteAnimationSettled,
                 contentPadding =
                     PaddingValues(
                         top = TAG_FILTER_LIST_PADDING,
