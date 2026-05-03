@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.runDeleteAnimationWithRollback
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.feature.main.mapToUiModelState
@@ -56,6 +57,8 @@ class SearchViewModel
         val searchQuery: StateFlow<String> = _searchQuery
         private val _errorMessage = MutableStateFlow<String?>(null)
         val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
+        private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
+        val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
 
         val rootDirectory: StateFlow<String?> =
             appConfigUiCoordinator
@@ -124,15 +127,21 @@ class SearchViewModel
 
         fun deleteMemo(memo: Memo) {
             viewModelScope.launch {
-                runCatching {
-                    deleteMemoUseCase(memo)
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = memo.id,
+                        deletingIds = _deletingMemoIds,
+                    ) {
+                        deleteMemoUseCase(memo)
                     }
+                result.exceptionOrNull()?.let { throwable ->
                     _errorMessage.value = throwable.toUserMessage("Failed to delete memo")
                 }
             }
+        }
+
+        fun onDeleteAnimationSettled(memoId: String) {
+            _deletingMemoIds.value = _deletingMemoIds.value - memoId
         }
 
         fun updateMemo(

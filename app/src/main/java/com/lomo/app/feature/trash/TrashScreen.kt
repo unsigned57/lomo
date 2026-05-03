@@ -2,12 +2,14 @@ package com.lomo.app.feature.trash
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,15 +54,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
+import com.lomo.app.feature.common.rememberRetainedVisibleItems
 import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.feature.main.MemoUiModel
+import com.lomo.app.feature.main.deleteViewportEntryCompensation
+import com.lomo.app.feature.main.rememberDeleteViewportEntryCompensation
 import com.lomo.domain.model.Memo
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
@@ -69,17 +76,20 @@ import com.lomo.ui.component.menu.MemoActionHaptic
 import com.lomo.ui.component.menu.MemoActionSheet
 import com.lomo.ui.component.menu.MemoActionSheetAction
 import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.coroutines.delay
 
 private val TRASH_LIST_CONTENT_PADDING = 16.dp
 private val TRASH_LIST_ITEM_SPACING = 12.dp
 private const val TRASH_DELETE_ANIMATION_DURATION_MILLIS = 300
 private const val TRASH_DELETE_FADE_DELAY_MILLIS = 300
-private const val TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS = 220
+private const val TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS = 300
+private const val TRASH_DELETE_FADE_DURATION_MILLIS = 300
 private const val TRASH_ITEM_VISIBLE_ALPHA = 1f
 private const val TRASH_ITEM_HIDDEN_ALPHA = 0f
 private const val TRASH_ITEM_ALPHA_THRESHOLD = 0.999f
@@ -97,9 +107,8 @@ fun TrashScreen(
     modifier: Modifier = Modifier,
     viewModel: TrashViewModel = hiltViewModel(),
 ) {
-    val trashMemos by viewModel.visibleTrashUiMemos.collectAsStateWithLifecycle()
+    val trashMemos by viewModel.trashUiMemos.collectAsStateWithLifecycle()
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
-    val collapsingMemoIds by viewModel.collapsingMemoIds.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -110,6 +119,13 @@ fun TrashScreen(
         }
     var selectedMemo by remember { mutableStateOf<Memo?>(null) }
     var showClearTrashDialog by rememberSaveable { mutableStateOf(false) }
+    val retainedTrashMemos =
+        rememberRetainedVisibleItems(
+            sourceItems = remember(trashMemos) { trashMemos.toImmutableList() },
+            retainedIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
+            itemId = { item -> item.memo.id },
+            onRetentionSettled = viewModel::onDeleteAnimationSettled,
+        )
 
     TrashScreenEffects(
         errorMessage = errorMessage,
@@ -119,7 +135,7 @@ fun TrashScreen(
 
     TrashScreenScaffold(
         snackbarHostState = snackbarHostState,
-        hasItems = trashMemos.isNotEmpty(),
+        hasItems = retainedTrashMemos.isNotEmpty(),
         onBackClick = {
             haptic.medium()
             onBackClick()
@@ -130,9 +146,8 @@ fun TrashScreen(
         },
     ) { paddingValues ->
         TrashScreenContent(
-            trashMemos = remember(trashMemos) { trashMemos.toImmutableList() },
+            trashMemos = retainedTrashMemos,
             deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
-            collapsingMemoIds = remember(collapsingMemoIds) { collapsingMemoIds.toImmutableSet() },
             dateFormat = appPreferences.dateFormat,
             timeFormat = appPreferences.timeFormat,
             freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
@@ -231,7 +246,6 @@ private fun TrashScreenScaffold(
 private fun TrashScreenContent(
     trashMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
@@ -246,7 +260,6 @@ private fun TrashScreenContent(
             TrashMemoList(
                 trashMemos = trashMemos,
                 deletingMemoIds = deletingMemoIds,
-                collapsingMemoIds = collapsingMemoIds,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 freeTextCopyEnabled = freeTextCopyEnabled,
@@ -273,7 +286,6 @@ private fun TrashEmptyState(modifier: Modifier = Modifier) {
 private fun TrashMemoList(
     trashMemos: ImmutableList<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
-    collapsingMemoIds: ImmutableSet<String>,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
@@ -281,6 +293,12 @@ private fun TrashMemoList(
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val viewportEntryCompensation =
+        rememberDeleteViewportEntryCompensation(
+            sourceItems = trashMemos,
+            deletingIds = deletingMemoIds,
+            listState = listState,
+        )
     LazyColumn(
         state = listState,
         contentPadding = PaddingValues(TRASH_LIST_CONTENT_PADDING),
@@ -292,42 +310,58 @@ private fun TrashMemoList(
             key = { _, item -> item.memo.id },
             contentType = { _, _ -> "memo" },
         ) { index, uiModel ->
-            val deleteAnimationPolicy =
-                resolveDeleteAnimationVisualPolicy(
-                    isDeleting = uiModel.memo.id in deletingMemoIds,
-                )
+            val deleteViewportSharedCompensation =
+                viewportEntryCompensation.sharedTopEntryCompensationFor(uiModel.memo.id)
+            val deleteViewportCompensation =
+                deleteViewportSharedCompensation
+                    ?: viewportEntryCompensation.compensationFor(uiModel.memo.id)
+            val deleteViewportHoldOffset =
+                if (deleteViewportCompensation == null) {
+                    viewportEntryCompensation.holdOffsetFor(uiModel.memo.id)
+                } else {
+                    null
+                }
+            val blockPlacementSpringForDeleteViewportEntry =
+                deleteViewportCompensation != null ||
+                    deleteViewportHoldOffset != null
             TrashMemoCardItem(
                 uiModel = uiModel,
+                index = index,
                 isDeleting = uiModel.memo.id in deletingMemoIds,
-                isCollapsing = uiModel.memo.id in collapsingMemoIds,
                 bottomSpacing = if (index == trashMemos.lastIndex) 0.dp else TRASH_LIST_ITEM_SPACING,
-                keepStableAlphaLayer = deleteAnimationPolicy.keepStableAlphaLayer,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onMemoMenuClick = onMemoMenuClick,
+                viewportEntryCompensation = viewportEntryCompensation,
                 modifier =
-                    if (deleteAnimationPolicy.animatePlacement) {
-                        Modifier
-                            .animateItem(
-                                fadeInSpec =
-                                    keyframes {
-                                        durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS
-                                        TRASH_ITEM_HIDDEN_ALPHA at 0
-                                        TRASH_ITEM_HIDDEN_ALPHA at TRASH_DELETE_FADE_DELAY_MILLIS
-                                        TRASH_ITEM_VISIBLE_ALPHA at TRASH_DELETE_ANIMATION_DURATION_MILLIS using
-                                            com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                    },
-                                fadeOutSpec = null,
-                                placementSpec =
+                    Modifier
+                        .animateItem(
+                            fadeInSpec =
+                                keyframes {
+                                    durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS
+                                    TRASH_ITEM_HIDDEN_ALPHA at 0
+                                    TRASH_ITEM_HIDDEN_ALPHA at TRASH_DELETE_FADE_DELAY_MILLIS
+                                    TRASH_ITEM_VISIBLE_ALPHA at TRASH_DELETE_ANIMATION_DURATION_MILLIS using
+                                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
+                                },
+                            fadeOutSpec = null,
+                            placementSpec =
+                                if (blockPlacementSpringForDeleteViewportEntry) {
+                                    snap()
+                                } else {
                                     spring(
-                                        stiffness = Spring.StiffnessMediumLow,
+                                        stiffness = Spring.StiffnessLow,
                                         dampingRatio = Spring.DampingRatioNoBouncy,
-                                    ),
-                            ).fillMaxWidth()
-                    } else {
-                        Modifier.fillMaxWidth()
-                    },
+                                    )
+                                },
+                        ).deleteViewportEntryCompensation(
+                            compensation = deleteViewportCompensation,
+                            holdOffsetPx = deleteViewportHoldOffset,
+                            onAnimationConsumed = {
+                                viewportEntryCompensation.clearCompensation(uiModel.memo.id)
+                            },
+                        ).fillMaxWidth(),
             )
         }
     }
@@ -336,36 +370,51 @@ private fun TrashMemoList(
 @Composable
 private fun TrashMemoCardItem(
     uiModel: MemoUiModel,
+    index: Int,
     isDeleting: Boolean,
-    isCollapsing: Boolean,
     bottomSpacing: androidx.compose.ui.unit.Dp,
-    keepStableAlphaLayer: Boolean,
     dateFormat: String,
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
     onMemoMenuClick: (Memo) -> Unit,
+    viewportEntryCompensation: com.lomo.app.feature.main.DeleteViewportEntryCompensationState,
     modifier: Modifier = Modifier,
 ) {
-    val deleteAlpha by animateFloatAsState(
-        targetValue =
-            if (isDeleting) {
-                TRASH_ITEM_HIDDEN_ALPHA
-            } else {
-                TRASH_ITEM_VISIBLE_ALPHA
-            },
+    val density = LocalDensity.current
+    val bottomSpacingPx =
+        remember(bottomSpacing, density) {
+            with(density) { bottomSpacing.roundToPx() }
+        }
+    // Two-phase delete animation: fade (t=0–300ms) then collapse (t=300–600ms)
+    var isCollapsing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isDeleting) {
+        if (isDeleting) {
+            delay(TRASH_DELETE_FADE_DURATION_MILLIS.toLong())
+            isCollapsing = true
+        } else {
+            isCollapsing = false
+        }
+    }
+
+    // Phase 1: alpha fade-out (fixed spec — only target changes)
+    val itemAlpha by animateFloatAsState(
+        targetValue = if (isDeleting) 0f else 1f,
         animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS,
-                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+            tween(
+                durationMillis = TRASH_DELETE_FADE_DURATION_MILLIS,
+                easing = MotionTokens.EasingStandard,
             ),
         label = "DeleteAlpha",
     )
+
+    // Phase 2: bottom spacing collapse (fixed spec — only target changes)
     val animatedBottomSpacing by animateDpAsState(
         targetValue = if (isCollapsing) 0.dp else bottomSpacing,
         animationSpec =
-            androidx.compose.animation.core.tween(
+            tween(
                 durationMillis = TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS,
-                easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                easing = MotionTokens.EasingStandard,
             ),
         label = "DeleteSpacing",
     )
@@ -375,43 +424,56 @@ private fun TrashMemoCardItem(
         enter =
             expandVertically(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
+                    tween(
                         durationMillis = TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS,
-                        easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                        easing = MotionTokens.EasingStandard,
                     ),
                 expandFrom = Alignment.Top,
             ),
         exit =
             shrinkVertically(
                 animationSpec =
-                    androidx.compose.animation.core.tween(
+                    tween(
                         durationMillis = TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS,
-                        easing = com.lomo.ui.theme.MotionTokens.EasingStandard,
+                        easing = MotionTokens.EasingStandard,
                     ),
                 shrinkTowards = Alignment.Top,
             ),
         modifier =
             modifier
+                .onSizeChanged { size ->
+                    viewportEntryCompensation.onItemMeasured(
+                        itemId = uiModel.memo.id,
+                        itemIndex = index,
+                        isDeleting = isDeleting,
+                        heightPx = size.height,
+                        bottomSpacingPx = bottomSpacingPx,
+                    )
+                }
                 .padding(bottom = animatedBottomSpacing)
                 .benchmarkAnchor(BenchmarkAnchorContract.memoCard(uiModel.memo.id)),
     ) {
         Box(
             modifier =
-                Modifier.trashItemDeleteModifier(deleteAlpha, keepStableAlphaLayer),
+                Modifier
+                    .graphicsLayer {
+                        alpha = itemAlpha
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    },
         ) {
             MemoCard(
-                content = uiModel.memo.content,
-                processedContent = uiModel.processedContent,
-                precomputedRenderPlan = uiModel.precomputedRenderPlan,
-                timestamp = uiModel.memo.timestamp,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                isPinned = uiModel.memo.isPinned,
-                tags = uiModel.tags,
-                allowFreeTextCopy = freeTextCopyEnabled,
-                menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
-                onMenuClick = { onMemoMenuClick(uiModel.memo) },
-            )
+            content = uiModel.memo.content,
+            processedContent = uiModel.processedContent,
+            precomputedRenderPlan = uiModel.precomputedRenderPlan,
+            timestamp = uiModel.memo.timestamp,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            isPinned = uiModel.memo.isPinned,
+            tags = uiModel.tags,
+            allowFreeTextCopy = freeTextCopyEnabled,
+            menuButtonModifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.memoMenu(uiModel.memo.id)),
+            onMenuClick = { onMemoMenuClick(uiModel.memo) },
+        )
         }
     }
 }
