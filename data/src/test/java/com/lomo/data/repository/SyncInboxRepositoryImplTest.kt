@@ -118,7 +118,7 @@ class SyncInboxRepositoryImplTest {
                     uri = null,
                 )
             }
-            coVerify(exactly = 1) { refreshEngine.refreshImportedSync("2026_04_15.md") }
+            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
             assertTrue("Inbox source file should be deleted after import", !inboxFile.exists())
             assertNull(pendingConflictStore.read(SyncBackendType.INBOX))
         }
@@ -255,5 +255,57 @@ class SyncInboxRepositoryImplTest {
             }
             assertNull(pendingConflictStore.read(SyncBackendType.INBOX))
             assertTrue(!inboxFile.exists())
+        }
+
+    @Test
+    fun `sync keeps importing later files when one markdown file throws during processing`() =
+        runTest {
+            val inboxRoot = Files.createTempDirectory("sync-inbox-exception-batch").toFile()
+            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+            File(memoDirectory, "2026_04_27.md").writeText("broken memo")
+            File(memoDirectory, "2026_04_28.md").writeText("healthy memo")
+
+            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_27.md") } throws
+                IllegalStateException("boom")
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_28.md") } returns null
+
+            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+
+            assertTrue(result is UnifiedSyncResult.Error || result is UnifiedSyncResult.Conflict)
+            coVerify(exactly = 1) {
+                markdownStorageDataSource.saveFileIn(
+                    directory = MemoDirectoryType.MAIN,
+                    filename = "2026_04_28.md",
+                    content = "healthy memo",
+                    append = false,
+                    uri = null,
+                )
+            }
+        }
+
+    @Test
+    fun `sync refreshes imported files once after multiple successful imports`() =
+        runTest {
+            val inboxRoot = Files.createTempDirectory("sync-inbox-batch-refresh").toFile()
+            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+            File(memoDirectory, "2026_04_29.md").writeText("first")
+            File(memoDirectory, "2026_04_30.md").writeText("second")
+
+            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
+
+            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+
+            assertEquals(
+                UnifiedSyncResult.Success(
+                    provider = SyncBackendType.INBOX,
+                    message = "Sync inbox processed",
+                ),
+                result,
+            )
+            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
+            coVerify(exactly = 0) { refreshEngine.refreshImportedSync("2026_04_29.md") }
+            coVerify(exactly = 0) { refreshEngine.refreshImportedSync("2026_04_30.md") }
         }
 }

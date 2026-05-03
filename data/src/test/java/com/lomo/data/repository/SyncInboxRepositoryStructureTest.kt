@@ -126,7 +126,7 @@ class SyncInboxRepositoryStructureTest {
                     uri = null,
                 )
             }
-            coVerify(exactly = 1) { refreshEngine.refreshImportedSync("2026_04_16.md") }
+            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
             assertTrue(!inboxFile.exists())
         }
 
@@ -157,10 +157,10 @@ class SyncInboxRepositoryStructureTest {
                 result,
             )
             coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFile(
+                workspaceMediaAccess.writeFileFromStream(
                     category = WorkspaceMediaCategory.IMAGE,
                     filename = match { it.startsWith("cover_") && it.endsWith(".png") },
-                    bytes = match { it.contentEquals(imageBytes) },
+                    source = any(),
                 )
             }
             coVerify(exactly = 1) {
@@ -203,10 +203,10 @@ class SyncInboxRepositoryStructureTest {
                 result,
             )
             coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFile(
+                workspaceMediaAccess.writeFileFromStream(
                     category = WorkspaceMediaCategory.IMAGE,
                     filename = match { it.startsWith("poster_") && it.endsWith(".png") },
-                    bytes = match { it.contentEquals(imageBytes) },
+                    source = any(),
                 )
             }
             coVerify(exactly = 1) {
@@ -249,10 +249,10 @@ class SyncInboxRepositoryStructureTest {
                 result,
             )
             coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFile(
+                workspaceMediaAccess.writeFileFromStream(
                     category = WorkspaceMediaCategory.VOICE,
                     filename = match { it.startsWith("voice_20260416_") && it.endsWith(".m4a") },
-                    bytes = match { it.contentEquals(voiceBytes) },
+                    source = any(),
                 )
             }
             coVerify(exactly = 1) {
@@ -293,10 +293,10 @@ class SyncInboxRepositoryStructureTest {
                 result,
             )
             coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFile(
+                workspaceMediaAccess.writeFileFromStream(
                     category = WorkspaceMediaCategory.VOICE,
                     filename = match { it.startsWith("voice_20260420_") && it.endsWith(".m4a") },
-                    bytes = match { it.contentEquals(voiceBytes) },
+                    source = any(),
                 )
             }
             assertTrue(!File(recordingDirectory, "voice_20260420.m4a").exists())
@@ -327,7 +327,7 @@ class SyncInboxRepositoryStructureTest {
             coVerify(exactly = 0) {
                 markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any())
             }
-            coVerify(exactly = 0) { workspaceMediaAccess.writeFile(any(), any(), any()) }
+            coVerify(exactly = 0) { workspaceMediaAccess.writeFileFromStream(any(), any(), any()) }
             assertTrue(inboxFile.exists())
         }
 
@@ -387,11 +387,7 @@ class SyncInboxRepositoryStructureTest {
             every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
             coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
             coEvery {
-                workspaceMediaAccess.writeFile(
-                    category = WorkspaceMediaCategory.IMAGE,
-                    filename = any(),
-                    bytes = match { it.contentEquals(imageBytes) },
-                )
+                workspaceMediaAccess.writeFileFromStream(any(), any(), any())
             } answers {
                 capturedFilenames += secondArg<String>()
                 Unit
@@ -408,5 +404,29 @@ class SyncInboxRepositoryStructureTest {
             )
             assertEquals(2, capturedFilenames.size)
             assertEquals(capturedFilenames.first(), capturedFilenames.last())
+        }
+
+    @Test
+    fun `sync streams attachment copies through workspace media access`() =
+        runTest {
+            val inboxRoot = Files.createTempDirectory("sync-inbox-streamed-attachment").toFile()
+            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+            File(inboxRoot, "voice").mkdirs()
+            File(imagesDirectory, "cover.png").writeBytes("cover".toByteArray())
+            File(memoDirectory, "2026_05_01.md").writeText("memo ![cover](images/cover.png)")
+
+            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_05_01.md") } returns null
+
+            repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+
+            coVerify(exactly = 1) {
+                workspaceMediaAccess.writeFileFromStream(
+                    category = WorkspaceMediaCategory.IMAGE,
+                    filename = match { it.startsWith("cover_") && it.endsWith(".png") },
+                    source = any(),
+                )
+            }
         }
 }

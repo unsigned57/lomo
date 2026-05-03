@@ -31,8 +31,9 @@ import java.time.Instant
  *   restore fidelity, restored markdown content, rollback of partially applied restore side effects, and restore
  *   failure preventing a synthetic restore revision.
  * - Red phase: Fails before the fix because restoring or editing back to an older memo state records duplicate
- *   revisions for content and attachments that already exist in history, and revision rows still persist full memo
- *   bodies instead of compact previews.
+ *   revisions for content and attachments that already exist in history, revision rows still persist full memo
+ *   bodies instead of compact previews, and restore paths without memo persistence stores can succeed after
+ *   mutating files instead of failing fast.
  * - Excludes: Room SQL mechanics, Compose/UI rendering, and Git history integration.
  */
 class MemoVersionJournalTest {
@@ -57,6 +58,7 @@ class MemoVersionJournalTest {
                 markdownStorageDataSource = markdownStorageDataSource,
                 workspaceMediaAccess = workspaceMediaAccess,
                 memoTextProcessor = textProcessor,
+                restorePersistence = NoOpMemoVersionRestorePersistence,
                 now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
                 nextCommitId = store::nextCommitId,
                 nextRevisionId = store::nextRevisionId,
@@ -267,6 +269,18 @@ class MemoVersionJournalTest {
     @Test
     fun `restoreDeletedRevision throws when persistence dependencies are unavailable`() =
         runTest {
+            val restoreDisabledJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                )
             val deleted =
                 memo(
                     id = "memo-deleted-restore",
@@ -274,12 +288,12 @@ class MemoVersionJournalTest {
                     rawContent = "- 09:00 deleted",
                 )
 
-            journal.appendLocalRevision(
+            restoreDisabledJournal.appendLocalRevision(
                 memo = deleted,
                 lifecycleState = MemoRevisionLifecycleState.ACTIVE,
                 origin = MemoRevisionOrigin.LOCAL_CREATE,
             )
-            journal.appendImportedRefreshRevisions(
+            restoreDisabledJournal.appendImportedRefreshRevisions(
                 changes =
                     listOf(
                         ImportedMemoRevisionChange.Delete(
@@ -295,20 +309,155 @@ class MemoVersionJournalTest {
             )
 
             val deletedRevision =
-                journal
+                restoreDisabledJournal
                     .listMemoRevisions(memo = deleted, cursor = null, limit = 10)
                     .items
                     .first()
 
             val failure =
                 runCatching {
-                    journal.restoreMemoRevision(currentMemo = deleted.copy(isDeleted = true), revisionId = deletedRevision.revisionId)
+                    restoreDisabledJournal.restoreMemoRevision(
+                        currentMemo = deleted.copy(isDeleted = true),
+                        revisionId = deletedRevision.revisionId,
+                    )
                 }.exceptionOrNull()
 
             assertTrue(failure is IllegalStateException)
             assertEquals(
                 "Memo restore requires memo persistence stores for deleted revisions.",
                 failure?.message,
+            )
+        }
+
+    @Test
+    fun `restoreActiveRevision fails fast when persistence dependencies are unavailable`() =
+        runTest {
+            val restoreDisabledJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                )
+            val original =
+                memo(
+                    id = "memo-active-restore-missing-stores",
+                    content = "before",
+                    rawContent = "- 09:00 before",
+                )
+            val updated =
+                original.copy(
+                    content = "after",
+                    rawContent = "- 09:00 after",
+                    updatedAt = original.updatedAt + 1,
+                )
+            markdownStorageDataSource.mainFiles["2026_03_27.md"] = original.rawContent
+
+            restoreDisabledJournal.appendLocalRevision(
+                memo = original,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            markdownStorageDataSource.mainFiles["2026_03_27.md"] = updated.rawContent
+            restoreDisabledJournal.appendLocalRevision(
+                memo = updated,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_EDIT,
+            )
+
+            val originalRevisionId =
+                restoreDisabledJournal
+                    .listMemoRevisions(memo = updated, cursor = null, limit = 10)
+                    .items
+                    .last()
+                    .revisionId
+
+            val failure =
+                runCatching {
+                    restoreDisabledJournal.restoreMemoRevision(currentMemo = updated, revisionId = originalRevisionId)
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertEquals("Memo restore requires memo persistence stores.", failure?.message)
+            assertEquals(updated.rawContent, markdownStorageDataSource.mainFiles["2026_03_27.md"])
+            assertEquals(
+                listOf("after", "before"),
+                restoreDisabledJournal.listMemoRevisions(
+                    memo = updated,
+                    cursor = null,
+                    limit = 10,
+                ).items.map(MemoRevision::memoContent),
+            )
+        }
+
+    @Test
+    fun `restoreTrashedRevision fails fast when persistence dependencies are unavailable`() =
+        runTest {
+            val restoreDisabledJournal =
+                MemoVersionJournal(
+                    store = store,
+                    blobRoot = blobRoot,
+                    markdownStorageDataSource = markdownStorageDataSource,
+                    workspaceMediaAccess = workspaceMediaAccess,
+                    memoTextProcessor = textProcessor,
+                    now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
+                    nextCommitId = store::nextCommitId,
+                    nextRevisionId = store::nextRevisionId,
+                    nextBatchId = store::nextBatchId,
+                )
+            val active =
+                memo(
+                    id = "memo-trashed-restore-missing-stores",
+                    content = "keep me",
+                    rawContent = "- 09:00 keep me",
+                )
+            val trashed =
+                active.copy(
+                    isDeleted = true,
+                    updatedAt = active.updatedAt + 1,
+                )
+            markdownStorageDataSource.mainFiles["2026_03_27.md"] = active.rawContent
+
+            restoreDisabledJournal.appendLocalRevision(
+                memo = active,
+                lifecycleState = MemoRevisionLifecycleState.ACTIVE,
+                origin = MemoRevisionOrigin.LOCAL_CREATE,
+            )
+            restoreDisabledJournal.appendImportedRefreshRevisions(
+                changes =
+                    listOf(
+                        ImportedMemoRevisionChange.Upsert(
+                            memo = trashed,
+                            lifecycleState = MemoRevisionLifecycleState.TRASHED,
+                        ),
+                    ),
+                origin = MemoRevisionOrigin.IMPORT_REFRESH,
+            )
+
+            val trashedRevisionId =
+                restoreDisabledJournal
+                    .listMemoRevisions(memo = active, cursor = null, limit = 10)
+                    .items
+                    .first { revision -> revision.lifecycleState == MemoRevisionLifecycleState.TRASHED }
+                    .revisionId
+
+            val failure =
+                runCatching {
+                    restoreDisabledJournal.restoreMemoRevision(currentMemo = active, revisionId = trashedRevisionId)
+                }.exceptionOrNull()
+
+            assertTrue(failure is IllegalStateException)
+            assertEquals("Memo restore requires memo persistence stores.", failure?.message)
+            assertEquals(active.rawContent, markdownStorageDataSource.mainFiles["2026_03_27.md"])
+            assertTrue(markdownStorageDataSource.trashFiles.isEmpty())
+            assertEquals(
+                2,
+                restoreDisabledJournal.listMemoRevisions(memo = active, cursor = null, limit = 10).items.size,
             )
         }
 
@@ -821,6 +970,7 @@ class MemoVersionJournalTest {
                     markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = failingMediaAccess,
                     memoTextProcessor = textProcessor,
+                    restorePersistence = NoOpMemoVersionRestorePersistence,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
                     nextCommitId = store::nextCommitId,
                     nextRevisionId = store::nextRevisionId,
@@ -885,6 +1035,7 @@ class MemoVersionJournalTest {
                     markdownStorageDataSource = failingStorage,
                     workspaceMediaAccess = rollbackMediaAccess,
                     memoTextProcessor = textProcessor,
+                    restorePersistence = NoOpMemoVersionRestorePersistence,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
                     nextCommitId = store::nextCommitId,
                     nextRevisionId = store::nextRevisionId,
@@ -952,6 +1103,7 @@ class MemoVersionJournalTest {
                     markdownStorageDataSource = markdownStorageDataSource,
                     workspaceMediaAccess = unreadableAfterRestoreMediaAccess,
                     memoTextProcessor = textProcessor,
+                    restorePersistence = NoOpMemoVersionRestorePersistence,
                     now = { Instant.parse("2026-03-27T09:00:00Z").toEpochMilli() },
                     nextCommitId = store::nextCommitId,
                     nextRevisionId = store::nextRevisionId,
@@ -1019,6 +1171,14 @@ private fun memo(
         dateKey = "2026_03_27",
         imageUrls = MemoTextProcessor().extractImages(content),
     )
+
+private object NoOpMemoVersionRestorePersistence : MemoVersionRestorePersistence {
+    override suspend fun persistActiveMemo(memo: Memo) = Unit
+
+    override suspend fun persistTrashedMemo(memo: Memo) = Unit
+
+    override suspend fun deleteMemo(memoId: String) = Unit
+}
 
 private open class JournalMarkdownStorageDataSource : MarkdownStorageDataSource {
     val mainFiles = linkedMapOf<String, String>()
