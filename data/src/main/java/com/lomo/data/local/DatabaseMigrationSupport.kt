@@ -148,13 +148,26 @@ internal fun normalizeMemoTable(
 
     val legacyTable = "${tableName}_legacy_v22"
     val columns = db.tableColumns(tableName)
+    val hasUpdatedAt = "updatedAt" in columns
 
     db.execSQL("$DROP_TABLE_IF_EXISTS `$legacyTable`")
     db.execSQL("ALTER TABLE `$tableName` RENAME TO `$legacyTable`")
-    createMemoTable(db, tableName, withContentIndex)
+    db.dropExplicitIndices(legacyTable)
+    createMemoTable(
+        db = db,
+        tableName = tableName,
+        withContentIndex = withContentIndex,
+        withUpdatedAt = hasUpdatedAt,
+    )
 
     val idExpr = legacyMemoIdExpr(columns)
     val timestampExpr = pickIntExpr(columns, COLUMN_TIMESTAMP)
+    val updatedAtExpr =
+        if (hasUpdatedAt) {
+            pickIntExpr(columns, "updatedAt", defaultExpr = timestampExpr)
+        } else {
+            null
+        }
     val contentExpr = pickTextExpr(columns, COLUMN_CONTENT, COLUMN_RAW_CONTENT)
     val rawContentExpr = pickTextExpr(columns, COLUMN_RAW_CONTENT, COLUMN_CONTENT)
     val dateExpr = pickTextExpr(columns, "date", "dateKey")
@@ -167,6 +180,7 @@ internal fun normalizeMemoTable(
         sourceTable = legacyTable,
         idExpr = idExpr,
         timestampExpr = timestampExpr,
+        updatedAtExpr = updatedAtExpr,
         contentExpr = contentExpr,
         rawContentExpr = rawContentExpr,
         dateExpr = dateExpr,
@@ -186,6 +200,7 @@ internal fun normalizeLocalFileStateTable(db: SQLiteConnection) {
     val columns = db.tableColumns(LOCAL_FILE_STATE_TABLE)
     db.execSQL("$DROP_TABLE_IF_EXISTS `$LOCAL_FILE_STATE_LEGACY_TABLE`")
     db.execSQL("ALTER TABLE `$LOCAL_FILE_STATE_TABLE` RENAME TO `$LOCAL_FILE_STATE_LEGACY_TABLE`")
+    db.dropExplicitIndices(LOCAL_FILE_STATE_LEGACY_TABLE)
     createLocalFileStateTable(db)
 
     val filenameExpr = pickTextExpr(columns, "filename")
@@ -231,6 +246,7 @@ internal fun normalizeMemoFileOutboxTable(db: SQLiteConnection) {
     val columns = db.tableColumns(MEMO_FILE_OUTBOX_TABLE)
     db.execSQL("$DROP_TABLE_IF_EXISTS `$MEMO_FILE_OUTBOX_LEGACY_TABLE`")
     db.execSQL("ALTER TABLE `$MEMO_FILE_OUTBOX_TABLE` RENAME TO `$MEMO_FILE_OUTBOX_LEGACY_TABLE`")
+    db.dropExplicitIndices(MEMO_FILE_OUTBOX_LEGACY_TABLE)
     createMemoFileOutboxTable(db)
 
     val projection = memoFileOutboxProjection(columns)

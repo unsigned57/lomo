@@ -1,11 +1,16 @@
+/*
+ * Test Contract:
+ * - Unit under test: DatabaseTransitionStrategy
+ * - Behavior focus: atomic file-based database transitions and backup/recovery.
+ * - Observable outcomes: file system state after transition, recovery from partial failures.
+ * - Red phase: Not applicable - unit tests for database transition safety.
+ * - Excludes: SQLite execution, Room database internals.
+ */
 package com.lomo.data.local
 
-import androidx.room3.migration.Migration
-import androidx.sqlite.SQLiteConnection
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -14,18 +19,36 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: DatabaseTransitionStrategy
- * - Behavior focus: reset gating, migration-graph reachability, destructive fallback ranges, legacy-table cleanup, and pre-open no-op behavior.
- * - Observable outcomes: Boolean reset decisions, destructive-version arrays, executed DROP TABLE statements, and deleteDatabase side-effect suppression.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: reset gating based on migration-graph reachability, legacy-table cleanup, and pre-open
+ *   no-op behavior.
+ * - Observable outcomes: Boolean reset decisions, executed DROP TABLE statements, and deleteDatabase
+ *   side-effect suppression.
+ * - Red phase: Fails before the fix because the strategy still treats every forward upgrade version as safe
+ *   even when no migration path to the current schema exists.
  * - Excludes: Android SQLite implementation details, Timber logging, and Room migration SQL bodies themselves.
  */
+/*
+ * Test Change Justification (release-window reset policy):
+ * - Reason category: migration support contract changed.
+ * - Old behavior/assertion being replaced: any forward-only version below the target avoided pre-open reset,
+ *   and fallback range helpers assumed a universal migration era.
+ * - Why old assertion is no longer correct: after pruning universal direct migrations, unsupported legacy
+ *   versions must be reset before Room open while reachable internal versions still upgrade safely.
+ * - Coverage preserved by: path-reachability assertions for supported stable and internal versions, plus
+ *   explicit reset assertions for versions without a route to the current schema.
+ * - Why this is not fitting the test to the implementation: the migration graph itself is now the product
+ *   contract for preserve-vs-reset behavior.
+ */
 class DatabaseTransitionStrategyTest {
+    private val migrationEdges = ALL_DATABASE_MIGRATIONS.map { it.startVersion to it.endVersion }
+
     @Test
     fun shouldResetDatabase_returnsTrue_forUnknownVersion() {
         val result =
             DatabaseTransitionStrategy.shouldResetDatabase(
                 existingVersion = -1,
-                targetVersion = 24,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
             )
 
         assertTrue(result)
@@ -35,32 +58,57 @@ class DatabaseTransitionStrategyTest {
     fun shouldResetDatabase_returnsFalse_forSameVersion() {
         val result =
             DatabaseTransitionStrategy.shouldResetDatabase(
-                existingVersion = 24,
-                targetVersion = 24,
+                existingVersion = MEMO_DATABASE_VERSION,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
             )
 
         assertFalse(result)
     }
 
     @Test
-    fun shouldResetDatabase_returnsFalse_forAnyUpgradeVersion() {
-        for (version in 1..23) {
-            val result =
-                DatabaseTransitionStrategy.shouldResetDatabase(
-                    existingVersion = version,
-                    targetVersion = 24,
-                )
+    fun shouldResetDatabase_returnsFalse_forSupportedStableBaselineVersion() {
+        val result =
+            DatabaseTransitionStrategy.shouldResetDatabase(
+                existingVersion = 44,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
+            )
 
-            assertFalse("Version $version should not trigger reset", result)
-        }
+        assertFalse(result)
+    }
+
+    @Test
+    fun shouldResetDatabase_returnsFalse_forReachableInternalVersionOutsideStableWindow() {
+        val result =
+            DatabaseTransitionStrategy.shouldResetDatabase(
+                existingVersion = 34,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
+            )
+
+        assertFalse(result)
+    }
+
+    @Test
+    fun shouldResetDatabase_returnsTrue_forLegacyVersionWithoutMigrationPath() {
+        val result =
+            DatabaseTransitionStrategy.shouldResetDatabase(
+                existingVersion = 31,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
+            )
+
+        assertTrue(result)
     }
 
     @Test
     fun shouldResetDatabase_returnsTrue_forDowngrade() {
         val result =
             DatabaseTransitionStrategy.shouldResetDatabase(
-                existingVersion = 25,
-                targetVersion = 24,
+                existingVersion = MEMO_DATABASE_VERSION + 1,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
             )
 
         assertTrue(result)
@@ -71,7 +119,8 @@ class DatabaseTransitionStrategyTest {
         val result =
             DatabaseTransitionStrategy.shouldResetDatabase(
                 existingVersion = 0,
-                targetVersion = 24,
+                targetVersion = MEMO_DATABASE_VERSION,
+                migrationEdges = migrationEdges,
             )
 
         assertTrue(result)
@@ -136,49 +185,6 @@ class DatabaseTransitionStrategyTest {
     }
 
     @Test
-    fun fallbackToDestructiveFromVersions_isEmpty_whenConsolidationMigrationsExist() {
-        val result =
-            DatabaseTransitionStrategy.fallbackToDestructiveFromVersions(
-                migrations = ALL_DATABASE_MIGRATIONS.toList(),
-                targetVersion = MEMO_DATABASE_VERSION,
-            )
-
-        assertArrayEquals(intArrayOf(), result)
-    }
-
-    @Test
-    fun fallbackToDestructiveFromVersions_generatesLegacyRange_forPartialMigrations() {
-        val partialMigrations =
-            listOf(
-                object : Migration(18, 19) {
-                    override suspend fun migrate(connection: SQLiteConnection) = Unit
-                },
-                object : Migration(19, 20) {
-                    override suspend fun migrate(connection: SQLiteConnection) = Unit
-                },
-            )
-
-        val result =
-            DatabaseTransitionStrategy.fallbackToDestructiveFromVersions(
-                migrations = partialMigrations,
-                targetVersion = 20,
-            )
-
-        assertArrayEquals((1..17).toList().toIntArray(), result)
-    }
-
-    @Test
-    fun fallbackToDestructiveFromVersions_returnsFullLegacyRange_whenNoMigrationsExist() {
-        val result =
-            DatabaseTransitionStrategy.fallbackToDestructiveFromVersions(
-                migrations = emptyList(),
-                targetVersion = 4,
-            )
-
-        assertArrayEquals(intArrayOf(1, 2, 3), result)
-    }
-
-    @Test
     fun cleanupLegacyArtifactsCallback_dropsEveryLegacyTableOnOpen() {
         val database = RecordingSQLiteConnection()
 
@@ -202,6 +208,7 @@ class DatabaseTransitionStrategyTest {
             context = context,
             targetVersion = 24,
             databaseName = "missing.db",
+            migrationEdges = migrationEdges,
         )
 
         verify(exactly = 0) { context.deleteDatabase("missing.db") }

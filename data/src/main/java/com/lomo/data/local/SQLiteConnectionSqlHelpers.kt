@@ -29,6 +29,25 @@ internal fun SQLiteConnection.tableColumns(tableName: String): Set<String> =
         columns
     }
 
+internal fun SQLiteConnection.dropExplicitIndices(tableName: String) {
+    val indices =
+        query("PRAGMA index_list(`$tableName`)").use { cursor ->
+            val names = mutableListOf<String>()
+            val nameIndex = cursor.getColumnIndex("name")
+            val originIndex = cursor.getColumnIndex("origin")
+            while (cursor.moveToNext()) {
+                val origin = if (originIndex >= 0) cursor.getString(originIndex) else null
+                if (origin == "c" || origin == null) {
+                    cursor.getString(nameIndex)?.let(names::add)
+                }
+            }
+            names
+        }
+    indices.forEach { indexName ->
+        execSQL("DROP INDEX IF EXISTS `$indexName`")
+    }
+}
+
 internal class SQLiteQueryCursor(
     private val statement: SQLiteStatement,
 ) : AutoCloseable {

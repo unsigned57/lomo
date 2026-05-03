@@ -2,7 +2,6 @@ package com.lomo.data.local
 
 import android.content.Context
 import androidx.room3.RoomDatabase
-import androidx.room3.migration.Migration
 import androidx.sqlite.SQLiteConnection
 import timber.log.Timber
 import java.io.File
@@ -29,48 +28,47 @@ internal object DatabaseTransitionStrategy {
             "snapshot_blob",
         )
 
-    fun fallbackToDestructiveFromVersions(
-        migrations: List<Migration>,
-        targetVersion: Int,
-    ): IntArray {
-        val minMigratedStart =
-            migrations
-                .asSequence()
-                .map { it.startVersion }
-                .filter { it in 1..targetVersion }
-                .minOrNull() ?: targetVersion
-        return if (minMigratedStart <= 1) {
-            intArrayOf()
-        } else {
-            (1 until minMigratedStart).toList().toIntArray()
-        }
-    }
-
     fun prepareBeforeOpen(
         context: Context,
         targetVersion: Int,
         databaseName: String = DATABASE_NAME,
+        migrationEdges: List<Pair<Int, Int>>,
+        inspectDatabase: (File) -> PlaintextDatabaseInspection = PlaintextDatabaseVersionReader::inspect,
     ) {
         val databaseFile = context.getDatabasePath(databaseName)
         if (!databaseFile.exists()) return
-        if (!databaseFile.hasPlaintextSqliteHeader()) return
+        if (!databaseFile.hasPlaintextSqliteHeader()) {
+            Timber.tag(TAG).w("Resetting db '%s' before Room open because the SQLite header is invalid", databaseName)
+            deleteDatabaseArtifacts(context, databaseName)
+            return
+        }
 
-        val existingVersion =
+        val inspection =
             runCatching {
-                PlaintextDatabaseVersionReader.readUserVersion(databaseFile)
+                inspectDatabase(databaseFile)
             }.getOrElse { throwable ->
-                Timber.tag(TAG).w(throwable, "Failed to read user_version from %s", databaseFile.path)
-                UNKNOWN_DB_VERSION
+                Timber.tag(TAG).w(throwable, "Failed to inspect db file before Room open: %s", databaseFile.path)
+                PlaintextDatabaseInspection(
+                    userVersion = UNKNOWN_DB_VERSION,
+                    quickCheckPassed = false,
+                )
             }
 
-        // Only reset for truly invalid states: corrupt version or downgrade.
-        // All upgrade paths (1..target) are now covered by consolidation +
-        // incremental migrations, so path-checking is no longer needed.
-        if (shouldResetDatabase(existingVersion, targetVersion)) {
+        if (!inspection.quickCheckPassed) {
+            Timber.tag(TAG).w(
+                "Resetting db '%s' before Room open because quick_check did not return ok (existing=%d)",
+                databaseName,
+                inspection.userVersion,
+            )
+            deleteDatabaseArtifacts(context, databaseName)
+            return
+        }
+
+        if (shouldResetDatabase(inspection.userVersion, targetVersion, migrationEdges)) {
             Timber.tag(TAG).w(
                 "Resetting db '%s' before Room open (existing=%d, target=%d)",
                 databaseName,
-                existingVersion,
+                inspection.userVersion,
                 targetVersion,
             )
             deleteDatabaseArtifacts(context, databaseName)
@@ -91,7 +89,13 @@ internal object DatabaseTransitionStrategy {
     internal fun shouldResetDatabase(
         existingVersion: Int,
         targetVersion: Int,
-    ): Boolean = existingVersion <= 0 || existingVersion > targetVersion
+        migrationEdges: List<Pair<Int, Int>>,
+    ): Boolean =
+        when {
+            existingVersion <= 0 -> true
+            existingVersion > targetVersion -> true
+            else -> !canReachTargetVersion(existingVersion, targetVersion, migrationEdges)
+        }
 
     internal fun canReachTargetVersion(
         fromVersion: Int,
