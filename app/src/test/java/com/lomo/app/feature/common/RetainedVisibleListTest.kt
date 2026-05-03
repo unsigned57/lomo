@@ -5,13 +5,13 @@ import org.junit.Test
 
 /*
  * Test Contract:
- * - Unit under test: mergeVisibleItemsWithRetainedItems
- * - Behavior focus: rendered memo order must immediately follow the latest source order when no items are
- *   retained, while still keeping explicitly retained rows visible during delete-collapse transitions.
- * - Observable outcomes: returned visible item ids after sort-like reordering and retained-item removal.
- * - Red phase: Fails before the fix because the merge keeps the previous visible ordering even when retainedIds
- *   is empty, which makes main-list sorting appear broken and causes Jump navigation to target the wrong row.
- * - Excludes: Compose rendering, LazyList scrolling, and ViewModel wiring.
+ * - Unit under test: mergeVisibleItemsWithRetainedItems, resolveRetentionCleanupIds
+ * - Behavior focus: retained rows stay visible in correct positions during delete animation;
+ *   concurrent deletions preserve insertion-index stability.
+ * - Observable outcomes: returned visible item ids; position stability under multi-item retention.
+ * - Red phase: Fails before the fix when concurrent deletions cause the second retained item
+ *   to displace into the wrong position because the insertion index is computed from stale anchors.
+ * - Excludes: Compose rendering, LazyList scrolling, animation frame timing, and ViewModel wiring.
  */
 class RetainedVisibleListTest {
     @Test
@@ -63,6 +63,75 @@ class RetainedVisibleListTest {
             )
 
         assertEquals(listOf("newest", "stale-retained", "oldest"), result.map(VisibleItem::id))
+    }
+
+    @Test
+    fun `concurrent retained items keep stable positions`() {
+        val previousVisibleItems =
+            listOf(
+                visibleItem("A"),
+                visibleItem("del_1"),
+                visibleItem("B"),
+                visibleItem("del_2"),
+                visibleItem("C"),
+            )
+        val sourceItems =
+            listOf(
+                visibleItem("A"),
+                visibleItem("B"),
+                visibleItem("C"),
+            )
+
+        val result =
+            mergeVisibleItemsWithRetainedItems(
+                sourceItems = sourceItems,
+                previousVisibleItems = previousVisibleItems,
+                retainedIds = setOf("del_1", "del_2"),
+                itemId = VisibleItem::id,
+            )
+
+        assertEquals(
+            listOf("A", "del_1", "B", "del_2", "C"),
+            result.map(VisibleItem::id),
+        )
+    }
+
+    @Test
+    fun `resolveRetentionCleanupIds returns only ids absent from source`() {
+        val sourceItems =
+            listOf(
+                visibleItem("A"),
+                visibleItem("B"),
+            )
+        val retainedIds = setOf("del_1", "del_2", "del_3")
+
+        val cleanupIds =
+            resolveRetentionCleanupIds(
+                sourceItems = sourceItems,
+                retainedIds = retainedIds,
+                itemId = VisibleItem::id,
+            )
+
+        assertEquals(setOf("del_1", "del_2", "del_3"), cleanupIds)
+    }
+
+    @Test
+    fun `resolveRetentionCleanupIds excludes ids still in source`() {
+        val sourceItems =
+            listOf(
+                visibleItem("A"),
+                visibleItem("del_1"),
+            )
+        val retainedIds = setOf("del_1", "del_2")
+
+        val cleanupIds =
+            resolveRetentionCleanupIds(
+                sourceItems = sourceItems,
+                retainedIds = retainedIds,
+                itemId = VisibleItem::id,
+            )
+
+        assertEquals(setOf("del_2"), cleanupIds)
     }
 
     private fun visibleItem(id: String): VisibleItem = VisibleItem(id = id)
