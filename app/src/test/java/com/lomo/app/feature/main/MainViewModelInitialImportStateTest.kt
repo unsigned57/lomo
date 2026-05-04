@@ -75,7 +75,7 @@ import java.time.ZoneId
  * - Observable outcomes: exposed uiState values before and after refresh completion, plus the
  *   absence of premature Ready emissions while directory switching is pending.
  * - Red phase: Fails before the fix because switching to a new root while the old root already has
- *   memos keeps uiState at Ready until refreshMemos completes, so the loading state is never
+ *   memos keeps uiState at Ready until the workspace rebuild completes, so the loading state is never
  *   exposed and the UI can flash the empty state.
  * - Excludes: Compose rendering, navigation wiring, repository implementation internals, and
  *   actual filesystem scanning.
@@ -127,6 +127,7 @@ class MainViewModelInitialImportStateTest {
         every { repository.isSyncing() } returns flowOf(false)
         every { repository.getAllMemosList() } returns allMemosFlow
         every { repository.searchMemosList(any()) } returns allMemosFlow
+        every { repository.getMainListCountFlow(any(), any()) } returns flowOf(0)
         every { repository.getMemosByTagList(any()) } returns flowOf(emptyList())
         every { repository.getMemoCountFlow() } returns flowOf(0)
         every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
@@ -189,7 +190,7 @@ class MainViewModelInitialImportStateTest {
             val refreshStarted = CompletableDeferred<Unit>()
             val allowRefreshToFinish = CompletableDeferred<Unit>()
             val refreshFinished = CompletableDeferred<Unit>()
-            coEvery { repository.refreshMemos() } coAnswers {
+            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
                 refreshStarted.complete(Unit)
                 allowRefreshToFinish.await()
                 refreshFinished.complete(Unit)
@@ -218,7 +219,7 @@ class MainViewModelInitialImportStateTest {
             val allowRefreshToFinish = CompletableDeferred<Unit>()
             val refreshFinished = CompletableDeferred<Unit>()
             val observedStates = mutableListOf<MainViewModel.MainScreenState>()
-            coEvery { repository.refreshMemos() } coAnswers {
+            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
                 refreshStarted.complete(Unit)
                 allowRefreshToFinish.await()
                 refreshFinished.complete(Unit)
@@ -258,7 +259,7 @@ class MainViewModelInitialImportStateTest {
             val refreshStarted = CompletableDeferred<Unit>()
             val allowRefreshToFinish = CompletableDeferred<Unit>()
             val refreshFinished = CompletableDeferred<Unit>()
-            coEvery { repository.refreshMemos() } coAnswers {
+            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
                 refreshStarted.complete(Unit)
                 allowRefreshToFinish.await()
                 refreshFinished.complete(Unit)
@@ -362,7 +363,6 @@ class MainViewModelInitialImportStateTest {
                 ),
             workspaceCoordinator =
                 MainWorkspaceCoordinator(
-                    repository = repository,
                     initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                     refreshMemosUseCase =
                         RefreshMemosUseCase(

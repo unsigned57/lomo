@@ -4,9 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.padding
@@ -181,6 +178,8 @@ internal fun MemoListItem(
     onNewMemoSpacePrepared: (String) -> Unit,
     onNewMemoRevealConsumed: (String) -> Unit,
     modifier: Modifier = Modifier,
+    isExpanded: Boolean? = null,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     // Two-phase delete animation: fade (t=0–300ms) then collapse (t=300–600ms)
     var isCollapsing by remember { mutableStateOf(false) }
@@ -268,6 +267,8 @@ internal fun MemoListItem(
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onImageClick = stableImageClick,
                 onShowMenu = onShowMemoMenu,
+                isExpanded = isExpanded,
+                onExpandedChange = onExpandedChange,
                 modifier =
                     Modifier
                         .graphicsLayer {
@@ -278,28 +279,6 @@ internal fun MemoListItem(
         }
     }
 }
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-internal fun Modifier.memoListPlacementAnimation(
-    lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
-    newMemoInsertAnimationState: NewMemoInsertAnimationState,
-    blockPlacementSpringForDeleteViewportEntry: Boolean = false,
-): Modifier =
-    with(lazyItemScope) {
-        this@memoListPlacementAnimation.animateItem(
-            fadeInSpec = null,
-            fadeOutSpec = null,
-            placementSpec =
-                if (!newMemoInsertAnimationState.blocksPlacementSpring && !blockPlacementSpringForDeleteViewportEntry) {
-                    spring(
-                        stiffness = Spring.StiffnessLow,
-                        dampingRatio = Spring.DampingRatioNoBouncy,
-                    )
-                } else {
-                    snap()
-                },
-        )
-    }
 
 private fun Modifier.memoVisibilityModifier(alpha: Float): Modifier =
     if (alpha < MEMO_ITEM_ALPHA_THRESHOLD) {

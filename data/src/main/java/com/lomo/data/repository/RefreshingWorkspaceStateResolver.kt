@@ -1,15 +1,8 @@
 package com.lomo.data.repository
 
 import com.lomo.domain.repository.MediaRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.repository.WorkspaceTransitionRepository
-
-interface WorkspaceStateResolver {
-    suspend fun rebuildFromCurrentWorkspace()
-}
-
-object NoOpWorkspaceStateResolver : WorkspaceStateResolver {
-    override suspend fun rebuildFromCurrentWorkspace() = Unit
-}
 
 class RefreshingWorkspaceStateResolver
     constructor(

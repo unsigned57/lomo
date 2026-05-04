@@ -10,12 +10,14 @@ import org.junit.Test
  * - Unit under test: LazyListScrollbarEstimator and known-size scroll target mapping.
  * - Behavior focus: main memo lists contain highly variable card heights, so scrollbar progress
  *   must stay stable while new measurements enter the cache, pin to real list boundaries, and
- *   reset stale size observations when the content generation changes.
+ *   reset stale size observations when the content generation changes. Paged lists must also be
+ *   able to use a repository-backed total count instead of the currently materialized page count.
  * - Observable outcomes: resolved thumb fraction, measured average after a reset, and drag target
  *   index/offset produced from known item sizes.
  * - Red phase: Fails before the fix because LazyList scrollbar progress is computed from a
  *   simple seen-item average with no stateful monotonic guard, no content-generation reset, and
- *   no known-size prefix mapping for drag targets.
+ *   no known-size prefix mapping for drag targets. It also fails before the paging-total fix
+ *   because the estimator cannot override LazyColumn's loaded item count with the repository count.
  * - Excludes: Compose LazyColumn rendering, pointer input dispatch, and scrollbar canvas pixels.
  */
 class DraggableScrollbarLazyListEstimatorTest {
@@ -94,6 +96,57 @@ class DraggableScrollbarLazyListEstimatorTest {
     }
 
     @Test
+    fun `external total keeps paging append from moving thumb upward`() {
+        val estimator = LazyListScrollbarEstimator()
+        val beforeAppend =
+            estimator.update(
+                snapshot(
+                    firstIndex = 10,
+                    totalItemsCount = 20,
+                    itemSizes = listOf(100, 100, 100, 100),
+                ),
+                contentGeneration = "main-feed",
+                totalItemsCountOverride = 100,
+            )
+        assertNotNull(beforeAppend)
+        val before = checkNotNull(beforeAppend)
+
+        val afterAppend =
+            estimator.update(
+                snapshot(
+                    firstIndex = 10,
+                    totalItemsCount = 40,
+                    itemSizes = listOf(100, 100, 100, 100),
+                ),
+                contentGeneration = "main-feed",
+                totalItemsCountOverride = 100,
+            )
+        assertNotNull(afterAppend)
+        val after = checkNotNull(afterAppend)
+
+        assertEquals(100, before.totalItemsCount)
+        assertEquals(100, after.totalItemsCount)
+        assertEquals(before.scrollFraction, after.scrollFraction, 0.001f)
+    }
+
+    @Test
+    fun `drag target clamps to materialized rows when repository total is larger than loaded page`() {
+        val metrics =
+            LazyListScrollbarMetrics(
+                totalItemsCount = 100,
+                scrollTargetItemsCount = 20,
+                viewportSizePx = 1_000,
+                avgItemSizePx = 100f,
+                scrollFraction = 0f,
+            )
+
+        val target = metrics.targetForFraction(1f)
+
+        assertEquals(19, target.index)
+        assertEquals(0, target.scrollOffsetPx)
+    }
+
+    @Test
     fun `known-size target mapping lands in the correct heterogeneous memo range`() {
         val knownSizes =
             buildMap {
@@ -117,12 +170,13 @@ class DraggableScrollbarLazyListEstimatorTest {
 
     private fun snapshot(
         firstIndex: Int,
+        totalItemsCount: Int = 100,
         itemSizes: List<Int>,
         canScrollBackward: Boolean = true,
         canScrollForward: Boolean = true,
     ): LazyListScrollbarSnapshot =
         LazyListScrollbarSnapshot(
-            totalItemsCount = 100,
+            totalItemsCount = totalItemsCount,
             viewportStartOffset = 0,
             viewportEndOffset = 1_000,
             canScrollBackward = canScrollBackward,

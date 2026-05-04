@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.lifecycle.ViewModel
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
+import com.lomo.app.BuildConfig
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.provider.ImageMapProvider
@@ -81,7 +82,10 @@ import java.time.ZoneId
  * - Behavior focus: reachable main-screen search and date-filter state, gallery selection, image-cache refresh trigger behavior, user-visible coordinator
  *   outcomes, and automatic foreground refresh when a workspace root is available.
  * - Observable outcomes: exposed StateFlow values, derived memo lists, and delegated use-case interactions.
- * - Red phase: Fails before the fix when rapid image-directory changes trigger repeated cache refreshes instead of a single debounced refresh.
+ * - Red phase: Fails before the fix when image-directory changes are not debounced, when observed root changes
+ *   still route through the ordinary sync refresh pipeline, when image-map changes do not remap paged main-list rows,
+ *   when cold-start Paging waits for the restored root before starting, or when an asynchronously restored
+ *   cold-start root is treated as a root switch, rebuilds the workspace, or recreates the DB paging source.
  * - Excludes: Compose rendering, navigation wiring, and repository implementation internals.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -133,6 +137,7 @@ class MainViewModelTest {
         every { repository.getMemosByDateRange(any(), any()) } returns flowOf(emptyList<Memo>())
         every { repository.searchMemosList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMainListPagingSource(any(), any()) } returns fixedPagingSource(emptyList())
+        every { repository.getMainListCountFlow(any(), any()) } returns flowOf(0)
         every { repository.getMemosByTagList(any()) } returns flowOf(emptyList<Memo>())
         every { repository.getMemoCountFlow() } returns flowOf(0)
         every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
@@ -304,8 +309,21 @@ class MainViewModelTest {
             collectJob.cancel()
         }
 
+    /*
+     * Test Change Justification:
+     * - Reason category: product contract changed after user-visible VFS regression.
+     * - Old behavior/assertion being replaced: imageMap additions that did not affect the old in-memory
+     *   dependency window were expected to avoid a new PagingData emission.
+     * - Why old assertion is no longer correct: the paged main list maps each memo lazily, so the
+     *   state holder cannot reliably know which loaded or soon-to-load rows reference a new SAF URI.
+     *   Skipping the emission leaves main-list images stale while gallery images update.
+     * - Coverage preserved by: the test still proves main-list paging stays independent from the full
+     *   memo flow; it now also protects the visible image remapping path.
+     * - Why this is not fitting the test to the implementation: the new assertion matches the reported
+     *   product behavior: image location cache changes must be visible in the main list.
+     */
     @Test
-    fun `pagedUiMemos does not emit new paging data when image map adds unrelated image`() =
+    fun `pagedUiMemos emits new paging data when image map changes`() =
         runTest {
             val memoDate = LocalDate.of(2026, 3, 8)
             val memo =
@@ -354,7 +372,7 @@ class MainViewModelTest {
                     ("bar.png" to unrelatedUri)
             advanceUntilIdle()
 
-            assertEquals(1, pagingEmissions.size)
+            assertEquals(2, pagingEmissions.size)
             collectJob.cancel()
         }
 
@@ -793,6 +811,116 @@ class MainViewModelTest {
             assertNull(viewModel.errorMessage.value)
         }
 
+    /*
+     * Test Change Justification:
+     * - Reason category: product contract corrected after root-switch rebuild was moved into the
+     *   switch-root use case.
+     * - Old behavior/assertion being replaced: observed root-directory changes were expected to run
+     *   the ordinary refresh use case and then image-cache refresh from MainViewModel.
+     * - Why old assertion is no longer correct: root switching now owns the workspace rebuild path;
+     *   running the ordinary refresh pipeline from the observer can invoke sync refresh behavior after
+     *   a settings directory switch and leave the newly selected local workspace partially rebuilt.
+     * - Coverage preserved by: SwitchRootStorageUseCase covers local workspace rebuild ordering, while
+     *   this test protects the must-not-happen duplicate standard refresh path and verifies the observer
+     *   delegates to the local rebuild entrypoint.
+     * - Why this is not fitting the test to the implementation: the corrected assertion encodes the
+     *   user-visible bug that switching directories must not collapse the selected local memo set into
+     *   a partial sync-derived result.
+     */
+    @Test
+    fun `root directory changes do not run ordinary refresh pipeline from observer`() =
+        runTest {
+            val rootDirectoryFlow = MutableStateFlow<StorageLocation?>(StorageLocation("/root/one"))
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns rootDirectoryFlow
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/root/one")
+
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.advanceUntilIdle()
+            clearMocks(repository, mediaRepository, answers = false, recordedCalls = true)
+
+            rootDirectoryFlow.value = StorageLocation("/root/two")
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            coVerify(exactly = 1) { switchRootStorageUseCase.rebuildCurrentWorkspace() }
+            coVerify(exactly = 0) { repository.refreshMemos() }
+            coVerify(exactly = 0) { mediaRepository.refreshImageLocations() }
+            assertNull(viewModel.errorMessage.value)
+        }
+
+    @Test
+    fun `restored root on cold start does not rebuild workspace as a root change`() =
+        runTest {
+            val rootDirectoryFlow = MutableStateFlow<StorageLocation?>(StorageLocation("/root/current"))
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns rootDirectoryFlow
+            coEvery { appConfigRepository.currentRootLocation() } returns StorageLocation("/root/current")
+            coEvery { appVersionRepository.getLastAppVersionOnce() } returns
+                "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+
+            val viewModel = createViewModel()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(MainViewModel.MainScreenState.Ready, viewModel.uiState.value)
+            coVerify(exactly = 0) { switchRootStorageUseCase.rebuildCurrentWorkspace() }
+        }
+
+    /*
+     * Test Change Justification:
+     * - Reason category: product startup-performance contract correction.
+     * - Old behavior/assertion being replaced: cold-start Paging was expected to wait until the
+     *   restored root directory resolved.
+     * - Why old assertion is no longer correct: the main memo rows come from Room and do not require
+     *   the root path; root/image dependencies only affect UI media resolution and should not block
+     *   or recreate the DB paging source.
+     * - Coverage preserved by: this test still proves unresolved root keeps MainScreenState.Loading
+     *   and still proves the restored root is not treated as a rebuild-worthy root switch.
+     * - Why this is not fitting the test to the implementation: this locks the user-facing startup
+     *   contract that pagination starts doing useful work immediately after process creation.
+     */
+    @Test
+    fun `cold start starts main list paging before restored root resolves`() =
+        runTest {
+            val restoredRoot = StorageLocation("/root/current")
+            val rootLookup = CompletableDeferred<StorageLocation?>()
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(restoredRoot)
+            coEvery { appConfigRepository.currentRootLocation() } coAnswers { rootLookup.await() }
+            coEvery { appVersionRepository.getLastAppVersionOnce() } returns
+                "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+
+            val viewModel = createViewModel()
+            val pagingEmissions = mutableListOf<androidx.paging.PagingData<MemoUiModel>>()
+            val collectJob =
+                backgroundScope.launch {
+                    viewModel.pagedUiMemos.collect { pagingData ->
+                        pagingEmissions += pagingData
+                    }
+                }
+
+            runCurrent()
+
+            assertEquals(MainViewModel.MainScreenState.Loading, viewModel.uiState.value)
+            assertEquals(1, pagingEmissions.size)
+            verify(exactly = 1) {
+                repository.getMainListPagingSource(
+                    query = "",
+                    filter = MemoListFilter(),
+                )
+            }
+
+            rootLookup.complete(restoredRoot)
+            advanceUntilIdle()
+
+            assertEquals(MainViewModel.MainScreenState.Ready, viewModel.uiState.value)
+            verify(exactly = 1) {
+                repository.getMainListPagingSource(
+                    query = "",
+                    filter = MemoListFilter(),
+                )
+            }
+            coVerify(exactly = 0) { switchRootStorageUseCase.rebuildCurrentWorkspace() }
+            collectJob.cancel()
+        }
+
     @Test
     fun `automatic refresh is rate limited for repeated visible events`() =
         runTest {
@@ -897,7 +1025,6 @@ class MainViewModelTest {
                 ),
             workspaceCoordinator =
                 MainWorkspaceCoordinator(
-                    repository = repository,
                     initializeWorkspaceUseCase = InitializeWorkspaceUseCase(appConfigRepository, mediaRepository),
                     refreshMemosUseCase =
                         RefreshMemosUseCase(

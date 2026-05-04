@@ -19,6 +19,7 @@ internal data class LazyListScrollbarSnapshot(
 
 internal data class LazyListScrollbarMetrics(
     val totalItemsCount: Int,
+    val scrollTargetItemsCount: Int = totalItemsCount,
     val viewportSizePx: Int,
     val avgItemSizePx: Float,
     val scrollFraction: Float,
@@ -32,7 +33,7 @@ internal data class LazyListScrollbarMetrics(
         val maxScrollPx =
             (totalContentPx - viewportSizePx.coerceAtLeast(0).toFloat()).coerceAtLeast(0f)
         val targetScrollPx = fraction.coerceIn(0f, 1f) * maxScrollPx
-        return targetForScrollOffset(targetScrollPx)
+        return clampTargetToMaterializedItems(targetForScrollOffset(targetScrollPx))
     }
 
     private fun estimatedTotalContentPx(): Float {
@@ -56,6 +57,21 @@ internal data class LazyListScrollbarMetrics(
         }
         return LazyListScrollTarget(index = 0, scrollOffsetPx = 0)
     }
+
+    private fun clampTargetToMaterializedItems(target: LazyListScrollTarget): LazyListScrollTarget {
+        if (scrollTargetItemsCount <= 0) {
+            return LazyListScrollTarget(index = 0, scrollOffsetPx = 0)
+        }
+        val maxTargetIndex =
+            (scrollTargetItemsCount - 1)
+                .coerceAtMost((totalItemsCount - 1).coerceAtLeast(0))
+                .coerceAtLeast(0)
+        return if (target.index <= maxTargetIndex) {
+            target
+        } else {
+            LazyListScrollTarget(index = maxTargetIndex, scrollOffsetPx = 0)
+        }
+    }
 }
 
 internal class LazyListScrollbarEstimator {
@@ -69,21 +85,29 @@ internal class LazyListScrollbarEstimator {
     fun update(
         snapshot: LazyListScrollbarSnapshot,
         contentGeneration: Any? = null,
+        totalItemsCountOverride: Int? = null,
+        scrollTargetItemsCountOverride: Int? = null,
     ): LazyListScrollbarMetrics? {
         resetIfContentChanged(contentGeneration)
-        if (snapshot.totalItemsCount < lastTotalItemsCount) {
+        val totalItemsCount =
+            resolveEffectiveTotalItemsCount(
+                snapshotTotalItemsCount = snapshot.totalItemsCount,
+                totalItemsCountOverride = totalItemsCountOverride,
+            )
+        val canScrollForward = snapshot.canScrollForward || totalItemsCount > snapshot.totalItemsCount
+        if (totalItemsCount < lastTotalItemsCount) {
             resetMeasurements()
         }
-        lastTotalItemsCount = snapshot.totalItemsCount
+        lastTotalItemsCount = totalItemsCount
 
         val viewportSize =
             (snapshot.viewportEndOffset - snapshot.viewportStartOffset).coerceAtLeast(0)
-        if (snapshot.visibleItems.isEmpty() || viewportSize <= 0 || snapshot.totalItemsCount <= 0) {
+        if (snapshot.visibleItems.isEmpty() || viewportSize <= 0 || totalItemsCount <= 0) {
             clearScrollAnchor()
             return null
         }
         recordVisibleItemSizes(snapshot.visibleItems)
-        if (!snapshot.canScrollBackward && !snapshot.canScrollForward) {
+        if (!snapshot.canScrollBackward && !canScrollForward) {
             clearScrollAnchor()
             return null
         }
@@ -105,7 +129,7 @@ internal class LazyListScrollbarEstimator {
             )
         val totalContentPx =
             estimateTotalContentPx(
-                totalItemsCount = snapshot.totalItemsCount,
+                totalItemsCount = totalItemsCount,
                 avgItemSizePx = avgItemSizePx,
             )
         val maxScrollPx = (totalContentPx - viewportSize.toFloat()).coerceAtLeast(0f)
@@ -119,7 +143,7 @@ internal class LazyListScrollbarEstimator {
             resolveLazyListThumbFractionAtBoundaries(
                 rawFraction = rawFraction,
                 canScrollBackward = snapshot.canScrollBackward,
-                canScrollForward = snapshot.canScrollForward,
+                canScrollForward = canScrollForward,
             )
         val fraction =
             resolveMonotonicFraction(
@@ -134,7 +158,12 @@ internal class LazyListScrollbarEstimator {
         lastFraction = fraction
 
         return LazyListScrollbarMetrics(
-            totalItemsCount = snapshot.totalItemsCount,
+            totalItemsCount = totalItemsCount,
+            scrollTargetItemsCount =
+                resolveScrollTargetItemsCount(
+                    totalItemsCount = totalItemsCount,
+                    scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
+                ),
             viewportSizePx = viewportSize,
             avgItemSizePx = avgItemSizePx,
             scrollFraction = fraction,
@@ -217,6 +246,23 @@ internal class LazyListScrollbarEstimator {
         }
     }
 }
+
+private fun resolveEffectiveTotalItemsCount(
+    snapshotTotalItemsCount: Int,
+    totalItemsCountOverride: Int?,
+): Int =
+    maxOf(
+        snapshotTotalItemsCount.coerceAtLeast(0),
+        totalItemsCountOverride?.coerceAtLeast(0) ?: 0,
+    )
+
+private fun resolveScrollTargetItemsCount(
+    totalItemsCount: Int,
+    scrollTargetItemsCountOverride: Int?,
+): Int =
+    (scrollTargetItemsCountOverride ?: totalItemsCount)
+        .coerceAtLeast(0)
+        .coerceAtMost(totalItemsCount)
 
 internal fun LazyListLayoutInfo.toLazyListScrollbarSnapshot(
     canScrollBackward: Boolean,

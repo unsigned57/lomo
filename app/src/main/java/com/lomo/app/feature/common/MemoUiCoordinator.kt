@@ -24,6 +24,9 @@ class MemoUiCoordinator
         val mainListPagingSource: (String, MemoListFilter) -> PagingSource<Int, Memo> =
             { query, filter -> memoRepository.getMainListPagingSource(query, filter) }
 
+        val mainListCount: (String, MemoListFilter) -> Flow<Int> =
+            { query, filter -> memoRepository.getMainListCountFlow(query, filter) }
+
         val deletedMemos: () -> Flow<List<Memo>> = { memoRepository.getDeletedMemosList() }
 
         val isSyncing: () -> Flow<Boolean> = { memoRepository.isSyncing() }

@@ -11,6 +11,7 @@ import androidx.room3.RoomRawQuery
 import androidx.room3.paging.PagingSourceDaoReturnTypeConverter
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoPinEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 @DaoReturnTypeConverters(PagingSourceDaoReturnTypeConverter::class)
@@ -19,6 +20,11 @@ interface DefaultMainListDao {
         observedEntities = [MemoEntity::class, MemoPinEntity::class],
     )
     fun getPagingSourceRaw(query: RoomRawQuery): PagingSource<Int, DefaultMainListMemoRow>
+
+    @RawQuery(
+        observedEntities = [MemoEntity::class],
+    )
+    fun getCountFlowRaw(query: RoomRawQuery): Flow<Int>
 
     fun getPagingSource(
         query: String,
@@ -34,6 +40,21 @@ interface DefaultMainListDao {
                 endDate = endDate,
                 sortOption = sortOption,
                 sortAscending = sortAscending,
+            ),
+        )
+
+    fun getCountFlow(
+        query: String,
+        startDate: String?,
+        endDate: String?,
+        sortOption: String,
+        sortAscending: Boolean,
+    ): Flow<Int> =
+        getCountFlowRaw(
+            buildMainListCountQuery(
+                query = query,
+                startDate = startDate,
+                endDate = endDate,
             ),
         )
 
@@ -92,30 +113,7 @@ private fun buildMainListPagingQuery(
     sortOption: String,
     sortAscending: Boolean,
 ): RoomRawQuery {
-    val args = mutableListOf<String>()
-    val whereClauses = buildList {
-        if (query.isNotBlank()) {
-            add(
-                """
-                Lomo.rowid IN (
-                    SELECT Lomo.rowid
-                    FROM Lomo
-                    INNER JOIN lomo_fts ON lomo_fts.rowid = Lomo.rowid
-                    WHERE lomo_fts MATCH ?
-                )
-                """.trimIndent(),
-            )
-            args += query
-        }
-        if (startDate != null) {
-            add("Lomo.date >= ?")
-            args += startDate
-        }
-        if (endDate != null) {
-            add("Lomo.date <= ?")
-            args += endDate
-        }
-    }
+    val filter = buildMainListQueryFilter(query = query, startDate = startDate, endDate = endDate)
     val orderColumn =
         when (sortOption) {
             "UPDATED_TIME" -> "Lomo.updatedAt"
@@ -131,9 +129,9 @@ private fun buildMainListPagingQuery(
                 LEFT JOIN MemoPin ON Lomo.id = MemoPin.memoId
                 """.trimIndent(),
             )
-            if (whereClauses.isNotEmpty()) {
+            if (filter.whereClauses.isNotEmpty()) {
                 append(" WHERE ")
-                append(whereClauses.joinToString(separator = " AND "))
+                append(filter.whereClauses.joinToString(separator = " AND "))
             }
             append(" ORDER BY isPinned DESC, ")
             append(orderColumn)
@@ -147,9 +145,71 @@ private fun buildMainListPagingQuery(
     return RoomRawQuery(
         sql = sql,
         onBindStatement = { statement ->
-            args.forEachIndexed { index, value ->
+            filter.args.forEachIndexed { index, value ->
                 statement.bindText(index = index + 1, value = value)
             }
         },
     )
+}
+
+private fun buildMainListCountQuery(
+    query: String,
+    startDate: String?,
+    endDate: String?,
+): RoomRawQuery {
+    val filter = buildMainListQueryFilter(query = query, startDate = startDate, endDate = endDate)
+    val sql =
+        buildString {
+            append("SELECT COUNT(*) FROM Lomo")
+            if (filter.whereClauses.isNotEmpty()) {
+                append(" WHERE ")
+                append(filter.whereClauses.joinToString(separator = " AND "))
+            }
+        }
+    return RoomRawQuery(
+        sql = sql,
+        onBindStatement = { statement ->
+            filter.args.forEachIndexed { index, value ->
+                statement.bindText(index = index + 1, value = value)
+            }
+        },
+    )
+}
+
+private data class MainListQueryFilter(
+    val whereClauses: List<String>,
+    val args: List<String>,
+)
+
+private fun buildMainListQueryFilter(
+    query: String,
+    startDate: String?,
+    endDate: String?,
+): MainListQueryFilter {
+    val args = mutableListOf<String>()
+    val whereClauses =
+        buildList {
+            if (query.isNotBlank()) {
+                add(
+                    """
+                    Lomo.rowid IN (
+                        SELECT Lomo.rowid
+                        FROM Lomo
+                        INNER JOIN lomo_fts ON lomo_fts.rowid = Lomo.rowid
+                        WHERE lomo_fts MATCH ?
+                    )
+                    """.trimIndent(),
+                )
+                args += query
+            }
+            if (startDate != null) {
+                add("Lomo.date >= ?")
+                args += startDate
+            }
+            if (endDate != null) {
+                add("Lomo.date <= ?")
+                args += endDate
+            }
+        }
+    return MainListQueryFilter(whereClauses = whereClauses, args = args)
 }

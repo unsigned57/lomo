@@ -176,6 +176,8 @@ class MainViewModel
 
         val pagedUiMemos: Flow<PagingData<MemoUiModel>> = memoListStateHolder.pagedUiMemos
 
+        val mainListTotalCount: StateFlow<Int> = memoListStateHolder.mainListTotalCount
+
         val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos
 
         init {
@@ -204,11 +206,11 @@ class MainViewModel
                     }
                 }
 
-                // Step 2: Listen for subsequent updates (drop first to avoid duplicate)
+                // Step 2: Listen for persisted root updates; unchanged restored values are ignored below.
                 startupCoordinator
                     .observeRootDirectoryChanges()
                     .collect { dir ->
-                        updateRootDirectoryUiState(dir)
+                        handleObservedRootDirectoryChange(dir)
                     }
             }
             // Voice directory collector - pass to AudioPlayerManager for voice file resolution
@@ -554,15 +556,14 @@ class MainViewModel
                     }
                 }.launchIn(viewModelScope)
 
-            // Auto-refresh memos when root directory changes
-            rootDirectory
-                .drop(1)
-                .distinctUntilChanged()
-                .onEach { path: String? ->
-                    if (path != null && !consumeManualRootRefresh(path)) {
-                        refreshForRootChange()
-                        }
-                }.launchIn(viewModelScope)
+        }
+
+        private suspend fun handleObservedRootDirectoryChange(directory: String?) {
+            val previousDirectory = _rootDirectory.value
+            updateRootDirectoryUiState(directory)
+            if (directory != null && directory != previousDirectory && !consumeManualRootRefresh(directory)) {
+                refreshForRootChange()
+            }
         }
 
         internal val requestAutomaticRefreshForVisibleScreen: () -> Unit =
@@ -596,7 +597,16 @@ class MainViewModel
         private suspend fun refreshForRootChange() {
             val shouldShowInitialImport = _isInitialDirectoryImporting.value
             try {
-                refresh()
+                withContext(Dispatchers.IO) {
+                    runCatching {
+                        workspaceCoordinator.rebuildCurrentWorkspace()
+                    }.onFailure { throwable ->
+                        handleRefreshFailure(
+                            throwable = throwable,
+                            fallbackMessage = "Failed to rebuild workspace",
+                        )
+                    }
+                }
             } finally {
                 endInitialImportIfNeeded(shouldShowInitialImport)
             }

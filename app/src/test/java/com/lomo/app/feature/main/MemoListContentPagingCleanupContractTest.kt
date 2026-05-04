@@ -17,6 +17,19 @@ import java.io.File
  *   MemoListContent(memos: ImmutableList<...>) overload and its MemoListBody/MemoListColumn helpers.
  * - Excludes: Compose runtime behavior, LazyPagingItems rendering details, and animation timing.
  */
+/*
+ * Test Change Justification:
+ * - Reason category: architectural contract replacement.
+ * - Old behavior/assertion being replaced: MemoListContent.kt was required to retain
+ *   Modifier.memoListPlacementAnimation as the app-local LazyColumn animateItem helper.
+ * - Why the old assertion is no longer correct: list row motion now belongs to the shared
+ *   ui-components LazyListMotion framework, so retaining an app-local placement helper would
+ *   preserve the duplication that caused the regression.
+ * - Coverage preserved by: this test still locks the paging-only cleanup, while
+ *   LazyListMotionAdoptionContractTest requires app feature lists to adopt lazyListMotionItem.
+ * - Why this is not fitting the test to the implementation: the new assertion directly encodes
+ *   the requested architecture: app code must not own ad hoc lazy-list movement policy.
+ */
 class MemoListContentPagingCleanupContractTest {
     private val moduleRoot = resolveModuleRoot("app")
     private val sharedFile =
@@ -66,7 +79,6 @@ class MemoListContentPagingCleanupContractTest {
             listOf(
                 "internal fun MemoListPreloadEffect(",
                 "internal fun MemoListItem(",
-                "internal fun Modifier.memoListPlacementAnimation(",
                 "internal fun BoxScope.MemoListPullToRefreshIndicator(",
             )
 

@@ -2,11 +2,9 @@ package com.lomo.ui.component.card
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -38,14 +36,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
-import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.text.MemoParagraphText
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
@@ -75,6 +71,8 @@ fun MemoCard(
     isPinned: Boolean = false,
     allowFreeTextCopy: Boolean = false,
     expandOnClick: Boolean = false,
+    isExpanded: Boolean? = null,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
     onMenuClick: (() -> Unit)? = null,
     onTagClick: (String) -> Unit = {},
@@ -85,8 +83,15 @@ fun MemoCard(
     collapsedSummary: String = buildMemoCardCollapsedSummary(content, tags),
     menuContent: (@Composable () -> Unit)? = null,
 ) {
-    var isExpanded by rememberSaveable(timestamp) { mutableStateOf(false) }
-    val isCollapsedPreview = shouldShowExpand && !isExpanded
+    var internalExpanded by rememberSaveable(timestamp) { mutableStateOf(false) }
+    val effectiveExpanded = isExpanded ?: internalExpanded
+    val updateExpanded: (Boolean) -> Unit = { expanded ->
+        if (isExpanded == null) {
+            internalExpanded = expanded
+        }
+        onExpandedChange?.invoke(expanded)
+    }
+    val isCollapsedPreview = shouldShowExpand && !effectiveExpanded
     val collapsedPreviewMode =
         resolveMemoCardCollapsedPreviewMode(
             isCollapsedPreview = isCollapsedPreview,
@@ -97,7 +102,7 @@ fun MemoCard(
     val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
     val effectiveOnClick: () -> Unit = if (expandOnClick && shouldShowExpand) {
         {
-            isExpanded = !isExpanded
+            updateExpanded(!effectiveExpanded)
             onClick()
         }
     } else {
@@ -141,6 +146,7 @@ fun MemoCard(
                 isCollapsedPreview = isCollapsedPreview,
                 collapsedPreviewMode = collapsedPreviewMode,
                 collapsedSummary = collapsedSummary,
+                isExpanded = effectiveExpanded,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
@@ -149,10 +155,10 @@ fun MemoCard(
             MemoCardFooter(
                 tags = tags,
                 shouldShowExpand = shouldShowExpand,
-                isExpanded = isExpanded,
+                isExpanded = effectiveExpanded,
                 haptic = haptic,
                 onTagClick = onTagClick,
-                onToggleExpanded = { isExpanded = !isExpanded },
+                onToggleExpanded = { updateExpanded(!effectiveExpanded) },
             )
         }
     }
@@ -285,23 +291,33 @@ private fun MemoCardBody(
     isCollapsedPreview: Boolean,
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
+    isExpanded: Boolean,
     allowFreeTextCopy: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
     val bodyTransitionMode = resolveMemoCardBodyTransitionMode(shouldShowExpand = shouldShowExpand)
+    val containerSizeAnimation =
+        resolveMemoCardBodyContainerSizeAnimation(bodyTransitionMode)
 
     Box(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .animateContentSize(
-                    animationSpec = tween(
-                        durationMillis = MEMO_CARD_EXPAND_ANIMATION_DURATION_MS,
-                    ),
-                )
-                .let { base -> if (isCollapsedPreview) base.heightIn(max = 240.dp) else base }
+                .let { base ->
+                    when (containerSizeAnimation) {
+                        MemoCardBodyContainerSizeAnimation.Enabled ->
+                            base.animateContentSize(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = MEMO_CARD_EXPAND_ANIMATION_DURATION_MS,
+                                    ),
+                            )
+
+                        MemoCardBodyContainerSizeAnimation.Disabled -> base
+                    }
+                }
                 .clip(AppShapes.Small),
     ) {
         MemoCardBodyContent(
@@ -311,16 +327,13 @@ private fun MemoCardBody(
             processedContent = processedContent,
             precomputedRenderPlan = precomputedRenderPlan,
             tags = tags,
+            isExpanded = isExpanded,
             isCollapsedPreview = isCollapsedPreview,
             onTodoClick = onTodoClick,
             todoOverrides = todoOverrides,
             onImageClick = onImageClick,
             bodyTransitionMode = bodyTransitionMode,
         )
-
-        if (isCollapsedPreview) {
-            MemoCardCollapsedOverlay()
-        }
     }
 }
 
@@ -341,27 +354,6 @@ internal fun MemoCardCollapsedSummary(
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         selectable = allowFreeTextCopy,
-    )
-}
-
-@Composable
-private fun BoxScope.MemoCardCollapsedOverlay() {
-    Box(
-        modifier =
-            Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(48.dp)
-                .background(
-                    brush =
-                        Brush.verticalGradient(
-                            colors =
-                                listOf(
-                                    Color.Transparent,
-                                    MaterialTheme.colorScheme.surfaceContainer,
-                                ),
-                        ),
-                ),
     )
 }
 

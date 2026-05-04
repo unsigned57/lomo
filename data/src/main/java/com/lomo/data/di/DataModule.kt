@@ -64,7 +64,6 @@ import com.lomo.data.repository.SyncInboxRepositoryImpl
 import com.lomo.data.repository.WebDavSyncRepositoryImpl
 import com.lomo.data.repository.RefreshingWorkspaceStateResolver
 import com.lomo.data.repository.WorkspaceMediaAccess
-import com.lomo.data.repository.WorkspaceStateResolver
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
@@ -91,6 +90,7 @@ import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.repository.WorkspaceTransitionRepository
 import com.lomo.domain.usecase.MemoIdentityPolicy
 import dagger.Module
