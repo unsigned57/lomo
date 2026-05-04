@@ -50,9 +50,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.benchmark.benchmarkAnchor
+import com.lomo.ui.component.common.rememberLazyListMotionState
 import com.lomo.ui.component.stats.CalendarHeatmap
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toPersistentList
 import java.time.LocalDate
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -153,6 +156,14 @@ fun SidebarDrawer(
                 toKey = to.key,
             )
         }
+    val expandedNodePaths = expandedNodes.filterValues { it }.keys
+    val visibleTagRows = visibleTagRows(reorderableTree, expandedNodePaths)
+    val tagMotionState =
+        rememberLazyListMotionState(
+            itemKeys = visibleTagRows.map { row -> row.node.fullPath }.toPersistentList(),
+            removingKeys = persistentSetOf(),
+            listState = listState,
+        )
 
     LazyColumn(
         state = listState,
@@ -183,12 +194,14 @@ fun SidebarDrawer(
         )
         sidebarTags(
             tags = tags,
+            visibleRows = visibleTagRows,
             tagTree = reorderableTree,
             expandedNodes = expandedNodes,
             selectedTagPath = selectedTagPath,
             onTagClick = onTagClick,
             anchorTagForPath = tagAnchorForPath,
             reorderableLazyListState = reorderableLazyListState,
+            motionState = tagMotionState,
             onReorderComplete = onTagReorder,
         )
     }

@@ -14,6 +14,11 @@ internal data class TagNode(
     val children: List<TagNode> = emptyList(),
 )
 
+internal data class VisibleTagRow(
+    val node: TagNode,
+    val level: Int,
+)
+
 internal fun buildTagTree(tags: List<SidebarTag>, rootOrder: List<String> = emptyList()): List<TagNode> {
     val rootNodes = mutableListOf<MutableTagNode>()
     val tagMap = tags.associate { it.name to it.count }
@@ -27,6 +32,37 @@ internal fun buildTagTree(tags: List<SidebarTag>, rootOrder: List<String> = empt
 
     val orderIndex = rootOrder.withIndex().associate { (index, name) -> name to index }
     return nodes.sortedBy { node -> orderIndex[node.name] ?: (rootOrder.size + nodes.indexOf(node)) }
+}
+
+internal fun visibleTagRows(
+    tagTree: List<TagNode>,
+    expandedNodePaths: Set<String>,
+): List<VisibleTagRow> =
+    buildList {
+        tagTree.forEach { node ->
+            addVisibleTagRows(
+                node = node,
+                level = 0,
+                expandedNodePaths = expandedNodePaths,
+            )
+        }
+    }
+
+private fun MutableList<VisibleTagRow>.addVisibleTagRows(
+    node: TagNode,
+    level: Int,
+    expandedNodePaths: Set<String>,
+) {
+    add(VisibleTagRow(node = node, level = level))
+    if (node.fullPath !in expandedNodePaths) return
+
+    node.children.forEach { child ->
+        addVisibleTagRows(
+            node = child,
+            level = level + 1,
+            expandedNodePaths = expandedNodePaths,
+        )
+    }
 }
 
 internal fun applyReorderableTagMove(
