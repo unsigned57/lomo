@@ -46,6 +46,11 @@ interface MemoQueryRepository {
         filter: MemoListFilter,
     ): PagingSource<Int, Memo>
 
+    fun getMainListCountFlow(
+        query: String,
+        filter: MemoListFilter,
+    ): Flow<Int>
+
     /**
      * Returns the zero-based index of a memo in the repository's default main-list ordering.
      */

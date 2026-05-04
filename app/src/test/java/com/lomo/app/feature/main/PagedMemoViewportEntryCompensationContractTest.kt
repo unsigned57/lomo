@@ -45,12 +45,29 @@ import java.io.File
  *   user-visible no-flicker and no-catch-up behavior that the device regression exposes, including
  *   the first bottom top-entry row staying on the same compensation path as later rows.
  */
+/*
+ * Test Change Justification:
+ * - Reason category: architectural contract replacement.
+ * - Old behavior/assertion being replaced: the paging list was required to wire app-local
+ *   DeleteViewportEntryCompensation directly.
+ * - Why the old assertion is no longer correct: delete viewport-entry compensation now belongs
+ *   to shared LazyListMotion so every LazyColumn surface gets the same remove/resize policy.
+ * - Coverage preserved by: measured delete geometry, viewport filtering, LinearEasing,
+ *   remaining-duration consumption, and session creation are still required in the shared owner.
+ * - Why this is not fitting the test to the implementation: the new snippets protect the same
+ *   no-flicker delete viewport behavior while enforcing the requested framework boundary.
+ */
 class PagedMemoViewportEntryCompensationContractTest {
     private val moduleRoot = resolveModuleRoot("app")
+    private val repoRoot = checkNotNull(moduleRoot.parentFile)
     private val sourceFiles =
         listOf(
             moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/PagedMemoListContent.kt"),
-            moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/DeleteViewportEntryCompensation.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionState.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionRemoveState.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionRemovePlacement.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListRemoveFrame.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionSnapshot.kt"),
         )
 
     @Test
@@ -91,20 +108,20 @@ class PagedMemoViewportEntryCompensationContractTest {
     private companion object {
         val REQUIRED_SNIPPETS =
             listOf(
-                "rememberDeleteViewportEntryCompensation(",
-                "viewportEntryCompensation.onItemMeasured(",
-                ".deleteViewportEntryCompensation(",
-                "viewportEntryCompensation.sharedTopEntryCompensationFor(",
-                "viewportEntryCompensation.compensationFor(",
-                "viewportEntryCompensation.clearCompensation(",
-                "durationMillis = compensation.durationMillis",
+                "rememberLazyListMotionState(",
+                "listMotionState.onItemMeasured(",
+                ".lazyListMotionItem(",
+                "removeState.onItemMeasured(",
+                "removeState.placementFor(itemId)",
+                "removeState.clearPlacement(",
+                "durationMillis = placement.durationMillis",
                 "LinearEasing",
                 "removedPlacement.initialOffsetPx < 0f",
                 "snapshotFlow {",
-                "toDeleteViewportEntryVisibilitySnapshot().viewportVisibleIds()",
+                "toLazyListMotionViewportSnapshot().viewportVisibleIds()",
                 "visibleItemsInfo",
-                "item.bottomPx > viewportStartPx && item.topPx < viewportEndPx",
-                "DeleteViewportEntrySession(",
+                "item.bottomPx > viewportStartPx && item.offsetPx < viewportEndPx",
+                "LazyListRemoveSession(",
             )
     }
 }

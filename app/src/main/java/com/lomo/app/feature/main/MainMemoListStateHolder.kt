@@ -7,6 +7,7 @@ import androidx.paging.cachedIn
 import androidx.paging.map
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,8 +22,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 
 private const val SEARCH_DEBOUNCE_MILLIS = 150L
-private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 30
-private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = 60
+private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
+private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
 
 internal class MainMemoListStateHolder(
@@ -48,53 +49,80 @@ internal class MainMemoListStateHolder(
             MemoQueryInput(query = "", filter = MemoListFilter()),
         )
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
-        combine(mainMemoQueryInput, rootDirectory, imageDirectory, imageMap) {
-            input,
+    private val mappingInput: StateFlow<UiMemoMappingInput> =
+        combine(rootDirectory, imageDirectory, imageMap) {
             rootDir,
             imageDir,
             currentImageMap,
             ->
-            input to
-                UiMemoMappingInput(
-                    memos = emptyList(),
-                    rootDirectory = rootDir,
-                    imageDirectory = imageDir,
-                    imageMap = currentImageMap,
-                    imageDependencySignature = "",
-                    prioritizedMemoIds = emptySet(),
-                )
+            UiMemoMappingInput(
+                memos = emptyList(),
+                rootDirectory = rootDir,
+                imageDirectory = imageDir,
+                imageMap = currentImageMap,
+                imageDependencySignature = currentImageMap.toPagingImageDependencySignature(),
+                prioritizedMemoIds = emptySet(),
+            )
         }.distinctUntilChanged { old, new ->
-            old.first == new.first && old.second.hasSameUiDependencies(new.second)
-        }.flatMapLatest { (input, mappingInput) ->
-            Pager(
-                config =
-                    PagingConfig(
-                        pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
-                        initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
-                        prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
-                        enablePlaceholders = false,
-                    ),
-                pagingSourceFactory = {
-                    memoUiCoordinator.mainListPagingSource(
-                        input.query,
-                        input.filter,
-                    )
-                },
-            ).flow.map { pagingData ->
-                pagingData.map { memo ->
-                    withContext(Dispatchers.Default) {
-                        memoUiMapper.mapToUiModel(
-                            memo = memo,
-                            rootPath = mappingInput.rootDirectory,
-                            imagePath = mappingInput.imageDirectory,
-                            imageMap = mappingInput.imageMap,
+            old.hasSameUiDependencies(new)
+        }.stateIn(
+            scope,
+            appWhileSubscribed(),
+            UiMemoMappingInput(
+                memos = emptyList(),
+                rootDirectory = null,
+                imageDirectory = null,
+                imageMap = emptyMap(),
+                imageDependencySignature = "",
+                prioritizedMemoIds = emptySet(),
+            ),
+        )
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val memoPagingData: Flow<PagingData<Memo>> =
+        mainMemoQueryInput
+            .flatMapLatest { queryInput ->
+                Pager(
+                    config =
+                        PagingConfig(
+                            pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
+                            initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
+                            prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
+                            enablePlaceholders = false,
+                        ),
+                    pagingSourceFactory = {
+                        memoUiCoordinator.mainListPagingSource(
+                            queryInput.query,
+                            queryInput.filter,
                         )
-                    }
+                    },
+                ).flow
+            }.cachedIn(scope)
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val mainListTotalCount: StateFlow<Int> =
+        mainMemoQueryInput
+            .flatMapLatest { queryInput ->
+                memoUiCoordinator.mainListCount(queryInput.query, queryInput.filter)
+            }.distinctUntilChanged()
+            .stateIn(scope, appWhileSubscribed(), 0)
+
+    val pagedUiMemos: Flow<PagingData<MemoUiModel>> =
+        combine(memoPagingData, mappingInput) {
+            pagingData,
+            currentMappingInput,
+            ->
+            pagingData.map { memo ->
+                withContext(Dispatchers.Default) {
+                    memoUiMapper.mapToUiModel(
+                        memo = memo,
+                        rootPath = currentMappingInput.rootDirectory,
+                        imagePath = currentMappingInput.imageDirectory,
+                        imageMap = currentMappingInput.imageMap,
+                    )
                 }
             }
-        }.cachedIn(scope)
+        }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val galleryUiMemos: StateFlow<List<MemoUiModel>> =
@@ -118,3 +146,9 @@ private data class MemoQueryInput(
     val query: String,
     val filter: MemoListFilter,
 )
+
+private fun Map<String, android.net.Uri>.toPagingImageDependencySignature(): String =
+    entries
+        .asSequence()
+        .sortedBy { (key, _) -> key }
+        .joinToString(separator = "\n") { (key, uri) -> "$key=$uri" }

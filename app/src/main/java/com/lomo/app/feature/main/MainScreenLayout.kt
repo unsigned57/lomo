@@ -70,6 +70,7 @@ internal fun MainScreenNavigationRender(
         scrollBehavior = hostState.scrollBehavior,
         searchQuery = screenState.searchQuery,
         memoListFilter = screenState.memoListFilter,
+        mainListTotalCount = screenState.mainListTotalCount,
         isFilterActive = screenState.memoListFilter.hasDateRange,
         isMemoFilterSheetVisible = isMemoFilterSheetVisible,
         uiState = screenState.uiState,
@@ -110,6 +111,7 @@ internal fun MainScreenRenderHost(
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     searchQuery: String,
     memoListFilter: MemoListFilter,
+    mainListTotalCount: Int,
     isFilterActive: Boolean,
     isMemoFilterSheetVisible: Boolean,
     uiState: MainViewModel.MainScreenState,
@@ -155,6 +157,7 @@ internal fun MainScreenRenderHost(
             snackbarHostState = snackbarHostState,
             scrollBehavior = scrollBehavior,
             searchQuery = searchQuery,
+            mainListTotalCount = mainListTotalCount,
             uiState = uiState,
             pagedUiMemos = pagedUiMemos,
             deletingMemoIds = deletingMemoIds,
@@ -245,6 +248,7 @@ private fun MainScreenSidebarContent(
 internal fun MainScreenAnimatedBody(
     uiState: MainViewModel.MainScreenState,
     searchQuery: String,
+    mainListTotalCount: Int,
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
     onPagedDeleteAnimationSettled: (String) -> Unit,
@@ -292,6 +296,7 @@ internal fun MainScreenAnimatedBody(
                 MainReadyContent(
                     pagedUiMemos = pagedUiMemos,
                     searchQuery = searchQuery,
+                    mainListTotalCount = mainListTotalCount,
                     deletingMemoIds = deletingMemoIds,
                     onPagedDeleteAnimationSettled = onPagedDeleteAnimationSettled,
                     newMemoInsertAnimationState = newMemoInsertAnimationState,
@@ -331,6 +336,7 @@ private fun MainInitialImportingState(modifier: Modifier = Modifier) {
 private fun MainReadyContent(
     pagedUiMemos: LazyPagingItems<MemoUiModel>,
     searchQuery: String,
+    mainListTotalCount: Int,
     deletingMemoIds: ImmutableSet<String>,
     onPagedDeleteAnimationSettled: (String) -> Unit,
     newMemoInsertAnimationState: NewMemoInsertAnimationState,
@@ -367,7 +373,6 @@ private fun MainReadyContent(
             label = "ReadyContentCrossfade",
         ) { state ->
             when (state) {
-                MainReadyContentState.Loading -> MainInitialImportingState(modifier = Modifier.fillMaxSize())
                 MainReadyContentState.Empty ->
                     MainEmptyState(
                         searchQuery = searchQuery,
@@ -377,6 +382,7 @@ private fun MainReadyContent(
                 MainReadyContentState.List ->
                     MemoListContent(
                         pagedMemos = pagedUiMemos,
+                        knownTotalItemCount = mainListTotalCount,
                         deletingMemoIds = deletingMemoIds,
                         onDeleteAnimationSettled = onPagedDeleteAnimationSettled,
                         newMemoInsertAnimationState = newMemoInsertAnimationState,
@@ -402,7 +408,6 @@ private fun MainReadyContent(
 }
 
 internal enum class MainReadyContentState {
-    Loading,
     Empty,
     List,
 }
@@ -413,7 +418,8 @@ internal fun resolvePagedMainReadyContentState(
 ): MainReadyContentState =
     when {
         itemCount > 0 -> MainReadyContentState.List
-        refreshState is LoadState.Loading -> MainReadyContentState.Loading
+        refreshState is LoadState.NotLoading && !refreshState.endOfPaginationReached -> MainReadyContentState.List
+        refreshState is LoadState.Loading -> MainReadyContentState.List
         else -> MainReadyContentState.Empty
     }
 

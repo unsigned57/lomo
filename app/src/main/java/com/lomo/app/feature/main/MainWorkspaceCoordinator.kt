@@ -2,7 +2,6 @@ package com.lomo.app.feature.main
 
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.MediaRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
@@ -12,7 +11,6 @@ import javax.inject.Inject
 class MainWorkspaceCoordinator
     @Inject
     constructor(
-        private val repository: MemoRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val refreshMemosUseCase: RefreshMemosUseCase,
         private val switchRootStorageUseCase: SwitchRootStorageUseCase,
@@ -31,7 +29,10 @@ class MainWorkspaceCoordinator
 
         suspend fun switchRootAndRefresh(path: String) {
             switchRootStorageUseCase.updateRootLocation(StorageLocation(path))
-            repository.refreshMemos()
+        }
+
+        suspend fun rebuildCurrentWorkspace() {
+            switchRootStorageUseCase.rebuildCurrentWorkspace()
         }
 
         suspend fun refreshMemos() {

@@ -191,6 +191,8 @@ fun WithDraggableScrollbar(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     contentGeneration: Any? = null,
+    totalItemsCountOverride: Int? = null,
+    scrollTargetItemsCountOverride: Int? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     if (!enabled) {
@@ -203,6 +205,8 @@ fun WithDraggableScrollbar(
         initialValue = null,
         state,
         contentGeneration,
+        totalItemsCountOverride,
+        scrollTargetItemsCountOverride,
     ) {
         val estimator = LazyListScrollbarEstimator()
         snapshotFlow {
@@ -211,7 +215,13 @@ fun WithDraggableScrollbar(
                 canScrollForward = state.canScrollForward,
             )
         }.collect { snapshot ->
-            value = estimator.update(snapshot = snapshot, contentGeneration = contentGeneration)
+            value =
+                estimator.update(
+                    snapshot = snapshot,
+                    contentGeneration = contentGeneration,
+                    totalItemsCountOverride = totalItemsCountOverride,
+                    scrollTargetItemsCountOverride = scrollTargetItemsCountOverride,
+                )
         }
     }
     val canScroll = lazyMetrics != null

@@ -2,15 +2,19 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.WorkspaceTransitionRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
 
 class SwitchRootStorageUseCase
 (
         private val directorySettingsRepository: DirectorySettingsRepository,
-        private val cleanupRepository: WorkspaceTransitionRepository,
+        private val workspaceStateResolver: WorkspaceStateResolver,
     ) {
         suspend fun updateRootLocation(location: StorageLocation) {
             directorySettingsRepository.applyRootLocation(location)
-            cleanupRepository.clearMemoStateAfterWorkspaceTransition()
+            rebuildCurrentWorkspace()
+        }
+
+        suspend fun rebuildCurrentWorkspace() {
+            workspaceStateResolver.rebuildFromCurrentWorkspace()
         }
     }

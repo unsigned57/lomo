@@ -86,18 +86,30 @@ class MemoQueryRepositoryImpl
             query: String,
             filter: MemoListFilter,
         ): PagingSource<Int, Memo> {
-            val normalizedRange = listOfNotNull(filter.startDate, filter.endDate).sorted()
-            val normalizedStart = normalizedRange.firstOrNull() ?: filter.startDate
-            val normalizedEnd = normalizedRange.lastOrNull() ?: filter.endDate
+            val queryInput = filter.toDefaultMainListQueryInput(query)
             return MemoRowMappingPagingSource(
                 source =
                     defaultMainListDao.getPagingSource(
-                        query = MemoFtsQueryBuilder.buildMatchQuery(query) ?: "",
-                        startDate = normalizedStart?.toString()?.replace("-", "_"),
-                        endDate = normalizedEnd?.toString()?.replace("-", "_"),
-                        sortOption = filter.sortOption.name,
-                        sortAscending = filter.sortAscending,
+                        query = queryInput.matchQuery,
+                        startDate = queryInput.startDate,
+                        endDate = queryInput.endDate,
+                        sortOption = queryInput.sortOption,
+                        sortAscending = queryInput.sortAscending,
                     ),
+            )
+        }
+
+        override fun getMainListCountFlow(
+            query: String,
+            filter: MemoListFilter,
+        ): Flow<Int> {
+            val queryInput = filter.toDefaultMainListQueryInput(query)
+            return defaultMainListDao.getCountFlow(
+                query = queryInput.matchQuery,
+                startDate = queryInput.startDate,
+                endDate = queryInput.endDate,
+                sortOption = queryInput.sortOption,
+                sortAscending = queryInput.sortAscending,
             )
         }
 
@@ -118,6 +130,27 @@ internal fun List<MemoEntity>.mapToPinnedDomain(pinnedMemoIds: Set<String>): Lis
     }
 
 private fun DefaultMainListMemoRow.toDomain(): Memo = memo.toDomain(isPinned = isPinned)
+
+private data class DefaultMainListQueryInput(
+    val matchQuery: String,
+    val startDate: String?,
+    val endDate: String?,
+    val sortOption: String,
+    val sortAscending: Boolean,
+)
+
+private fun MemoListFilter.toDefaultMainListQueryInput(query: String): DefaultMainListQueryInput {
+    val normalizedRange = listOfNotNull(startDate, endDate).sorted()
+    val normalizedStart = normalizedRange.firstOrNull() ?: startDate
+    val normalizedEnd = normalizedRange.lastOrNull() ?: endDate
+    return DefaultMainListQueryInput(
+        matchQuery = MemoFtsQueryBuilder.buildMatchQuery(query) ?: "",
+        startDate = normalizedStart?.toString()?.replace("-", "_"),
+        endDate = normalizedEnd?.toString()?.replace("-", "_"),
+        sortOption = sortOption.name,
+        sortAscending = sortAscending,
+    )
+}
 
 private fun LocalDate?.toStartOfDayEpochMillis(): Long =
     this

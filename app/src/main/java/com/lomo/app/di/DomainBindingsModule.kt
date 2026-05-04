@@ -17,7 +17,7 @@ import com.lomo.domain.repository.SyncConflictBackupRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
-import com.lomo.domain.repository.WorkspaceTransitionRepository
+import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.usecase.ApplyMainMemoFilterUseCase
 import com.lomo.domain.usecase.BackupSyncConflictFilesUseCase
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
@@ -245,11 +245,11 @@ object DomainWorkspaceBindingsModule {
     @Singleton
     fun provideSwitchRootStorageUseCase(
         directorySettingsRepository: DirectorySettingsRepository,
-        rootSwitchCleanupRepository: WorkspaceTransitionRepository,
+        workspaceStateResolver: WorkspaceStateResolver,
     ): SwitchRootStorageUseCase =
         SwitchRootStorageUseCase(
             directorySettingsRepository = directorySettingsRepository,
-            cleanupRepository = rootSwitchCleanupRepository,
+            workspaceStateResolver = workspaceStateResolver,
         )
 
     @Provides

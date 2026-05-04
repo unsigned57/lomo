@@ -1,23 +1,29 @@
 package com.lomo.ui.component.card
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.component.markdown.MarkdownRenderer
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.persistentListOf
 
 @Composable
@@ -28,6 +34,7 @@ internal fun MemoCardBodyContent(
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
+    isExpanded: Boolean,
     isCollapsedPreview: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
@@ -35,65 +42,65 @@ internal fun MemoCardBodyContent(
     bodyTransitionMode: MemoCardBodyTransitionMode,
 ) {
     val bodyContent: @Composable () -> Unit = {
-        if (collapsedPreviewMode != MemoCardCollapsedPreviewMode.Summary) {
-            MemoCardMarkdownContent(
-                processedContent = processedContent,
-                precomputedRenderPlan = precomputedRenderPlan,
-                tags = tags,
-                isCollapsedPreview = isCollapsedPreview,
-                allowFreeTextCopy = allowFreeTextCopy,
-                onTodoClick = onTodoClick,
-                todoOverrides = todoOverrides,
-                onImageClick = onImageClick,
-            )
-        } else {
-            when (bodyTransitionMode) {
-                MemoCardBodyTransitionMode.Snap -> {
-                    MemoCardBodyBranch(
-                        useCollapsedSummary = true,
+        when (bodyTransitionMode) {
+            MemoCardBodyTransitionMode.Snap -> {
+                MemoCardBodyStateContent(
+                    visualState =
+                        resolveMemoCardBodyVisualState(
+                            isExpanded = !isCollapsedPreview,
+                            collapsedPreviewMode = collapsedPreviewMode,
+                        ),
+                    collapsedPreviewMode = collapsedPreviewMode,
+                    collapsedSummary = collapsedSummary,
+                    allowFreeTextCopy = allowFreeTextCopy,
+                    processedContent = processedContent,
+                    precomputedRenderPlan = precomputedRenderPlan,
+                    tags = tags,
+                    onTodoClick = onTodoClick,
+                    todoOverrides = todoOverrides,
+                    onImageClick = onImageClick,
+                )
+            }
+
+            MemoCardBodyTransitionMode.StateContentTransform -> {
+                val collapsedTargetPreviewMode =
+                    resolveMemoCardBodyCollapsedTargetPreviewMode(
+                        bodyTransitionMode = bodyTransitionMode,
+                        currentPreviewMode = collapsedPreviewMode,
+                        hasProcessedContent = processedContent.isNotBlank(),
+                        collapsedSummary = collapsedSummary,
+                    )
+                val targetVisualState =
+                    resolveMemoCardBodyVisualState(
+                        isExpanded = isExpanded,
+                        collapsedPreviewMode = collapsedTargetPreviewMode,
+                    )
+                val motionSpec = resolveMemoCardBodyMotionSpec(bodyTransitionMode)
+
+                AnimatedContent(
+                    targetState = targetVisualState,
+                    modifier = Modifier.fillMaxWidth(),
+                    transitionSpec = {
+                        memoCardBodyContentTransform(
+                            motionSpec = motionSpec,
+                            isExpanding = targetState == MemoCardBodyVisualState.Expanded,
+                        )
+                    },
+                    contentAlignment = Alignment.TopStart,
+                    label = "MemoCardBodyContentTransition",
+                ) { visualState ->
+                    MemoCardBodyStateContent(
+                        visualState = visualState,
+                        collapsedPreviewMode = collapsedTargetPreviewMode,
                         collapsedSummary = collapsedSummary,
                         allowFreeTextCopy = allowFreeTextCopy,
                         processedContent = processedContent,
                         precomputedRenderPlan = precomputedRenderPlan,
                         tags = tags,
-                        isCollapsedPreview = isCollapsedPreview,
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
                     )
-                }
-
-                MemoCardBodyTransitionMode.VerticalVisibility -> {
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = memoCardBodyEnterTransition(),
-                            exit = memoCardBodyExitTransition(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            MemoCardCollapsedSummary(
-                                collapsedSummary = collapsedSummary,
-                                allowFreeTextCopy = allowFreeTextCopy,
-                            )
-                        }
-                        AnimatedVisibility(
-                            visible = false,
-                            enter = memoCardBodyEnterTransition(),
-                            exit = memoCardBodyExitTransition(),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            MemoCardMarkdownContent(
-                                processedContent = processedContent,
-                                precomputedRenderPlan = precomputedRenderPlan,
-                                tags = tags,
-                                isCollapsedPreview = isCollapsedPreview,
-                                allowFreeTextCopy = allowFreeTextCopy,
-                                onTodoClick = onTodoClick,
-                                todoOverrides = todoOverrides,
-                                onImageClick = onImageClick,
-                            )
-                        }
-                    }
                 }
             }
         }
@@ -103,34 +110,65 @@ internal fun MemoCardBodyContent(
 }
 
 @Composable
-private fun MemoCardBodyBranch(
-    useCollapsedSummary: Boolean,
+private fun MemoCardBodyStateContent(
+    visualState: MemoCardBodyVisualState,
+    collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
-    isCollapsedPreview: Boolean,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
 ) {
-    if (useCollapsedSummary) {
-        MemoCardCollapsedSummary(
-            collapsedSummary = collapsedSummary,
-            allowFreeTextCopy = allowFreeTextCopy,
-        )
-    } else {
-        MemoCardMarkdownContent(
-            processedContent = processedContent,
-            precomputedRenderPlan = precomputedRenderPlan,
-            tags = tags,
-            isCollapsedPreview = isCollapsedPreview,
-            allowFreeTextCopy = allowFreeTextCopy,
-            onTodoClick = onTodoClick,
-            todoOverrides = todoOverrides,
-            onImageClick = onImageClick,
-        )
+    when (visualState) {
+        MemoCardBodyVisualState.Expanded -> {
+            MemoCardMarkdownContent(
+                processedContent = processedContent,
+                precomputedRenderPlan = precomputedRenderPlan,
+                tags = tags,
+                isCollapsedPreview = false,
+                allowFreeTextCopy = allowFreeTextCopy,
+                onTodoClick = onTodoClick,
+                todoOverrides = todoOverrides,
+                onImageClick = onImageClick,
+            )
+        }
+
+        MemoCardBodyVisualState.CollapsedSummary -> {
+            MemoCardCollapsedBody {
+                MemoCardCollapsedSummary(
+                    collapsedSummary = collapsedSummary,
+                    allowFreeTextCopy = allowFreeTextCopy,
+                )
+            }
+        }
+
+        MemoCardBodyVisualState.CollapsedMarkdownPreview -> {
+            MemoCardCollapsedBody {
+                MemoCardMarkdownContent(
+                    processedContent = processedContent,
+                    precomputedRenderPlan = precomputedRenderPlan,
+                    tags = tags,
+                    isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
+                    allowFreeTextCopy = allowFreeTextCopy,
+                    onTodoClick = onTodoClick,
+                    todoOverrides = todoOverrides,
+                    onImageClick = onImageClick,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
+    Box(
+        modifier = Modifier.fillMaxWidth().heightIn(max = COLLAPSED_BODY_MAX_HEIGHT),
+    ) {
+        content()
+        MemoCardCollapsedOverlay()
     }
 }
 
@@ -158,28 +196,70 @@ private fun MemoCardMarkdownContent(
     )
 }
 
-private fun memoCardBodyEnterTransition() =
-    fadeIn(
-        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-    ) +
-        expandVertically(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationMedium2,
-                    easing = MotionTokens.EasingEmphasizedDecelerate,
-                ),
-            expandFrom = Alignment.Top,
+private fun memoCardBodyContentTransform(
+    motionSpec: MemoCardBodyMotionSpec,
+    isExpanding: Boolean,
+): ContentTransform {
+    val contentSwitchSpec =
+        resolveMemoCardBodyContentSwitchSpec(
+            motionSpec = motionSpec,
+            isExpanding = isExpanding,
         )
+    return ContentTransform(
+        targetContentEnter =
+            fadeIn(
+                animationSpec =
+                    tween(
+                        durationMillis = contentSwitchSpec.targetContentEnterDurationMillis,
+                        delayMillis = contentSwitchSpec.targetContentEnterDelayMillis,
+                        easing = MotionTokens.EasingEmphasizedDecelerate,
+                    ),
+            ),
+        initialContentExit =
+            fadeOut(
+                animationSpec =
+                    tween(
+                        durationMillis = contentSwitchSpec.initialContentExitDurationMillis,
+                        delayMillis = contentSwitchSpec.initialContentExitDelayMillis,
+                        easing = MotionTokens.EasingEmphasizedAccelerate,
+                    ),
+            ),
+        targetContentZIndex = 0f,
+        sizeTransform =
+            SizeTransform(clip = true) { _, _ ->
+                tween(
+                    durationMillis =
+                        if (isExpanding) {
+                            motionSpec.sizeEnterDurationMillis
+                        } else {
+                            motionSpec.sizeExitDurationMillis
+                        },
+                    easing = MotionTokens.EasingEmphasized,
+                )
+            },
+    )
+}
 
-private fun memoCardBodyExitTransition() =
-    fadeOut(
-        animationSpec = tween(durationMillis = MotionTokens.DurationShort4),
-    ) +
-        shrinkVertically(
-            animationSpec =
-                tween(
-                    durationMillis = MotionTokens.DurationShort4,
-                    easing = MotionTokens.EasingEmphasizedAccelerate,
+@Composable
+private fun BoxScope.MemoCardCollapsedOverlay() {
+    Box(
+        modifier =
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(COLLAPSED_BODY_OVERLAY_HEIGHT)
+                .background(
+                    brush =
+                        Brush.verticalGradient(
+                            colors =
+                                listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.surfaceContainer,
+                                ),
+                        ),
                 ),
-            shrinkTowards = Alignment.Top,
-        )
+    )
+}
+
+private val COLLAPSED_BODY_MAX_HEIGHT = 240.dp
+private val COLLAPSED_BODY_OVERLAY_HEIGHT = 48.dp

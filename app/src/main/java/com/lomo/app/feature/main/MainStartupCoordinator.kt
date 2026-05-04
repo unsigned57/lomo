@@ -5,7 +5,6 @@ import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.media.AudioPlayerManager
 import com.lomo.domain.usecase.StartupMaintenanceUseCase
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
 
@@ -31,7 +30,6 @@ class MainStartupCoordinator
         fun observeRootDirectoryChanges(): Flow<String?> =
             appConfigUiCoordinator
                 .rootDirectory()
-                .drop(1)
                 .onEach(audioPlayerManager.setRootLocation)
 
         fun observeVoiceDirectoryChanges(): Flow<String?> =

@@ -73,6 +73,7 @@ internal fun collectMainScreenUiSnapshot(
     val sidebarUiState by dependencies.sidebarViewModel.sidebarUiState.collectAsStateWithLifecycle()
     val appPreferences by dependencies.mainViewModel.appPreferences.collectAsStateWithLifecycle()
     val uiState by dependencies.mainViewModel.uiState.collectAsStateWithLifecycle()
+    val mainListTotalCount by dependencies.mainViewModel.mainListTotalCount.collectAsStateWithLifecycle()
     val pendingNewMemoCreationRequest by
         dependencies.mainViewModel.pendingNewMemoCreationRequest.collectAsStateWithLifecycle()
 
@@ -82,6 +83,7 @@ internal fun collectMainScreenUiSnapshot(
         hasRawItems = false,
         searchQuery = searchQuery,
         memoListFilter = memoListFilter,
+        mainListTotalCount = mainListTotalCount,
         sidebarUiState = sidebarUiState,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,

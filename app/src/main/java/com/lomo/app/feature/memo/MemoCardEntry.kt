@@ -23,6 +23,8 @@ fun MemoCardEntry(
     onTagClick: (String) -> Unit = {},
     onTodoClick: ((Int, Boolean) -> Unit)? = null,
     onImageClick: (String) -> Unit = {},
+    isExpanded: Boolean? = null,
+    onExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
     val memo = uiModel.memo
 
@@ -38,6 +40,8 @@ fun MemoCardEntry(
         modifier = modifier.benchmarkAnchor(BenchmarkAnchorContract.memoCard(memo.id)),
         allowFreeTextCopy = freeTextCopyEnabled,
         expandOnClick = true,
+        isExpanded = isExpanded,
+        onExpandedChange = onExpandedChange,
         onClick = { onMemoClick?.invoke(memo) },
         onDoubleClick =
             if (doubleTapEditEnabled) {

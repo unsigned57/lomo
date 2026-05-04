@@ -8,8 +8,8 @@ import java.io.File
  * Test Contract:
  * - Unit under test: MemoListContent and MemoListItemMotion animation contracts
  * - Behavior focus: delete animation uses a single isDeleting flag with a composed exit transition
- *   driven by AnimatedVisibility, and placement spring must stay disabled while either new-memo
- *   insertion or delete viewport compensation owns row movement.
+ *   driven by AnimatedVisibility, and placement spring must stay disabled while new-memo insertion,
+ *   delete viewport compensation, or memo expand/collapse owns row movement.
  * - Observable outcomes: required animation declarations remain present in source files.
  * - Red phase: Fails before the fix because the old source still uses separate isDeleting/isCollapsing
  *   branches, a separate animateFloatAsState for alpha, and a 220ms collapse duration instead of
@@ -34,6 +34,47 @@ import java.io.File
  * - Why this is not fitting the test to the implementation: the changed snippets encode the
  *   user-visible animation requirement (fade then collapse, with single-owner row movement)
  *   rather than internal state management details.
+ */
+/*
+ * Test Change Justification:
+ * - Reason category: product bug regression boundary extension.
+ * - Old behavior/assertion being replaced: the placement-spring contract only blocked animateItem
+ *   while new-memo insertion or delete viewport compensation owned row movement.
+ * - Why the old assertion is no longer correct: memo expand/collapse now has a list-level height
+ *   transition session, so LazyColumn placement spring must also stand down during that session
+ *   to avoid stacked vertical motion and neighbor-row jumps.
+ * - Coverage preserved by: the updated snippets still require new-memo and delete blockers, the
+ *   same non-bouncy placement spring, fade/collapse timing, and snap fallback.
+ * - Why this is not fitting the test to the implementation: the added condition locks the
+ *   user-visible no-jump requirement for expand/collapse while preserving the older movement-owner
+ *   guarantees for insert and delete animations.
+ */
+/*
+ * Test Change Justification:
+ * - Reason category: product bug regression boundary extension.
+ * - Old behavior/assertion being replaced: the memo expand/collapse placement blocker was accepted
+ *   as a global boolean for every visible and cached row.
+ * - Why the old assertion is no longer correct: after a collapse settles, globally toggled cached
+ *   rows can replay stale placement motion when the user scrolls and the first row above or below
+ *   enters the viewport.
+ * - Coverage preserved by: the placement contract still requires the expansion blocker to exist,
+ *   but it must now be resolved per row id instead of applied to the whole LazyColumn.
+ * - Why this is not fitting the test to the implementation: this locks the reported post-collapse
+ *   edge-row regression while keeping the original single-owner animation policy.
+ */
+/*
+ * Test Change Justification:
+ * - Reason category: architectural contract replacement.
+ * - Old behavior/assertion being replaced: the main list contract required app-local
+ *   memoListPlacementAnimation and direct animateItem placement policy snippets.
+ * - Why the old assertion is no longer correct: all LazyColumn row movement is now centralized
+ *   in ui-components LazyListMotion, and app feature code must only declare item keys plus active
+ *   structure sessions.
+ * - Coverage preserved by: the test still requires new-memo insert/reveal state, delete
+ *   fade-then-collapse, and app adoption of lazyListMotionItem; LazyListMotionPolicyTest covers
+ *   the shared fade/spring decision rules.
+ * - Why this is not fitting the test to the implementation: it locks the user-requested unified
+ *   framework boundary and forbids the scattered animateItem policy that caused the regression.
  */
 class MemoListAnimationContractTest {
     private val moduleRoot = resolveModuleRoot("app")
@@ -74,7 +115,7 @@ class MemoListAnimationContractTest {
             """
             Deleting memos must keep the unified fade-then-collapse animation in the main-screen list sources.
             Expected AnimatedVisibility with composed exit transition (fadeOut + shrinkVertically
-            with delayMillis), bottom spacing animation with matching delayMillis, and stable animateItem.
+            with delayMillis), bottom spacing animation with matching delayMillis, and shared LazyListMotion.
             """.trimIndent(),
             DELETE_FADE_ANIMATION_CONSTANTS.all(content::contains) &&
             DELETE_FADE_ANIMATION_SNIPPETS.all(content::contains),
@@ -144,8 +185,6 @@ class MemoListAnimationContractTest {
                 "val animatedHeight = (placeable.height * spaceFraction).roundToInt()",
                 "val animatedBottomSpacing = (bottomSpacingPx * spaceFraction).roundToInt()",
                 "enter = EnterTransition.None",
-                ".animateItem(",
-                "fadeInSpec = null",
                 "spaceFraction.animateTo(",
                 "durationMillis = MEMO_INSERT_SPACE_ANIMATION_DURATION_MILLIS",
                 "onNewMemoSpacePrepared(memoId)",
@@ -154,10 +193,9 @@ class MemoListAnimationContractTest {
                 "newMemoInsertAnimationSession.markRevealReady(currentState.gapReadyMemoId)",
                 "durationMillis = MEMO_NEW_ITEM_REVEAL_DURATION_MILLIS",
                 "withFrameNanos { }",
-                "fadeOutSpec = null",
-                "placementSpec = if (!newMemoInsertAnimationState.blocksPlacementSpring && !blockPlacementSpringForDeleteViewportEntry) { spring(",
-                "stiffness = Spring.StiffnessLow",
-                "dampingRatio = Spring.DampingRatioNoBouncy",
+                "rememberLazyListMotionState(",
+                ".lazyListMotionItem(",
+                "structureMotionActive = motionOwners.newMemoInsertAnimationState.blocksPlacementSpring",
             )
 
         val NEW_MEMO_ENTER_ANIMATION_FORBIDDEN_SNIPPETS =
@@ -177,16 +215,14 @@ class MemoListAnimationContractTest {
 
         val DELETE_FADE_ANIMATION_SNIPPETS =
             listOf(
-                ".memoListPlacementAnimation(",
+                "rememberLazyListMotionState(",
+                ".lazyListMotionItem(",
                 "lazyItemScope = this",
-                "newMemoInsertAnimationState = newMemoInsertAnimationState",
-                "this@memoListPlacementAnimation.animateItem(",
-                "fadeInSpec = null",
-                "fadeOutSpec = null",
-                "placementSpec = if (!newMemoInsertAnimationState.blocksPlacementSpring && !blockPlacementSpringForDeleteViewportEntry) { spring(",
-                "stiffness = Spring.StiffnessLow",
-                "dampingRatio = Spring.DampingRatioNoBouncy",
-                "} else { snap() }",
+                "motionState = motionOwners.listMotionState",
+                "beginResizeTransition(",
+                "toLazyListMotionViewportSnapshot()",
+                "onItemMeasured(",
+                "isRemoving = uiModel.memo.id in motionOwners.deletingIds",
                 "Modifier.graphicsLayer {",
                 "compositingStrategy = CompositingStrategy.ModulateAlpha",
                 "animateFloatAsState(",
