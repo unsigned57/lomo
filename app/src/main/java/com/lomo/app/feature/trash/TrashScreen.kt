@@ -4,11 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -66,12 +62,13 @@ import com.lomo.app.feature.common.rememberRetainedVisibleItems
 import com.lomo.app.feature.common.resolveDeleteAnimationVisualPolicy
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.main.deleteViewportEntryCompensation
-import com.lomo.app.feature.main.rememberDeleteViewportEntryCompensation
 import com.lomo.domain.model.Memo
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.card.MemoCard
+import com.lomo.ui.component.common.LazyListMotionState
+import com.lomo.ui.component.common.lazyListMotionItem
+import com.lomo.ui.component.common.rememberLazyListMotionState
 import com.lomo.ui.component.menu.MemoActionHaptic
 import com.lomo.ui.component.menu.MemoActionSheet
 import com.lomo.ui.component.menu.MemoActionSheetAction
@@ -81,17 +78,14 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.coroutines.delay
 
 private val TRASH_LIST_CONTENT_PADDING = 16.dp
 private val TRASH_LIST_ITEM_SPACING = 12.dp
-private const val TRASH_DELETE_ANIMATION_DURATION_MILLIS = 300
-private const val TRASH_DELETE_FADE_DELAY_MILLIS = 300
 private const val TRASH_COLLAPSE_ANIMATION_DURATION_MILLIS = 300
 private const val TRASH_DELETE_FADE_DURATION_MILLIS = 300
-private const val TRASH_ITEM_VISIBLE_ALPHA = 1f
-private const val TRASH_ITEM_HIDDEN_ALPHA = 0f
 private const val TRASH_ITEM_ALPHA_THRESHOLD = 0.999f
 private val TRASH_ACTION_HANDLE_PADDING = 22.dp
 private val TRASH_ACTION_HANDLE_WIDTH = 32.dp
@@ -293,10 +287,14 @@ private fun TrashMemoList(
     onMemoMenuClick: (Memo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val viewportEntryCompensation =
-        rememberDeleteViewportEntryCompensation(
-            sourceItems = trashMemos,
-            deletingIds = deletingMemoIds,
+    val motionItemKeys =
+        remember(trashMemos) {
+            trashMemos.map { uiModel -> uiModel.memo.id }.toPersistentList()
+        }
+    val listMotionState =
+        rememberLazyListMotionState(
+            itemKeys = motionItemKeys,
+            removingKeys = deletingMemoIds,
             listState = listState,
         )
     LazyColumn(
@@ -310,20 +308,6 @@ private fun TrashMemoList(
             key = { _, item -> item.memo.id },
             contentType = { _, _ -> "memo" },
         ) { index, uiModel ->
-            val deleteViewportSharedCompensation =
-                viewportEntryCompensation.sharedTopEntryCompensationFor(uiModel.memo.id)
-            val deleteViewportCompensation =
-                deleteViewportSharedCompensation
-                    ?: viewportEntryCompensation.compensationFor(uiModel.memo.id)
-            val deleteViewportHoldOffset =
-                if (deleteViewportCompensation == null) {
-                    viewportEntryCompensation.holdOffsetFor(uiModel.memo.id)
-                } else {
-                    null
-                }
-            val blockPlacementSpringForDeleteViewportEntry =
-                deleteViewportCompensation != null ||
-                    deleteViewportHoldOffset != null
             TrashMemoCardItem(
                 uiModel = uiModel,
                 index = index,
@@ -333,35 +317,15 @@ private fun TrashMemoList(
                 timeFormat = timeFormat,
                 freeTextCopyEnabled = freeTextCopyEnabled,
                 onMemoMenuClick = onMemoMenuClick,
-                viewportEntryCompensation = viewportEntryCompensation,
+                listMotionState = listMotionState,
                 modifier =
                     Modifier
-                        .animateItem(
-                            fadeInSpec =
-                                keyframes {
-                                    durationMillis = TRASH_DELETE_ANIMATION_DURATION_MILLIS
-                                    TRASH_ITEM_HIDDEN_ALPHA at 0
-                                    TRASH_ITEM_HIDDEN_ALPHA at TRASH_DELETE_FADE_DELAY_MILLIS
-                                    TRASH_ITEM_VISIBLE_ALPHA at TRASH_DELETE_ANIMATION_DURATION_MILLIS using
-                                        com.lomo.ui.theme.MotionTokens.EasingEmphasizedDecelerate
-                                },
-                            fadeOutSpec = null,
-                            placementSpec =
-                                if (blockPlacementSpringForDeleteViewportEntry) {
-                                    snap()
-                                } else {
-                                    spring(
-                                        stiffness = Spring.StiffnessLow,
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                    )
-                                },
-                        ).deleteViewportEntryCompensation(
-                            compensation = deleteViewportCompensation,
-                            holdOffsetPx = deleteViewportHoldOffset,
-                            onAnimationConsumed = {
-                                viewportEntryCompensation.clearCompensation(uiModel.memo.id)
-                            },
-                        ).fillMaxWidth(),
+                        .lazyListMotionItem(
+                            lazyItemScope = this,
+                            itemKey = uiModel.memo.id,
+                            motionState = listMotionState,
+                        )
+                        .fillMaxWidth(),
             )
         }
     }
@@ -377,7 +341,7 @@ private fun TrashMemoCardItem(
     timeFormat: String,
     freeTextCopyEnabled: Boolean,
     onMemoMenuClick: (Memo) -> Unit,
-    viewportEntryCompensation: com.lomo.app.feature.main.DeleteViewportEntryCompensationState,
+    listMotionState: LazyListMotionState,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -442,10 +406,10 @@ private fun TrashMemoCardItem(
         modifier =
             modifier
                 .onSizeChanged { size ->
-                    viewportEntryCompensation.onItemMeasured(
+                    listMotionState.onItemMeasured(
                         itemId = uiModel.memo.id,
                         itemIndex = index,
-                        isDeleting = isDeleting,
+                        isRemoving = isDeleting,
                         heightPx = size.height,
                         bottomSpacingPx = bottomSpacingPx,
                     )

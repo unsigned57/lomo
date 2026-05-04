@@ -2,11 +2,7 @@ package com.lomo.app.feature.memo
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +19,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,18 +33,24 @@ import androidx.compose.ui.unit.dp
 import com.lomo.app.feature.common.rememberRetainedVisibleItems
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
-import com.lomo.app.feature.main.DeleteViewportEntryCompensationState
-import com.lomo.app.feature.main.DeleteViewportEntryPlacement
 import com.lomo.app.feature.main.MemoUiModel
-import com.lomo.app.feature.main.deleteViewportEntryCompensation
-import com.lomo.app.feature.main.rememberDeleteViewportEntryCompensation
+import com.lomo.app.feature.main.updateExpandedMemoIds
 import com.lomo.domain.model.Memo
+import com.lomo.ui.component.common.LazyListItemEntranceState
+import com.lomo.ui.component.common.LazyListItemPlacementMode
+import com.lomo.ui.component.common.LazyListMotionState
 import com.lomo.ui.component.common.WithDraggableScrollbar
+import com.lomo.ui.component.common.lazyListMotionItem
+import com.lomo.ui.component.common.rememberLazyListMotionState
+import com.lomo.ui.component.common.resolveLazyListItemMotionPolicy
+import com.lomo.ui.component.common.toLazyListMotionViewportSnapshot
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toPersistentList
+import kotlinx.collections.immutable.toPersistentSet
 import kotlinx.coroutines.delay
 
 enum class MemoCardListAnimation {
@@ -54,6 +58,16 @@ enum class MemoCardListAnimation {
     FadeIn,
     Placement,
 }
+
+internal enum class MemoCardListEntranceState {
+    Active,
+    Settled,
+}
+
+internal data class MemoCardListItemMotionPolicy(
+    val usesLazyItemFadeIn: Boolean,
+    val usesPlacementSpring: Boolean,
+)
 
 private val MEMO_CARD_LIST_ITEM_SPACING = 12.dp
 private const val MEMO_CARD_DELETE_FADE_DURATION_MILLIS = 300
@@ -86,12 +100,37 @@ fun MemoCardList(
             itemId = { it.memo.id },
             onRetentionSettled = onDeleteAnimationSettled,
         )
-    val viewportEntryCompensation =
-        rememberDeleteViewportEntryCompensation(
-            sourceItems = visibleMemos,
-            deletingIds = deletingMemoIds,
+    val motionItemKeys =
+        remember(visibleMemos) {
+            visibleMemos.map { uiModel -> uiModel.memo.id }.toPersistentList()
+        }
+    val listMotionState =
+        rememberLazyListMotionState(
+            itemKeys = motionItemKeys,
+            removingKeys = deletingMemoIds,
             listState = resolvedListState,
         )
+    var expandedMemoIds by rememberSaveable(saver = memoCardExpandedMemoIdsSaver()) {
+        mutableStateOf(persistentSetOf<String>())
+    }
+    var entranceState by remember(animation) {
+        mutableStateOf(
+            if (animation == MemoCardListAnimation.Placement) {
+                MemoCardListEntranceState.Active
+            } else {
+                MemoCardListEntranceState.Settled
+            },
+        )
+    }
+
+    LaunchedEffect(animation) {
+        if (animation == MemoCardListAnimation.Placement) {
+            entranceState = MemoCardListEntranceState.Active
+            delay(PLACEMENT_FADE_IN_DURATION_MS.toLong())
+        }
+        entranceState = MemoCardListEntranceState.Settled
+    }
+
     val listContent: @Composable () -> Unit = {
         LazyColumn(
             state = resolvedListState,
@@ -104,17 +143,6 @@ fun MemoCardList(
                 key = { _, item -> item.memo.id },
                 contentType = { _, _ -> "memo" },
             ) { index, uiModel ->
-                val deleteViewportSharedCompensation =
-                    viewportEntryCompensation.sharedTopEntryCompensationFor(uiModel.memo.id)
-                val deleteViewportCompensation =
-                    deleteViewportSharedCompensation
-                        ?: viewportEntryCompensation.compensationFor(uiModel.memo.id)
-                val deleteViewportHoldOffset =
-                    if (deleteViewportCompensation == null) {
-                        viewportEntryCompensation.holdOffsetFor(uiModel.memo.id)
-                    } else {
-                        null
-                    }
                 MemoCardAnimatedItem(
                     uiModel = uiModel,
                     itemIndex = index,
@@ -127,11 +155,24 @@ fun MemoCardList(
                     onShowMenu = onShowMenu,
                     onImageClick = onImageClick,
                     animation = animation,
+                    entranceState = entranceState,
                     isDeleting = uiModel.memo.id in deletingMemoIds,
                     deleteAnimationEnabled = deletingMemoIds.isNotEmpty(),
-                    viewportEntryCompensation = viewportEntryCompensation,
-                    deleteViewportCompensation = deleteViewportCompensation,
-                    deleteViewportHoldOffset = deleteViewportHoldOffset,
+                    listMotionState = listMotionState,
+                    isExpanded = uiModel.memo.id in expandedMemoIds,
+                    onExpandedChange = { expanded ->
+                        listMotionState.beginResizeTransition(
+                            itemId = uiModel.memo.id,
+                            expands = expanded,
+                            snapshot = resolvedListState.layoutInfo.toLazyListMotionViewportSnapshot(),
+                        )
+                        expandedMemoIds =
+                            updateExpandedMemoIds(
+                                expandedMemoIds = expandedMemoIds,
+                                memoId = uiModel.memo.id,
+                                isExpanded = expanded,
+                            ).toPersistentSet()
+                    },
                 )
             }
         }
@@ -165,11 +206,12 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
     onShowMenu: (MemoMenuState) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
     animation: MemoCardListAnimation,
+    entranceState: MemoCardListEntranceState,
     isDeleting: Boolean,
     deleteAnimationEnabled: Boolean,
-    viewportEntryCompensation: DeleteViewportEntryCompensationState,
-    deleteViewportCompensation: DeleteViewportEntryPlacement?,
-    deleteViewportHoldOffset: Float?,
+    listMotionState: LazyListMotionState,
+    isExpanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
 ) {
     val density = LocalDensity.current
     val bottomSpacing = if (itemIndex == itemCount - 1) 0.dp else MEMO_CARD_LIST_ITEM_SPACING
@@ -192,24 +234,16 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
         Modifier.rememberMemoCardItemModifier(
             lazyItemScope = this,
             animation = animation,
+            entranceState = entranceState,
             memoId = uiModel.memo.id,
             enableDeletePlacementAnimation = deleteAnimationEnabled,
-            blockPlacementSpringForDeleteViewportEntry =
-                deleteViewportCompensation != null ||
-                    deleteViewportHoldOffset != null,
+            listMotionState = listMotionState,
         )
-            .deleteViewportEntryCompensation(
-                compensation = deleteViewportCompensation,
-                holdOffsetPx = deleteViewportHoldOffset,
-                onAnimationConsumed = {
-                    viewportEntryCompensation.clearCompensation(uiModel.memo.id)
-                },
-            )
             .onSizeChanged { size ->
-                viewportEntryCompensation.onItemMeasured(
+                listMotionState.onItemMeasured(
                     itemId = uiModel.memo.id,
                     itemIndex = itemIndex,
-                    isDeleting = isDeleting,
+                    isRemoving = isDeleting,
                     heightPx = size.height,
                     bottomSpacingPx = bottomSpacingPx,
                 )
@@ -227,6 +261,8 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
         onShowMenu = onShowMenu,
         onImageClick = stableImageClick,
         modifier = itemModifier,
+        isExpanded = isExpanded,
+        onExpandedChange = onExpandedChange,
     )
 }
 
@@ -235,15 +271,39 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
 private fun Modifier.rememberMemoCardItemModifier(
     lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
     animation: MemoCardListAnimation,
+    entranceState: MemoCardListEntranceState,
     memoId: String,
     enableDeletePlacementAnimation: Boolean,
-    blockPlacementSpringForDeleteViewportEntry: Boolean,
-): Modifier =
-    when (animation) {
+    listMotionState: LazyListMotionState,
+): Modifier {
+    val motionPolicy =
+        resolveMemoCardListItemMotionPolicy(
+            animation = animation,
+            entranceState = entranceState,
+            deleteAnimationEnabled = enableDeletePlacementAnimation,
+            blockPlacementSpringForDeleteViewportEntry = false,
+            blockPlacementSpringForMemoExpansion = listMotionState.structureMotionActiveFor(memoId),
+        )
+    val placementMode =
+        if (motionPolicy.usesPlacementSpring) {
+            LazyListItemPlacementMode.Spring
+        } else {
+            LazyListItemPlacementMode.Disabled
+        }
+    val itemEntranceState =
+        if (motionPolicy.usesLazyItemFadeIn) {
+            LazyListItemEntranceState.Active
+        } else {
+            LazyListItemEntranceState.Settled
+        }
+    return when (animation) {
         MemoCardListAnimation.None ->
-            memoCardDeletePlacementAnimation(
+            lazyListMotionItem(
                 lazyItemScope = lazyItemScope,
-                enabled = enableDeletePlacementAnimation && !blockPlacementSpringForDeleteViewportEntry,
+                itemKey = memoId,
+                motionState = listMotionState,
+                entranceState = itemEntranceState,
+                placementMode = placementMode,
             )
 
         MemoCardListAnimation.FadeIn -> {
@@ -261,57 +321,69 @@ private fun Modifier.rememberMemoCardItemModifier(
             this.graphicsLayer {
                 alpha = animatedAlpha.value
                 compositingStrategy = CompositingStrategy.ModulateAlpha
-            }.memoCardDeletePlacementAnimation(
+            }.lazyListMotionItem(
                 lazyItemScope = lazyItemScope,
-                enabled = enableDeletePlacementAnimation && !blockPlacementSpringForDeleteViewportEntry,
+                itemKey = memoId,
+                motionState = listMotionState,
+                entranceState = itemEntranceState,
+                placementMode = placementMode,
             )
         }
 
-        MemoCardListAnimation.Placement -> {
-            with(lazyItemScope) {
-                this@rememberMemoCardItemModifier.animateItem(
-                    fadeInSpec =
-                         keyframes {
-                             durationMillis = PLACEMENT_FADE_IN_DURATION_MS
-                             0f at 0
-                             0f at MotionTokens.DurationLong2
-                             1f at PLACEMENT_FADE_IN_DURATION_MS using MotionTokens.EasingEmphasizedDecelerate
-                         },
-                     fadeOutSpec = snap(),
-                    placementSpec =
-                        if (blockPlacementSpringForDeleteViewportEntry) {
-                            snap()
-                        } else {
-                            spring(
-                                stiffness = Spring.StiffnessLow,
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                            )
-                        },
-                )
-            }
-        }
-    }
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private fun Modifier.memoCardDeletePlacementAnimation(
-    lazyItemScope: androidx.compose.foundation.lazy.LazyItemScope,
-    enabled: Boolean,
-): Modifier {
-    if (!enabled) {
-        return this
-    }
-    return with(lazyItemScope) {
-        this@memoCardDeletePlacementAnimation.animateItem(
-            fadeInSpec = null,
-            fadeOutSpec = snap(),
-            placementSpec =
-                spring(
-                    stiffness = Spring.StiffnessLow,
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                ),
-        )
+        MemoCardListAnimation.Placement ->
+            lazyListMotionItem(
+                lazyItemScope = lazyItemScope,
+                itemKey = memoId,
+                motionState = listMotionState,
+                entranceState = itemEntranceState,
+                placementMode = placementMode,
+            )
     }
 }
+
+internal fun resolveMemoCardListItemMotionPolicy(
+    animation: MemoCardListAnimation,
+    entranceState: MemoCardListEntranceState,
+    deleteAnimationEnabled: Boolean,
+    blockPlacementSpringForDeleteViewportEntry: Boolean,
+    blockPlacementSpringForMemoExpansion: Boolean,
+): MemoCardListItemMotionPolicy {
+    val structureMotionActive =
+        blockPlacementSpringForDeleteViewportEntry || blockPlacementSpringForMemoExpansion
+    val placementMode =
+        when (animation) {
+            MemoCardListAnimation.None,
+            MemoCardListAnimation.FadeIn,
+            -> if (deleteAnimationEnabled) LazyListItemPlacementMode.Spring else LazyListItemPlacementMode.Disabled
+
+            MemoCardListAnimation.Placement -> LazyListItemPlacementMode.Spring
+        }
+    val policy =
+        resolveLazyListItemMotionPolicy(
+            entranceState =
+                if (
+                    animation == MemoCardListAnimation.Placement &&
+                    entranceState == MemoCardListEntranceState.Active
+                ) {
+                    LazyListItemEntranceState.Active
+                } else {
+                    LazyListItemEntranceState.Settled
+                },
+            placementMode = placementMode,
+            structureMotionActive = structureMotionActive,
+        )
+    return MemoCardListItemMotionPolicy(
+        usesLazyItemFadeIn = policy.usesLazyItemFadeIn,
+        usesPlacementSpring = policy.usesPlacementSpring,
+    )
+}
+
+private fun memoCardExpandedMemoIdsSaver() =
+    listSaver<androidx.compose.runtime.MutableState<ImmutableSet<String>>, String>(
+        save = { state -> state.value.toList() },
+        restore = { restored -> mutableStateOf(restored.toPersistentSet()) },
+    )
+
 
 @Composable
 private fun MemoCardDeleteAnimatedContainer(
@@ -325,7 +397,9 @@ private fun MemoCardDeleteAnimatedContainer(
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     onImageClick: (String) -> Unit,
+    isExpanded: Boolean,
     modifier: Modifier = Modifier,
+    onExpandedChange: (Boolean) -> Unit,
 ) {
     var isCollapsing by remember { mutableStateOf(false) }
 
@@ -388,6 +462,8 @@ private fun MemoCardDeleteAnimatedContainer(
                 onMemoEdit = onMemoEdit,
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
+                isExpanded = isExpanded,
+                onExpandedChange = onExpandedChange,
             )
         }
     }
