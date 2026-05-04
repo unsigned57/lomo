@@ -18,7 +18,7 @@ internal fun resolvePlatformNightMode(
     themeMode: ThemeMode,
 ): Int? =
     when (themeMode) {
-        ThemeMode.SYSTEM -> null
+        ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
         ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
         ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
     }
