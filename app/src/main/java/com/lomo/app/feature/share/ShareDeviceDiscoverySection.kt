@@ -41,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -52,9 +53,13 @@ import com.lomo.app.R
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.common.lazyListMotionItem
+import com.lomo.ui.component.common.rememberLazyListMotionState
 import com.lomo.ui.theme.AppShapes
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentSetOf
+import kotlinx.collections.immutable.toPersistentList
 
 private const val DEVICE_DISCOVERY_ENTER_DURATION_MILLIS = 420
 private const val DEVICE_DISCOVERY_EXIT_DURATION_MILLIS = 220
@@ -268,21 +273,38 @@ private fun DeviceDiscoveryList(
     onDeviceClick: (DiscoveredDevice) -> Unit,
     listState: LazyListState,
 ) {
+    val deviceKeys =
+        remember(devices) {
+            devices.map { device -> device.motionKey() }.toPersistentList()
+        }
+    val listMotionState =
+        rememberLazyListMotionState(
+            itemKeys = deviceKeys,
+            removingKeys = persistentSetOf(),
+            listState = listState,
+        )
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
     ) {
-        itemsIndexed(devices, key = { _, item -> "${item.host}:${item.port}" }) { _, device ->
+        itemsIndexed(devices, key = { _, item -> item.motionKey() }) { _, device ->
             DeviceCard(
                 device = device,
                 isEnabled = transferState.allowsDeviceSelection(),
                 onClick = { onDeviceClick(device) },
-                modifier = Modifier.animateItem(),
+                modifier =
+                    Modifier.lazyListMotionItem(
+                        lazyItemScope = this,
+                        itemKey = device.motionKey(),
+                        motionState = listMotionState,
+                    ),
             )
         }
     }
 }
+
+private fun DiscoveredDevice.motionKey(): String = "$host:$port"
 
 private fun ShareTransferState.allowsDeviceSelection(): Boolean =
     this is ShareTransferState.Idle ||

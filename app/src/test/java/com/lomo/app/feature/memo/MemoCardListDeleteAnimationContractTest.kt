@@ -37,8 +37,21 @@ import java.io.File
  * - Why this is not fitting the test to the implementation: the new snippet locks cross-screen
  *   parity for the same user-visible no-flicker delete behavior.
  */
+/*
+ * Test Change Justification:
+ * - Reason category: architectural contract replacement.
+ * - Old behavior/assertion being replaced: non-main memo delete surfaces were required to reuse
+ *   app-local DeleteViewportEntryCompensation helpers directly.
+ * - Why the old assertion is no longer correct: viewport-aware remove motion now lives in the
+ *   shared ui-components LazyListMotion framework, which must be the only row-movement owner.
+ * - Coverage preserved by: retained delete ids, settle callback wiring, viewport filtering,
+ *   negative top-entry placement, and shared modifier adoption are still required.
+ * - Why this is not fitting the test to the implementation: the updated snippets encode the
+ *   requested root-cause fix: one shared framework across main, tag/gallery/search, and trash.
+ */
 class MemoCardListDeleteAnimationContractTest {
     private val appModuleRoot = resolveModuleRoot("app")
+    private val repoRoot = checkNotNull(appModuleRoot.parentFile)
     private val sourceFiles =
         listOf(
             appModuleRoot.resolve("src/main/java/com/lomo/app/feature/memo/MemoCardListAnimation.kt"),
@@ -46,8 +59,10 @@ class MemoCardListDeleteAnimationContractTest {
             appModuleRoot.resolve("src/main/java/com/lomo/app/feature/tag/TagFilterScreen.kt"),
             appModuleRoot.resolve("src/main/java/com/lomo/app/feature/gallery/GalleryScreen.kt"),
             appModuleRoot.resolve("src/main/java/com/lomo/app/feature/trash/TrashScreen.kt"),
-            appModuleRoot.resolve("src/main/java/com/lomo/app/feature/main/DeleteViewportEntryCompensation.kt"),
-            appModuleRoot.resolve("src/main/java/com/lomo/app/feature/main/DeleteViewportEntryPlacementPolicy.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionState.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionRemoveState.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionRemovePlacement.kt"),
+            repoRoot.resolve("ui-components/src/main/java/com/lomo/ui/component/common/LazyListMotionSnapshot.kt"),
         )
 
     @Test
@@ -89,13 +104,12 @@ class MemoCardListDeleteAnimationContractTest {
                 "deletingMemoIds =",
                 "onDeleteAnimationSettled =",
                 "rememberRetainedVisibleItems(",
-                "rememberDeleteViewportEntryCompensation(",
-                "sharedTopEntryCompensationFor(",
-                ".deleteViewportEntryCompensation(",
+                "rememberLazyListMotionState(",
+                ".lazyListMotionItem(",
                 "viewModel::onDeleteAnimationSettled",
-                "toDeleteViewportEntryVisibilitySnapshot().viewportVisibleIds()",
+                "toLazyListMotionViewportSnapshot().viewportVisibleIds()",
                 "remainingDistancePx.coerceAtLeast(viewportOvershootPx)",
-                "initialOffsetPx = initialOffsetPx * entryDirection.offsetSign",
+                "initialOffsetPx = initialOffsetPx * candidate.direction.offsetSign",
             )
     }
 }
