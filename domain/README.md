@@ -1,3 +1,5 @@
+> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
+
 # Domain Module Index
 
 This module defines the platform-free core of the app: domain models, use cases, validators, and repository interfaces. New business behavior should start here before it is wired into `app` and implemented in `data`.

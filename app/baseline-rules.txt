@@ -1,0 +1,63 @@
+# Format: <flags> <pattern>
+# Flags : H=Hot S=Startup P=PostStartup L=LoadClass; class lines emit L only,
+#         method lines use the full flag set.
+# Pattern: glob over JVM internal names (com/lomo/app/MainActivity).
+#          ** = any depth (incl '/'), * = single segment.
+# Rules are evaluated top-down; first match wins. Keep specific rules above broad ones.
+
+# 1. Application core / startup activities
+HSPL com/lomo/app/LomoApplication
+HSPL com/lomo/app/Hilt_LomoApplication
+HSPL com/lomo/app/MainActivity
+
+# 2. Hilt / DI runtime
+HSPL dagger/hilt/android/internal/managers/**
+HSPL dagger/hilt/android/internal/lifecycle/**
+HSPL dagger/internal/**
+
+# 3. Compose runtime / UI / foundation startup core
+HSPL androidx/compose/runtime/snapshots/**
+HSPL androidx/compose/runtime/**
+HSPL androidx/compose/ui/platform/**
+HSPL androidx/compose/ui/node/**
+SPL androidx/compose/ui/**
+HSPL androidx/compose/foundation/lazy/**
+SPL androidx/compose/foundation/**
+
+# 4. Material 3
+HSPL androidx/compose/material3/adaptive/**
+HSPL androidx/compose/material3/**
+
+# 5. Navigation / Paging
+HSPL androidx/navigation/compose/**
+PL androidx/paging/**
+
+# 6. Coroutines
+HSPL kotlinx/coroutines/flow/**
+SPL kotlinx/coroutines/**
+
+# 7. Coil
+PL coil3/compose/**
+PL coil3/**
+
+# 8. Lomo UI component cold paths
+HSPL com/lomo/ui/component/card/**
+HSPL com/lomo/ui/component/markdown/**
+HSPL com/lomo/ui/component/menu/**
+HSPL com/lomo/ui/theme/**
+SPL com/lomo/ui/component/**
+
+# 9. Lomo feature cold paths
+HSPL com/lomo/app/feature/main/**
+SPL com/lomo/app/feature/memo/**
+PL com/lomo/app/feature/search/**
+PL com/lomo/app/feature/preferences/**
+PL com/lomo/app/feature/settings/**
+PL com/lomo/app/feature/share/**
+PL com/lomo/app/feature/tag/**
+PL com/lomo/app/feature/trash/**
+PL com/lomo/app/feature/review/**
+
+# 10. Lomo data startup-related paths
+HSPL com/lomo/data/repository/**
+SPL com/lomo/data/local/**

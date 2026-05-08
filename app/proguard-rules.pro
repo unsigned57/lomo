@@ -3,7 +3,6 @@
 
 # Hilt
 -keep class com.lomo.app.LomoApplication_HiltComponents { *; }
--keep class com.lomo.app.di.** { *; }
 
 # Room
 -keep class * extends androidx.room.RoomDatabase
@@ -11,9 +10,7 @@
 -keep @androidx.room.Entity class *
 -keep @androidx.room.Dao class * { *; }
 
-# Data Classes (Serialization often needs them, though we rely on Room/Gson)
--keepclassmembers class com.lomo.domain.model.** { <fields>; }
--keepclassmembers class com.lomo.data.local.entity.** { <fields>; }
+# Domain models and Room entities do not require blanket field-name keeps in release.
 
 # Generic Compose Rules (Usually handled by R8 automatically but safe to add)
 # Generic Compose Rules (Handled by R8 automatically)
@@ -23,9 +20,8 @@
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 
-# Fix for R8 missing kotlin.time classes referenced by kotlinx-serialization
+# Suppress optional kotlin.time linkage warnings without pinning the entire package in release.
 -dontwarn kotlin.time.**
--keep class kotlin.time.** { *; }
 
 # Ktor Netty server optional JDK/desktop deps. Not used on Android but referenced.
 # Generated suggestions from R8 missing_rules.txt and additional Reactor BlockHound service.

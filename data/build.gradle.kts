@@ -42,13 +42,13 @@ android {
 }
 
 dependencies {
-    implementation(project(":domain"))
+    api(project(":domain"))
     implementation(platform(libs.aws.sdk.kotlin.bom))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.aws.sdk.kotlin.s3)
     implementation(libs.aws.smithy.kotlin.http.client.engine.okhttp.jvm)
-    implementation(libs.kotlinx.coroutines.android)
+    runtimeOnly(libs.kotlinx.coroutines.android)
     implementation(libs.bouncycastle.bcprov)
 
     // Room
@@ -58,9 +58,9 @@ dependencies {
     ksp(libs.androidx.room3.compiler)
 
     // Hilt
-    implementation(libs.hilt.android)
+    api(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    implementation(libs.androidx.hilt.work)
+    api(libs.androidx.hilt.work)
     ksp(libs.androidx.hilt.compiler.work)
 
     // DocumentFile for SAF
@@ -69,10 +69,8 @@ dependencies {
     // DataStore for preferences
     implementation(libs.androidx.datastore.preferences)
 
-    // WorkManager
-    implementation(libs.androidx.work.runtime.ktx)
-
     // Ktor (LAN Share)
+    api(libs.androidx.work.runtime.ktx)
     implementation(libs.ktor.server.cio)
     implementation(libs.ktor.server.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
@@ -81,7 +79,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
 
     // Git sync
-    implementation(libs.jgit)
+    api(libs.jgit)
     implementation(libs.bitfire.dav4jvm) {
         exclude(group = "org.ogce", module = "xpp3")
     }
@@ -90,12 +88,10 @@ dependencies {
     implementation(libs.timber)
 
     testImplementation(libs.junit)
-    testImplementation(libs.turbine)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.sqlite.jdbc)
+    testRuntimeOnly(libs.sqlite.jdbc)
     androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
 }
 
 kotlin {

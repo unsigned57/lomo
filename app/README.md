@@ -1,3 +1,5 @@
+> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
+
 # App Module Index
 
 This module owns app-level UI orchestration. It wires screens, navigation, ViewModels, settings flows, widgets, and app startup behavior on top of `domain` contracts and shared UI from `ui-components`.
