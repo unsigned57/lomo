@@ -37,6 +37,13 @@ sealed interface NavRoute {
     data object Gallery : NavRoute
 
     @Serializable
+    data class GalleryReel(
+        val payloadKey: String,
+        val initialMemoIndex: Int,
+        val initialImageIndex: Int,
+    ) : NavRoute
+
+    @Serializable
     data object Statistics : NavRoute
 
     @Serializable
@@ -161,6 +168,91 @@ object ImageViewerRoutePayloadStore {
 
     private fun trimLocked() {
         while (store.size >= MAX_ENTRIES) {
+            val oldestKey = store.entries.firstOrNull()?.key ?: return
+            store.remove(oldestKey)
+        }
+    }
+}
+
+/**
+ * Keeps gallery reel snapshots out of route args and preserves the opened gallery order.
+ * Entries are cached and pruned by age/size so a configuration change can restore the reel.
+ */
+object GalleryReelPayloadStore {
+    data class Payload(
+        val memoIds: List<String>,
+        val aspectByMemoId: Map<String, Float>,
+    )
+
+    private data class Entry(
+        val payload: Payload,
+        val createdAtMillis: Long,
+    )
+
+    const val MAX_ENTRIES_FOR_TEST = 64
+    const val ENTRY_TTL_MILLIS_FOR_TEST = 10 * 60 * 1000L
+    private const val STORE_LOAD_FACTOR = 0.75f
+    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES_FOR_TEST, STORE_LOAD_FACTOR, true)
+    private var clock: () -> Long = System::currentTimeMillis
+
+    @Synchronized
+    fun put(payload: Payload): String {
+        val now = clock()
+        pruneLocked(now)
+        trimLocked()
+
+        val key = UUID.randomUUID().toString()
+        store[key] =
+            Entry(
+                payload =
+                    Payload(
+                        memoIds =
+                            payload.memoIds
+                                .asSequence()
+                                .map(String::trim)
+                                .filter(String::isNotEmpty)
+                                .distinct()
+                                .toList(),
+                        aspectByMemoId =
+                            payload.aspectByMemoId
+                                .filterKeys { key -> key.isNotBlank() }
+                                .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
+                    ),
+                createdAtMillis = now,
+            )
+        return key
+    }
+
+    @Synchronized
+    fun get(key: String): Payload? {
+        val now = clock()
+        pruneLocked(now)
+        return store[key]?.payload
+    }
+
+    @Synchronized
+    fun clearForTest() {
+        store.clear()
+        clock = System::currentTimeMillis
+    }
+
+    @Synchronized
+    fun setClockForTest(testClock: () -> Long) {
+        clock = testClock
+    }
+
+    private fun pruneLocked(now: Long) {
+        val iterator = store.entries.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next().value
+            if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS_FOR_TEST) {
+                iterator.remove()
+            }
+        }
+    }
+
+    private fun trimLocked() {
+        while (store.size >= MAX_ENTRIES_FOR_TEST) {
             val oldestKey = store.entries.firstOrNull()?.key ?: return
             store.remove(oldestKey)
         }

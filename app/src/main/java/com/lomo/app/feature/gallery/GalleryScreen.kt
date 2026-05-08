@@ -26,27 +26,28 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
-import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.main.MainViewModel
-import com.lomo.app.feature.memo.MemoCardList
-import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoMenuBinder
+import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.app.util.activityHiltViewModel
-import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.menu.MemoMenuState
-import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
+import kotlinx.collections.immutable.toPersistentMap
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun GalleryScreen(
     onBackClick: () -> Unit,
-    onNavigateToImage: (ImageViewerRequest) -> Unit,
+    onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    onNavigateToMain: () -> Unit = onBackClick,
     lanShareEnabled: Boolean = true,
 ) {
     val viewModel: MainViewModel = activityHiltViewModel()
@@ -54,6 +55,17 @@ fun GalleryScreen(
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
+    val dimensionResolver = remember { GalleryImageDimensionResolver() }
+    val aspectByPath by dimensionResolver.aspectFlow.collectAsStateWithLifecycle()
+    val aspectByMemoId =
+        remember(memos, aspectByPath) {
+            memos
+                .mapNotNull { uiModel ->
+                    val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
+                    uiModel.memo.id to (aspectByPath[firstImageUrl] ?: GALLERY_DEFAULT_ASPECT_RATIO)
+                }.toMap()
+                .toPersistentMap()
+        }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
@@ -63,6 +75,10 @@ fun GalleryScreen(
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onClearError = viewModel.clearError,
+        memos = remember(memos) { memos.toImmutableList() },
+        deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
+        onDeleteAnimationSettled = viewModel::onPagedDeleteAnimationSettled,
+        dimensionResolver = dimensionResolver,
     )
 
     MemoMenuBinder(
@@ -76,15 +92,17 @@ fun GalleryScreen(
         onDeleteMemo = viewModel.deleteMemo,
         onLanShare = if (lanShareEnabled) onNavigateToShare else null,
         onJump = { state ->
-            state.memoAs<Memo>()?.let { memo ->
-                viewModel.requestFocusMemo(memo.id)
-                onBackClick()
-            }
+            handleMemoJumpToMain(
+                state = state,
+                requestFocusMemo = viewModel.requestFocusMemoInDefaultMainList,
+                navigateToMain = onNavigateToMain,
+            )
         },
         showJump = true,
         memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-        memoActionOrder = appPreferences.memoActionOrder,
-        onMemoActionInvoked = viewModel::recordMemoActionUsage,
+        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.GALLERY),
+        onMemoActionInvoked = viewModel.recordGalleryMemoActionUsage,
+        onMemoActionOrderChanged = viewModel.updateGalleryMemoActionOrder,
     ) { showMenu ->
         GalleryScreenScaffold(
             onBackClick = onBackClick,
@@ -94,19 +112,12 @@ fun GalleryScreen(
         ) { padding ->
             GalleryScreenContent(
                 memos = remember(memos) { memos.toImmutableList() },
+                aspectByMemoId = aspectByMemoId,
                 dateFormat = appPreferences.dateFormat,
                 timeFormat = appPreferences.timeFormat,
-                doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
-                freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
-                deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
                 padding = padding,
-                onEditMemo = { memo ->
-                    viewModel.requestOpenMemo(memo.id)
-                    onBackClick()
-                },
                 onShowMenu = showMenu,
-                onNavigateToImage = onNavigateToImage,
-                onDeleteAnimationSettled = viewModel::onPagedDeleteAnimationSettled,
+                onNavigateToReel = onNavigateToReel,
             )
         }
     }
@@ -118,6 +129,10 @@ private fun GalleryScreenEffects(
     errorMessage: String?,
     snackbarHostState: SnackbarHostState,
     onClearError: () -> Unit,
+    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    deletingMemoIds: ImmutableSet<String>,
+    onDeleteAnimationSettled: (String) -> Unit,
+    dimensionResolver: GalleryImageDimensionResolver,
 ) {
     LaunchedEffect(Unit) {
         onSyncImageCacheNow()
@@ -127,6 +142,20 @@ private fun GalleryScreenEffects(
             snackbarHostState.showSnackbar(message)
             onClearError()
         }
+    }
+    LaunchedEffect(memos, dimensionResolver) {
+        memos
+            .asSequence()
+            .mapNotNull { uiModel -> uiModel.imageUrls.firstOrNull() }
+            .distinct()
+            .forEach { imageUrl -> dimensionResolver.resolve(imageUrl) }
+    }
+    LaunchedEffect(memos, deletingMemoIds) {
+        val visibleMemoIds = memos.asSequence().map { uiModel -> uiModel.memo.id }.toSet()
+        deletingMemoIds
+            .asSequence()
+            .filterNot { memoId -> memoId in visibleMemoIds }
+            .forEach(onDeleteAnimationSettled)
     }
 }
 
@@ -173,16 +202,12 @@ private fun GalleryScreenScaffold(
 @Composable
 private fun GalleryScreenContent(
     memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    aspectByMemoId: ImmutableMap<String, Float>,
     dateFormat: String,
     timeFormat: String,
-    doubleTapEditEnabled: Boolean,
-    freeTextCopyEnabled: Boolean,
-    deletingMemoIds: kotlinx.collections.immutable.ImmutableSet<String>,
     padding: PaddingValues,
-    onEditMemo: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
-    onNavigateToImage: (ImageViewerRequest) -> Unit,
-    onDeleteAnimationSettled: (String) -> Unit,
+    onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
 ) {
     if (memos.isEmpty()) {
         Box(
@@ -200,18 +225,12 @@ private fun GalleryScreenContent(
         return
     }
 
-    MemoCardList(
+    GalleryGridContent(
         memos = memos,
+        aspectByMemoId = aspectByMemoId,
         dateFormat = dateFormat,
         timeFormat = timeFormat,
-        doubleTapEditEnabled = doubleTapEditEnabled,
-        freeTextCopyEnabled = freeTextCopyEnabled,
-        onMemoEdit = onEditMemo,
         onShowMenu = onShowMenu,
-        onImageClick = onNavigateToImage,
-        animation = MemoCardListAnimation.Placement,
-        deletingMemoIds = deletingMemoIds,
-        onDeleteAnimationSettled = onDeleteAnimationSettled,
         contentPadding =
             PaddingValues(
                 top = padding.calculateTopPadding() + AppSpacing.Medium,
@@ -219,5 +238,8 @@ private fun GalleryScreenContent(
                 end = AppSpacing.Medium,
                 bottom = AppSpacing.Medium,
             ),
+        onCellClick = { memoId, imageIndex ->
+            onNavigateToReel(memoId, imageIndex, aspectByMemoId)
+        },
     )
 }

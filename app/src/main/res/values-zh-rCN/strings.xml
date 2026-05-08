@@ -117,7 +117,6 @@
     <string name="settings_memo_snapshot_disable_title">关闭 memo 回滚快照？</string>
     <string name="settings_memo_snapshot_disable_message">关闭后会停止记录新的 memo 回滚快照，并永久清空现有 memo 快照历史。</string>
     <string name="share_card_placeholder_image">[图片]</string>
-    <string name="share_card_placeholder_image_named">[图片: %1$s]</string>
     <string name="share_card_placeholder_audio">[音频]</string>
 
     <string name="back">返回</string>
@@ -142,6 +141,9 @@
     <string name="share_status_sent">已发送到 %1$s</string>
     <string name="share_searching_devices">正在搜索附近设备…</string>
     <string name="share_searching_hint">请确保两台设备连接到同一 WiFi</string>
+    <string name="share_permission_required_title">需要本地网络权限</string>
+    <string name="share_permission_required_hint">请允许本地网络访问，以便在当前 Wi‑Fi 下发现附近设备。</string>
+    <string name="share_open_settings">打开设置</string>
     <string name="share_e2e_enabled_title">端对端加密</string>
     <string name="share_e2e_enabled_subtitle">在局域网传输中加密备忘录内容和附件</string>
     <string name="share_e2e_state_enabled">已启用</string>
@@ -229,6 +231,9 @@
     <string name="main_filter_pick_end_date">选择结束日期</string>
     <string name="main_filter_date_not_set">未设置</string>
     <string name="main_filter_date_dialog_action_apply">应用</string>
+    <string name="memo_backfill_title">选择补录时间</string>
+    <string name="memo_backfill_action_apply">使用时间</string>
+    <string name="memo_backfill_seconds_label">秒</string>
 
     <!-- Empty State -->
     <string name="empty_no_directory_title">未选择文件夹</string>
@@ -257,6 +262,9 @@
     <string name="gallery_title">画廊</string>
     <string name="gallery_empty_title">暂无带图备忘录</string>
     <string name="gallery_empty_desc">包含图片的备忘录会显示在这里</string>
+    <string name="gallery_reel_close">关闭</string>
+    <string name="gallery_reel_image_indicator">%1$d / %2$d</string>
+    <string name="gallery_reel_overlay_summary_more">点击展开备忘录</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">回收站</string>
