@@ -1,8 +1,5 @@
 package com.lomo.ui.component.input
 
-import android.view.View
-import android.view.ViewGroup
-import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
@@ -139,14 +136,7 @@ class InputSheetLongFormModeUiTest {
         composeRule.onNodeWithText(previewLabel).performClick()
 
         composeRule.waitUntil(5_000) {
-            var renderedHeading: TextView? = null
-            composeRule.runOnUiThread {
-                renderedHeading =
-                    composeRule.activity
-                        .findViewById<View>(android.R.id.content)
-                        .findFirstTextViewWithText("Title")
-            }
-            renderedHeading != null
+            composeRule.onAllNodesWithText("Title", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
@@ -201,15 +191,4 @@ class InputSheetLongFormModeUiTest {
         }
     }
 
-    private fun View.findFirstTextViewWithText(text: String): TextView? {
-        if (this is TextView && this !is MemoInputEditText && this.text?.toString() == text) {
-            return this
-        }
-        if (this is ViewGroup) {
-            for (index in 0 until childCount) {
-                getChildAt(index).findFirstTextViewWithText(text)?.let { return it }
-            }
-        }
-        return null
-    }
 }

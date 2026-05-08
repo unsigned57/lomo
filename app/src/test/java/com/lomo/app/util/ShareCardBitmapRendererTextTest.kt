@@ -7,10 +7,10 @@ import org.junit.Test
 
 /*
  * Test Contract:
- * - Unit under test: shouldUseCenteredBody and bodyTextSizeSp
- * - Behavior focus: centered-body layout policy and body text size thresholds for share-card rendering.
- * - Observable outcomes: Boolean decision to use centered body for a given ShareCardRenderInput and ShareBodyLine list, plus the selected body text size.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Unit under test: shouldUseCenteredBody, bodyTextSizeSp, and quote line layout policy.
+ * - Behavior focus: centered-body layout policy, body text size thresholds, and share-card quote block visual affordance.
+ * - Observable outcomes: Boolean decision to use centered body, selected body text size, and quote indicator/text layout metrics.
+ * - Red phase: Quote layout test fails before the fix because share-card quote lines are rendered as plain text without a rounded indicator bar or text inset.
  * - Test Change Justification: reason category = pure refactor preserved behavior; removed the obsolete activeDayCountText constructor argument after recorded-days footer content was deleted. Coverage is preserved by keeping the same centered-body and text-size assertions. This is not fitting the test to the implementation because the assertions remain identical and only the input shape changed.
  * - Excludes: bitmap drawing, text paint construction, and Android typography/resource lookups.
  */
@@ -102,4 +102,41 @@ class ShareCardBitmapRendererTextTest {
         assertEquals(BODY_TEXT_SIZE_LONG_SP, bodyTextSizeSp(BODY_TEXT_SIZE_MEDIUM_THRESHOLD + 1), 0.0f)
         assertEquals(BODY_TEXT_SIZE_DEFAULT_SP, bodyTextSizeSp(BODY_TEXT_SIZE_LONG_THRESHOLD + 1), 0.0f)
     }
+
+    @Test
+    fun `quote layout reserves rounded indicator bar and text inset`() {
+        val spec = shareCardLayoutSpecForTest(contentWidth = 320)
+
+        val style = resolveShareCardQuoteLayoutStyle(spec)
+
+        assertEquals(4f, style.indicatorWidth, 0.0f)
+        assertEquals(2f, style.indicatorCornerRadius, 0.0f)
+        assertEquals(12f, style.textStartOffset, 0.0f)
+        assertEquals(308, style.textWidth)
+    }
 }
+
+private fun shareCardLayoutSpecForTest(contentWidth: Int): ShareCardLayoutSpec =
+    ShareCardLayoutSpec(
+        canvasWidth = 400,
+        outerPadding = 0f,
+        cardPadding = 0f,
+        cardCorner = 0f,
+        lineSpacing = 0f,
+        tagBottomSpacing = 0f,
+        titleBottomSpacing = 0f,
+        codeHorizontalPadding = 0f,
+        codeVerticalPadding = 0f,
+        codeCorner = 0f,
+        imageCorner = 0f,
+        imageVerticalPadding = 0f,
+        maxImageHeightPx = 0f,
+        dividerTopSpacing = 0f,
+        dividerStrokeWidth = 0f,
+        footerRowTopSpacing = 0f,
+        minCardHeight = 0f,
+        contentWidth = contentWidth,
+        quoteIndicatorWidth = 4f,
+        quoteIndicatorCornerRadius = 2f,
+        quoteTextStartPadding = 8f,
+    )

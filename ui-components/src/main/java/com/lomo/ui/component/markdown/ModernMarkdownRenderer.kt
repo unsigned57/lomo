@@ -59,6 +59,8 @@ internal fun ModernMarkdownRenderer(
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
+    onTextTapFeedback: (() -> Unit)? = null,
+    onTextDoubleClick: (() -> Unit)? = null,
 ) {
     val basePlan by
         produceState<ModernMarkdownRenderPlan?>(
@@ -98,6 +100,8 @@ internal fun ModernMarkdownRenderer(
                     content = renderState.fallbackText,
                     modifier = modifier,
                     enableTextSelection = enableTextSelection,
+                    onTextTapFeedback = onTextTapFeedback,
+                    onTextDoubleClick = onTextDoubleClick,
                 )
             }
 
@@ -109,6 +113,8 @@ internal fun ModernMarkdownRenderer(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    onTextTapFeedback = onTextTapFeedback,
+                    onTextDoubleClick = onTextDoubleClick,
                 )
             }
         }

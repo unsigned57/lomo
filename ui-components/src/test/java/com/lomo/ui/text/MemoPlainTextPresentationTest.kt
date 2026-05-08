@@ -63,9 +63,21 @@ class MemoPlainTextPresentationTest {
 
         assertEquals(typography.memoBodyTextStyle(defaultScales).fontSize, resolved.fontSize)
         assertEquals(typography.memoBodyTextStyle(defaultScales).lineHeight, resolved.lineHeight)
-        assertEquals(0.sp, resolved.letterSpacing)
+        assertEquals(typography.memoBodyTextStyle(defaultScales).letterSpacing, resolved.letterSpacing)
         assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
         assertEquals(typography.memoBodyTextStyle(defaultScales).scriptAwareFor(text), resolved)
+    }
+
+    @Test
+    fun `shared plain text memo style preserves configured letter spacing for cjk mixed text`() {
+        val text = "今天 review memo"
+        val adjustedScales = TypographyScales(letterSpacingScale = 1.5f)
+
+        val resolved = resolveRawMemoPlainTextStyle(typography = typography, text = text, scales = adjustedScales)
+
+        assertEquals(0.6.sp, typography.memoBodyTextStyle(adjustedScales).letterSpacing)
+        assertEquals(typography.memoBodyTextStyle(adjustedScales).letterSpacing, resolved.letterSpacing)
+        assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
     }
 
     @Test

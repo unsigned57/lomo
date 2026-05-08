@@ -42,6 +42,8 @@ internal fun ModernMarkdownUnorderedList(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    onTextTapFeedback: (() -> Unit)?,
+    onTextDoubleClick: (() -> Unit)?,
 ) {
     Column(
         modifier =
@@ -62,6 +64,8 @@ internal fun ModernMarkdownUnorderedList(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    onTextTapFeedback = onTextTapFeedback,
+                    onTextDoubleClick = onTextDoubleClick,
                 )
             }
     }
@@ -76,6 +80,8 @@ internal fun ModernMarkdownOrderedList(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    onTextTapFeedback: (() -> Unit)?,
+    onTextDoubleClick: (() -> Unit)?,
 ) {
     Column(
         modifier =
@@ -97,6 +103,8 @@ internal fun ModernMarkdownOrderedList(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    onTextTapFeedback = onTextTapFeedback,
+                    onTextDoubleClick = onTextDoubleClick,
                 )
             }
     }
@@ -112,6 +120,8 @@ private fun ModernMarkdownListItem(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    onTextTapFeedback: (() -> Unit)?,
+    onTextDoubleClick: (() -> Unit)?,
 ) {
     val presentation = remember(content, listItemNode, todoOverrides) {
         resolveModernTaskListPresentation(
@@ -153,6 +163,8 @@ private fun ModernMarkdownListItem(
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
                         enableTextSelection = enableTextSelection,
+                        onTextTapFeedback = onTextTapFeedback,
+                        onTextDoubleClick = onTextDoubleClick,
                         baseParagraphStyle = itemStyle,
                     )
                 }

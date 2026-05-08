@@ -4,6 +4,7 @@ internal data class PendingNewMemoCreationRequest(
     val requestId: Long,
     val content: String,
     val geoLocation: String? = null,
+    val timestampMillis: Long? = null,
 )
 
 internal class PendingNewMemoCreationCoordinator {
@@ -12,7 +13,11 @@ internal class PendingNewMemoCreationCoordinator {
     var pendingRequest: PendingNewMemoCreationRequest? = null
         private set
 
-    fun submit(content: String, geoLocation: String? = null): PendingNewMemoCreationRequest? {
+    fun submit(
+        content: String,
+        geoLocation: String? = null,
+        timestampMillis: Long? = null,
+    ): PendingNewMemoCreationRequest? {
         if (pendingRequest != null) {
             return null
         }
@@ -21,6 +26,7 @@ internal class PendingNewMemoCreationCoordinator {
             requestId = nextRequestId++,
             content = content,
             geoLocation = geoLocation,
+            timestampMillis = timestampMillis,
         ).also { request ->
             pendingRequest = request
         }

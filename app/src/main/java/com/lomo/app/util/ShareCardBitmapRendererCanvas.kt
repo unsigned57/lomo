@@ -36,6 +36,9 @@ internal fun createShareCardLayoutSpec(resources: Resources): ShareCardLayoutSpe
         codeHorizontalPadding = dp(resources, CODE_HORIZONTAL_PADDING_DP),
         codeVerticalPadding = dp(resources, CODE_VERTICAL_PADDING_DP),
         codeCorner = dp(resources, CODE_CORNER_DP),
+        quoteIndicatorWidth = dp(resources, QUOTE_INDICATOR_WIDTH_DP),
+        quoteIndicatorCornerRadius = dp(resources, QUOTE_INDICATOR_CORNER_DP),
+        quoteTextStartPadding = dp(resources, QUOTE_TEXT_START_PADDING_DP),
         imageCorner = dp(resources, IMAGE_CORNER_DP),
         imageVerticalPadding = dp(resources, IMAGE_VERTICAL_PADDING_DP),
         maxImageHeightPx = dp(resources, MAX_IMAGE_HEIGHT_DP),
@@ -148,12 +151,24 @@ private fun createRenderLine(
 ): ShareCardRenderLine =
     when (bodyLine.type) {
         ShareBodyLineType.Blank -> createBlankRenderLine(bodyLine, spec, paintSet)
-        ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
-        ShareBodyLineType.Quote ->
+        ShareBodyLineType.Heading ->
             createTextRenderLine(
                 bodyLine = bodyLine,
-                paint = paintSet.quotePaint,
+                paint = paintSet.headingPaint,
                 spec = spec,
+            )
+        ShareBodyLineType.Code -> createCodeRenderLine(bodyLine, spec, paintSet)
+        ShareBodyLineType.Table ->
+            createTextRenderLine(
+                bodyLine = bodyLine,
+                paint = paintSet.tablePaint,
+                spec = spec,
+            )
+        ShareBodyLineType.Quote ->
+            createQuoteRenderLine(
+                bodyLine = bodyLine,
+                spec = spec,
+                paintSet = paintSet,
             )
         ShareBodyLineType.Bullet ->
             createTextRenderLine(
@@ -288,6 +303,10 @@ private fun drawBodyLines(
                     drawImageLine(this, line, spec, contentLeft, cursorY, imagePaint)
                     cursorY += line.height
                 }
+                ShareBodyLineType.Quote -> {
+                    drawQuoteLine(this, line, spec, contentLeft, cursorY, palette)
+                    cursorY += line.height
+                }
                 else -> {
                     drawLayout(this, line.layout, contentLeft, cursorY)
                     cursorY += line.height
@@ -298,6 +317,40 @@ private fun drawBodyLines(
             }
         }
     }
+}
+
+private fun drawQuoteLine(
+    canvas: Canvas,
+    line: ShareCardRenderLine,
+    spec: ShareCardLayoutSpec,
+    contentLeft: Float,
+    cursorY: Float,
+    palette: ShareCardPalette,
+) {
+    val quoteStyle = resolveShareCardQuoteLayoutStyle(spec)
+    val indicatorPaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = palette.quoteIndicator
+        }
+    val indicatorRect =
+        RectF(
+            contentLeft,
+            cursorY,
+            contentLeft + quoteStyle.indicatorWidth,
+            cursorY + line.height,
+        )
+    canvas.drawRoundRect(
+        indicatorRect,
+        quoteStyle.indicatorCornerRadius,
+        quoteStyle.indicatorCornerRadius,
+        indicatorPaint,
+    )
+    drawLayout(
+        canvas = canvas,
+        layout = line.layout,
+        x = contentLeft + quoteStyle.textStartOffset,
+        y = cursorY,
+    )
 }
 
 private fun drawCodeLine(
@@ -347,48 +400,5 @@ private fun drawImageLine(
 
     canvas.withClip(clipPath) {
         drawBitmap(bitmap, null, destinationRect, imagePaint)
-    }
-}
-
-private fun drawFooter(
-    canvas: Canvas,
-    contentLeft: Float,
-    spec: ShareCardLayoutSpec,
-    footerPaint: android.text.TextPaint,
-    footerTop: Float,
-    footer: ShareCardFooterContent,
-    palette: ShareCardPalette,
-) {
-    val row = footer.row ?: return
-    val dividerY = footerTop + spec.dividerTopSpacing
-    val dividerPaint =
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = palette.divider
-            strokeWidth = spec.dividerStrokeWidth
-        }
-    canvas.drawLine(contentLeft, dividerY, contentLeft + spec.contentWidth, dividerY, dividerPaint)
-
-    val rowTop = dividerY + spec.footerRowTopSpacing
-    val baseline = rowTop - footerPaint.fontMetrics.ascent
-    if (row.startText.isNotBlank()) {
-        canvas.drawText(row.startText, contentLeft, baseline, footerPaint)
-    }
-    if (row.centerText.isNotBlank()) {
-        val centerWidth = footerPaint.measureText(row.centerText)
-        canvas.drawText(
-            row.centerText,
-            contentLeft + (spec.contentWidth - centerWidth) / 2f,
-            baseline,
-            footerPaint,
-        )
-    }
-    if (row.endText.isNotBlank()) {
-        val endWidth = footerPaint.measureText(row.endText)
-        canvas.drawText(
-            row.endText,
-            contentLeft + spec.contentWidth - endWidth,
-            baseline,
-            footerPaint,
-        )
     }
 }

@@ -22,6 +22,9 @@ internal const val TITLE_BOTTOM_SPACING_DP = 12f
 internal const val CODE_HORIZONTAL_PADDING_DP = 12f
 internal const val CODE_VERTICAL_PADDING_DP = 10f
 internal const val CODE_CORNER_DP = 10f
+internal const val QUOTE_INDICATOR_WIDTH_DP = 4f
+internal const val QUOTE_INDICATOR_CORNER_DP = 2f
+internal const val QUOTE_TEXT_START_PADDING_DP = 8f
 internal const val IMAGE_CORNER_DP = 12f
 internal const val IMAGE_VERTICAL_PADDING_DP = 4f
 internal const val MAX_IMAGE_HEIGHT_DP = 360f
@@ -47,8 +50,10 @@ internal const val DEFAULT_BODY_LETTER_SPACING = 0.015f
 internal const val EMPHASIZED_LETTER_SPACING = 0.01f
 internal const val FOOTER_LETTER_SPACING = 0.02f
 internal const val BULLET_TEXT_SCALE = 0.94f
+internal const val HEADING_TEXT_SCALE = 1.08f
 internal const val QUOTE_TEXT_SCALE = 0.92f
 internal const val CODE_TEXT_SCALE = 0.84f
+internal const val TABLE_TEXT_SCALE = 0.82f
 internal const val LAYOUT_LINE_SPACING_MULTIPLIER = 1.3f
 
 internal const val CODE_BACKGROUND_ALPHA = 66
@@ -123,6 +128,9 @@ internal data class ShareCardLayoutSpec(
     val codeHorizontalPadding: Float,
     val codeVerticalPadding: Float,
     val codeCorner: Float,
+    val quoteIndicatorWidth: Float,
+    val quoteIndicatorCornerRadius: Float,
+    val quoteTextStartPadding: Float,
     val imageCorner: Float,
     val imageVerticalPadding: Float,
     val maxImageHeightPx: Float,
@@ -136,10 +144,12 @@ internal data class ShareCardLayoutSpec(
 internal data class ShareCardPaintSet(
     val tagPaint: TextPaint,
     val titlePaint: TextPaint,
+    val headingPaint: TextPaint,
     val paragraphPaint: TextPaint,
     val bulletPaint: TextPaint,
     val quotePaint: TextPaint,
     val codePaint: TextPaint,
+    val tablePaint: TextPaint,
     val footerPaint: TextPaint,
 )
 
@@ -161,11 +171,20 @@ internal data class ShareCardRenderLine(
     val imageDrawHeight: Float = 0f,
 )
 
+internal data class ShareCardQuoteLayoutStyle(
+    val indicatorWidth: Float,
+    val indicatorCornerRadius: Float,
+    val textStartOffset: Float,
+    val textWidth: Int,
+)
+
 internal enum class ShareBodyLineType {
+    Heading,
     Paragraph,
     Bullet,
     Quote,
     Code,
+    Table,
     Image,
     Blank,
 }
@@ -174,7 +193,24 @@ internal data class ShareBodyLine(
     val text: String,
     val type: ShareBodyLineType,
     val imageIndex: Int = NO_IMAGE_INDEX,
+    val headingLevel: Int? = null,
+    val inlineStyles: List<ShareInlineStyleRange> = emptyList(),
 )
+
+internal data class ShareInlineStyleRange(
+    val start: Int,
+    val end: Int,
+    val kind: ShareInlineStyleKind,
+)
+
+internal enum class ShareInlineStyleKind {
+    Bold,
+    Italic,
+    Strikethrough,
+    InlineCode,
+    Link,
+    Underline,
+}
 
 internal data class ShareCardPalette(
     val bgStart: Int,
@@ -186,4 +222,5 @@ internal data class ShareCardPalette(
     val tagBg: Int,
     val tagText: Int,
     val divider: Int,
+    val quoteIndicator: Int,
 )

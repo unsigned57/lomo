@@ -12,11 +12,11 @@ import org.junit.Test
  *   do not flash at the end of the motion, and the editor toolbar must stay in the same composable
  *   tree across compact and expanded modes instead of jumping between separate layout functions.
  * - Observable outcomes: InputEditorPanel uses one unified Column with conditional modifiers
- *   instead of splitting into separate compact and expanded composable trees, keeping the
- *   AndroidView and toolbar instances stable across transitions.
+ *   instead of splitting into separate compact and expanded composable trees, keeping the editor
+ *   and toolbar instances stable across transitions.
  * - Red phase: Fails before the fix because InputEditorPanel branches into two separate composable
- *   functions for compact and expanded modes, which causes view destruction/recreation and toolbar
- *   position jumping.
+ *   functions for compact and expanded modes, which causes editor destruction/recreation and
+ *   toolbar position jumping.
  * - Excludes: pixel-perfect animation timing, OEM keyboard rendering, and memo submission behavior.
  *
  * Test Change Justification:
@@ -41,7 +41,7 @@ class InputSheetEditorLayoutStabilityContractTest {
     @Test
     fun `input editor panel uses unified skeleton instead of separate layout functions`() {
         assertFalse(
-            "Separate compact and expanded layout functions cause AndroidView destruction and recreation, producing a one-frame flash.",
+            "Separate compact and expanded layout functions cause editor destruction and recreation, producing a one-frame flash.",
             sourceText.contains("private fun InputEditorCompactLayout("),
         )
         assertFalse(

@@ -31,6 +31,8 @@ internal fun MemoCardBodyContent(
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
+    onTapFeedback: (() -> Unit)?,
+    onDoubleClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
@@ -53,6 +55,8 @@ internal fun MemoCardBodyContent(
                     collapsedPreviewMode = collapsedPreviewMode,
                     collapsedSummary = collapsedSummary,
                     allowFreeTextCopy = allowFreeTextCopy,
+                    onTapFeedback = onTapFeedback,
+                    onDoubleClick = onDoubleClick,
                     processedContent = processedContent,
                     precomputedRenderPlan = precomputedRenderPlan,
                     tags = tags,
@@ -94,6 +98,8 @@ internal fun MemoCardBodyContent(
                         collapsedPreviewMode = collapsedTargetPreviewMode,
                         collapsedSummary = collapsedSummary,
                         allowFreeTextCopy = allowFreeTextCopy,
+                        onTapFeedback = onTapFeedback,
+                        onDoubleClick = onDoubleClick,
                         processedContent = processedContent,
                         precomputedRenderPlan = precomputedRenderPlan,
                         tags = tags,
@@ -115,6 +121,8 @@ private fun MemoCardBodyStateContent(
     collapsedPreviewMode: MemoCardCollapsedPreviewMode,
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
+    onTapFeedback: (() -> Unit)?,
+    onDoubleClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
     tags: ImmutableList<String>,
@@ -130,6 +138,8 @@ private fun MemoCardBodyStateContent(
                 tags = tags,
                 isCollapsedPreview = false,
                 allowFreeTextCopy = allowFreeTextCopy,
+                onTapFeedback = onTapFeedback,
+                onDoubleClick = onDoubleClick,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
@@ -141,6 +151,8 @@ private fun MemoCardBodyStateContent(
                 MemoCardCollapsedSummary(
                     collapsedSummary = collapsedSummary,
                     allowFreeTextCopy = allowFreeTextCopy,
+                    onTapFeedback = onTapFeedback,
+                    onDoubleClick = onDoubleClick,
                 )
             }
         }
@@ -153,6 +165,8 @@ private fun MemoCardBodyStateContent(
                     tags = tags,
                     isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
                     allowFreeTextCopy = allowFreeTextCopy,
+                    onTapFeedback = onTapFeedback,
+                    onDoubleClick = onDoubleClick,
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
@@ -179,6 +193,8 @@ private fun MemoCardMarkdownContent(
     tags: ImmutableList<String>,
     isCollapsedPreview: Boolean,
     allowFreeTextCopy: Boolean,
+    onTapFeedback: (() -> Unit)?,
+    onDoubleClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
@@ -193,6 +209,8 @@ private fun MemoCardMarkdownContent(
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
         enableTextSelection = allowFreeTextCopy,
+        onTextTapFeedback = onTapFeedback,
+        onTextDoubleClick = onDoubleClick,
     )
 }
 

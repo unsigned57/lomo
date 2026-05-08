@@ -4,6 +4,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.TextUnit
 
+internal const val INPUT_EDITOR_MIN_LINES = 3
+internal const val INPUT_EDITOR_MAX_LINES = 6
+
 internal fun resolveMemoInputMinimumContentHeightPx(
     style: TextStyle,
     density: Density,

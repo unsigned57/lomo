@@ -190,6 +190,7 @@ private data class AnimatedFixedColors(
 fun LomoTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     dynamicColor: Boolean = true,
+    typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
@@ -258,14 +259,16 @@ fun LomoTheme(
     CompositionLocalProvider(
         LocalTextSelectionColors provides memoTextSelectionColors(animatedColorScheme),
     ) {
-        @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
-        MaterialTheme(
-            colorScheme = animatedColorScheme,
-            typography = typography,
-            shapes = Shapes,
-            motionScheme = expressiveMotionScheme,
-            content = content,
-        )
+        ProvideTypographyScales(typographyScales) {
+            @OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+            MaterialTheme(
+                colorScheme = animatedColorScheme,
+                typography = typography,
+                shapes = Shapes,
+                motionScheme = expressiveMotionScheme,
+                content = content,
+            )
+        }
     }
 }
 
@@ -273,12 +276,14 @@ fun LomoTheme(
 fun LomoTheme(
     themeMode: String,
     dynamicColor: Boolean = true,
+    typographyScales: TypographyScales = TypographyScales(),
     currentUiMode: Int? = null,
     content: @Composable () -> Unit,
 ) {
     LomoTheme(
         themeMode = ThemeMode.fromStorageValue(themeMode),
         dynamicColor = dynamicColor,
+        typographyScales = typographyScales,
         currentUiMode = currentUiMode,
         content = content,
     )

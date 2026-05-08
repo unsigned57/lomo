@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -90,8 +89,14 @@ internal fun InputEditorPanel(
     onStartRecording: () -> Unit,
     onLocationClick: () -> Unit,
     hasAttachedLocation: Boolean,
+    onBackfillClick: () -> Unit,
+    isBackfillEnabled: Boolean,
+    backfillBadgeText: String?,
+    onBackfillBadgeClick: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    inputToolbarToolOrder: ImmutableList<String>,
+    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
     onSubmit: () -> Unit,
     benchmarkEditorTag: String?,
     benchmarkSubmitTag: String?,
@@ -112,22 +117,12 @@ internal fun InputEditorPanel(
                 hintText = hintText,
             )
         }
-    val editorAlpha by animateFloatAsState(
-        targetValue = if (presentationState.showsEditorContent()) 1f else 0f,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    val editorAlpha by rememberInputEditorLayerAlpha(
+        visible = presentationState.showsEditorContent(),
         label = "InputEditorAlpha",
     )
-    val previewAlpha by animateFloatAsState(
-        targetValue = if (presentationState.showsPreviewLayer()) 1f else 0f,
-        animationSpec =
-            androidx.compose.animation.core.tween(
-                durationMillis = MotionTokens.DurationMedium2,
-                easing = MotionTokens.EasingEmphasizedDecelerate,
-            ),
+    val previewAlpha by rememberInputEditorLayerAlpha(
+        visible = presentationState.showsPreviewLayer(),
         label = "InputPreviewAlpha",
     )
     Column(
@@ -149,7 +144,7 @@ internal fun InputEditorPanel(
                 modifier = chromeModifier,
             )
         }
-        Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
+        InputEditorBackfillBadge(backfillBadgeText = backfillBadgeText, onClick = onBackfillBadgeClick)
         InputEditorBodyContent(
             isExpanded = isExpanded,
             chromeState = chromeState,
@@ -185,9 +180,13 @@ internal fun InputEditorPanel(
             onStartRecording = onStartRecording,
             onLocationClick = onLocationClick,
             hasAttachedLocation = hasAttachedLocation,
+            onBackfillClick = onBackfillClick,
+            isBackfillEnabled = isBackfillEnabled,
             onToggleTagSelector = onToggleTagSelector,
             onInsertTodo = onInsertTodo,
             onInsertUnderline = onInsertUnderline,
+            inputToolbarToolOrder = inputToolbarToolOrder,
+            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,
@@ -263,9 +262,13 @@ private fun InputEditorToolbarSection(
     onStartRecording: () -> Unit,
     onLocationClick: () -> Unit,
     hasAttachedLocation: Boolean,
+    onBackfillClick: () -> Unit,
+    isBackfillEnabled: Boolean,
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    inputToolbarToolOrder: ImmutableList<String>,
+    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
     onSubmit: () -> Unit,
     benchmarkSubmitTag: String?,
     haptic: AppHapticFeedback,
@@ -289,9 +292,13 @@ private fun InputEditorToolbarSection(
             onStartRecording = onStartRecording,
             onLocationClick = onLocationClick,
             hasAttachedLocation = hasAttachedLocation,
+            onBackfillClick = onBackfillClick,
+            isBackfillEnabled = isBackfillEnabled,
             onToggleTagSelector = onToggleTagSelector,
             onInsertTodo = onInsertTodo,
             onInsertUnderline = onInsertUnderline,
+            inputToolbarToolOrder = inputToolbarToolOrder,
+            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
             onSubmit = onSubmit,
             benchmarkSubmitTag = benchmarkSubmitTag,
             haptic = haptic,

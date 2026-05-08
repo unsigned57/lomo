@@ -15,20 +15,29 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: memo paragraph link-visibility contract.
- * - Behavior focus: platform URL spans must preserve the annotated markdown link color and keep
- *   the requested underline when the memo link contract marks URLs as visibly underlined.
- * - Observable outcomes: resolved platform URL visual style color and underline flag.
- * - Red phase: Fails before the fix because MemoUrlSpan falls back to TextView link defaults,
- *   which can repaint URLs with the wrong color and force an underline regardless of the
- *   annotated markdown span style.
- * - Excludes: actual TextView drawing, Activity launch behavior, and Compose layout measurement.
+ * - Behavior focus: Compose-native memo URL drawing must preserve the annotated markdown link
+ *   color and keep the requested underline when the memo link contract marks URLs as visibly
+ *   underlined.
+ * - Observable outcomes: resolved URL visual style color and underline flag.
+ * - Red phase: Fails before the fix because memo URL drawing falls back to default link visuals
+ *   instead of honoring the annotated markdown span style.
+ * - Excludes: actual Canvas drawing, Activity launch behavior, and Compose layout measurement.
+ *
+ * Test Change Justification:
+ * - Reason category: product contract changed.
+ * - Old behavior/assertion being replaced: the metadata described platform URL spans.
+ * - Why old assertion is no longer correct: URL drawing now uses Compose-native Canvas glyph
+ *   painting, not TextView spans.
+ * - Coverage preserved by: the same visual-style resolver assertions and markdown token checks.
+ * - Why this is not fitting the test to the implementation: the user-visible link color and
+ *   underline contract is unchanged; only the rendering backend changed.
  */
 class MemoParagraphLinkVisibilityContractTest {
     private val linkColor = Color(0xFF0061A4)
     private val defaultScales = TypographyScales()
 
     @Test
-    fun `platform link style keeps annotated markdown color with underline`() {
+    fun `compose link style keeps annotated markdown color with underline`() {
         val annotated =
             buildAnnotatedString {
                 pushLink(

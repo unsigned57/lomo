@@ -76,7 +76,6 @@ internal fun InputEditorTextField(
                     min = minimumContainerHeight,
                     max = editorContainerMaxHeight,
                 )
-                .benchmarkAnchor(benchmarkEditorTag)
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh, AppShapes.Large)
                 .padding(
                     horizontal = InputEditorContainerPaddingHorizontal,
@@ -108,6 +107,7 @@ internal fun InputEditorTextField(
                         },
                     )
                     .verticalScroll(rememberScrollState())
+                    .benchmarkAnchor(benchmarkEditorTag)
                     .focusRequester(focusRequester),
             textStyle = displayStyle,
             cursorBrush = SolidColor(memoPlatformTextHandleColor(colorScheme)),
