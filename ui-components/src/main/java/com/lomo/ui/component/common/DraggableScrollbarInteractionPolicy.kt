@@ -41,19 +41,19 @@ internal fun shouldSyncDraggedThumbOffsetFromExternal(
     isThumbDragged: Boolean,
 ): Boolean = !visible || !isThumbDragged
 
-internal fun resolveInitialThumbOffsetFromPress(
+internal fun resolveThumbDragStartOffsetFromPress(
     pressY: Float,
     currentThumbOffsetPx: Float,
     thumbExtentPx: Float,
     trackHeightPx: Float,
-): Float {
-    if (trackHeightPx <= 0f) return 0f
+): Float? {
+    if (trackHeightPx <= 0f || thumbExtentPx <= 0f) return null
     val resolvedThumbExtent = thumbExtentPx.coerceIn(0f, trackHeightPx)
-    val thumbTop = currentThumbOffsetPx
+    val maxOffset = (trackHeightPx - resolvedThumbExtent).coerceAtLeast(0f)
+    val thumbTop = currentThumbOffsetPx.coerceIn(0f, maxOffset)
     val thumbBottom = thumbTop + resolvedThumbExtent
     if (pressY in thumbTop..thumbBottom) {
-        return currentThumbOffsetPx
+        return thumbTop
     }
-    val maxOffset = (trackHeightPx - resolvedThumbExtent).coerceAtLeast(0f)
-    return (pressY - resolvedThumbExtent / 2f).coerceIn(0f, maxOffset)
+    return null
 }

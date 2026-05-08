@@ -1,78 +1,91 @@
 package com.lomo.ui.component.common
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /*
  * Test Contract:
- * - Unit under test: resolveInitialThumbOffsetFromPress
- * - Behavior focus: When a long-press is confirmed on the scrollbar track, the thumb must
- *   center on the press position so the user sees it jump to where their finger landed.
- *   A long-press that lands on the thumb itself must leave the thumb in place, so the
- *   subsequent drag continues from its current position without a visible jump.
- * - Observable outcomes: returned initial thumb offset in pixels.
- * - Red phase: Verified by asserting offset calculations fail when logic is stripped.
+ * - Unit under test: resolveThumbDragStartOffsetFromPress
+ * - Behavior focus: The scrollbar must start a drag only when the first press lands on the
+ *   visible thumb. Presses on empty rail space must be ignored so memo-card menu taps near the
+ *   right edge cannot trigger a scrollbar jump.
+ * - Observable outcomes: nullable drag-start thumb offset in pixels.
+ * - Red phase: Fails before the fix because track presses are still mapped to a centered thumb
+ *   offset, which makes right-edge memo menu taps jump the list instead of staying with the card.
  * - Excludes: Compose gesture dispatch (long-press detection, drag dispatch), scroll fraction
  *   math, thumb fade animation, systemGestureExclusion routing.
  */
+/*
+ * Test Change Justification:
+ * - Reason category: user-visible interaction contract change.
+ * - Old behavior/assertion being replaced: pressing an empty part of the scrollbar track centered
+ *   the thumb on that press and immediately jumped the list.
+ * - Why old assertion is no longer correct: the accepted fix disables track jumping because it
+ *   steals taps intended for memo menu buttons near the right edge.
+ * - Coverage preserved by: thumb presses still assert that a drag can begin from the current
+ *   offset, while empty-track presses now assert the new ignore behavior.
+ * - Why this is not fitting the test to the implementation: the new assertions encode the chosen
+ *   product interaction, not a workaround for current code.
+ */
 class DraggableScrollbarPressMappingTest {
     @Test
-    fun `tap on track centers thumb on press position`() {
+    fun `press on thumb starts drag from current thumb offset`() {
         val offset =
-            resolveInitialThumbOffsetFromPress(
-                pressY = 200f,
-                currentThumbOffsetPx = 40f,
-                thumbExtentPx = 60f,
-                trackHeightPx = 400f,
-            )
-        assertEquals(170f, offset, 0.001f)
-    }
-
-    @Test
-    fun `tap on thumb leaves thumb offset unchanged`() {
-        val offset =
-            resolveInitialThumbOffsetFromPress(
+            resolveThumbDragStartOffsetFromPress(
                 pressY = 55f,
                 currentThumbOffsetPx = 40f,
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertEquals(40f, offset, 0.001f)
+        assertEquals(40f, offset ?: error("Expected thumb press to start drag"), 0.001f)
     }
 
     @Test
-    fun `tap above track clamps thumb to top`() {
+    fun `press on thumb bottom boundary starts drag`() {
         val offset =
-            resolveInitialThumbOffsetFromPress(
-                pressY = -50f,
+            resolveThumbDragStartOffsetFromPress(
+                pressY = 100f,
+                currentThumbOffsetPx = 40f,
+                thumbExtentPx = 60f,
+                trackHeightPx = 400f,
+            )
+        assertEquals(40f, offset ?: error("Expected thumb boundary press to start drag"), 0.001f)
+    }
+
+    @Test
+    fun `press above thumb ignores track jump`() {
+        val offset =
+            resolveThumbDragStartOffsetFromPress(
+                pressY = 20f,
                 currentThumbOffsetPx = 200f,
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertEquals(0f, offset, 0.001f)
+        assertNull(offset)
     }
 
     @Test
-    fun `tap below track clamps thumb to bottom`() {
+    fun `press below thumb ignores track jump`() {
         val offset =
-            resolveInitialThumbOffsetFromPress(
-                pressY = 1000f,
-                currentThumbOffsetPx = 200f,
+            resolveThumbDragStartOffsetFromPress(
+                pressY = 200f,
+                currentThumbOffsetPx = 40f,
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertEquals(340f, offset, 0.001f)
+        assertNull(offset)
     }
 
     @Test
-    fun `tap on track with zero track height yields zero offset`() {
+    fun `press with zero track height starts no drag`() {
         val offset =
-            resolveInitialThumbOffsetFromPress(
+            resolveThumbDragStartOffsetFromPress(
                 pressY = 50f,
                 currentThumbOffsetPx = 0f,
                 thumbExtentPx = 60f,
                 trackHeightPx = 0f,
             )
-        assertEquals(0f, offset, 0.001f)
+        assertNull(offset)
     }
 }
