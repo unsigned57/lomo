@@ -170,6 +170,8 @@ class MainViewModelTest {
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
         every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
         every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
+        every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+        every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
         every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
@@ -700,6 +702,24 @@ class MainViewModelTest {
         }
 
     @Test
+    fun `requestFocusMemoInDefaultMainList clears main filters before enqueueing focus`() =
+        runTest {
+            val viewModel = createViewModel()
+            val date = LocalDate.of(2026, 3, 9)
+
+            viewModel.onSearch("query")
+            viewModel.filterMemosByDate(date)
+            viewModel.requestFocusMemoInDefaultMainList("memo-focus")
+
+            assertEquals("", viewModel.searchQuery.value)
+            assertEquals(MemoListFilter(), viewModel.memoListFilter.value)
+            assertEquals(
+                MainViewModel.AppAction.FocusMemo("memo-focus"),
+                viewModel.appActionEvents.value.single().payload,
+            )
+        }
+
+    @Test
     fun `filterMemosByDate and clearMemoDateRange update date filter state`() =
         runTest {
             val viewModel = createViewModel()
@@ -1095,11 +1115,15 @@ class MainViewModelTest {
 
     private fun fixedPagingSource(memos: List<Memo>): PagingSource<Int, Memo> =
         object : PagingSource<Int, Memo>() {
+            override val jumpingSupported: Boolean = true
+
             override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Memo> =
                 LoadResult.Page(
                     data = memos,
                     prevKey = null,
                     nextKey = null,
+                    itemsBefore = 0,
+                    itemsAfter = 0,
                 )
 
             override fun getRefreshKey(state: PagingState<Int, Memo>): Int? = null

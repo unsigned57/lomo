@@ -14,8 +14,8 @@ import java.time.ZoneId
  * Test Contract:
  * - Unit under test: main-screen Jump focus request resolver.
  * - Behavior focus: Jump actions returning from Daily Review or Gallery must resolve to an immediate list-focus
- *   request for the matching visible memo instead of a long-distance animated scroll.
- * - Observable outcomes: returned focus request type and target index for hit and miss cases.
+ *   request for the matching memo and request direct list placement instead of a visible scroll effect.
+ * - Observable outcomes: returned focus request type, target index for hit and miss cases, and requested direct-placement indexes.
  * - Red phase: Fails before the fix because main-screen Jump handling still inlines a long-distance animated
  *   list scroll instead of resolving an immediate-focus request contract.
  * - Excludes: Compose rendering, NavHost back-stack transitions, and LazyListState scroll physics.
@@ -54,6 +54,23 @@ class MainScreenFocusRequestResolverTest {
     }
 
     @Test
+    fun `returns absolute focus index when paging snapshot starts after placeholders`() {
+        val request =
+            resolveMainScreenFocusRequest(
+                memoId = "memo-42",
+                visibleUiMemoStartIndex = 40,
+                visibleUiMemos =
+                    listOf(
+                        memoUiModel("memo-40"),
+                        memoUiModel("memo-41"),
+                        memoUiModel("memo-42"),
+                    ).toImmutableList(),
+            )
+
+        assertEquals(MainScreenFocusRequest.Immediate(index = 42), request)
+    }
+
+    @Test
     fun `returns not found when target memo is not visible`() {
         val request =
             resolveMainScreenFocusRequest(
@@ -69,9 +86,9 @@ class MainScreenFocusRequestResolverTest {
     }
 
     @Test
-    fun `focuses matching memo with one immediate scroll`() =
+    fun `focuses matching memo with one direct placement request`() =
         runTest {
-            val scroller = RecordingFocusScroller()
+            val positioner = RecordingFocusPositioner()
 
             val handled =
                 focusMemoInMainScreen(
@@ -82,17 +99,17 @@ class MainScreenFocusRequestResolverTest {
                             memoUiModel("memo-2"),
                             memoUiModel("memo-3"),
                         ).toImmutableList(),
-                    scroller = scroller,
+                    positioner = positioner,
                 )
 
             assertTrue(handled)
-            assertEquals(listOf(1), scroller.indexes)
+            assertEquals(listOf(1), positioner.indexes)
         }
 
     @Test
-    fun `does not scroll when target memo is absent`() =
+    fun `does not request placement when target memo is absent`() =
         runTest {
-            val scroller = RecordingFocusScroller()
+            val positioner = RecordingFocusPositioner()
 
             val handled =
                 focusMemoInMainScreen(
@@ -102,11 +119,29 @@ class MainScreenFocusRequestResolverTest {
                             memoUiModel("memo-1"),
                             memoUiModel("memo-2"),
                         ).toImmutableList(),
-                    scroller = scroller,
+                    positioner = positioner,
                 )
 
             assertEquals(false, handled)
-            assertEquals(emptyList<Int>(), scroller.indexes)
+            assertEquals(emptyList<Int>(), positioner.indexes)
+        }
+
+    @Test
+    fun `offscreen focus requests direct placement and keeps request pending until paging exposes the target`() =
+        runTest {
+            val positioner = RecordingFocusPositioner()
+
+            val handled =
+                focusMemoInMainScreenWithFallback(
+                    memoId = "memo-42",
+                    visibleUiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
+                    canResolveOffscreenMainListFocus = true,
+                    resolveOffscreenIndex = { memoId -> if (memoId == "memo-42") 42 else null },
+                    positioner = positioner,
+                )
+
+            assertEquals(false, handled)
+            assertEquals(listOf(42), positioner.indexes)
         }
 
     private fun memoUiModel(id: String): MemoUiModel =
@@ -129,10 +164,10 @@ class MainScreenFocusRequestResolverTest {
             tags = persistentListOf(),
         )
 
-    private class RecordingFocusScroller : MainScreenFocusScroller {
+    private class RecordingFocusPositioner : MainScreenFocusPositioner {
         val indexes = mutableListOf<Int>()
 
-        override suspend fun scrollToItem(index: Int) {
+        override suspend fun requestPositionAtItem(index: Int) {
             indexes += index
         }
     }

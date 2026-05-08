@@ -154,6 +154,12 @@ private fun LomoNavigationGraph(
             navigateToImage = navigateToImage,
             lanShareEnabled = lanShareEnabled,
         )
+        addGalleryReelDestination(
+            navController = navController,
+            popBackStackSafely = popBackStackSafely,
+            navigateToShare = navigateToShare,
+            lanShareEnabled = lanShareEnabled,
+        )
         addImageViewerDestination(
             popBackStackSafely = popBackStackSafely,
         )
@@ -195,9 +201,12 @@ private fun NavGraphBuilder.addPrimaryDestinations(
     }
 
     composable<NavRoute.Search> {
+        val mainViewModel: MainViewModel = activityHiltViewModel()
         SearchScreen(
             onBackClick = popBackStackSafely,
             onNavigateToShare = navigateToShare,
+            onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+            onNavigateToMain = { navController.popBackStackOrNavigateMain() },
             lanShareEnabled = lanShareEnabled,
         )
     }
@@ -211,6 +220,7 @@ private fun NavGraphBuilder.addSecondaryDestinations(
     lanShareEnabled: Boolean,
 ) {
     composable<NavRoute.Tag> { backStackEntry ->
+        val mainViewModel: MainViewModel = activityHiltViewModel()
         val tag = backStackEntry.toRoute<NavRoute.Tag>()
         androidx.compose.runtime.CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
@@ -220,6 +230,8 @@ private fun NavGraphBuilder.addSecondaryDestinations(
                 onBackClick = popBackStackSafely,
                 onNavigateToImage = navigateToImage,
                 onNavigateToShare = navigateToShare,
+                onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+                onNavigateToMain = { navController.popBackStackOrNavigateMain() },
                 lanShareEnabled = lanShareEnabled,
             )
         }
@@ -235,19 +247,25 @@ private fun NavGraphBuilder.addSecondaryDestinations(
                 onNavigateToImage = navigateToImage,
                 onNavigateToShare = navigateToShare,
                 lanShareEnabled = lanShareEnabled,
-                onNavigateToMemo = { memoId ->
-                    mainViewModel.requestFocusMemo(memoId)
-                    navController.popBackStackOrNavigateMain()
-                },
+                onRequestFocusMemo = mainViewModel.requestFocusMemoInDefaultMainList,
+                onNavigateToMain = { navController.popBackStackOrNavigateMain() },
             )
         }
     }
 
     composable<NavRoute.Gallery> {
+        val mainViewModel: MainViewModel = activityHiltViewModel()
+        val galleryMemos by mainViewModel.galleryUiMemos.collectAsStateWithLifecycle()
+        val navigateToGalleryReel =
+            rememberGalleryReelNavigationAction(
+                navController = navController,
+                galleryMemos = galleryMemos.toImmutableList(),
+            )
         GalleryScreen(
             onBackClick = popBackStackSafely,
-            onNavigateToImage = navigateToImage,
+            onNavigateToReel = navigateToGalleryReel,
             onNavigateToShare = navigateToShare,
+            onNavigateToMain = { navController.popBackStackOrNavigateMain() },
             lanShareEnabled = lanShareEnabled,
         )
     }
