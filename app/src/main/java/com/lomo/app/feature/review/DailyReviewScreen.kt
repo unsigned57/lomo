@@ -39,16 +39,17 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.image.ImageViewerRequest
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.common.EmptyState
 import com.lomo.ui.component.common.WithDraggableScrollbar
-import com.lomo.ui.component.menu.memoAs
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableList
@@ -62,7 +63,8 @@ fun DailyReviewScreen(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
     lanShareEnabled: Boolean = true,
-    onNavigateToMemo: (String) -> Unit = {},
+    onRequestFocusMemo: (String) -> Unit = {},
+    onNavigateToMain: () -> Unit = onBackClick,
     viewModel: DailyReviewViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -96,6 +98,8 @@ fun DailyReviewScreen(
         shareCardShowTime = shareCardShowTime,
         shareCardShowSignature = shareCardShowSignature,
         shareCardSignatureText = shareCardSignatureText,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
         rootPath = rootDirectory,
         imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,
@@ -104,11 +108,19 @@ fun DailyReviewScreen(
         imageDirectory = imageDirectory,
         onLanShare = if (lanShareEnabled) onNavigateToShare else null,
         onJump = { state ->
-            state.memoAs<Memo>()?.let { memo ->
-                onNavigateToMemo(memo.id)
-            }
+            handleMemoJumpToMain(
+                state = state,
+                requestFocusMemo = onRequestFocusMemo,
+                navigateToMain = onNavigateToMain,
+            )
         },
         showJump = true,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.REVIEW),
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
+        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
+        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
     ) { showMenu, openEditor ->
         DailyReviewScreenScaffold(
             onBackClick = onBackClick,

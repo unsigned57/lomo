@@ -86,6 +86,8 @@ class DailyReviewViewModelTest {
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
         every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
         every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
+        every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+        every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
         every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
         every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)

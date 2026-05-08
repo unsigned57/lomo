@@ -3,6 +3,7 @@ package com.lomo.app.feature.search
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
@@ -17,6 +18,7 @@ import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -190,6 +192,30 @@ class SearchViewModel
 
         fun clearError() {
             _errorMessage.value = null
+        }
+
+        fun recordMemoActionUsage(actionId: MemoActionId) {
+            viewModelScope.launch {
+                appConfigUiCoordinator.recordMemoActionUsage(
+                    scope = MemoActionOrderScopes.SEARCH,
+                    actionId = actionId.storageKey,
+                )
+            }
+        }
+
+        val updateMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateMemoActionOrder(
+                    scope = MemoActionOrderScopes.SEARCH,
+                    order = actionIds.map(MemoActionId::storageKey),
+                )
+            }
+        }
+
+        val updateInputToolbarToolOrder: (List<String>) -> Unit = { toolIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
+            }
         }
 
         @OptIn(ExperimentalCoroutinesApi::class)

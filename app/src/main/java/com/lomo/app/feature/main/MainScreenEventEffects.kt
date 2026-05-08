@@ -23,6 +23,7 @@ fun MainScreenEventEffectsHost(
     onOpenCreateMemo: () -> Unit,
     onOpenEditMemo: (Memo) -> Unit,
     onFocusMemoInList: suspend (String) -> Boolean,
+    focusRetryKey: Any?,
     onResolveMemoById: suspend (String) -> Memo?,
     onSaveImage: (Uri, (String) -> Unit) -> Unit,
     onRequireImageDirectory: () -> Unit,
@@ -47,6 +48,7 @@ fun MainScreenEventEffectsHost(
         resolveMemoById = onResolveMemoById,
         openCreate = onOpenCreateMemo,
         openEdit = onOpenEditMemo,
+        focusRetryKey = focusRetryKey,
         onConsume = onConsumeAppActionEvent,
         snackbarHostState = snackbarHostState,
         unknownErrorMessage = unknownErrorMessage,
@@ -96,15 +98,19 @@ fun HandleAppActionEvents(
     resolveMemoById: suspend (String) -> com.lomo.domain.model.Memo?,
     openCreate: () -> Unit,
     openEdit: (com.lomo.domain.model.Memo) -> Unit,
+    focusRetryKey: Any?,
     onConsume: (Long) -> Unit,
     snackbarHostState: SnackbarHostState,
     unknownErrorMessage: String,
 ) {
-    LaunchedEffect(events) {
+    LaunchedEffect(events, focusRetryKey) {
         events.forEach { event ->
-            when (val action = event.payload) {
+            val action = event.payload
+            val handled =
+                when (action) {
                 MainViewModel.AppAction.CreateMemo -> {
                     openCreate()
+                    true
                 }
 
                 is MainViewModel.AppAction.OpenMemo -> {
@@ -114,16 +120,30 @@ fun HandleAppActionEvents(
                     } else {
                         snackbarHostState.showSnackbar(unknownErrorMessage)
                     }
+                    true
                 }
 
                 is MainViewModel.AppAction.FocusMemo -> {
                     focusMemoInList(action.memoId)
                 }
             }
-            onConsume(event.id)
+            if (shouldConsumeAppActionAfterHandling(action = action, handled = handled)) {
+                onConsume(event.id)
+            }
         }
     }
 }
+
+internal fun shouldConsumeAppActionAfterHandling(
+    action: MainViewModel.AppAction,
+    handled: Boolean,
+): Boolean =
+    when (action) {
+        is MainViewModel.AppAction.FocusMemo -> handled
+        MainViewModel.AppAction.CreateMemo,
+        is MainViewModel.AppAction.OpenMemo,
+        -> true
+    }
 
 @Composable
 fun HandlePendingSharedImageEvents(

@@ -34,9 +34,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.R
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
 import kotlinx.collections.immutable.ImmutableList
@@ -58,6 +60,8 @@ fun TagFilterScreen(
     onNavigateToImage: (ImageViewerRequest) -> Unit,
     modifier: Modifier = Modifier,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    onRequestFocusMemo: (String) -> Unit = {},
+    onNavigateToMain: () -> Unit = onBackClick,
     lanShareEnabled: Boolean = true,
     viewModel: TagFilterViewModel = hiltViewModel(),
 ) {
@@ -82,6 +86,8 @@ fun TagFilterScreen(
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
+        dateFormat = appPreferences.dateFormat,
+        timeFormat = appPreferences.timeFormat,
         rootPath = rootDirectory,
         imageMap = stableImageMap,
         onDeleteMemo = viewModel::deleteMemo,
@@ -89,6 +95,20 @@ fun TagFilterScreen(
         onSaveImage = viewModel::saveImage,
         imageDirectory = imageDirectory,
         onLanShare = if (lanShareEnabled) onNavigateToShare else null,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.TAG),
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
+        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
+        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
+        onJump = { state ->
+            handleMemoJumpToMain(
+                state = state,
+                requestFocusMemo = onRequestFocusMemo,
+                navigateToMain = onNavigateToMain,
+            )
+        },
+        showJump = true,
     ) { showMenu, openEditor ->
         TagFilterScreenScaffold(
             tagName = tagName,

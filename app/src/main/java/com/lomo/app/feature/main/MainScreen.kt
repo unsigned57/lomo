@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -102,9 +103,11 @@ fun MainScreen(
     val hostState = rememberMainScreenHostState()
     val pagedUiMemos: LazyPagingItems<MemoUiModel> =
         dependencies.mainViewModel.pagedUiMemos.collectAsLazyPagingItems()
+    val pagedItemSnapshotList = pagedUiMemos.itemSnapshotList
+    val displayedVisibleUiMemoStartIndex = pagedItemSnapshotList.placeholdersBefore
     val displayedVisibleUiMemos =
-        remember(pagedUiMemos.itemSnapshotList) {
-            pagedUiMemos.itemSnapshotList.items.toImmutableList()
+        remember(pagedItemSnapshotList) {
+            pagedItemSnapshotList.items.toImmutableList()
         }
     val renderState =
         remember(screenState, displayedVisibleUiMemos) {
@@ -143,6 +146,7 @@ fun MainScreen(
     MainScreenTransientEffects(
         dependencies = dependencies,
         visibleUiMemos = displayedVisibleUiMemos,
+        visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
         canResolveOffscreenMainListFocus =
             renderState.searchQuery.isBlank() && !renderState.memoListFilter.isActive,
         listState = hostState.listState,
@@ -236,6 +240,7 @@ private fun MainScreenPendingNewMemoCreationEffect(
                         latestDependencies.value.editorViewModel.createMemo(
                             consumedRequest.content,
                             geoLocation = consumedRequest.geoLocation,
+                            timestampMillis = consumedRequest.timestampMillis,
                         )
                     }
                 },
@@ -319,6 +324,7 @@ internal data class MainScreenUiSnapshot(
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
+    val inputToolbarToolOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
     val shareCardShowTime: Boolean,
@@ -345,7 +351,7 @@ internal typealias MainScreenInteractionContent =
     @Composable ((MemoMenuState) -> Unit, (Memo) -> Unit) -> Unit
 
 private data class MainScreenInteractionCallbacks(
-    val onCreateMemo: (String, String?) -> Unit,
+    val onCreateMemo: (String, String?, Long?) -> Unit,
     val onCameraCaptureError: (Throwable) -> Unit,
     val onStartRecording: () -> Unit,
     val onStopRecording: () -> Unit,
@@ -375,6 +381,7 @@ private fun rememberInputHints(showInputHints: Boolean): ImmutableList<String> {
 private fun MainScreenTransientEffects(
     dependencies: MainScreenDependencies,
     visibleUiMemos: ImmutableList<MemoUiModel>,
+    visibleUiMemoStartIndex: Int,
     canResolveOffscreenMainListFocus: Boolean,
     listState: androidx.compose.foundation.lazy.LazyListState,
     editorController: MemoEditorController,
@@ -410,24 +417,25 @@ private fun MainScreenTransientEffects(
         },
         onOpenEditMemo = editorController::openForEdit,
         onFocusMemoInList = { memoId ->
-            val focusedInVisibleItems =
-                focusMemoInMainScreen(
-                    memoId = memoId,
-                    visibleUiMemos = visibleUiMemos,
-                    scroller = MainScreenFocusScroller { index -> listState.scrollToItem(index) },
-                )
-            if (focusedInVisibleItems || !canResolveOffscreenMainListFocus) {
-                focusedInVisibleItems
-            } else {
-                val index = dependencies.mainViewModel.resolveDefaultMainListIndex(memoId)
-                if (index == null) {
-                    false
-                } else {
-                    listState.scrollToItem(index)
-                    true
-                }
-            }
+            focusMemoInMainScreenWithFallback(
+                memoId = memoId,
+                visibleUiMemos = visibleUiMemos,
+                visibleUiMemoStartIndex = visibleUiMemoStartIndex,
+                canResolveOffscreenMainListFocus = canResolveOffscreenMainListFocus,
+                resolveOffscreenIndex = dependencies.mainViewModel.resolveDefaultMainListIndex,
+                positioner = MainScreenFocusPositioner { index -> listState.scrollToItem(index) },
+            )
         },
+        focusRetryKey =
+            remember(visibleUiMemos, visibleUiMemoStartIndex, listState) {
+                derivedStateOf {
+                    Triple(
+                        visibleUiMemoStartIndex,
+                        visibleUiMemos.map { uiMemo -> uiMemo.memo.id },
+                        listState.firstVisibleItemIndex,
+                    )
+                }
+            }.value,
         onResolveMemoById = dependencies.mainViewModel.resolveMemoById,
         onSaveImage = { uri, onResult -> dependencies.editorViewModel.saveImage(uri = uri, onResult = onResult) },
         onRequireImageDirectory = directoryGuideController::requestImage,
@@ -450,9 +458,12 @@ internal fun MainScreenInteractionBindings(
     shareCardShowTime: Boolean,
     shareCardShowSignature: Boolean,
     shareCardSignatureText: String,
+    dateFormat: String,
+    timeFormat: String,
     quickSaveOnBackEnabled: Boolean,
     memoActionAutoReorderEnabled: Boolean,
     memoActionOrder: ImmutableList<String>,
+    inputToolbarToolOrder: ImmutableList<String>,
     availableTags: ImmutableList<String>,
     showInputHints: Boolean,
     onNavigateToShare: (String, Long) -> Unit,
@@ -494,6 +505,8 @@ internal fun MainScreenInteractionBindings(
         shareCardShowTime = shareCardShowTime,
         shareCardShowSignature = shareCardShowSignature,
         shareCardSignatureText = shareCardSignatureText,
+        dateFormat = dateFormat,
+        timeFormat = timeFormat,
         imageDirectory = imageDirectory,
         rootPath = rootDirectory,
         imageMap = stableImageMap,
@@ -501,11 +514,13 @@ internal fun MainScreenInteractionBindings(
         quickSaveOnBackEnabled = quickSaveOnBackEnabled,
         memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
         memoActionOrder = memoActionOrder,
-        onMemoActionInvoked = dependencies.mainViewModel::recordMemoActionUsage,
+        onMemoActionInvoked = dependencies.mainViewModel.recordMemoActionUsage,
         onMemoActionOrderChanged = dependencies.mainViewModel.updateMemoActionOrder,
+        inputToolbarToolOrder = inputToolbarToolOrder,
+        onInputToolbarToolOrderChanged = dependencies.mainViewModel.updateInputToolbarToolOrder,
         onDeleteMemo = dependencies.mainViewModel.deleteMemo,
         onUpdateMemo = dependencies.editorViewModel::updateMemo,
-        onCreateMemo = interactionCallbacks.onCreateMemo,
+        onCreateMemoWithTimestamp = interactionCallbacks.onCreateMemo,
         onSaveImage = dependencies.editorViewModel::saveImage,
         onLanShare = if (lanShareEnabled) onNavigateToShare else null,
         onDismiss = dependencies.editorViewModel::discardInputs,
@@ -575,8 +590,12 @@ private fun rememberMainScreenInteractionCallbacks(
         unknownErrorMessage,
     ) {
         MainScreenInteractionCallbacks(
-            onCreateMemo = { contentText, geoLocation ->
-                dependencies.mainViewModel.requestPendingNewMemoCreation(contentText, geoLocation)
+            onCreateMemo = { contentText, geoLocation, timestampMillis ->
+                dependencies.mainViewModel.requestPendingNewMemoCreation(
+                    content = contentText,
+                    geoLocation = geoLocation,
+                    timestampMillis = timestampMillis,
+                )
             },
             onCameraCaptureError = { error ->
                 scope.launch {

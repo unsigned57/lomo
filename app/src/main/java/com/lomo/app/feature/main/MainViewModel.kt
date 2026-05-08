@@ -4,6 +4,7 @@ import androidx.paging.PagingData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.lomo.app.feature.common.AppConfigUiCoordinator
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.runDeleteAnimationWithRollback
@@ -274,13 +275,25 @@ class MainViewModel
             }
         }
 
+        val requestFocusMemoInDefaultMainList: (String) -> Unit = { memoId ->
+            if (memoId.isNotBlank()) {
+                sidebarStateHolder.clearFilters()
+                _memoListFilter.value = MemoListFilter()
+                appActionQueue.enqueue(AppAction.FocusMemo(memoId))
+            }
+        }
+
         val consumeAppActionEvent: (Long) -> Unit = { eventId ->
             appActionQueue.consume(eventId)
         }
 
-        internal fun requestPendingNewMemoCreation(content: String, geoLocation: String? = null): Boolean {
+        internal fun requestPendingNewMemoCreation(
+            content: String,
+            geoLocation: String? = null,
+            timestampMillis: Long? = null,
+        ): Boolean {
             return pendingNewMemoCreationCoordinator
-                .submit(content, geoLocation)
+                .submit(content = content, geoLocation = geoLocation, timestampMillis = timestampMillis)
                 ?.also { request ->
                     _pendingNewMemoCreationRequest.value = request
                 } != null
@@ -507,9 +520,18 @@ class MainViewModel
             versionHistoryCoordinator.hide()
         }
 
-        fun recordMemoActionUsage(actionId: MemoActionId) {
+        val recordMemoActionUsage: (MemoActionId) -> Unit = { actionId ->
             viewModelScope.launch {
                 appConfigUiCoordinator.recordMemoActionUsage(actionId.storageKey)
+            }
+        }
+
+        val recordGalleryMemoActionUsage: (MemoActionId) -> Unit = { actionId ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.recordMemoActionUsage(
+                    scope = MemoActionOrderScopes.GALLERY,
+                    actionId = actionId.storageKey,
+                )
             }
         }
 
@@ -518,6 +540,21 @@ class MainViewModel
                 appConfigUiCoordinator.updateMemoActionOrder(
                     actionIds.map(MemoActionId::storageKey),
                 )
+            }
+        }
+
+        val updateGalleryMemoActionOrder: (List<MemoActionId>) -> Unit = { actionIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateMemoActionOrder(
+                    scope = MemoActionOrderScopes.GALLERY,
+                    order = actionIds.map(MemoActionId::storageKey),
+                )
+            }
+        }
+
+        val updateInputToolbarToolOrder: (List<String>) -> Unit = { toolIds ->
+            viewModelScope.launch {
+                appConfigUiCoordinator.updateInputToolbarToolOrder(toolIds)
             }
         }
 

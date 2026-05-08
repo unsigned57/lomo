@@ -58,9 +58,11 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
+import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
@@ -87,6 +89,9 @@ private data class SearchScreenUiSnapshot(
     val shareCardSignatureText: String,
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+    val memoActionOrderForSearch: ImmutableList<String>,
+    val inputToolbarToolOrder: ImmutableList<String>,
     val rootDirectory: String?,
     val imageDirectory: String?,
     val imageMap: ImmutableMap<String, android.net.Uri>,
@@ -99,6 +104,8 @@ private data class SearchScreenUiSnapshot(
 fun SearchScreen(
     onBackClick: () -> Unit,
     onNavigateToShare: (String, Long) -> Unit = { _, _ -> },
+    onRequestFocusMemo: (String) -> Unit = {},
+    onNavigateToMain: () -> Unit = onBackClick,
     lanShareEnabled: Boolean = true,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
@@ -125,6 +132,8 @@ fun SearchScreen(
         shareCardShowTime = uiState.shareCardShowTime,
         shareCardShowSignature = uiState.shareCardShowSignature,
         shareCardSignatureText = uiState.shareCardSignatureText,
+        dateFormat = uiState.dateFormat,
+        timeFormat = uiState.timeFormat,
         onDeleteMemo = viewModel::deleteMemo,
         onUpdateMemo = viewModel::updateMemo,
         onSaveImage = viewModel::saveImage,
@@ -132,6 +141,20 @@ fun SearchScreen(
         imageDirectory = uiState.imageDirectory,
         imageMap = uiState.imageMap,
         onLanShare = if (lanShareEnabled) onNavigateToShare else null,
+        memoActionAutoReorderEnabled = uiState.memoActionAutoReorderEnabled,
+        memoActionOrder = uiState.memoActionOrderForSearch,
+        onMemoActionInvoked = viewModel::recordMemoActionUsage,
+        onMemoActionOrderChanged = viewModel.updateMemoActionOrder,
+        inputToolbarToolOrder = uiState.inputToolbarToolOrder,
+        onInputToolbarToolOrderChanged = viewModel.updateInputToolbarToolOrder,
+        onJump = { state ->
+            handleMemoJumpToMain(
+                state = state,
+                requestFocusMemo = onRequestFocusMemo,
+                navigateToMain = onNavigateToMain,
+            )
+        },
+        showJump = true,
     ) { showMenu, openEditor ->
         val onShowSearchMenu =
             rememberSearchMenuHandler(
@@ -192,6 +215,9 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         shareCardSignatureText = appPreferences.shareCardSignatureText,
         doubleTapEditEnabled = appPreferences.doubleTapEditEnabled,
         freeTextCopyEnabled = appPreferences.freeTextCopyEnabled,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrderForSearch = appPreferences.memoActionOrderFor(MemoActionOrderScopes.SEARCH),
+        inputToolbarToolOrder = appPreferences.inputToolbarToolOrder,
         rootDirectory = rootDirectory,
         imageDirectory = imageDirectory,
         imageMap = remember(imageMap) { imageMap.toImmutableMap() },
