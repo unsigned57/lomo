@@ -269,6 +269,7 @@ class MainScreenNewMemoAnimationDeviceTest {
         MaterialTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
+                knownTotalItemCount = harness.memos.value.size,
                 deletingMemoIds = persistentSetOf(),
                 onDeleteAnimationSettled = {},
                 newMemoInsertAnimationState = animationSession.state,

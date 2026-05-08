@@ -9,11 +9,13 @@ import java.io.File
  * - Unit under test: MemoListContent and MemoListItemMotion animation contracts
  * - Behavior focus: delete animation uses a single isDeleting flag with a composed exit transition
  *   driven by AnimatedVisibility, and placement spring must stay disabled while new-memo insertion,
- *   delete viewport compensation, or memo expand/collapse owns row movement.
+ *   delete viewport compensation, memo expand/collapse, or same-id content edits own row movement.
  * - Observable outcomes: required animation declarations remain present in source files.
  * - Red phase: Fails before the fix because the old source still uses separate isDeleting/isCollapsing
  *   branches, a separate animateFloatAsState for alpha, and a 220ms collapse duration instead of
- *   the unified fadeOut + shrinkVertically(delayMillis=300) transition.
+ *   the unified fadeOut + shrinkVertically(delayMillis=300) transition; the same-id edit contract
+ *   fails before the content resize fix because PagedMemoListContent only begins resize sessions
+ *   from explicit expand/collapse clicks.
  * - Excludes: runtime Compose rendering, frame timing interpolation, ViewModel wiring.
  */
 /*
@@ -136,6 +138,25 @@ class MemoListAnimationContractTest {
         )
     }
 
+    @Test
+    fun `same id memo content edits enter resize motion`() {
+        val content =
+            moduleRoot
+                .resolve("src/main/java/com/lomo/app/feature/main/PagedMemoListContent.kt")
+                .readText()
+                .normalizeWhitespace()
+
+        assertTrue(
+            """
+            Editing a memo in place must begin a LazyList resize session when the same item key receives
+            height-affecting content, otherwise the edited row and following row can overlap until a full
+            rerender or manual scroll. Expected content-signature tracking and the shared resize session in
+            PagedMemoListContent.kt.
+            """.trimIndent(),
+            SAME_ID_CONTENT_EDIT_RESIZE_SNIPPETS.all(content::contains),
+        )
+    }
+
     private fun String.normalizeWhitespace(): String = replace(Regex("\\s+"), " ").trim()
 
     private fun resolveModuleRoot(moduleName: String): File {
@@ -240,6 +261,14 @@ class MemoListAnimationContractTest {
                 "val collapseSpacing by animateDpAsState(",
                 "targetValue = if (isCollapsing) 0.dp else bottomSpacing",
                 "durationMillis = MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS",
+            )
+
+        val SAME_ID_CONTENT_EDIT_RESIZE_SNIPPETS =
+            listOf(
+                "val contentResizeSignatures = rememberMemoListItemContentResizeSignatures(",
+                "val contentResizeItemKey = contentResizeTracker.changedItemKey(contentResizeSignatures)",
+                "beginContentResizeTransition(",
+                "snapshot = listState.layoutInfo.toLazyListMotionViewportSnapshot()",
             )
     }
 }

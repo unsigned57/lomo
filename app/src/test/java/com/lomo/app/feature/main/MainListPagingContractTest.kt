@@ -27,6 +27,10 @@ class MainListPagingContractTest {
         moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MainScreenStateHosts.kt")
     private val layoutFile =
         moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MainScreenLayout.kt")
+    private val pagedContentFile =
+        moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/PagedMemoListContent.kt")
+    private val pagedPlaceholderFile =
+        moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/PagedMemoListPlaceholderRow.kt")
     private val legacyModeFile =
         moduleRoot.resolve("src/main/java/com/lomo/app/feature/main/MainListPresentationMode.kt")
 
@@ -63,6 +67,40 @@ class MainListPagingContractTest {
                 content.contains(
                     "private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE",
                 ),
+        )
+    }
+
+    @Test
+    fun `main list paging config supports direct offscreen jump focus`() {
+        val content = stateHolderFile.readText().normalizeWhitespace()
+
+        assertTrue(
+            """
+            Jumping to an offscreen memo should not page through every intermediate item. Keep
+            placeholders enabled and configure a jump threshold so LazyPagingItems can expose
+            the resolved index directly.
+            """.trimIndent(),
+            content.contains("enablePlaceholders = true") &&
+                content.contains("jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD") &&
+                content.contains("enablePlaceholders = false").not(),
+        )
+    }
+
+    @Test
+    fun `main list renders measurable rows for unloaded paging placeholders`() {
+        val content = pagedContentFile.readText().normalizeWhitespace()
+        val placeholderContent = pagedPlaceholderFile.readText().normalizeWhitespace()
+
+        assertTrue(
+            """
+            Direct offscreen Jump depends on unloaded Paging placeholders occupying real list
+            space. Null placeholder rows must render a measurable placeholder instead of
+            returning an empty zero-height item.
+            """.trimIndent(),
+            content.contains("MemoPagedListPlaceholderRow(") &&
+                placeholderContent.contains("SkeletonMemoItem(") &&
+                placeholderContent.contains("itemKey =") &&
+                placeholderContent.contains("PAGING_PLACEHOLDER_KEY_PREFIX"),
         )
     }
 

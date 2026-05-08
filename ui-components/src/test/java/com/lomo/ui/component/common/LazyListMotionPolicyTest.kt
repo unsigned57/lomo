@@ -14,12 +14,14 @@ import org.junit.Test
  *   sessions must own row movement and disable LazyColumn placement spring for affected rows.
  * - Observable outcomes: resolved lazy fade-in and placement-spring policy booleans; resize
  *   sessions block lazy placement spring for visible sibling rows through the post-settle sync
- *   frame; resize settle timing outlasts memo body size motion; rows suppressed during an active
- *   entrance session do not replay that entrance.
+ *   frame; same-id content edits enter the resize session before the new height is known; resize
+ *   settle timing outlasts memo body size motion; rows suppressed during an active entrance session
+ *   do not replay that entrance.
  * - Red phase: Fails before the shared motion framework fix because app screens resolve
  *   animateItem behavior locally; the resize timing extension fails before this fix because the
  *   resize settle window is shorter than memo body size motion, so LazyColumn placement spring can
- *   be re-enabled before a collapse has visually settled.
+ *   be re-enabled before a collapse has visually settled; the content-edit test fails before this
+ *   fix because only explicit expand/collapse actions can begin a resize session.
  * - Excludes: Compose frame timing, actual LazyColumn measurement, and pixel-level rendering.
  */
 /*
@@ -184,6 +186,92 @@ class LazyListMotionPolicyTest {
         state.updateItemOrder(itemOrder)
 
         assertFalse(state.blocksPlacementSpringFor("expanded"))
+        assertFalse(state.blocksPlacementSpringFor("below"))
+    }
+
+    @Test
+    fun `same id content edit growth blocks edited row and lower siblings until post settle sync`() {
+        val state = LazyListResizeMotionState()
+        val itemOrder =
+            mapOf(
+                "above" to 0,
+                "edited" to 1,
+                "below" to 2,
+            )
+        state.updateItemOrder(itemOrder)
+
+        val generation =
+            state.beginContentResizeTransition(
+                itemId = "edited",
+                snapshot =
+                    LazyListMotionViewportSnapshot(
+                        visibleItems =
+                            listOf(
+                                LazyListMotionVisibleItem(
+                                    id = "above",
+                                    index = 0,
+                                    offsetPx = 0,
+                                    sizePx = 80,
+                                ),
+                                LazyListMotionVisibleItem(
+                                    id = "edited",
+                                    index = 1,
+                                    offsetPx = 80,
+                                    sizePx = 120,
+                                ),
+                                LazyListMotionVisibleItem(
+                                    id = "below",
+                                    index = 2,
+                                    offsetPx = 200,
+                                    sizePx = 100,
+                                ),
+                            ),
+                        viewportStartPx = 0,
+                        viewportEndPx = 700,
+                    ),
+            )
+
+        assertTrue(state.blocksPlacementSpringFor("edited"))
+        assertTrue(state.blocksPlacementSpringFor("below"))
+        assertFalse(state.blocksPlacementSpringFor("above"))
+
+        state.onItemMeasured(itemId = "edited", heightPx = 260)
+        state.settleTransition(generation)
+        state.updateItemOrder(itemOrder)
+
+        assertTrue(state.blocksPlacementSpringFor("edited"))
+        assertTrue(state.blocksPlacementSpringFor("below"))
+
+        state.onVisibleItemsChanged(
+            LazyListMotionViewportSnapshot(
+                visibleItems =
+                    listOf(
+                        LazyListMotionVisibleItem(
+                            id = "above",
+                            index = 0,
+                            offsetPx = 0,
+                            sizePx = 80,
+                        ),
+                        LazyListMotionVisibleItem(
+                            id = "edited",
+                            index = 1,
+                            offsetPx = 80,
+                            sizePx = 260,
+                        ),
+                        LazyListMotionVisibleItem(
+                            id = "below",
+                            index = 2,
+                            offsetPx = 340,
+                            sizePx = 100,
+                        ),
+                    ),
+                viewportStartPx = 0,
+                viewportEndPx = 700,
+            ),
+        )
+        state.updateItemOrder(itemOrder)
+
+        assertFalse(state.blocksPlacementSpringFor("edited"))
         assertFalse(state.blocksPlacementSpringFor("below"))
     }
 

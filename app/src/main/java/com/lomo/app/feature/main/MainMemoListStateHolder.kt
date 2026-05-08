@@ -25,6 +25,7 @@ private const val SEARCH_DEBOUNCE_MILLIS = 150L
 private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
+private const val DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
 
 internal class MainMemoListStateHolder(
     scope: CoroutineScope,
@@ -88,7 +89,8 @@ internal class MainMemoListStateHolder(
                             pageSize = DEFAULT_MAIN_LIST_PAGE_SIZE,
                             initialLoadSize = DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE,
                             prefetchDistance = DEFAULT_MAIN_LIST_PREFETCH_DISTANCE,
-                            enablePlaceholders = false,
+                            enablePlaceholders = true,
+                            jumpThreshold = DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD,
                         ),
                     pagingSourceFactory = {
                         memoUiCoordinator.mainListPagingSource(

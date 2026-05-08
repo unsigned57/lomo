@@ -209,6 +209,16 @@ class LazyListResizeMotionState {
     }
 }
 
+internal fun LazyListResizeMotionState.beginContentResizeTransition(
+    itemId: String,
+    snapshot: LazyListMotionViewportSnapshot,
+): Long =
+    beginTransition(
+        itemId = itemId,
+        expands = false,
+        snapshot = snapshot,
+    )
+
 private fun LazyListMotionVisibleItem.resolveCollapseAnchorScrollPx(viewportStartPx: Int): Int =
     if (offsetPx < viewportStartPx && bottomPx > viewportStartPx) {
         (viewportStartPx - offsetPx)

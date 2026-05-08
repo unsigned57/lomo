@@ -15,6 +15,7 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,10 +44,6 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.collections.immutable.toPersistentSet
 
-private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER = 31
-private const val MEMO_LIST_SCROLLBAR_CONTENT_HASH_SAMPLE_COUNT = 20
-private const val PAGING_PLACEHOLDER_KEY_PREFIX = "paging-placeholder-"
-
 private data class MemoPagedListDisplayConfig(
     val dateFormat: String,
     val timeFormat: String,
@@ -70,7 +67,29 @@ private data class MemoPagedListMotionOwners(
     val deletingIds: ImmutableSet<String>,
     val newMemoInsertAnimationState: NewMemoInsertAnimationState,
     val listMotionState: LazyListMotionState,
+    val contentResizeItemIndex: Int?,
 )
+
+private data class MemoListItemContentResizeSignature(
+    val processedContent: String,
+    val collapsedSummary: String,
+    val tags: ImmutableList<String>,
+    val imageUrls: ImmutableList<String>,
+    val shouldShowExpand: Boolean,
+)
+
+private class MemoListContentResizeTracker {
+    private var committedSignatures: Map<String, MemoListItemContentResizeSignature> = emptyMap()
+
+    fun changedItemKey(signatures: Map<String, MemoListItemContentResizeSignature>): String? =
+        signatures.entries.firstOrNull { (itemKey, signature) ->
+            committedSignatures[itemKey]?.let { previousSignature -> previousSignature != signature } == true
+        }?.key
+
+    fun commit(signatures: Map<String, MemoListItemContentResizeSignature>) {
+        committedSignatures = signatures
+    }
+}
 
 @OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
@@ -101,9 +120,11 @@ internal fun MemoListContent(
     onShowMemoMenu: (MemoMenuState) -> Unit,
 ) {
     val pullState = rememberPullToRefreshState()
+    val itemSnapshotList = pagedMemos.itemSnapshotList
+    val snapshotStartIndex = itemSnapshotList.placeholdersBefore
     val snapshotMemos =
-        remember(pagedMemos.itemSnapshotList) {
-            pagedMemos.itemSnapshotList.items.toImmutableList()
+        remember(itemSnapshotList) {
+            itemSnapshotList.items.toImmutableList()
         }
     var expandedMemoIds by rememberSaveable(saver = expandedMemoIdsSaver()) {
         mutableStateOf(persistentSetOf<String>())
@@ -129,6 +150,7 @@ internal fun MemoListContent(
         MemoPagedListColumn(
             pagedMemos = pagedMemos,
             snapshotMemos = snapshotMemos,
+            snapshotStartIndex = snapshotStartIndex,
             knownTotalItemCount = knownTotalItemCount,
             expandedMemoIds = expandedMemoIds,
             onExpandedMemoChange = { memoId, isExpanded ->
@@ -162,6 +184,7 @@ internal fun MemoListContent(
 private fun MemoPagedListColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     snapshotMemos: ImmutableList<MemoUiModel>,
+    snapshotStartIndex: Int,
     knownTotalItemCount: Int,
     expandedMemoIds: ImmutableSet<String>,
     onExpandedMemoChange: (String, Boolean) -> Unit,
@@ -226,29 +249,22 @@ private fun MemoPagedListColumn(
         totalItemsCountOverride = scrollbarItemCount,
         scrollTargetItemsCountOverride = renderedItemCount,
     ) {
-        val motionItemKeys =
-            remember(visiblePagedMemos, pagedMemos.itemCount, renderedItemCount) {
-                List(renderedItemCount) { index ->
-                    memoListItemKey(index, visiblePagedMemos, pagedMemos)
-                }.toPersistentList()
-            }
-        val listMotionState =
-            rememberLazyListMotionState(
-                itemKeys = motionItemKeys,
-                removingKeys = deletingIds,
-                listState = listState,
-            )
         val motionOwners =
-            MemoPagedListMotionOwners(
+            rememberMemoPagedListMotionOwners(
                 expandedMemoIds = expandedMemoIds,
                 deletingIds = deletingIds,
                 newMemoInsertAnimationState = newMemoInsertAnimationState,
-                listMotionState = listMotionState,
+                listState = listState,
+                renderedItemCount = renderedItemCount,
+                visiblePagedMemoStartIndex = snapshotStartIndex,
+                visiblePagedMemos = visiblePagedMemos,
+                pagedMemos = pagedMemos,
             )
 
         MemoPagedLazyColumn(
             pagedMemos = pagedMemos,
             visiblePagedMemos = visiblePagedMemos,
+            visiblePagedMemoStartIndex = snapshotStartIndex,
             renderedItemCount = renderedItemCount,
             motionOwners = motionOwners,
             listState = listState,
@@ -263,6 +279,7 @@ private fun MemoPagedListColumn(
 private fun MemoPagedLazyColumn(
     pagedMemos: LazyPagingItems<MemoUiModel>,
     visiblePagedMemos: ImmutableList<MemoUiModel>,
+    visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     motionOwners: MemoPagedListMotionOwners,
     listState: LazyListState,
@@ -270,18 +287,14 @@ private fun MemoPagedLazyColumn(
     displayConfig: MemoPagedListDisplayConfig,
     actions: MemoPagedListActions,
 ) {
+    val horizontalContentPadding = resolveMemoListHorizontalContentPadding(scrollbarEnabled)
     LazyColumn(
         state = listState,
         contentPadding =
             PaddingValues(
                 top = MEMO_LIST_TOP_PADDING,
-                start = MEMO_LIST_HORIZONTAL_PADDING,
-                end =
-                    if (scrollbarEnabled) {
-                        MEMO_LIST_END_PADDING_WITH_SCROLLBAR
-                    } else {
-                        MEMO_LIST_HORIZONTAL_PADDING
-                    },
+                start = horizontalContentPadding.start,
+                end = horizontalContentPadding.end,
                 bottom =
                     WindowInsets.navigationBars
                         .asPaddingValues()
@@ -292,14 +305,29 @@ private fun MemoPagedLazyColumn(
     ) {
         items(
             count = maxOf(visiblePagedMemos.size, pagedMemos.itemCount),
-            key = { index -> memoListItemKey(index, visiblePagedMemos, pagedMemos) },
-            contentType = { index -> memoListItemContentType(index, visiblePagedMemos, pagedMemos) },
+            key = { index ->
+                memoListItemKey(
+                    index = index,
+                    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                    visiblePagedMemos = visiblePagedMemos,
+                    pagedMemos = pagedMemos,
+                )
+            },
+            contentType = { index ->
+                memoListItemContentType(
+                    index = index,
+                    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                    visiblePagedMemos = visiblePagedMemos,
+                    pagedMemos = pagedMemos,
+                )
+            },
         ) { index ->
             MemoPagedListRow(
                 lazyItemScope = this,
                 index = index,
                 pagedMemos = pagedMemos,
                 visiblePagedMemos = visiblePagedMemos,
+                visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
                 renderedItemCount = renderedItemCount,
                 motionOwners = motionOwners,
                 listState = listState,
@@ -316,14 +344,32 @@ private fun MemoPagedListRow(
     index: Int,
     pagedMemos: LazyPagingItems<MemoUiModel>,
     visiblePagedMemos: ImmutableList<MemoUiModel>,
+    visiblePagedMemoStartIndex: Int,
     renderedItemCount: Int,
     motionOwners: MemoPagedListMotionOwners,
     listState: LazyListState,
     displayConfig: MemoPagedListDisplayConfig,
     actions: MemoPagedListActions,
 ) {
-    val pagedUiModel = if (index < pagedMemos.itemCount) pagedMemos[index] else null
-    val uiModel = visiblePagedMemos.getOrNull(index) ?: pagedUiModel ?: return
+    val retainedUiModel = visiblePagedMemos.getOrNull(index - visiblePagedMemoStartIndex)
+    val pagedUiModel = if (retainedUiModel == null && index < pagedMemos.itemCount) pagedMemos[index] else null
+    val uiModel = retainedUiModel ?: pagedUiModel
+    val contentResizeStructureMotionActive = motionOwners.isContentResizeStructureMotionActive(index)
+
+    if (uiModel == null) {
+        if (index < pagedMemos.itemCount) {
+            MemoPagedListPlaceholderRow(
+                lazyItemScope = lazyItemScope,
+                index = index,
+                itemCount = renderedItemCount,
+                listMotionState = motionOwners.listMotionState,
+                structureMotionActive =
+                    motionOwners.newMemoInsertAnimationState.blocksPlacementSpring ||
+                        contentResizeStructureMotionActive,
+            )
+        }
+        return
+    }
 
     MemoPagedListItem(
         uiModel = uiModel,
@@ -340,76 +386,108 @@ private fun MemoPagedListRow(
                     itemKey = uiModel.memo.id,
                     motionState = motionOwners.listMotionState,
                     entranceState = LazyListItemEntranceState.Settled,
-                    structureMotionActive = motionOwners.newMemoInsertAnimationState.blocksPlacementSpring,
+                    structureMotionActive =
+                        motionOwners.newMemoInsertAnimationState.blocksPlacementSpring ||
+                            contentResizeStructureMotionActive,
                 )
                 .fillMaxWidth(),
     )
 }
 
-private fun memoListItemKey(
-    index: Int,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
-    pagedMemos: LazyPagingItems<MemoUiModel>,
-): String =
-    memoListItemAt(index, visiblePagedMemos, pagedMemos)?.memo?.id
-        ?: "$PAGING_PLACEHOLDER_KEY_PREFIX$index"
-
-private fun memoListItemContentType(
-    index: Int,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
-    pagedMemos: LazyPagingItems<MemoUiModel>,
-): String =
-    memoListItemAt(index, visiblePagedMemos, pagedMemos)?.memoListItemContentBucket
-        ?: "memo-placeholder"
-
-private fun memoListItemAt(
-    index: Int,
-    visiblePagedMemos: ImmutableList<MemoUiModel>,
-    pagedMemos: LazyPagingItems<MemoUiModel>,
-): MemoUiModel? =
-    visiblePagedMemos.getOrNull(index)
-        ?: if (index < pagedMemos.itemCount) pagedMemos.peek(index) else null
-
 @Composable
-private fun rememberMemoListScrollbarContentGeneration(
-    snapshotMemos: ImmutableList<MemoUiModel>,
+private fun rememberMemoPagedListMotionOwners(
+    expandedMemoIds: ImmutableSet<String>,
     deletingIds: ImmutableSet<String>,
-    scrollbarItemCount: Int,
-): MemoListScrollbarContentGeneration =
-    remember(snapshotMemos, deletingIds, scrollbarItemCount) {
-        buildMemoListScrollbarContentGeneration(
-            snapshotMemos = snapshotMemos,
-            deletingIds = deletingIds,
-            scrollbarItemCount = scrollbarItemCount,
+    newMemoInsertAnimationState: NewMemoInsertAnimationState,
+    listState: LazyListState,
+    renderedItemCount: Int,
+    visiblePagedMemoStartIndex: Int,
+    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    pagedMemos: LazyPagingItems<MemoUiModel>,
+): MemoPagedListMotionOwners {
+    val motionItemKeys =
+        remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemCount, renderedItemCount) {
+            List(renderedItemCount) { index ->
+                memoListItemKey(
+                    index = index,
+                    visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                    visiblePagedMemos = visiblePagedMemos,
+                    pagedMemos = pagedMemos,
+                )
+            }.toPersistentList()
+        }
+    val listMotionState =
+        rememberLazyListMotionState(
+            itemKeys = motionItemKeys,
+            removingKeys = deletingIds,
+            listState = listState,
         )
+    val contentResizeTracker = remember { MemoListContentResizeTracker() }
+    val contentResizeSignatures =
+        rememberMemoListItemContentResizeSignatures(
+            renderedItemCount = renderedItemCount,
+            visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+            visiblePagedMemos = visiblePagedMemos,
+            pagedMemos = pagedMemos,
+        )
+    val contentResizeItemKey = contentResizeTracker.changedItemKey(contentResizeSignatures)
+    val contentResizeItemIndex =
+        remember(contentResizeItemKey, motionItemKeys) {
+            contentResizeItemKey?.let { itemKey ->
+                motionItemKeys.indexOf(itemKey).takeIf { index -> index >= 0 }
+            }
+        }
+    SideEffect {
+        contentResizeTracker.commit(contentResizeSignatures)
+        contentResizeItemKey?.let { itemKey ->
+            listMotionState.beginContentResizeTransition(
+                itemId = itemKey,
+                snapshot = listState.layoutInfo.toLazyListMotionViewportSnapshot(),
+            )
+        }
     }
-
-private data class MemoListScrollbarContentGeneration(
-    val itemCount: Int,
-    val contentHash: Int,
-    val deletingIdsHash: Int,
-)
-
-private fun buildMemoListScrollbarContentGeneration(
-    snapshotMemos: ImmutableList<MemoUiModel>,
-    deletingIds: ImmutableSet<String>,
-    scrollbarItemCount: Int,
-): MemoListScrollbarContentGeneration {
-    var contentHash = 1
-    snapshotMemos.take(MEMO_LIST_SCROLLBAR_CONTENT_HASH_SAMPLE_COUNT).forEach { uiModel ->
-        val memo = uiModel.memo
-        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.id.hashCode()
-        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.updatedAt.hashCode()
-        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + memo.rawContent.hashCode()
-        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + uiModel.imageUrls.hashCode()
-        contentHash = MEMO_LIST_SCROLLBAR_CONTENT_HASH_MULTIPLIER * contentHash + uiModel.shouldShowExpand.hashCode()
-    }
-    return MemoListScrollbarContentGeneration(
-        itemCount = scrollbarItemCount,
-        contentHash = contentHash,
-        deletingIdsHash = deletingIds.hashCode(),
+    return MemoPagedListMotionOwners(
+        expandedMemoIds = expandedMemoIds,
+        deletingIds = deletingIds,
+        newMemoInsertAnimationState = newMemoInsertAnimationState,
+        listMotionState = listMotionState,
+        contentResizeItemIndex = contentResizeItemIndex,
     )
 }
+
+private fun MemoPagedListMotionOwners.isContentResizeStructureMotionActive(index: Int): Boolean =
+    contentResizeItemIndex?.let { contentResizeIndex -> index >= contentResizeIndex } == true
+
+@Composable
+private fun rememberMemoListItemContentResizeSignatures(
+    renderedItemCount: Int,
+    visiblePagedMemoStartIndex: Int,
+    visiblePagedMemos: ImmutableList<MemoUiModel>,
+    pagedMemos: LazyPagingItems<MemoUiModel>,
+): Map<String, MemoListItemContentResizeSignature> =
+    remember(visiblePagedMemos, visiblePagedMemoStartIndex, pagedMemos.itemSnapshotList, renderedItemCount) {
+        buildMap {
+            repeat(renderedItemCount) { index ->
+                val uiModel =
+                    memoListItemAt(
+                        index = index,
+                        visiblePagedMemoStartIndex = visiblePagedMemoStartIndex,
+                        visiblePagedMemos = visiblePagedMemos,
+                        pagedMemos = pagedMemos,
+                    ) ?: return@repeat
+                put(uiModel.memo.id, uiModel.toContentResizeSignature())
+            }
+        }
+    }
+
+private fun MemoUiModel.toContentResizeSignature(): MemoListItemContentResizeSignature =
+    MemoListItemContentResizeSignature(
+        processedContent = processedContent,
+        collapsedSummary = collapsedSummary,
+        tags = tags,
+        imageUrls = imageUrls,
+        shouldShowExpand = shouldShowExpand,
+    )
 
 @Composable
 private fun MemoPagedListItem(

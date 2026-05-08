@@ -821,6 +821,7 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
+                knownTotalItemCount = harness.memos.value.size,
                 deletingMemoIds = persistentSetOf(),
                 onDeleteAnimationSettled = {},
                 listState = listState,
@@ -851,6 +852,7 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
+                knownTotalItemCount = harness.memos.value.size,
                 deletingMemoIds = persistentSetOf(),
                 onDeleteAnimationSettled = {},
                 listState = listState,
@@ -879,6 +881,7 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
+                knownTotalItemCount = pagedMemos.itemCount,
                 deletingMemoIds = deletingIds.toPersistentSet(),
                 onDeleteAnimationSettled = harness::onDeleteAnimationSettled,
                 listState = listState,
@@ -909,6 +912,7 @@ class MainScreenListRegressionTest {
         ListRegressionHarnessTheme {
             MemoListContent(
                 pagedMemos = pagedMemos,
+                knownTotalItemCount = pagedMemos.itemCount,
                 deletingMemoIds = deletingIds.toPersistentSet(),
                 onDeleteAnimationSettled = harness::onDeleteAnimationSettled,
                 listState = listState,

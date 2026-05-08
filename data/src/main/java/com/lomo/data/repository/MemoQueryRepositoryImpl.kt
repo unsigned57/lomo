@@ -175,6 +175,9 @@ private class MemoRowMappingPagingSource(
         source.registerInvalidatedCallback(::invalidate)
     }
 
+    override val jumpingSupported: Boolean
+        get() = source.jumpingSupported
+
     override suspend fun load(params: LoadParams<Int>): LoadResult<Int, Memo> =
         when (val result = source.load(params)) {
             is LoadResult.Error -> LoadResult.Error(result.throwable)
@@ -213,7 +216,7 @@ private fun PagingState<Int, Memo>.toDefaultMainListRowState(): PagingState<Int,
             },
         anchorPosition = anchorPosition,
         config = config,
-        // PagingState does not expose leadingPlaceholderCount in this artifact.
-        // We keep it at 0 because placeholders are disabled for this list.
+        // PagingState does not expose leadingPlaceholderCount in this artifact; the mapped pages
+        // still preserve anchorPosition plus itemsBefore/itemsAfter for delegated refresh-key use.
         leadingPlaceholderCount = 0,
     )
