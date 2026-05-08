@@ -8,6 +8,7 @@ import dev.detekt.api.RuleName
 import dev.detekt.api.RuleSet
 import dev.detekt.api.RuleSetId
 import dev.detekt.api.RuleSetProvider
+import org.jetbrains.kotlin.psi.KtCallExpression
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
@@ -20,15 +21,22 @@ import org.jetbrains.kotlin.psi.KtDoWhileExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtIfExpression
+import org.jetbrains.kotlin.psi.KtNameReferenceExpression
+import org.jetbrains.kotlin.psi.KtNamedDeclaration
+import org.jetbrains.kotlin.psi.KtNamedFunction
 import org.jetbrains.kotlin.psi.KtParenthesizedExpression
+import org.jetbrains.kotlin.psi.KtPackageDirective
 import org.jetbrains.kotlin.psi.KtPrefixExpression
 import org.jetbrains.kotlin.psi.KtReturnExpression
+import org.jetbrains.kotlin.psi.KtSimpleNameExpression
 import org.jetbrains.kotlin.psi.KtThrowExpression
 import org.jetbrains.kotlin.psi.KtWhenConditionWithExpression
 import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
 import org.jetbrains.kotlin.lexer.KtTokens
+import java.nio.file.Files
+import java.nio.file.Path
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
@@ -56,6 +64,8 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoConstantBranchCondition") to ::NoConstantBranchConditionRule,
                 RuleName("NoUnreachableBlockTail") to ::NoUnreachableBlockTailRule,
                 RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
+                RuleName("NoCrossFileDuplicateTopLevel") to ::NoCrossFileDuplicateTopLevelRule,
+                RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
             ),
         )
 }
@@ -95,6 +105,23 @@ private abstract class LomoArchitectureRule(
             Regex("""\b${Regex.escape(prefix)}[A-Za-z_]\w*""").containsMatchIn(bodyText())
         }
 
+    protected fun KtFile.moduleRoot(): String? =
+        path().substringBefore("/src/main/", missingDelimiterValue = "").ifBlank { null }
+
+    protected fun KtFile.productionSourcePaths(): Set<String> {
+        val moduleRoot = moduleRoot() ?: return setOf(path())
+        val mainRoot = Path.of(moduleRoot, "src", "main")
+        if (!Files.exists(mainRoot)) return setOf(path())
+        return Files.walk(mainRoot).use { stream ->
+            stream
+                .filter { candidate -> Files.isRegularFile(candidate) }
+                .map { candidate -> candidate.toString().replace('\\', '/') }
+                .filter { candidate -> candidate.endsWith(".kt") || candidate.endsWith(".kts") }
+                .toList()
+                .toSet()
+        }
+    }
+
     protected fun KtClassOrObject.constructorTypeTexts(): List<String> =
         (this as? KtClass)
             ?.getPrimaryConstructorParameters()
@@ -120,6 +147,13 @@ private abstract class LomoArchitectureRule(
 
     protected fun reportDeclaration(
         declaration: KtClassOrObject,
+        message: String,
+    ) {
+        report(Finding(Entity.from(declaration), message))
+    }
+
+    protected fun reportNamedDeclaration(
+        declaration: KtNamedDeclaration,
         message: String,
     ) {
         report(Finding(Entity.from(declaration), message))
@@ -610,6 +644,136 @@ private class NoRedundantExhaustiveElseRule(
     }
 }
 
+private class NoCrossFileDuplicateTopLevelRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not duplicate the same top-level helper signature across files in one module.") {
+    private val ignoreAnnotated = config.valueOrDefault("ignoreAnnotated", listOf("Composable", "Preview")).toSet()
+    private val ignoreOperator = config.valueOrDefault("ignoreOperator", true)
+    private val seenByModule = mutableMapOf<String, MutableMap<TopLevelFunctionSignature, KtNamedFunction>>()
+
+    override fun visitNamedFunction(function: KtNamedFunction) {
+        super.visitNamedFunction(function)
+        val file = function.containingKtFile
+        if (!file.isProductionSource()) return
+        if (!function.isTopLevel) return
+        if (function.shouldIgnoreTopLevelDuplicate(ignoreAnnotated, ignoreOperator)) return
+
+        val moduleRoot = file.moduleRoot() ?: return
+        val signature = function.topLevelSignature()
+        val seen = seenByModule.getOrPut(moduleRoot) { mutableMapOf() }
+        val firstDeclaration = seen[signature]
+
+        if (firstDeclaration == null) {
+            seen[signature] = function
+            return
+        }
+
+        if (firstDeclaration.containingKtFile.path() == file.path()) return
+
+        val firstRelativePath = firstDeclaration.containingKtFile.path().removePrefix("$moduleRoot/")
+        reportNamedDeclaration(
+            function,
+            "Duplicate top-level declaration '${signature.render()}'. First declaration: $firstRelativePath. Reuse or extract shared logic instead of redefining it.",
+        )
+    }
+}
+
+private class NoUnreferencedTopLevelDeclarationRule(
+    config: Config,
+) : LomoArchitectureRule(config, "Production source must not keep non-public top-level declarations with no reachable in-module references.") {
+    private val ignoreAnnotated =
+        config.valueOrDefault(
+            "ignoreAnnotated",
+            listOf("VisibleForTesting", "Keep", "Preview", "Module", "Provides", "Binds", "Multibinds", "HiltViewModel"),
+        ).toSet()
+    private val moduleStates = mutableMapOf<String, ModuleDeadDeclarationState>()
+
+    override fun visitKtFile(file: KtFile) {
+        if (!file.isProductionSource()) {
+            super.visitKtFile(file)
+            return
+        }
+
+        val moduleRoot = file.moduleRoot() ?: return
+        val state =
+            moduleStates.getOrPut(moduleRoot) {
+                ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths())
+            }
+
+        super.visitKtFile(file)
+
+        state.visitedFiles += file.path()
+        if (!state.flushed && state.visitedFiles.containsAll(state.expectedFiles)) {
+            flushFindings(state)
+            state.flushed = true
+        }
+    }
+
+    override fun visitNamedFunction(function: KtNamedFunction) {
+        super.visitNamedFunction(function)
+        val file = function.containingKtFile
+        if (!file.isProductionSource()) return
+        if (!function.isTopLevel) return
+        if (!function.isNonPublicTopLevelDeclaration(ignoreAnnotated)) return
+
+        val moduleRoot = file.moduleRoot() ?: return
+        moduleStates
+            .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
+            .declarations += TrackedTopLevelDeclaration(TopLevelDeclarationKey.Function(function.name.orEmpty(), function.valueParameters.size), function)
+    }
+
+    override fun visitClassOrObject(classOrObject: KtClassOrObject) {
+        super.visitClassOrObject(classOrObject)
+        val file = classOrObject.containingKtFile
+        if (!file.isProductionSource()) return
+        if (!classOrObject.isTopLevel()) return
+        if (!classOrObject.isNonPublicTopLevelDeclaration(ignoreAnnotated)) return
+
+        val moduleRoot = file.moduleRoot() ?: return
+        moduleStates
+            .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
+            .declarations += TrackedTopLevelDeclaration(TopLevelDeclarationKey.Type(classOrObject.name.orEmpty()), classOrObject)
+    }
+
+    override fun visitCallExpression(expression: KtCallExpression) {
+        super.visitCallExpression(expression)
+        val file = expression.containingKtFile
+        if (!file.isProductionSource()) return
+
+        val calleeName = expression.calleeExpression?.text?.substringAfterLast('.')?.takeIf(String::isNotBlank) ?: return
+        val moduleRoot = file.moduleRoot() ?: return
+        moduleStates
+            .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
+            .functionReferences += TopLevelDeclarationKey.Function(calleeName, expression.valueArguments.size)
+    }
+
+    override fun visitSimpleNameExpression(expression: KtSimpleNameExpression) {
+        super.visitSimpleNameExpression(expression)
+        val nameReference = expression as? KtNameReferenceExpression ?: return
+        val file = expression.containingKtFile
+        if (!file.isProductionSource()) return
+        if (nameReference.isDeclarationNameReference()) return
+        if (nameReference.parent is KtPackageDirective) return
+
+        val moduleRoot = file.moduleRoot() ?: return
+        moduleStates
+            .getOrPut(moduleRoot) { ModuleDeadDeclarationState(expectedFiles = file.productionSourcePaths()) }
+            .typeReferences += TopLevelDeclarationKey.Type(nameReference.getReferencedName())
+    }
+
+    private fun flushFindings(state: ModuleDeadDeclarationState) {
+        val referencedKeys = state.functionReferences + state.typeReferences
+        state.declarations
+            .filterNot { tracked -> tracked.key in referencedKeys }
+            .forEach { tracked ->
+                reportNamedDeclaration(
+                    tracked.declaration,
+                    "Unreferenced top-level declaration '${tracked.declaration.name.orEmpty()}'. Remove dead code or make the declaration reachable. Public declarations are intentionally out of scope for this rule.",
+                )
+            }
+    }
+}
+
 private fun KtExpression.evaluateBooleanConstant(): Boolean? =
     when (this) {
         is KtParenthesizedExpression -> expression?.evaluateBooleanConstant()
@@ -649,3 +813,115 @@ private fun KtExpression.isUnconditionalJump(): Boolean =
         this is KtThrowExpression ||
         this is KtBreakExpression ||
         this is KtContinueExpression
+
+private data class TopLevelFunctionSignature(
+    val name: String,
+    val receiverType: String?,
+    val parameterTypes: List<String>,
+    val returnType: String?,
+) {
+    fun render(): String {
+        val receiverPrefix = receiverType?.let { "$it." }.orEmpty()
+        val returnSuffix = returnType?.let { ": $it" }.orEmpty()
+        return "$receiverPrefix$name(${parameterTypes.joinToString(", ")}$returnSuffix)"
+    }
+}
+
+private sealed interface TopLevelDeclarationKey {
+    data class Function(
+        val name: String,
+        val arity: Int,
+    ) : TopLevelDeclarationKey
+
+    data class Type(
+        val name: String,
+    ) : TopLevelDeclarationKey
+}
+
+private data class TrackedTopLevelDeclaration(
+    val key: TopLevelDeclarationKey,
+    val declaration: KtNamedDeclaration,
+)
+
+private data class ModuleDeadDeclarationState(
+    val expectedFiles: Set<String>,
+    val visitedFiles: MutableSet<String> = mutableSetOf(),
+    val declarations: MutableList<TrackedTopLevelDeclaration> = mutableListOf(),
+    val functionReferences: MutableSet<TopLevelDeclarationKey.Function> = mutableSetOf(),
+    val typeReferences: MutableSet<TopLevelDeclarationKey.Type> = mutableSetOf(),
+    var flushed: Boolean = false,
+)
+
+private val builtInTypeFqNames =
+    mapOf(
+        "Any" to "kotlin.Any",
+        "Boolean" to "kotlin.Boolean",
+        "Byte" to "kotlin.Byte",
+        "Char" to "kotlin.Char",
+        "Double" to "kotlin.Double",
+        "Float" to "kotlin.Float",
+        "Int" to "kotlin.Int",
+        "Long" to "kotlin.Long",
+        "Short" to "kotlin.Short",
+        "String" to "kotlin.String",
+        "Unit" to "kotlin.Unit",
+        "List" to "kotlin.collections.List",
+        "MutableList" to "kotlin.collections.MutableList",
+        "Set" to "kotlin.collections.Set",
+        "MutableSet" to "kotlin.collections.MutableSet",
+        "Map" to "kotlin.collections.Map",
+        "MutableMap" to "kotlin.collections.MutableMap",
+        "Result" to "kotlin.Result",
+    )
+
+private val typeTokenPattern = Regex("""[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*""")
+private val typeTokenKeywords = setOf("in", "out", "reified", "suspend")
+
+private fun KtNamedFunction.shouldIgnoreTopLevelDuplicate(
+    ignoreAnnotated: Set<String>,
+    ignoreOperator: Boolean,
+): Boolean =
+    hasAnyAnnotation(ignoreAnnotated) || (ignoreOperator && hasModifier(KtTokens.OPERATOR_KEYWORD))
+
+private fun KtNamedFunction.topLevelSignature(): TopLevelFunctionSignature {
+    val file = containingKtFile
+    return TopLevelFunctionSignature(
+        name = name.orEmpty(),
+        receiverType = receiverTypeReference?.canonicalTypeText(file),
+        parameterTypes = valueParameters.map { parameter -> parameter.typeReference?.canonicalTypeText(file) ?: "<implicit>" },
+        returnType = typeReference?.canonicalTypeText(file) ?: "<inferred>",
+    )
+}
+
+private fun KtNamedDeclaration.hasAnyAnnotation(annotationNames: Set<String>): Boolean =
+    annotationEntries.any { entry -> entry.shortName?.asString() in annotationNames }
+
+private fun KtNamedFunction.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean =
+    (hasModifier(KtTokens.PRIVATE_KEYWORD) || hasModifier(KtTokens.INTERNAL_KEYWORD)) && !hasAnyAnnotation(ignoreAnnotated)
+
+private fun KtClassOrObject.isNonPublicTopLevelDeclaration(ignoreAnnotated: Set<String>): Boolean =
+    (hasModifier(KtTokens.PRIVATE_KEYWORD) || hasModifier(KtTokens.INTERNAL_KEYWORD)) && !hasAnyAnnotation(ignoreAnnotated)
+
+private fun KtNameReferenceExpression.isDeclarationNameReference(): Boolean {
+    val declarationParent = parent as? KtNamedDeclaration ?: return false
+    return declarationParent.nameIdentifier == this
+}
+
+private fun org.jetbrains.kotlin.psi.KtTypeReference.canonicalTypeText(file: KtFile): String =
+    text
+        .replace("\\s+".toRegex(), "")
+        .replace(typeTokenPattern) { match ->
+            val token = match.value
+            when {
+                token in typeTokenKeywords -> token
+                '.' in token -> token
+                else -> file.importDirectives
+                    .firstNotNullOfOrNull { directive ->
+                        val importedFqName = directive.importedFqName?.asString() ?: return@firstNotNullOfOrNull null
+                        val localName = directive.aliasName ?: importedFqName.substringAfterLast('.')
+                        importedFqName.takeIf { localName == token }
+                    }
+                    ?: builtInTypeFqNames[token]
+                    ?: token
+            }
+        }

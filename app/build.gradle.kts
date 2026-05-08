@@ -18,6 +18,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.kotlinSerialization)
     alias(libs.plugins.androidxBaselineProfile)
+    id("com.lomo.baseline.static-profile")
 }
 
 val artifactBaseName =
@@ -172,12 +173,6 @@ android {
     }
 
     buildTypes {
-        create("benchmark") {
-            initWith(getByName("release"))
-            signingConfig = signingConfigs.getByName("debug")
-            matchingFallbacks += listOf("release")
-            isDebuggable = false
-        }
         debug {
             isMinifyEnabled = false
             // Disable PNG crunching for faster builds
@@ -189,7 +184,11 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             // Enable R8 full mode checks (global flag set in gradle.properties)
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+                "proguard-ai-diagnostics.pro",
+            )
             signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -295,8 +294,6 @@ dependencies {
     implementation(project(":ui-components"))
 
     implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.ktx)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
@@ -308,67 +305,50 @@ dependencies {
     }
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
-    implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.material3.adaptive)
-    implementation(libs.androidx.material3.adaptive.layout)
-    implementation(libs.androidx.material3.adaptive.navigation)
 
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
-    implementation(libs.hilt.navigation.compose)
     implementation(libs.androidx.hilt.work)
+    implementation(libs.hilt.navigation.compose)
     ksp(libs.androidx.hilt.compiler.work)
 
     // Navigation
     implementation(libs.androidx.navigation.compose) // Corrected reference
-    implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
-    implementation(libs.kotlinx.serialization.json)
 
     // WorkManager
-    implementation(libs.androidx.work.runtime.ktx)
-    implementation(libs.androidx.profileinstaller)
+    runtimeOnly(libs.androidx.profileinstaller)
 
     testImplementation(libs.junit)
-    testImplementation(libs.hilt.android.testing)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.androidx.junit)
-    androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
-    debugImplementation(libs.androidx.ui.test.manifest)
+    debugRuntimeOnly(libs.androidx.ui.test.manifest)
 
     // DocumentFile
-    implementation(libs.androidx.documentfile)
     implementation(libs.kotlinx.collections.immutable)
 
     // Logging
     implementation(libs.timber)
+    implementation(libs.coil.compose)
     implementation(libs.zoomable.image.coil)
     lintChecks(libs.slack.compose.lint.checks)
-
-    // P3-004: Coil for image preloading
-    implementation(libs.coil.compose)
 
     // Glance (App Widget)
     implementation(libs.androidx.glance)
     implementation(libs.androidx.glance.appwidget)
-    implementation(libs.androidx.glance.material3) {
-        exclude(group = "androidx.compose.material3", module = "material3")
-    }
 
     // Media3 (Voice Memo)
     implementation(libs.androidx.media3.exoplayer)
-    implementation(libs.androidx.media3.ui)
     implementation(libs.androidx.media3.common)
 
-    // Baseline Profile
-    baselineProfile(project(":benchmark"))
     add("kspTest", libs.hilt.compiler)
 }
 

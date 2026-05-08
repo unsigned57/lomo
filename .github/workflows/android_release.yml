@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 25
         uses: actions/setup-java@v4
@@ -50,10 +52,14 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      - name: Run Architecture Checks
+      - name: Ensure origin main ref exists
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+
+      - name: Run repository quality gate
         run: |
           mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
-          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain architectureCheck
+          export MEANINGFUL_TEST_DIFF_BASE="$(git merge-base HEAD origin/main)"
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --build-cache --console=plain qualityCheck
 
       - name: Build Release APK
         env:
@@ -63,7 +69,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           mkdir -p "$HOME" "$ANDROID_USER_HOME" "$XDG_DATA_HOME" "$XDG_CONFIG_HOME" "$GRADLE_USER_HOME"
-          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --no-configuration-cache --console=plain assembleRelease
+          ./gradlew --project-dir "$GITHUB_WORKSPACE" --no-daemon --build-cache --console=plain assembleRelease
 
       - name: Verify Baseline Embedded In APK
         run: |
@@ -77,6 +83,17 @@ jobs:
         with:
           name: release-apk
           path: app/build/outputs/apk/release/*.apk
+
+      - name: Upload release reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-reports
+          if-no-files-found: ignore
+          path: |
+            **/build/reports/**
+            **/build/outputs/mapping/release/**
+            **/build/test-results/**
 
       - name: Create Release
         uses: softprops/action-gh-release@v1

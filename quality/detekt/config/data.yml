@@ -126,3 +126,20 @@ lomo-architecture:
     active: true
   NoRedundantExhaustiveElse:
     active: true
+  NoCrossFileDuplicateTopLevel:
+    active: true
+    ignoreAnnotated:
+      - Composable
+      - Preview
+    ignoreOperator: true
+  NoUnreferencedTopLevelDeclaration:
+    active: true
+    ignoreAnnotated:
+      - VisibleForTesting
+      - Keep
+      - Preview
+      - Module
+      - Provides
+      - Binds
+      - Multibinds
+      - HiltViewModel

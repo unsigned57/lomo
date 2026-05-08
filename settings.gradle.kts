@@ -4,6 +4,13 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id == "org.owasp.dependencycheck") {
+                useModule("org.owasp:dependency-check-gradle:${requested.version}")
+            }
+        }
+    }
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
@@ -15,5 +22,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "Lomo"
-include(":app", ":domain", ":data", ":ui-components", ":benchmark", ":detekt-rules")
+include(":app", ":domain", ":data", ":ui-components", ":detekt-rules")
 project(":detekt-rules").projectDir = file("quality/detekt-rules")

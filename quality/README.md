@@ -38,6 +38,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | Normal app/domain/data/ui iteration | `./gradlew fastQualityCheck` |
 | AI iteration after `src/main`, Gradle, quality, detekt, workflow, or AGENTS/prompt changes | `quality/scripts/ai_static_quality_check.sh` |
 | AI iteration for pure test/docs changes | `quality/scripts/ai_fast_quality_check.sh` |
+| I want the local AI maintenance report (dependency updates, dependency-analysis, CVEs, R8 shrink output) | `quality/scripts/ai_local_maintenance_check.sh` |
 | I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
 | I want JVM tests only | `./gradlew unitTestCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
@@ -56,6 +57,7 @@ AI agents inside the sandbox should normally use:
   - `quality/scripts/ai_compose_static_analysis.sh`
 - Final handoff:
   - `quality/scripts/ai_quality_check.sh`
+    - runs `qualityCheck` first, then the local maintenance report unless `LOMO_SKIP_LOCAL_MAINTENANCE=true`
 
 Policy notes:
 
@@ -99,6 +101,10 @@ Task roles:
   - Internal staged full gate that backs `qualityCheck`.
 - `qualityCheck`
   - Final integrated repository gate.
+- `ai_local_maintenance_check.sh`
+  - Local-only AI maintenance pass.
+  - Captures dependency update suggestions, dependency-analysis output, OWASP scan results, and R8 release shrinker artifacts.
+  - Writes a consolidated summary to `build/reports/ai/local-maintenance/summary.md`.
 - `dependencyAnalysisCheck`
   - Runs the dependency-analysis plugin to report unused, mis-scoped, and undeclared dependencies.
   - Experimental under the current AGP 9.2 alpha toolchain; use it as an advisory task, not a merge gate.
@@ -147,6 +153,7 @@ Task roles:
 
 - Dependency and plugin versions live in `gradle/libs.versions.toml`.
 - The root build uses `nl.littlerobots.version-catalog-update`.
+- `quality/scripts/ai_local_maintenance_check.sh` runs `versionCatalogUpdate --check` automatically and stores the result in `build/reports/ai/local-maintenance/`.
 - Preferred workflow is command-driven:
   - `./gradlew versionCatalogUpdate --check`
   - `./gradlew versionCatalogUpdate`
@@ -171,7 +178,23 @@ Task roles:
 - Verification metadata lives in `gradle/verification-metadata.xml`.
 - Refresh metadata intentionally after dependency or plugin changes:
   - `./gradlew --write-verification-metadata sha256 help`
-- Weekly dependency hygiene runs live in `.github/workflows/dependency_hygiene.yml`.
+- Weekly dependency hygiene and manual dispatch runs live in `.github/workflows/dependency_hygiene.yml`.
+
+## Local AI Maintenance Outputs
+
+- `quality/scripts/ai_local_maintenance_check.sh` writes:
+  - `build/reports/ai/local-maintenance/summary.md`
+  - `build/reports/ai/local-maintenance/version-catalog-update-check.log`
+  - `build/reports/ai/local-maintenance/dependency-analysis-check.log`
+  - `build/reports/ai/local-maintenance/dependency-vulnerability-check.log`
+  - `build/reports/ai/local-maintenance/r8-minify-release.log`
+- The R8 diagnostics step also keeps shrinker artifacts under `app/build/outputs/mapping/release/`, including:
+  - `usage.txt`
+  - `seeds.txt`
+  - `mapping.txt`
+  - `configuration.txt`
+- If you only want the full repository gate and intentionally need to skip the local maintenance pass, set `LOMO_SKIP_LOCAL_MAINTENANCE=true` before running `quality/scripts/ai_quality_check.sh`.
+- `LOMO_DEPENDENCY_VULNERABILITY_TIMEOUT_SECONDS` controls how long the local maintenance script waits for OWASP Dependency-Check before recording a timeout in the summary. The default is `300`.
 
 ## Warning Escalation Matrix
 
@@ -208,6 +231,13 @@ Examples of warnings that are not promoted by the current pipeline:
 
 - Production Kotlin compile tasks treat warnings as errors, so compiler-detected unreachable code and constant conditions fail the build.
 - `quality/detekt-rules` adds repo-specific dead-code checks for:
+  - duplicate module-local top-level helper declarations
+    - `NoCrossFileDuplicateTopLevel` compares normalized top-level function signatures within one module and reports the second declaration onward.
+    - known limitation: this is still module-scoped, so duplicates split across different Gradle modules remain a blind spot.
+    - current normalization expands imports and common Kotlin built-ins, but full type-alias / semantic equivalence still depends on Detekt full-analysis support.
   - constant branch conditions in production source
   - unreachable statements after unconditional control transfer
   - redundant `else` branches in exhaustive Boolean `when`
+  - unreferenced non-public top-level declarations
+    - `NoUnreferencedTopLevelDeclaration` tracks `private` / `internal` top-level declarations within one module's `src/main`.
+    - public declarations are intentionally out of scope because single-module Detekt cannot prove whole-repository liveness.

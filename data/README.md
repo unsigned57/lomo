@@ -1,3 +1,5 @@
+> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
+
 # Data Module Index
 
 This module implements domain contracts and owns persistence, sync, background execution, and platform integration. If a task involves Room, file I/O, sync engines, DataStore-backed settings, or Android storage/network glue, it usually starts here.

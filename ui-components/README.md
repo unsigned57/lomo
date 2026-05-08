@@ -1,3 +1,5 @@
+> **Stale-doc warning:** This file is best-effort module orientation for humans. Verify current paths, packages, and APIs against the codebase before acting.
+
 # UI Components Module Index
 
 This module provides reusable UI infrastructure shared across app features. It contains shared Compose components, memo rendering, input surfaces, theme tokens, and text/layout helpers. It should stay free of feature orchestration and data-layer dependencies.
