@@ -25,9 +25,10 @@ import java.time.LocalDate
 /*
  * Test Contract:
  * - Unit under test: MemoQueryRepositoryImpl
- * - Behavior focus: pinned-state merge, invalid-page guard branch, getMemoById null/non-null branching, and syncing-state exposure.
- * - Observable outcomes: returned memo ids with isPinned flags, empty/non-empty page content, null vs domain memo, and passthrough sync state.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: pinned-state merge, invalid-page guard branch, getMemoById null/non-null branching, syncing-state exposure, and Paging jump support passthrough.
+ * - Observable outcomes: returned memo ids with isPinned flags, empty/non-empty page content, null vs domain memo, passthrough sync state, and exposed jumpingSupported flag.
+ * - Red phase: Fails before the fix because the repository mapping PagingSource drops the Room source's
+ *   jumpingSupported flag, so placeholder-backed direct Jump requests cannot use Paging jump loading.
  * - Excludes: Room SQL behavior, entity recovery internals, and mutation workflow side effects.
  */
 class MemoQueryRepositoryImplTest {
@@ -207,6 +208,38 @@ class MemoQueryRepositoryImplTest {
                 )
 
             assertEquals(42, refreshKey)
+        }
+
+    @Test
+    fun `getMainListPagingSource preserves source jumping support for direct offscreen focus`() =
+        runTest {
+            val source =
+                object : PagingSource<Int, DefaultMainListMemoRow>() {
+                    override val jumpingSupported: Boolean = true
+
+                    override suspend fun load(params: LoadParams<Int>): LoadResult<Int, DefaultMainListMemoRow> =
+                        LoadResult.Page(
+                            data = emptyList(),
+                            prevKey = null,
+                            nextKey = null,
+                        )
+
+                    override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
+                        null
+                }
+            every {
+                defaultMainListDao.getPagingSource(
+                    query = "",
+                    startDate = null,
+                    endDate = null,
+                    sortOption = "CREATED_TIME",
+                    sortAscending = false,
+                )
+            } returns source
+
+            val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
+
+            assertTrue(pagingSource.jumpingSupported)
         }
 
     private fun memoEntity(

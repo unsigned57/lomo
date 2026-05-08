@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -53,7 +54,6 @@ private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
 
 internal val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
-internal val MEMO_LIST_END_PADDING_WITH_SCROLLBAR = 28.dp
 internal val MEMO_LIST_TOP_PADDING = 16.dp
 internal val MEMO_LIST_BOTTOM_PADDING = 88.dp
 internal val MEMO_LIST_ITEM_SPACING = 12.dp
@@ -62,6 +62,21 @@ private const val MEMO_ITEM_VISIBLE_ALPHA = 1f
 private const val MEMO_ITEM_ALPHA_THRESHOLD = 0.999f
 private const val MEMO_DELETE_FADE_DURATION_MILLIS = 300
 private const val MEMO_COLLAPSE_ANIMATION_DURATION_MILLIS = 300
+
+internal data class MemoListHorizontalContentPadding(
+    val start: Dp,
+    val end: Dp,
+    val scrollbarOverlaysContent: Boolean,
+)
+
+internal fun resolveMemoListHorizontalContentPadding(
+    scrollbarEnabled: Boolean,
+): MemoListHorizontalContentPadding =
+    MemoListHorizontalContentPadding(
+        start = MEMO_LIST_HORIZONTAL_PADDING,
+        end = MEMO_LIST_HORIZONTAL_PADDING,
+        scrollbarOverlaysContent = scrollbarEnabled,
+    )
 
 @Composable
 internal fun MemoListPreloadEffect(

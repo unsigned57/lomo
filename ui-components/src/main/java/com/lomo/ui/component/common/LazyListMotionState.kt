@@ -90,6 +90,16 @@ class LazyListMotionState {
             snapshot = snapshot,
         )
 
+    fun beginContentResizeTransition(
+        itemId: String,
+        snapshot: LazyListMotionViewportSnapshot,
+    ): Long =
+        resizeState.beginTransition(
+            itemId = itemId,
+            expands = false,
+            snapshot = snapshot,
+        )
+
     fun settleResizeTransition(generation: Long) {
         resizeState.settleTransition(generation)
     }

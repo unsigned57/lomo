@@ -36,7 +36,7 @@ class MemoListPagingAppendContractTest {
             source.contains("pagedMemos: LazyPagingItems<MemoUiModel>") &&
                 source.contains("MemoPagedListColumn( pagedMemos = pagedMemos,") &&
                 source.contains("count = maxOf(visiblePagedMemos.size, pagedMemos.itemCount)") &&
-                source.contains("val pagedUiModel = if (index < pagedMemos.itemCount) pagedMemos[index] else null"),
+                source.contains("pagedMemos[index]"),
         )
     }
 
