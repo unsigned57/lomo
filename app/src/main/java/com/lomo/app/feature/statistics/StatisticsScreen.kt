@@ -2,10 +2,11 @@ package com.lomo.app.feature.statistics
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -48,12 +49,26 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.math.roundToInt
 
 private const val NUMBER_FORMAT_MILLION_THRESHOLD = 1_000_000
 private const val NUMBER_FORMAT_TEN_THOUSAND_THRESHOLD = 10_000
 private const val NUMBER_FORMAT_THOUSAND_THRESHOLD = 1_000
 private const val NUMBER_FORMAT_THOUSAND_DIVISOR = 1_000.0
 private const val NUMBER_FORMAT_MILLION_DIVISOR = 1_000_000.0
+private const val STATISTICS_TIME_DISTRIBUTION_TWO_COLUMN_MIN_WIDTH_DP = 720
+
+internal enum class StatisticsTimeDistributionLayout {
+    Stacked,
+    TwoColumn,
+}
+
+internal fun resolveStatisticsTimeDistributionLayout(widthDp: Int): StatisticsTimeDistributionLayout =
+    if (widthDp >= STATISTICS_TIME_DISTRIBUTION_TWO_COLUMN_MIN_WIDTH_DP) {
+        StatisticsTimeDistributionLayout.TwoColumn
+    } else {
+        StatisticsTimeDistributionLayout.Stacked
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -224,18 +239,48 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_time))
-        WeeklyHourHeatmap(
-            weeklyHourDistribution =
-                stats.weeklyHourDistribution
-                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
-                    .toImmutableMap(),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(modifier = Modifier.height(AppSpacing.ExtraSmall))
-        HourlyActivityChart(
-            hourlyDistribution = stats.hourlyDistribution.toImmutableMap(),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            when (resolveStatisticsTimeDistributionLayout(widthDp = maxWidth.value.roundToInt())) {
+                StatisticsTimeDistributionLayout.Stacked -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(AppSpacing.MediumSmall),
+                    ) {
+                        WeeklyHourHeatmap(
+                            weeklyHourDistribution =
+                                stats.weeklyHourDistribution
+                                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
+                                    .toImmutableMap(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        HourlyActivityChart(
+                            hourlyDistribution = stats.hourlyDistribution.toImmutableMap(),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
+                StatisticsTimeDistributionLayout.TwoColumn -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        WeeklyHourHeatmap(
+                            weeklyHourDistribution =
+                                stats.weeklyHourDistribution
+                                    .mapValues { (_, hourlyMap) -> hourlyMap.toImmutableMap() }
+                                    .toImmutableMap(),
+                            modifier = Modifier.weight(1f),
+                        )
+                        HourlyActivityChart(
+                            hourlyDistribution = stats.hourlyDistribution.toImmutableMap(),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
