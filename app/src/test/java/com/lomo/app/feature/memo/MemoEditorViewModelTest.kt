@@ -34,8 +34,8 @@ import java.util.concurrent.TimeUnit
 /*
  * Test Contract:
  * - Unit under test: MemoEditorViewModel
- * - Behavior focus: draft persistence state machine, success-path cleanup side effects, and failure message mapping.
- * - Observable outcomes: draftText/errorMessage state, callback invocation, and use-case invocation payloads.
+ * - Behavior focus: draft persistence state machine, success-path cleanup side effects, optional backfill timestamp forwarding, and failure message mapping.
+ * - Observable outcomes: draftText/errorMessage state, callback invocation, and use-case invocation payloads including timestamp.
  * - Red phase: Fails before the fix because ViewModel construction blocks until the first draft-text emission arrives.
  * - Excludes: widget update internals, media repository implementation details, and Compose rendering.
  */
@@ -168,6 +168,27 @@ class MemoEditorViewModelTest {
 
             assertEquals("create failed", viewModel.errorMessage.value)
             assertEquals("keep me", viewModel.draftText.value)
+        }
+
+    @Test
+    fun `createMemo forwards supplied backfill timestamp`() =
+        runTest {
+            val viewModel = createViewModel()
+            val timestampMillis = 1_777_777_777_000L
+
+            viewModel.createMemo(
+                content = "backfilled memo",
+                timestampMillis = timestampMillis,
+            )
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) {
+                createMemoUseCase(
+                    content = "backfilled memo",
+                    timestampMillis = timestampMillis,
+                    geoLocation = null,
+                )
+            }
         }
 
     @Test

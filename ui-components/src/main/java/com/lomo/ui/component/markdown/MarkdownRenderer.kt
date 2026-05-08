@@ -24,6 +24,8 @@ fun MarkdownRenderer(
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
+    onTextTapFeedback: (() -> Unit)? = null,
+    onTextDoubleClick: (() -> Unit)? = null,
 ) {
     ModernMarkdownRenderer(
         content = content,
@@ -36,6 +38,8 @@ fun MarkdownRenderer(
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = knownTagsToStrip,
         enableTextSelection = enableTextSelection,
+        onTextTapFeedback = onTextTapFeedback,
+        onTextDoubleClick = onTextDoubleClick,
     )
 }
 
@@ -44,6 +48,8 @@ internal fun MarkdownRendererFallback(
     content: String,
     modifier: Modifier = Modifier,
     enableTextSelection: Boolean = false,
+    onTextTapFeedback: (() -> Unit)? = null,
+    onTextDoubleClick: (() -> Unit)? = null,
 ) {
     val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
     val textStyle =
@@ -57,5 +63,7 @@ internal fun MarkdownRendererFallback(
         style = textStyle,
         modifier = modifier,
         selectable = enableTextSelection,
+        onTapFeedback = onTextTapFeedback,
+        onDoubleClick = onTextDoubleClick,
     )
 }

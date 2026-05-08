@@ -93,6 +93,9 @@ data class InputSheetState(
     val recordingAmplitude: Int = 0,
     val hints: ImmutableList<String> = persistentListOf(),
     val attachedGeoLocation: String? = null,
+    val inputToolbarToolOrder: ImmutableList<String> = persistentListOf(),
+    val isBackfillEnabled: Boolean = true,
+    val backfillBadgeText: String? = null,
 )
 
 sealed interface InputInterceptionResult {
@@ -143,6 +146,9 @@ data class InputSheetCallbacks(
     val hasDraftPersistence: Boolean = false,
     val onLocationClick: () -> Unit = {},
     val onClearLocation: () -> Unit = {},
+    val onBackfillClick: () -> Unit = {},
+    val onBackfillBadgeClick: () -> Unit = {},
+    val onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
 )
 
 data class InputSheetSlots(

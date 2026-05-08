@@ -19,6 +19,7 @@ data class MemoParagraphLayoutPolicy(
 fun resolveMemoParagraphLayoutPolicy(
     text: CharSequence,
     centered: Boolean = false,
+    platformLetterSpacing: Float? = null,
     sdkInt: Int = effectiveMemoParagraphSdkInt(),
 ): MemoParagraphLayoutPolicy {
     if (centered) {
@@ -35,6 +36,7 @@ fun resolveMemoParagraphLayoutPolicy(
 
     val shouldUseStrictCjkJustification =
         text.shouldUsePlatformCjkJustification() &&
+            platformLetterSpacing.isNullOrZero &&
             sdkInt >= Build.VERSION_CODES.VANILLA_ICE_CREAM
 
     return MemoParagraphLayoutPolicy(
@@ -60,3 +62,6 @@ fun resolveMemoParagraphLayoutPolicy(
 
 internal fun effectiveMemoParagraphSdkInt(): Int =
     Build.VERSION.SDK_INT.takeIf { it > 0 } ?: Build.VERSION_CODES.VANILLA_ICE_CREAM
+
+private val Float?.isNullOrZero: Boolean
+    get() = this == null || this == 0f

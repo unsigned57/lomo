@@ -9,12 +9,12 @@ import org.junit.Test
  * Test Contract:
  * - Unit under test: InputSheet editor container clipping policy.
  * - Behavior focus: the editor container must keep its rounded background without clipping child
- *   content so platform cursor and selection handles can extend outside the AndroidView bounds.
+ *   content so Compose cursor and selection affordances can extend outside the editor bounds.
  * - Observable outcomes: InputEditorTextField source uses a shaped background for the editor
  *   container and does not apply clip(AppShapes.Large) to that container.
  * - Red phase: Fails before the fix because the editor container clips its children, which hides
- *   native text-selection handles on device.
- * - Excludes: runtime gesture dispatch, handle tint, and screenshot-level pixel validation.
+ *   text-selection affordances on device.
+ * - Excludes: runtime gesture dispatch, cursor tint, and screenshot-level pixel validation.
  *
  * Test Change Justification:
  * - Reason category: pure refactor preserved behavior.
@@ -37,7 +37,7 @@ class InputEditorHandleOverflowPolicyTest {
         val sourceText = sourceFile.readText()
 
         assertFalse(
-            "Input editor container must not clip rounded corners because native selection handles need to overflow the AndroidView bounds.",
+            "Input editor container must not clip rounded corners because text selection affordances need to overflow the editor bounds.",
             sourceText.contains(".clip(AppShapes.Large)\n                .benchmarkAnchor(benchmarkEditorTag)"),
         )
         assertTrue(

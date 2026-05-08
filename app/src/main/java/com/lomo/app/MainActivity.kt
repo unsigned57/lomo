@@ -23,7 +23,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +49,6 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.theme.MotionTokens
 import com.lomo.ui.theme.TypographyScales
-import com.lomo.ui.theme.updateTypographyScales
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -343,11 +341,9 @@ private fun MainActivityRoot(
             letterSpacingScale = appPreferences.typographyLetterSpacingScale,
             paragraphSpacingScale = appPreferences.typographyParagraphSpacingScale,
         )
-    SideEffect {
-        updateTypographyScales(typographyScales)
-    }
     LomoTheme(
         themeMode = appPreferences.themeMode.value,
+        typographyScales = typographyScales,
         currentUiMode = currentUiMode,
     ) {
         androidx.activity.compose.ReportDrawnWhen { !appLockUiState.isGateVisible }
@@ -395,7 +391,7 @@ private fun UnlockedAppRoot(
     androidx.compose.runtime.CompositionLocalProvider(
         LocalAudioPlayerManager provides audioPlayerController,
         LocalBenchmarkAnchorConfig provides
-            BenchmarkAnchorConfig(enabled = com.lomo.app.benchmark.areBenchmarkFeaturesEnabled()),
+            BenchmarkAnchorConfig(enabled = BuildConfig.DEBUG),
     ) {
         LomoAppRoot(
             shareServiceManager = shareServiceManager,

@@ -16,6 +16,8 @@ internal fun MDText(
     text: AnnotatedString,
     style: TextStyle?,
     enableTextSelection: Boolean = false,
+    onTapFeedback: (() -> Unit)? = null,
+    onDoubleClick: (() -> Unit)? = null,
 ) {
     if (text.isEmpty()) return
 
@@ -33,6 +35,8 @@ internal fun MDText(
         style = finalStyle,
         modifier = Modifier.fillMaxWidth(),
         selectable = enableTextSelection,
+        onTapFeedback = onTapFeedback,
+        onDoubleClick = onDoubleClick,
     )
 }
 

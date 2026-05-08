@@ -7,7 +7,6 @@ import androidx.compose.ui.text.style.Hyphens
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.sp
 
 fun CharSequence.isCjkDominant(): Boolean {
     var cjkCount = 0
@@ -37,8 +36,6 @@ fun CharSequence.platformJustificationMode(): Int = resolveMemoParagraphLayoutPo
 fun TextStyle.scriptAwareFor(text: CharSequence): TextStyle {
     val cjkAware = text.containsCjkScript()
     return copy(
-        // M3 default letter spacing is tuned for latin scripts and looks loose in CJK paragraphs.
-        letterSpacing = if (cjkAware) 0.sp else letterSpacing,
         // Keep Compose text metrics closer to the platform CJK TextView path used by pure-Chinese paragraphs.
         platformStyle = if (cjkAware) PlatformTextStyle(includeFontPadding = false) else platformStyle,
         lineHeightStyle =

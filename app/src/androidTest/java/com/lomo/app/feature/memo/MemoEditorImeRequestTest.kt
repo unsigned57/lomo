@@ -39,7 +39,7 @@ class MemoEditorImeRequestTest {
                     controller = controller,
                     imageDirectory = null,
                     onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _ -> },
+                    onSubmit = { _, _, _ -> },
                 )
             }
         }
@@ -69,7 +69,7 @@ class MemoEditorImeRequestTest {
                     controller = controller,
                     imageDirectory = null,
                     onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _ -> },
+                    onSubmit = { _, _, _ -> },
                 )
             }
         }
@@ -111,7 +111,7 @@ class MemoEditorImeRequestTest {
                     controller = controller,
                     imageDirectory = null,
                     onSaveImage = { _, _, _ -> },
-                    onSubmit = { _, _ -> },
+                    onSubmit = { _, _, _ -> },
                 )
             }
         }

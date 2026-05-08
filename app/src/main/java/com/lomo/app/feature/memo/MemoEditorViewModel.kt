@@ -71,12 +71,13 @@ class MemoEditorViewModel
             content: String,
             onSuccess: (() -> Unit)? = null,
             geoLocation: String? = null,
+            timestampMillis: Long? = null,
         ) {
             viewModelScope.launch {
                 runCatching {
                     createMemoUseCase(
                         content = content,
-                        timestampMillis = System.currentTimeMillis(),
+                        timestampMillis = timestampMillis ?: System.currentTimeMillis(),
                         geoLocation = geoLocation,
                     )
                     onSuccess?.invoke()

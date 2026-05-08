@@ -13,7 +13,6 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
@@ -62,6 +61,8 @@ class MemoEditorController
         var displayMode by mutableStateOf(InputEditorDisplayMode.Edit)
             private set
 
+        internal val backfillSelection = MemoBackfillSelectionState()
+
         val canUndo: Boolean
             get() = undoRedoManager.canUndo
 
@@ -74,6 +75,7 @@ class MemoEditorController
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
+            backfillSelection.clear()
             isVisible = true
             focusRequestToken += 1L
         }
@@ -84,6 +86,7 @@ class MemoEditorController
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
+            backfillSelection.clear()
             isVisible = true
             focusRequestToken += 1L
         }
@@ -152,6 +155,7 @@ class MemoEditorController
             undoRedoManager.reset()
             mode = MemoEditorMode.Compact
             displayMode = InputEditorDisplayMode.Edit
+            backfillSelection.clear()
         }
     }
 
@@ -170,6 +174,10 @@ fun MemoEditorController.appendImageMarkdown(path: String) {
     appendMarkdownBlock(markdown = "![image]($path)")
 }
 
+internal fun MemoEditorController.cancelBackfillSelection() {
+    backfillSelection.clear()
+}
+
 @Composable
 fun rememberMemoEditorController(): MemoEditorController = remember { MemoEditorController() }
 
@@ -185,6 +193,7 @@ fun MemoEditorSheetHost(
     onSubmit: (
         memo: Memo?,
         content: String,
+        timestampMillis: Long?,
     ) -> Unit,
     rootPath: String? = null,
     imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
@@ -193,6 +202,8 @@ fun MemoEditorSheetHost(
     onImageDirectoryMissing: (() -> Unit)? = null,
     onCameraCaptureError: ((Throwable) -> Unit)? = null,
     availableTags: ImmutableList<String> = persistentListOf(),
+    dateFormat: String = "yyyy-MM-dd",
+    timeFormat: String = "HH:mm",
     isRecording: Boolean = false,
     recordingDuration: Long = 0L,
     recordingAmplitude: Int = 0,
@@ -206,9 +217,12 @@ fun MemoEditorSheetHost(
     onClearLocation: () -> Unit = {},
     attachedGeoLocation: String? = null,
     hints: ImmutableList<String> = persistentListOf(),
+    inputToolbarToolOrder: ImmutableList<String> = persistentListOf(),
+    onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
 ) {
     if (!controller.isVisible) return
 
+    var showBackfillDialog by remember { mutableStateOf(false) }
     val isRecordingValue = isRecordingFlow?.collectAsStateWithLifecycle()?.value ?: isRecording
     val recordingDurationValue = recordingDurationFlow?.collectAsStateWithLifecycle()?.value ?: recordingDuration
     val recordingAmplitudeValue = recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value ?: recordingAmplitude
@@ -232,56 +246,154 @@ fun MemoEditorSheetHost(
                 )
             }
     }
+    val sheetState =
+        buildMemoEditorSheetState(
+            controller = controller,
+            previewContent = previewContent,
+            availableTags = availableTags,
+            isRecording = isRecordingValue,
+            recordingDuration = recordingDurationValue,
+            recordingAmplitude = recordingAmplitudeValue,
+            hints = hints,
+            attachedGeoLocation = attachedGeoLocation,
+            inputToolbarToolOrder = inputToolbarToolOrder,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+        )
+    val sheetCallbacks =
+        buildMemoEditorSheetCallbacks(
+            controller = controller,
+            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+            onSubmit = onSubmit,
+            onDismiss = onDismiss,
+            mediaActions = mediaActions,
+            onStartRecording = onStartRecording,
+            onStopRecording = onStopRecording,
+            onCancelRecording = onCancelRecording,
+            onLocationClick = onLocationClick,
+            onClearLocation = onClearLocation,
+            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+        ) {
+            if (shouldOpenMemoBackfillDialog(isEditingExistingMemo = controller.editingMemo != null)) {
+                showBackfillDialog = true
+            }
+        }
 
     com.lomo.ui.component.input.InputSheet(
-        state =
-            com.lomo.ui.component.input.InputSheetState(
-                inputValue = controller.inputValue,
-                previewContent = previewContent,
-                focusRequestToken = controller.focusRequestToken,
-                isExpanded = controller.mode == MemoEditorMode.Expanded,
-                displayMode = controller.displayMode,
-                availableTags = availableTags,
-                isRecording = isRecordingValue,
-                recordingDuration = recordingDurationValue,
-                recordingAmplitude = recordingAmplitudeValue,
-                hints = hints,
-                attachedGeoLocation = attachedGeoLocation,
-            ),
-        callbacks =
-            com.lomo.ui.component.input.InputSheetCallbacks(
-                onInputValueChange = controller::updateInputValue,
-                onDismiss = {
-                    controller.close()
-                    onDismiss()
-                },
-                onToggleExpanded = controller::toggleExpanded,
-                onCollapse = { controller.setExpanded(false) },
-                onDisplayModeChange = controller::updateDisplayMode,
-                onUndo = controller::undo,
-                onRedo = controller::redo,
-                onConsumeBackPress = controller::consumeBackPress,
-                onSubmit = { content ->
-                    onSubmit(controller.editingMemo, content)
-                    controller.close()
-                },
-                canUndo = controller.canUndo,
-                canRedo = controller.canRedo,
-                autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
-                hasDraftPersistence = controller.editingMemo == null,
-                onImageClick = mediaActions.onImageClick,
-                onCameraClick = mediaActions.onCameraClick,
-                onStartRecording = onStartRecording,
-                onStopRecording = onStopRecording,
-                onCancelRecording = onCancelRecording,
-                onLocationClick = onLocationClick,
-                onClearLocation = onClearLocation,
-            ),
+        state = sheetState,
+        callbacks = sheetCallbacks,
         benchmarkRootTag = BenchmarkAnchorContract.INPUT_SHEET_ROOT,
         benchmarkEditorTag = BenchmarkAnchorContract.INPUT_EDITOR,
         benchmarkSubmitTag = BenchmarkAnchorContract.INPUT_SUBMIT,
     )
+
+    if (showBackfillDialog) {
+        MemoBackfillDateTimeDialog(
+            initialTimestampMillis = controller.backfillSelection.timestampMillis,
+            onDismiss = { showBackfillDialog = false },
+            onConfirm = { timestampMillis ->
+                controller.backfillSelection.setTimestampForCreate(
+                    timestampMillis = timestampMillis,
+                    isEditingExistingMemo = controller.editingMemo != null,
+                )
+                showBackfillDialog = false
+            },
+        )
+    }
 }
+
+private fun buildMemoEditorSheetState(
+    controller: MemoEditorController,
+    previewContent: String,
+    availableTags: ImmutableList<String>,
+    isRecording: Boolean,
+    recordingDuration: Long,
+    recordingAmplitude: Int,
+    hints: ImmutableList<String>,
+    attachedGeoLocation: String?,
+    inputToolbarToolOrder: ImmutableList<String>,
+    dateFormat: String,
+    timeFormat: String,
+): com.lomo.ui.component.input.InputSheetState =
+    com.lomo.ui.component.input.InputSheetState(
+        inputValue = controller.inputValue,
+        previewContent = previewContent,
+        focusRequestToken = controller.focusRequestToken,
+        isExpanded = controller.mode == MemoEditorMode.Expanded,
+        displayMode = controller.displayMode,
+        availableTags = availableTags,
+        isRecording = isRecording,
+        recordingDuration = recordingDuration,
+        recordingAmplitude = recordingAmplitude,
+        hints = hints,
+        attachedGeoLocation = attachedGeoLocation,
+        inputToolbarToolOrder = inputToolbarToolOrder,
+        isBackfillEnabled = controller.editingMemo == null,
+        backfillBadgeText =
+            controller.backfillSelection.timestampMillis?.let { timestampMillis ->
+                formatMemoBackfillBadgeText(
+                    timestampMillis = timestampMillis,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                )
+            },
+    )
+
+private fun buildMemoEditorSheetCallbacks(
+    controller: MemoEditorController,
+    quickSaveOnBackEnabled: Boolean,
+    onSubmit: (
+        memo: Memo?,
+        content: String,
+        timestampMillis: Long?,
+    ) -> Unit,
+    onDismiss: () -> Unit,
+    mediaActions: MemoEditorMediaActions,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
+    onCancelRecording: () -> Unit,
+    onLocationClick: () -> Unit,
+    onClearLocation: () -> Unit,
+    onInputToolbarToolOrderChanged: (List<String>) -> Unit,
+    onBackfillRequested: () -> Unit,
+): com.lomo.ui.component.input.InputSheetCallbacks =
+    com.lomo.ui.component.input.InputSheetCallbacks(
+        onInputValueChange = controller::updateInputValue,
+        onDismiss = {
+            controller.close()
+            onDismiss()
+        },
+        onToggleExpanded = controller::toggleExpanded,
+        onCollapse = { controller.setExpanded(false) },
+        onDisplayModeChange = controller::updateDisplayMode,
+        onUndo = controller::undo,
+        onRedo = controller::redo,
+        onConsumeBackPress = controller::consumeBackPress,
+        onSubmit = { content ->
+            onSubmit(
+                controller.editingMemo,
+                content,
+                controller.backfillSelection.timestampMillisForCreateSubmit(
+                    isEditingExistingMemo = controller.editingMemo != null,
+                ),
+            )
+            controller.close()
+        },
+        canUndo = controller.canUndo,
+        canRedo = controller.canRedo,
+        autoSubmitOnDismiss = quickSaveOnBackEnabled && controller.editingMemo == null,
+        hasDraftPersistence = controller.editingMemo == null,
+        onImageClick = mediaActions.onImageClick,
+        onCameraClick = mediaActions.onCameraClick,
+        onStartRecording = onStartRecording,
+        onStopRecording = onStopRecording,
+        onCancelRecording = onCancelRecording,
+        onLocationClick = onLocationClick,
+        onClearLocation = onClearLocation,
+        onBackfillClick = onBackfillRequested,
+        onBackfillBadgeClick = controller::cancelBackfillSelection,
+        onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+    )
 
 private data class MemoEditorMediaActions(
     val onImageClick: () -> Unit,

@@ -60,6 +60,12 @@ internal fun createShareCardPaintSet(
                 textSizePx = sp(resources, TITLE_TEXT_SIZE_SP),
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL),
             ).apply { letterSpacing = TITLE_LETTER_SPACING },
+        headingPaint =
+            createTextPaint(
+                color = palette.bodyText,
+                textSizePx = sp(resources, bodyTextSizeSp * HEADING_TEXT_SCALE),
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD),
+            ).apply { letterSpacing = EMPHASIZED_LETTER_SPACING },
         paragraphPaint =
             createTextPaint(
                 color = palette.bodyText,
@@ -91,6 +97,12 @@ internal fun createShareCardPaintSet(
                 textSizePx = sp(resources, bodyTextSizeSp * CODE_TEXT_SCALE),
                 typeface = Typeface.MONOSPACE,
             ),
+        tablePaint =
+            createTextPaint(
+                color = palette.bodyText,
+                textSizePx = sp(resources, bodyTextSizeSp * TABLE_TEXT_SCALE),
+                typeface = Typeface.MONOSPACE,
+            ),
         footerPaint =
             createTextPaint(
                 color = palette.secondaryText,
@@ -118,14 +130,14 @@ private fun defaultBreakStrategy(): Int = LineBreaker.BREAK_STRATEGY_HIGH_QUALIT
 private fun defaultJustificationMode(): Int = LineBreaker.JUSTIFICATION_MODE_NONE
 
 internal fun buildStaticLayout(
-    text: String,
+    text: CharSequence,
     paint: TextPaint,
     width: Int,
     maxLines: Int = Int.MAX_VALUE,
     alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
     paragraphLayoutPolicy: ShareCardParagraphLayoutPolicy? = null,
 ): StaticLayout {
-    val layoutText = text.ifEmpty { BLANK_LAYOUT_TEXT }
+    val layoutText: CharSequence = if (text.isEmpty()) BLANK_LAYOUT_TEXT else text
     val resolvedAlignment = paragraphLayoutPolicy?.alignment ?: alignment
 
     return StaticLayout

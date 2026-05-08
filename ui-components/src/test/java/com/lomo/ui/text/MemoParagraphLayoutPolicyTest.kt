@@ -2,9 +2,6 @@ package com.lomo.ui.text
 
 import android.os.Build
 import android.text.Layout
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,11 +9,24 @@ import org.junit.Test
 
 /*
  * Test Contract:
- * - Unit under test: Memo paragraph platform layout policy and rich-paragraph platform rendering gate.
- * - Behavior focus: pure-CJK paragraphs opt into inter-character justification only on supported SDKs, mixed prose avoids forced justify, and rich memo paragraphs stay on the shared TextView path so plain/rich Chinese paragraphs keep the same layout rhythm.
- * - Observable outcomes: selected Android justification mode, selected hyphenation frequency, selected paragraph alignment, and platform paragraph renderer eligibility for rich annotated text.
- * - Red phase: Fails before the fix because rich annotated memo paragraphs still drop to Compose Text, and the memo paragraph layout policy does not expose an SDK-aware inter-character fallback contract.
+ * - Unit under test: Memo paragraph Android layout policy.
+ * - Behavior focus: share-card/plain Android layout policy remains deterministic while memo body
+ *   rendering is owned by the Compose-native paragraph engine.
+ * - Observable outcomes: selected Android justification mode, selected hyphenation frequency,
+ *   selected paragraph alignment, and strict CJK justification eligibility.
+ * - Red phase: Fails before the fix because CJK justification eligibility ignored SDK and
+ *   letter-spacing constraints.
  * - Excludes: Compose widget tree inspection, OEM font rasterization, TextView measurement internals, and markdown block traversal.
+ *
+ * Test Change Justification:
+ * - Reason category: product contract changed.
+ * - Old behavior/assertion being replaced: this file also asserted TextView renderer flags.
+ * - Why old assertion is no longer correct: those flags were removed with the legacy
+ *   TextView/EditText bridge cleanup.
+ * - Coverage preserved by: the Android layout policy assertions here and
+ *   MemoLegacyPlatformPathRemovalContractTest.
+ * - Why this is not fitting the test to the implementation: renderer-path cleanup now has one
+ *   dedicated migration-boundary test.
  */
 class MemoParagraphLayoutPolicyTest {
     @Test
@@ -33,6 +43,34 @@ class MemoParagraphLayoutPolicyTest {
     }
 
     @Test
+    fun `pure cjk paragraph disables strict justification when platform letter spacing is applied`() {
+        val policy =
+            resolveMemoParagraphLayoutPolicy(
+                text = "这是一段纯中文长段落，用来确认自定义字间距不会和字符级两端对齐叠加。",
+                sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
+                platformLetterSpacing = 0.1f,
+            )
+
+        assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
+        assertEquals(Layout.JUSTIFICATION_MODE_NONE, policy.justificationMode)
+        assertEquals(Layout.HYPHENATION_FREQUENCY_NORMAL, policy.hyphenationFrequency)
+        assertFalse(policy.shouldUseStrictCjkJustification)
+    }
+
+    @Test
+    fun `zero platform letter spacing does not disable cjk strict justification`() {
+        val policy =
+            resolveMemoParagraphLayoutPolicy(
+                text = "这是一段纯中文长段落，用来确认零字间距仍然可以使用字符级两端对齐。",
+                sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
+                platformLetterSpacing = 0f,
+            )
+
+        assertEquals(Layout.JUSTIFICATION_MODE_INTER_CHARACTER, policy.justificationMode)
+        assertTrue(policy.shouldUseStrictCjkJustification)
+    }
+
+    @Test
     fun `pure cjk paragraph falls back to non-justify policy below api 35`() {
         val policy =
             resolveMemoParagraphLayoutPolicy(
@@ -46,19 +84,13 @@ class MemoParagraphLayoutPolicyTest {
     }
 
     @Test
-    fun `mixed rich memo paragraph keeps platform paragraph rendering while avoiding forced justify`() {
-        val richText =
-            buildAnnotatedString {
-                append("今天阅读 ")
-                pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                append("README")
-                pop()
-                append(" 与设计笔记。")
-            }
+    fun `mixed memo paragraph avoids forced android strict justify`() {
+        val policy =
+            resolveMemoParagraphLayoutPolicy(
+                text = "今天阅读 README 与设计笔记。",
+                sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
+            )
 
-        val policy = resolveMemoParagraphLayoutPolicy(richText, sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM)
-
-        assertTrue(richText.shouldUseTextViewMemoParagraphRendering())
         assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
         assertEquals(Layout.JUSTIFICATION_MODE_NONE, policy.justificationMode)
         assertFalse(policy.shouldUseStrictCjkJustification)

@@ -7,8 +7,8 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: pending new-memo creation coordinator.
- * - Behavior focus: a submitted new-memo request must remain pending while the list is scrolling to the top, reject overlap, and clear only when the matching request is consumed or canceled.
- * - Observable outcomes: exposed pending request snapshot, returned request value, overlap rejection, and matching consume/cancel behavior.
+ * - Behavior focus: a submitted new-memo request must remain pending while the list is scrolling to the top, retain optional backfill timestamp metadata, reject overlap, and clear only when the matching request is consumed or canceled.
+ * - Observable outcomes: exposed pending request snapshot, returned request value with timestamp metadata, overlap rejection, and matching consume/cancel behavior.
  * - Red phase: Fails before the fix because the main-screen flow has no durable pending-create state, so submitted content cannot survive the top-scroll wait as an explicit request.
  * - Excludes: Compose recomposition, LazyList animation internals, and repository persistence.
  */
@@ -41,6 +41,29 @@ class PendingNewMemoCreationCoordinatorTest {
         assertEquals(firstRequest, coordinator.pendingRequest)
         assertEquals(firstRequest, coordinator.consume(requestId = firstRequest.requestId))
         assertNull(coordinator.pendingRequest)
+    }
+
+    @Test
+    fun `submit stores optional geo location and backfill timestamp`() {
+        val coordinator = PendingNewMemoCreationCoordinator()
+
+        val request =
+            coordinator.submit(
+                content = "backfilled memo",
+                geoLocation = "geo:31.2304,121.4737",
+                timestampMillis = 1_777_777_777_000L,
+            )
+
+        assertEquals(
+            PendingNewMemoCreationRequest(
+                requestId = 1L,
+                content = "backfilled memo",
+                geoLocation = "geo:31.2304,121.4737",
+                timestampMillis = 1_777_777_777_000L,
+            ),
+            request,
+        )
+        assertEquals(request, coordinator.pendingRequest)
     }
 
     @Test

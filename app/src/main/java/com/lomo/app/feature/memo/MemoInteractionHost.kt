@@ -34,7 +34,10 @@ fun MemoInteractionHost(
         ) -> Unit)?,
     rootPath: String? = null,
     imageMap: ImmutableMap<String, Uri> = persistentMapOf(),
+    dateFormat: String = "yyyy-MM-dd",
+    timeFormat: String = "HH:mm",
     onCreateMemo: ((String, String?) -> Unit)? = null,
+    onCreateMemoWithTimestamp: ((String, String?, Long?) -> Unit)? = null,
     controller: MemoEditorController = rememberMemoEditorController(),
     quickSaveOnBackEnabled: Boolean = false,
     onTogglePin: ((Memo, Boolean) -> Unit)? = null,
@@ -63,6 +66,8 @@ fun MemoInteractionHost(
     memoActionOrder: ImmutableList<String> = persistentListOf(),
     onMemoActionInvoked: (MemoActionId) -> Unit = {},
     onMemoActionOrderChanged: (List<MemoActionId>) -> Unit = {},
+    inputToolbarToolOrder: ImmutableList<String> = persistentListOf(),
+    onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
     content: @Composable (
         showMenu: (MemoMenuState) -> Unit,
         openEditor: (Memo) -> Unit,
@@ -93,12 +98,15 @@ fun MemoInteractionHost(
             rootPath = rootPath,
             imageMap = imageMap,
             quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
             onSaveImage = onSaveImage,
-            onSubmit = { memo, content ->
+            onSubmit = { memo, content, timestampMillis ->
                 if (memo != null) {
                     onUpdateMemo(memo, content)
                 } else {
-                    onCreateMemo?.invoke(content, attachedGeoLocation)
+                    onCreateMemoWithTimestamp?.invoke(content, attachedGeoLocation, timestampMillis)
+                        ?: onCreateMemo?.invoke(content, attachedGeoLocation)
                 }
             },
             onDismiss = onDismiss,
@@ -118,6 +126,8 @@ fun MemoInteractionHost(
             onClearLocation = onClearLocation,
             attachedGeoLocation = attachedGeoLocation,
             hints = hints,
+            inputToolbarToolOrder = inputToolbarToolOrder,
+            onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
         )
     }
 }

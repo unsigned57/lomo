@@ -1,9 +1,8 @@
 package com.lomo.ui.theme
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 
 data class TypographyScales(
     val fontSizeScale: Float = 1.0f,
@@ -12,13 +11,17 @@ data class TypographyScales(
     val paragraphSpacingScale: Float = 1.0f,
 )
 
-private object TypographyScaleStateHolder {
-    var current by mutableStateOf(TypographyScales())
-}
+internal val LocalTypographyScales = staticCompositionLocalOf { TypographyScales() }
 
 @Composable
-internal fun currentTypographyScales(): TypographyScales = TypographyScaleStateHolder.current
+internal fun currentTypographyScales(): TypographyScales = LocalTypographyScales.current
 
-fun updateTypographyScales(scales: TypographyScales) {
-    TypographyScaleStateHolder.current = scales
+@Composable
+fun ProvideTypographyScales(
+    scales: TypographyScales,
+    content: @Composable () -> Unit,
+) {
+    CompositionLocalProvider(LocalTypographyScales provides scales) {
+        content()
+    }
 }

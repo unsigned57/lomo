@@ -59,13 +59,22 @@ class ShareCardBitmapRenderer
                 )
             val palette = resolvePalette(context)
             val layoutSpec = createShareCardLayoutSpec(context.resources)
-            val bodyLines = buildShareBodyLines(renderInput.safeText, renderInput.imagePlaceholder)
-            val shouldUseCenteredBody = shouldUseCenteredBody(renderInput, bodyLines)
+            val bodyLines =
+                buildMarkdownShareBodyLines(
+                    bodyText = renderInput.safeText,
+                    imagePlaceholder = renderInput.imagePlaceholder,
+                    audioPlaceholder = context.getString(R.string.share_card_placeholder_audio),
+                )
+            val measuredRenderInput =
+                renderInput.copy(
+                    textLengthWithoutMarkers = shareBodyLinesTextLengthWithoutMarkers(bodyLines),
+                )
+            val shouldUseCenteredBody = shouldUseCenteredBody(measuredRenderInput, bodyLines)
             val paintSet =
                 createShareCardPaintSet(
                     resources = context.resources,
                     palette = palette,
-                    bodyTextSizeSp = bodyTextSizeSp(renderInput.textLengthWithoutMarkers),
+                    bodyTextSizeSp = bodyTextSizeSp(measuredRenderInput.textLengthWithoutMarkers),
                     shouldUseCenteredBody = shouldUseCenteredBody,
                 )
             val loadedImages =
@@ -120,16 +129,9 @@ class ShareCardBitmapRenderer
                     ),
                 )
             val safeText =
-                shareCardDisplayFormatter
-                    .formatBodyText(
-                        bodyText = shareCardContent.bodyText,
-                        audioPlaceholder = context.getString(R.string.share_card_placeholder_audio),
-                        imagePlaceholder = imagePlaceholder,
-                        imageNamedPlaceholderPattern =
-                            context.getString(R.string.share_card_placeholder_image_named),
-                    ).ifBlank {
-                        context.getString(R.string.app_name)
-                    }
+                shareCardContent.bodyText.ifBlank {
+                    context.getString(R.string.app_name)
+                }
             val createdAtText =
                 formatShareCardTime(
                     createdAtMillis = timestampMillis ?: System.currentTimeMillis(),
@@ -182,6 +184,7 @@ class ShareCardBitmapRenderer
                 tagBg = secondaryContainer.toArgb(),
                 tagText = onSecondaryContainer.toArgb(),
                 divider = outlineVariant.toArgb(),
+                quoteIndicator = primary.toArgb(),
             )
     }
 

@@ -12,8 +12,8 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: MemoEditorController
- * - Behavior focus: create/edit opening state, markdown append behavior, compact/expanded mode transitions, visibility management, and close reset semantics.
- * - Observable outcomes: visible flag, editingMemo selection, editor mode, input text/value selection, back-press consumption, and appended markdown content.
+ * - Behavior focus: create/edit opening state, markdown append behavior, compact/expanded mode transitions, visibility management, backfill timestamp selection, and close reset semantics.
+ * - Observable outcomes: visible flag, editingMemo selection, editor mode, input text/value selection, back-press consumption, backfill timestamp state, and appended markdown content.
  * - Red phase: Fails before the fix because MemoEditorController has no long-form mode state, cannot expand/collapse the active session, and cannot consume back to collapse before dismiss.
  * - Excludes: Compose sheet rendering, activity-result launchers, and media save wiring.
  */
@@ -100,5 +100,55 @@ class MemoEditorControllerTest {
 
         assertEquals(MemoEditorMode.Compact, controller.mode)
         assertEquals("fresh", controller.inputValue.text)
+    }
+
+    @Test
+    fun `backfill timestamp is stored only for create sessions and resets with session boundaries`() {
+        val controller = MemoEditorController()
+        val timestampMillis = 1_777_777_777_123L
+        val memo =
+            Memo(
+                id = "memo-edit",
+                timestamp = 10L,
+                content = "existing body",
+                rawContent = "- 10:00 existing body",
+                dateKey = "2026_03_26",
+            )
+
+        controller.openForCreate("draft")
+        controller.backfillSelection.setTimestampForCreate(timestampMillis, isEditingExistingMemo = false)
+
+        assertEquals(timestampMillis, controller.backfillSelection.timestampMillis)
+        assertEquals(timestampMillis, controller.backfillSelection.timestampMillisForCreateSubmit(false))
+
+        controller.openForEdit(memo)
+
+        assertNull(controller.backfillSelection.timestampMillis)
+        assertNull(controller.backfillSelection.timestampMillisForCreateSubmit(true))
+
+        controller.openForCreate("fresh")
+        assertNull(controller.backfillSelection.timestampMillis)
+
+        controller.backfillSelection.setTimestampForCreate(timestampMillis, isEditingExistingMemo = false)
+        controller.close()
+
+        assertNull(controller.backfillSelection.timestampMillis)
+    }
+
+    @Test
+    fun `backfill selection can be cancelled from badge without losing the create draft`() {
+        val controller = MemoEditorController()
+        val timestampMillis = 1_777_777_777_123L
+
+        controller.openForCreate("draft")
+        controller.backfillSelection.setTimestampForCreate(timestampMillis, isEditingExistingMemo = false)
+
+        controller.cancelBackfillSelection()
+
+        assertTrue(controller.isVisible)
+        assertNull(controller.editingMemo)
+        assertEquals("draft", controller.inputValue.text)
+        assertNull(controller.backfillSelection.timestampMillis)
+        assertNull(controller.backfillSelection.timestampMillisForCreateSubmit(false))
     }
 }

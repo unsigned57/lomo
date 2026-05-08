@@ -2,7 +2,10 @@ package com.lomo.ui.component.card
 
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,12 +34,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +56,8 @@ import com.lomo.ui.theme.memoSummaryTextStyle
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -100,6 +107,21 @@ fun MemoCard(
         )
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
     val dateTimeFormatter = remember(dateFormat, timeFormat) { DateTimeFormatter.ofPattern("$dateFormat $timeFormat") }
+    val cardInteractionSource = remember { MutableInteractionSource() }
+    val cardFeedbackScope = rememberCoroutineScope()
+    val memoCardTapFeedback = {
+        cardFeedbackScope.launch {
+            emitMemoCardPressFeedback(cardInteractionSource)
+        }
+        Unit
+    }
+    val quickEditOnDoubleClick =
+        onDoubleClick?.let { doubleClick ->
+            {
+                haptic.medium()
+                doubleClick()
+            }
+        }
     val effectiveOnClick: () -> Unit = if (expandOnClick && shouldShowExpand) {
         {
             updateExpanded(!effectiveExpanded)
@@ -111,9 +133,10 @@ fun MemoCard(
     val interactionModifier =
         Modifier.rememberMemoCardInteractionModifier(
             allowFreeTextCopy = allowFreeTextCopy,
+            cardInteractionSource = cardInteractionSource,
             haptic = haptic,
             onClick = effectiveOnClick,
-            onDoubleClick = onDoubleClick,
+            onDoubleClick = quickEditOnDoubleClick,
             onMenuClick = onMenuClick,
         )
 
@@ -148,6 +171,8 @@ fun MemoCard(
                 collapsedSummary = collapsedSummary,
                 isExpanded = effectiveExpanded,
                 allowFreeTextCopy = allowFreeTextCopy,
+                onTapFeedback = memoCardTapFeedback,
+                onDoubleClick = onDoubleClick?.let { quickEditOnDoubleClick },
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
@@ -167,6 +192,7 @@ fun MemoCard(
 @Composable
 private fun Modifier.rememberMemoCardInteractionModifier(
     allowFreeTextCopy: Boolean,
+    cardInteractionSource: MutableInteractionSource,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     onClick: () -> Unit,
     onDoubleClick: (() -> Unit)?,
@@ -178,14 +204,25 @@ private fun Modifier.rememberMemoCardInteractionModifier(
         this
             .clip(AppShapes.Medium)
             .combinedClickable(
+                interactionSource = cardInteractionSource,
+                indication = LocalIndication.current,
                 onClick = {
                     haptic.medium()
                     onClick()
                 },
-                onDoubleClick = onDoubleClick?.let { doubleClick -> { haptic.medium(); doubleClick() } },
+                onDoubleClick = onDoubleClick,
                 onLongClick = onMenuClick?.let { menuClick -> { haptic.longPress(); menuClick() } },
             )
     }
+
+private suspend fun emitMemoCardPressFeedback(
+    interactionSource: MutableInteractionSource,
+) {
+    val press = PressInteraction.Press(Offset.Zero)
+    interactionSource.emit(press)
+    delay(MEMO_CARD_PRESS_FEEDBACK_MILLIS)
+    interactionSource.emit(PressInteraction.Release(press))
+}
 
 @Composable
 private fun MemoCardHeader(
@@ -293,6 +330,8 @@ private fun MemoCardBody(
     collapsedSummary: String,
     isExpanded: Boolean,
     allowFreeTextCopy: Boolean,
+    onTapFeedback: (() -> Unit)?,
+    onDoubleClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
@@ -324,6 +363,8 @@ private fun MemoCardBody(
             collapsedPreviewMode = collapsedPreviewMode,
             collapsedSummary = collapsedSummary,
             allowFreeTextCopy = allowFreeTextCopy,
+            onTapFeedback = onTapFeedback,
+            onDoubleClick = onDoubleClick,
             processedContent = processedContent,
             precomputedRenderPlan = precomputedRenderPlan,
             tags = tags,
@@ -341,6 +382,8 @@ private fun MemoCardBody(
 internal fun MemoCardCollapsedSummary(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
+    onTapFeedback: (() -> Unit)?,
+    onDoubleClick: (() -> Unit)?,
 ) {
     val displaySummary = collapsedSummary.normalizeCjkMixedSpacingForDisplay()
     val summaryStyle =
@@ -354,6 +397,8 @@ internal fun MemoCardCollapsedSummary(
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         selectable = allowFreeTextCopy,
+        onTapFeedback = onTapFeedback,
+        onDoubleClick = onDoubleClick,
     )
 }
 
@@ -420,6 +465,7 @@ private fun MemoCardFooter(
 private const val EXPAND_CHAR_THRESHOLD = 600
 private const val EXPAND_LINE_THRESHOLD = 15
 private const val MEMO_CARD_EXPAND_ANIMATION_DURATION_MS = 250
+private const val MEMO_CARD_PRESS_FEEDBACK_MILLIS = 120L
 internal const val COLLAPSED_MAX_VISIBLE_BLOCKS = 6
 private const val COLLAPSED_SUMMARY_MAX_LINES = 8
 private const val COLLAPSED_SUMMARY_MAX_CHARS = 420
