@@ -1,11 +1,13 @@
 package com.lomo.app.feature.preferences
 
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.PreferencesRepository
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -45,6 +47,12 @@ class AppPreferencesStateTest {
             every {
                 preferencesRepository.getMemoActionOrder()
             } returns flowOf(listOf("history", "copy").toImmutableList())
+            every {
+                preferencesRepository.getMemoActionOrdersByScope()
+            } returns flowOf(mapOf(MemoActionOrderScopes.SEARCH to listOf("jump", "copy")))
+            every {
+                preferencesRepository.getInputToolbarToolOrder()
+            } returns flowOf(listOf("backfill", "camera").toImmutableList())
 
             val state = preferencesRepository.observeAppPreferences().first()
 
@@ -59,6 +67,11 @@ class AppPreferencesStateTest {
                     freeTextCopyEnabled = true,
                     memoActionAutoReorderEnabled = true,
                     memoActionOrder = listOf("history", "copy").toImmutableList(),
+                    memoActionOrdersByScope =
+                        mapOf(
+                            MemoActionOrderScopes.SEARCH to listOf("jump", "copy").toImmutableList(),
+                        ).toImmutableMap(),
+                    inputToolbarToolOrder = listOf("backfill", "camera").toImmutableList(),
                     quickSaveOnBackEnabled = false,
                     scrollbarEnabled = true,
                     shareCardShowTime = true,

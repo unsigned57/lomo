@@ -42,6 +42,8 @@ object PreferenceKeys {
     const val FREE_TEXT_COPY_ENABLED = "free_text_copy_enabled"
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = "memo_action_auto_reorder_enabled"
     const val MEMO_ACTION_ORDER = "memo_action_order"
+    const val MEMO_ACTION_ORDERS_BY_SCOPE = "memo_action_orders_by_scope"
+    const val INPUT_TOOLBAR_TOOL_ORDER = "input_toolbar_tool_order"
     const val SIDEBAR_TAG_ORDER = "sidebar_tag_order"
     const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
     const val SCROLLBAR_ENABLED = "scrollbar_enabled"
@@ -114,6 +116,8 @@ object PreferenceKeys {
         const val FREE_TEXT_COPY_ENABLED = PreferenceDefaults.FREE_TEXT_COPY_ENABLED
         const val MEMO_ACTION_AUTO_REORDER_ENABLED = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED
         const val MEMO_ACTION_ORDER = PreferenceDefaults.MEMO_ACTION_ORDER
+        const val MEMO_ACTION_ORDERS_BY_SCOPE = PreferenceDefaults.MEMO_ACTION_ORDERS_BY_SCOPE
+        const val INPUT_TOOLBAR_TOOL_ORDER = PreferenceDefaults.INPUT_TOOLBAR_TOOL_ORDER
         const val SIDEBAR_TAG_ORDER = PreferenceDefaults.SIDEBAR_TAG_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
         const val SCROLLBAR_ENABLED = PreferenceDefaults.SCROLLBAR_ENABLED

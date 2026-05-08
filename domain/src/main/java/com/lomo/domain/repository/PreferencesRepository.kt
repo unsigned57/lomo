@@ -60,13 +60,35 @@ interface InteractionBehaviorPreferencesRepository {
 }
 
 interface MemoActionPreferencesRepository {
+    companion object {
+        const val DEFAULT_MEMO_ACTION_ORDER_SCOPE = "main"
+    }
+
     fun isMemoActionAutoReorderEnabled(): Flow<Boolean>
 
     suspend fun setMemoActionAutoReorderEnabled(enabled: Boolean)
 
-    fun getMemoActionOrder(): Flow<List<String>>
+    fun getMemoActionOrder(): Flow<List<String>> =
+        getMemoActionOrder(DEFAULT_MEMO_ACTION_ORDER_SCOPE)
 
-    suspend fun updateMemoActionOrder(actionOrder: List<String>)
+    fun getMemoActionOrder(scope: String): Flow<List<String>>
+
+    fun getMemoActionOrdersByScope(): Flow<Map<String, List<String>>>
+
+    suspend fun updateMemoActionOrder(actionOrder: List<String>) {
+        updateMemoActionOrder(DEFAULT_MEMO_ACTION_ORDER_SCOPE, actionOrder)
+    }
+
+    suspend fun updateMemoActionOrder(
+        scope: String,
+        actionOrder: List<String>,
+    )
+}
+
+interface InputToolbarPreferencesRepository {
+    fun getInputToolbarToolOrder(): Flow<List<String>>
+
+    suspend fun updateInputToolbarToolOrder(toolOrder: List<String>)
 }
 
 interface SidebarTagOrderPreferencesRepository {
@@ -149,6 +171,7 @@ interface PreferencesRepository :
     InteractionPreferencesRepository,
     InteractionBehaviorPreferencesRepository,
     MemoActionPreferencesRepository,
+    InputToolbarPreferencesRepository,
     SidebarTagOrderPreferencesRepository,
     SecurityPreferencesRepository,
     ShareCardPreferencesRepository,

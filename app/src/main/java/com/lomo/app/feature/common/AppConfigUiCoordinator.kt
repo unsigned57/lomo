@@ -32,16 +32,24 @@ class AppConfigUiCoordinator
 
         fun appPreferences(): Flow<AppPreferencesState> = appConfigRepository.observeAppPreferences()
 
-        suspend fun recordMemoActionUsage(actionId: String) {
+        suspend fun recordMemoActionUsage(
+            actionId: String,
+            scope: String = MemoActionOrderScopes.MAIN,
+        ) {
             if (!appConfigRepository.isMemoActionAutoReorderEnabled().first()) {
                 return
             }
-            appConfigRepository.updateMemoActionOrder(
+            val promotedOrder =
                 promoteMemoActionOrder(
-                    currentOrder = appConfigRepository.getMemoActionOrder().first(),
+                    currentOrder =
+                        if (scope == MemoActionOrderScopes.MAIN) {
+                            appConfigRepository.getMemoActionOrder().first()
+                        } else {
+                            appConfigRepository.getMemoActionOrder(scope).first()
+                        },
                     selectedActionId = actionId,
-                ),
-            )
+                )
+            updateMemoActionOrder(order = promotedOrder, scope = scope)
         }
 
         fun appLockEnabled(): Flow<Boolean?> =
@@ -51,8 +59,19 @@ class AppConfigUiCoordinator
 
         fun sidebarTagOrder(): Flow<List<String>> = appConfigRepository.getSidebarTagOrder()
 
-        suspend fun updateMemoActionOrder(order: List<String>) {
-            appConfigRepository.updateMemoActionOrder(order)
+        suspend fun updateMemoActionOrder(
+            order: List<String>,
+            scope: String = MemoActionOrderScopes.MAIN,
+        ) {
+            if (scope == MemoActionOrderScopes.MAIN) {
+                appConfigRepository.updateMemoActionOrder(order)
+            } else {
+                appConfigRepository.updateMemoActionOrder(scope, order)
+            }
+        }
+
+        suspend fun updateInputToolbarToolOrder(order: List<String>) {
+            appConfigRepository.updateInputToolbarToolOrder(order)
         }
 
         suspend fun updateSidebarTagOrder(order: List<String>) {

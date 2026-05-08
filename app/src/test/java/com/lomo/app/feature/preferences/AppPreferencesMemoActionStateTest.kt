@@ -1,5 +1,6 @@
 package com.lomo.app.feature.preferences
 
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.repository.PreferencesRepository
@@ -42,10 +43,15 @@ class AppPreferencesMemoActionStateTest {
             every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
             every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
             every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
+            every { preferencesRepository.getMemoActionOrdersByScope() } returns
+                flowOf(mapOf(MemoActionOrderScopes.GALLERY to listOf("jump", "copy")))
+            every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(listOf("backfill", "camera"))
 
             val state = preferencesRepository.observeAppPreferences().first()
 
             assertEquals(true, state.memoActionAutoReorderEnabled)
             assertEquals(listOf("history", "copy"), state.memoActionOrder)
+            assertEquals(listOf("jump", "copy"), state.memoActionOrderFor(MemoActionOrderScopes.GALLERY))
+            assertEquals(listOf("backfill", "camera"), state.inputToolbarToolOrder)
         }
 }

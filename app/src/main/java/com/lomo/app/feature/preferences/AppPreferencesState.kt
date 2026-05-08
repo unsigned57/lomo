@@ -1,13 +1,17 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.app.feature.common.appWhileSubscribed
+import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.repository.PreferencesRepository
 import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.persistentMapOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +31,8 @@ data class AppPreferencesState(
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
+    val memoActionOrdersByScope: ImmutableMap<String, ImmutableList<String>> = persistentMapOf(),
+    val inputToolbarToolOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val scrollbarEnabled: Boolean,
     val shareCardShowTime: Boolean,
@@ -49,6 +55,8 @@ data class AppPreferencesState(
                 freeTextCopyEnabled = PreferenceDefaults.FREE_TEXT_COPY_ENABLED,
                 memoActionAutoReorderEnabled = PreferenceDefaults.MEMO_ACTION_AUTO_REORDER_ENABLED,
                 memoActionOrder = persistentListOf(),
+                memoActionOrdersByScope = persistentMapOf(),
+                inputToolbarToolOrder = persistentListOf(),
                 quickSaveOnBackEnabled = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED,
                 scrollbarEnabled = PreferenceDefaults.SCROLLBAR_ENABLED,
                 shareCardShowTime = PreferenceDefaults.SHARE_CARD_SHOW_TIME,
@@ -60,74 +68,22 @@ data class AppPreferencesState(
                 typographyParagraphSpacingScale = PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE,
             )
     }
+
+    fun memoActionOrderFor(scope: String): ImmutableList<String> =
+        if (scope == MemoActionOrderScopes.MAIN) {
+            memoActionOrder
+        } else {
+            memoActionOrdersByScope[scope] ?: persistentListOf()
+        }
 }
 
 fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
     combine(
-        combine(
-            getDateFormat(),
-            getTimeFormat(),
-            getThemeMode(),
-            isHapticFeedbackEnabled(),
-            isShowInputHintsEnabled(),
-        ) { dateFormat, timeFormat, themeMode, hapticFeedbackEnabled, showInputHints ->
-            BasePreferences(
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                themeMode = themeMode,
-                hapticFeedbackEnabled = hapticFeedbackEnabled,
-                showInputHints = showInputHints,
-            )
-        },
-        combine(
-            combine(
-                isDoubleTapEditEnabled(),
-                isFreeTextCopyEnabled(),
-                isMemoActionAutoReorderEnabled(),
-                getMemoActionOrder(),
-            ) {
-                doubleTapEditEnabled,
-                freeTextCopyEnabled,
-                memoActionAutoReorderEnabled,
-                memoActionOrder,
-                ->
-                MemoActionPreferences(
-                    doubleTapEditEnabled = doubleTapEditEnabled,
-                    freeTextCopyEnabled = freeTextCopyEnabled,
-                    memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
-                    memoActionOrder = memoActionOrder.toImmutableList(),
-                )
-            },
-            isQuickSaveOnBackEnabled(),
-            isShareCardShowTimeEnabled(),
-            isScrollbarEnabled(),
-        ) { memoAction, quickSaveOnBackEnabled, shareCardShowTime, scrollbarEnabled ->
-            SharePreferences(
-                doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
-                freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
-                memoActionAutoReorderEnabled = memoAction.memoActionAutoReorderEnabled,
-                memoActionOrder = memoAction.memoActionOrder,
-                quickSaveOnBackEnabled = quickSaveOnBackEnabled,
-                shareCardShowTime = shareCardShowTime,
-                scrollbarEnabled = scrollbarEnabled,
-            )
-        },
-        isShareCardShowBrandEnabled(),
-        getShareCardSignatureText(),
-        combine(
-            getFontSizeScale(),
-            getLineHeightScale(),
-            getLetterSpacingScale(),
-            getParagraphSpacingScale(),
-        ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
-            TypographyPreferences(
-                fontSizeScale = fontSize,
-                lineHeightScale = lineHeight,
-                letterSpacingScale = letterSpacing,
-                paragraphSpacingScale = paragraphSpacing,
-            )
-        }
-    ) { base, share, shareCardShowBrand, shareCardSignatureText, typography ->
+        observeBasePreferences(),
+        observeSharePreferences(),
+        observeShareCardPreferences(),
+        observeTypographyPreferences(),
+    ) { base, share, shareCard, typography ->
         AppPreferencesState(
             dateFormat = base.dateFormat,
             timeFormat = base.timeFormat,
@@ -138,15 +94,124 @@ fun PreferencesRepository.observeAppPreferences(): Flow<AppPreferencesState> =
             freeTextCopyEnabled = share.freeTextCopyEnabled,
             memoActionAutoReorderEnabled = share.memoActionAutoReorderEnabled,
             memoActionOrder = share.memoActionOrder,
+            memoActionOrdersByScope = share.memoActionOrdersByScope,
+            inputToolbarToolOrder = share.inputToolbarToolOrder,
             quickSaveOnBackEnabled = share.quickSaveOnBackEnabled,
             scrollbarEnabled = share.scrollbarEnabled,
             shareCardShowTime = share.shareCardShowTime,
-            shareCardShowBrand = shareCardShowBrand,
-            shareCardSignatureText = shareCardSignatureText,
+            shareCardShowBrand = shareCard.showBrand,
+            shareCardSignatureText = shareCard.signatureText,
             typographyFontSizeScale = typography.fontSizeScale,
             typographyLineHeightScale = typography.lineHeightScale,
             typographyLetterSpacingScale = typography.letterSpacingScale,
             typographyParagraphSpacingScale = typography.paragraphSpacingScale,
+        )
+    }
+
+private fun PreferencesRepository.observeBasePreferences(): Flow<BasePreferences> =
+    combine(
+        getDateFormat(),
+        getTimeFormat(),
+        getThemeMode(),
+        isHapticFeedbackEnabled(),
+        isShowInputHintsEnabled(),
+    ) { dateFormat, timeFormat, themeMode, hapticFeedbackEnabled, showInputHints ->
+        BasePreferences(
+            dateFormat = dateFormat,
+            timeFormat = timeFormat,
+            themeMode = themeMode,
+            hapticFeedbackEnabled = hapticFeedbackEnabled,
+            showInputHints = showInputHints,
+        )
+    }
+
+private fun PreferencesRepository.observeSharePreferences(): Flow<SharePreferences> =
+    combine(
+        observeMemoActionPreferences(),
+        isQuickSaveOnBackEnabled(),
+        isShareCardShowTimeEnabled(),
+        isScrollbarEnabled(),
+    ) { memoAction, quickSaveOnBackEnabled, shareCardShowTime, scrollbarEnabled ->
+        SharePreferences(
+            doubleTapEditEnabled = memoAction.doubleTapEditEnabled,
+            freeTextCopyEnabled = memoAction.freeTextCopyEnabled,
+            memoActionAutoReorderEnabled = memoAction.memoActionAutoReorderEnabled,
+            memoActionOrder = memoAction.memoActionOrder,
+            memoActionOrdersByScope = memoAction.memoActionOrdersByScope,
+            inputToolbarToolOrder = memoAction.inputToolbarToolOrder,
+            quickSaveOnBackEnabled = quickSaveOnBackEnabled,
+            shareCardShowTime = shareCardShowTime,
+            scrollbarEnabled = scrollbarEnabled,
+        )
+    }
+
+private fun PreferencesRepository.observeMemoActionPreferences(): Flow<MemoActionPreferences> =
+    combine(
+        observeMemoActionToggles(),
+        observeMemoActionOrderPreferences(),
+    ) { toggles, orders ->
+        MemoActionPreferences(
+            doubleTapEditEnabled = toggles.doubleTapEditEnabled,
+            freeTextCopyEnabled = toggles.freeTextCopyEnabled,
+            memoActionAutoReorderEnabled = toggles.memoActionAutoReorderEnabled,
+            memoActionOrder = orders.memoActionOrder,
+            memoActionOrdersByScope = orders.memoActionOrdersByScope,
+            inputToolbarToolOrder = orders.inputToolbarToolOrder,
+        )
+    }
+
+private fun PreferencesRepository.observeMemoActionToggles(): Flow<MemoActionToggles> =
+    combine(
+        isDoubleTapEditEnabled(),
+        isFreeTextCopyEnabled(),
+        isMemoActionAutoReorderEnabled(),
+    ) { doubleTapEditEnabled, freeTextCopyEnabled, memoActionAutoReorderEnabled ->
+        MemoActionToggles(
+            doubleTapEditEnabled = doubleTapEditEnabled,
+            freeTextCopyEnabled = freeTextCopyEnabled,
+            memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        )
+    }
+
+private fun PreferencesRepository.observeMemoActionOrderPreferences(): Flow<MemoActionOrderPreferences> =
+    combine(
+        getMemoActionOrder(),
+        getMemoActionOrdersByScope(),
+        getInputToolbarToolOrder(),
+    ) { memoActionOrder, memoActionOrdersByScope, inputToolbarToolOrder ->
+        MemoActionOrderPreferences(
+            memoActionOrder = memoActionOrder.toImmutableList(),
+            memoActionOrdersByScope =
+                memoActionOrdersByScope
+                    .mapValues { (_, order) -> order.toImmutableList() }
+                    .toImmutableMap(),
+            inputToolbarToolOrder = inputToolbarToolOrder.toImmutableList(),
+        )
+    }
+
+private fun PreferencesRepository.observeShareCardPreferences(): Flow<ShareCardPreferences> =
+    combine(
+        isShareCardShowBrandEnabled(),
+        getShareCardSignatureText(),
+    ) { shareCardShowBrand, shareCardSignatureText ->
+        ShareCardPreferences(
+            showBrand = shareCardShowBrand,
+            signatureText = shareCardSignatureText,
+        )
+    }
+
+private fun PreferencesRepository.observeTypographyPreferences(): Flow<TypographyPreferences> =
+    combine(
+        getFontSizeScale(),
+        getLineHeightScale(),
+        getLetterSpacingScale(),
+        getParagraphSpacingScale(),
+    ) { fontSize, lineHeight, letterSpacing, paragraphSpacing ->
+        TypographyPreferences(
+            fontSizeScale = fontSize,
+            lineHeightScale = lineHeight,
+            letterSpacingScale = letterSpacing,
+            paragraphSpacingScale = paragraphSpacing,
         )
     }
 
@@ -166,11 +231,25 @@ private data class BasePreferences(
     val showInputHints: Boolean,
 )
 
+private data class MemoActionToggles(
+    val doubleTapEditEnabled: Boolean,
+    val freeTextCopyEnabled: Boolean,
+    val memoActionAutoReorderEnabled: Boolean,
+)
+
+private data class MemoActionOrderPreferences(
+    val memoActionOrder: ImmutableList<String>,
+    val memoActionOrdersByScope: ImmutableMap<String, ImmutableList<String>>,
+    val inputToolbarToolOrder: ImmutableList<String>,
+)
+
 private data class MemoActionPreferences(
     val doubleTapEditEnabled: Boolean,
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
+    val memoActionOrdersByScope: ImmutableMap<String, ImmutableList<String>>,
+    val inputToolbarToolOrder: ImmutableList<String>,
 )
 
 private data class SharePreferences(
@@ -178,9 +257,16 @@ private data class SharePreferences(
     val freeTextCopyEnabled: Boolean,
     val memoActionAutoReorderEnabled: Boolean,
     val memoActionOrder: ImmutableList<String>,
+    val memoActionOrdersByScope: ImmutableMap<String, ImmutableList<String>>,
+    val inputToolbarToolOrder: ImmutableList<String>,
     val quickSaveOnBackEnabled: Boolean,
     val shareCardShowTime: Boolean,
     val scrollbarEnabled: Boolean,
+)
+
+private data class ShareCardPreferences(
+    val showBrand: Boolean,
+    val signatureText: String,
 )
 
 private data class TypographyPreferences(
