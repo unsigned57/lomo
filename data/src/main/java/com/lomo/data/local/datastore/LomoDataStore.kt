@@ -93,6 +93,8 @@ interface LomoInteractionPreferencesStore {
     val freeTextCopyEnabled: Flow<Boolean>
     val memoActionAutoReorderEnabled: Flow<Boolean>
     val memoActionOrder: Flow<String>
+    val memoActionOrdersByScope: Flow<String>
+    val inputToolbarToolOrder: Flow<String>
     val quickSaveOnBackEnabled: Flow<Boolean>
     val scrollbarEnabled: Flow<Boolean>
     val secureWipeBeforeDeleteEnabled: Flow<Boolean>
@@ -108,6 +110,10 @@ interface LomoInteractionPreferencesStore {
     suspend fun updateMemoActionAutoReorderEnabled(enabled: Boolean)
 
     suspend fun updateMemoActionOrder(order: String)
+
+    suspend fun updateMemoActionOrdersByScope(ordersByScope: String)
+
+    suspend fun updateInputToolbarToolOrder(order: String)
 
     suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean)
 
@@ -407,6 +413,8 @@ internal object LomoDataStoreKeys {
     val MEMO_ACTION_AUTO_REORDER_ENABLED =
         booleanPreferencesKey(PreferenceKeys.MEMO_ACTION_AUTO_REORDER_ENABLED)
     val MEMO_ACTION_ORDER = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDER)
+    val MEMO_ACTION_ORDERS_BY_SCOPE = stringPreferencesKey(PreferenceKeys.MEMO_ACTION_ORDERS_BY_SCOPE)
+    val INPUT_TOOLBAR_TOOL_ORDER = stringPreferencesKey(PreferenceKeys.INPUT_TOOLBAR_TOOL_ORDER)
     val SIDEBAR_TAG_ORDER = stringPreferencesKey(PreferenceKeys.SIDEBAR_TAG_ORDER)
     val QUICK_SAVE_ON_BACK_ENABLED = booleanPreferencesKey(PreferenceKeys.QUICK_SAVE_ON_BACK_ENABLED)
     val SCROLLBAR_ENABLED = booleanPreferencesKey(PreferenceKeys.SCROLLBAR_ENABLED)

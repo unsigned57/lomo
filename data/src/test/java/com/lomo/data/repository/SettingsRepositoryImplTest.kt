@@ -53,6 +53,7 @@ class SettingsRepositoryImplTest {
                         interactionBehaviorPreferencesRepository =
                             InteractionBehaviorPreferencesRepositoryImpl(dataStore),
                         memoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore),
+                        inputToolbarPreferencesRepository = InputToolbarPreferencesRepositoryImpl(dataStore),
                         securityPreferencesRepository = SecurityPreferencesRepositoryImpl(dataStore),
                         shareCardPreferencesRepository = ShareCardPreferencesRepositoryImpl(dataStore),
                         syncInboxPreferencesRepository = SyncInboxPreferencesRepositoryImpl(dataStore),

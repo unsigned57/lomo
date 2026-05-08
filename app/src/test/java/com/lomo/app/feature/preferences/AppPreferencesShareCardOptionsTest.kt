@@ -46,6 +46,8 @@ class AppPreferencesShareCardOptionsTest {
             every {
                 preferencesRepository.getMemoActionOrder()
             } returns flowOf(listOf("history", "copy").toImmutableList())
+            every { preferencesRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+            every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
 
             val state = preferencesRepository.observeAppPreferences().first()
 

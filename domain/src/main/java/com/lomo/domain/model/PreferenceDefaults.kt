@@ -10,6 +10,8 @@ object PreferenceDefaults {
     const val FREE_TEXT_COPY_ENABLED = false
     const val MEMO_ACTION_AUTO_REORDER_ENABLED = false
     const val MEMO_ACTION_ORDER = ""
+    const val MEMO_ACTION_ORDERS_BY_SCOPE = ""
+    const val INPUT_TOOLBAR_TOOL_ORDER = ""
     const val SIDEBAR_TAG_ORDER = ""
     const val QUICK_SAVE_ON_BACK_ENABLED = true
     const val SCROLLBAR_ENABLED = true

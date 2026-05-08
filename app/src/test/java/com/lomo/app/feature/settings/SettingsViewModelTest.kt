@@ -87,6 +87,8 @@ class SettingsViewModelTest {
         every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
         every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
         every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
+        every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+        every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
         every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
         every { appConfigRepository.getStorageFilenameFormat() } returns flowOf("default")
         every { appConfigRepository.getStorageTimestampFormat() } returns flowOf("HHmm")

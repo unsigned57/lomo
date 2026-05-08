@@ -220,6 +220,20 @@ internal class InteractionPreferencesStoreImpl(
             default = PreferenceKeys.Defaults.MEMO_ACTION_ORDER,
         )
 
+    override val memoActionOrdersByScope: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.MEMO_ACTION_ORDERS_BY_SCOPE,
+            flowName = "memoActionOrdersByScope",
+            default = PreferenceKeys.Defaults.MEMO_ACTION_ORDERS_BY_SCOPE,
+        )
+
+    override val inputToolbarToolOrder: Flow<String> =
+        dataStore.stringFlow(
+            key = LomoDataStoreKeys.INPUT_TOOLBAR_TOOL_ORDER,
+            flowName = "inputToolbarToolOrder",
+            default = PreferenceKeys.Defaults.INPUT_TOOLBAR_TOOL_ORDER,
+        )
+
     override val quickSaveOnBackEnabled: Flow<Boolean> =
         dataStore.booleanFlow(
             key = LomoDataStoreKeys.QUICK_SAVE_ON_BACK_ENABLED,
@@ -263,6 +277,14 @@ internal class InteractionPreferencesStoreImpl(
 
     override suspend fun updateMemoActionOrder(order: String) {
         dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_ORDER] = order }
+    }
+
+    override suspend fun updateMemoActionOrdersByScope(ordersByScope: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.MEMO_ACTION_ORDERS_BY_SCOPE] = ordersByScope }
+    }
+
+    override suspend fun updateInputToolbarToolOrder(order: String) {
+        dataStore.editPreferences { this[LomoDataStoreKeys.INPUT_TOOLBAR_TOOL_ORDER] = order }
     }
 
     override suspend fun updateQuickSaveOnBackEnabled(enabled: Boolean) {
