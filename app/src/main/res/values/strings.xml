@@ -120,7 +120,6 @@
     <string name="settings_memo_snapshot_disable_title">Turn off memo rollback snapshots?</string>
     <string name="settings_memo_snapshot_disable_message">This stops future memo rollback snapshots and permanently clears existing memo snapshot history.</string>
     <string name="share_card_placeholder_image">[Image]</string>
-    <string name="share_card_placeholder_image_named">[Image: %1$s]</string>
     <string name="share_card_placeholder_audio">[Audio]</string>
 
     <string name="back">Back</string>
@@ -146,6 +145,9 @@
     <string name="share_status_sent">Sent to %1$s</string>
     <string name="share_searching_devices">Searching for nearby devices…</string>
     <string name="share_searching_hint">Make sure both devices are on the same WiFi</string>
+    <string name="share_permission_required_title">Local network permission required</string>
+    <string name="share_permission_required_hint">Allow local network access to discover nearby devices on this WiFi.</string>
+    <string name="share_open_settings">Open settings</string>
     <string name="share_e2e_enabled_title">End-to-end encryption</string>
     <string name="share_e2e_enabled_subtitle">Encrypt memo content and attachments during LAN transfer</string>
     <string name="share_e2e_state_enabled">Enabled</string>
@@ -234,6 +236,9 @@
     <string name="main_filter_pick_end_date">Pick end date</string>
     <string name="main_filter_date_not_set">Not set</string>
     <string name="main_filter_date_dialog_action_apply">Apply</string>
+    <string name="memo_backfill_title">Backfill memo time</string>
+    <string name="memo_backfill_action_apply">Use time</string>
+    <string name="memo_backfill_seconds_label">Seconds</string>
 
     <!-- Empty State -->
     <string name="empty_no_directory_title">No folder selected</string>
@@ -262,6 +267,9 @@
     <string name="gallery_title">Gallery</string>
     <string name="gallery_empty_title">No image memos yet</string>
     <string name="gallery_empty_desc">Memos containing images will appear here</string>
+    <string name="gallery_reel_close">Close</string>
+    <string name="gallery_reel_image_indicator">%1$d / %2$d</string>
+    <string name="gallery_reel_overlay_summary_more">Tap for full memo</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">Trash Bin</string>
