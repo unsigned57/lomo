@@ -89,6 +89,7 @@ private fun sanitizeDeviceName(name: String?): String? {
         name
             ?.trim()
             ?.replace(Regex("""[\u0000-\u001F\u007F]"""), "")
+            ?.replace(Regex("""[\u202A-\u202E\u2066-\u2069]"""), "")
             ?.replace(Regex("""\s+"""), " ")
     return normalized
         ?.takeUnless(String::isBlank)

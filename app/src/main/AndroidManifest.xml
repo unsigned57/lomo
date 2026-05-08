@@ -4,6 +4,11 @@
 
     <!-- Storage permissions removed: App uses SAF (Storage Access Framework) which does not require these permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
+    <uses-permission
+        android:name="android.permission.NEARBY_WIFI_DEVICES"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
@@ -83,14 +88,6 @@
                 android:resource="@xml/lomo_widget_info" />
         </receiver>
 
-        <receiver
-            android:name=".benchmark.BenchmarkSetupReceiver"
-            android:exported="true"
-            tools:ignore="ExportedReceiver">
-            <intent-filter>
-                <action android:name="com.lomo.app.action.BENCHMARK_PREPARE" />
-            </intent-filter>
-        </receiver>
     </application>
 
 </manifest>

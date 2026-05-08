@@ -7,6 +7,7 @@ import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.app.feature.common.toUserMessage
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
+import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.usecase.ExtractShareAttachmentsUseCase
 import com.lomo.domain.usecase.LanSharePairingCodePolicy
@@ -78,24 +79,51 @@ class ShareViewModel
         val pairingRequiredEvent: StateFlow<Int> = _pairingRequiredEvent.asStateFlow()
         private val _operationError = MutableStateFlow<String?>(null)
         val operationError: StateFlow<String?> = _operationError.asStateFlow()
+        private val _lanSharePermissionState =
+            MutableStateFlow<LanSharePermissionState>(LanSharePermissionState.Unrequested)
+        val lanSharePermissionState: StateFlow<LanSharePermissionState> = _lanSharePermissionState.asStateFlow()
+        private val _lanShareDiscoveryError = MutableStateFlow<String?>(null)
+        val lanShareDiscoveryError: StateFlow<String?> = _lanShareDiscoveryError.asStateFlow()
+        val isTechnicalShareError: (String) -> Boolean = shareErrorPolicy::isTechnicalMessage
 
         init {
-            // Discovery starts when entering the share screen; server lifecycle is managed by MainActivity.
+            if (memoContentBacking.isBlank()) {
+                _operationError.value = "Share content is unavailable. Please reopen the share page."
+            }
+            viewModelScope.launch {
+                lanShareUiCoordinator.lanShareStartupFailures.collect { failure ->
+                    val message = failure.userFacingMessage()
+                    _lanShareDiscoveryError.value = message
+                    _operationError.value = message
+                }
+            }
+        }
+
+        fun startLanShareDiscoverySession() {
+            clearLanShareDiscoveryError()
             viewModelScope.launch {
                 if (!lanShareUiCoordinator.isLanShareEnabled()) {
                     return@launch
                 }
                 runCatching {
+                    lanShareUiCoordinator.startServices()
                     lanShareUiCoordinator.startDiscovery()
-                    Timber.d("ShareViewModel init: discovery started")
+                    Timber.d("ShareViewModel: discovery session started")
                 }.onFailure { throwable ->
                     reportOperationError(throwable, "Failed to start device discovery")
                 }
             }
+        }
 
-            if (memoContentBacking.isBlank()) {
-                _operationError.value = "Share content is unavailable. Please reopen the share page."
-            }
+        val onLanShareNetworkPermissionsGranted: () -> Unit = {
+            _lanSharePermissionState.value = LanSharePermissionState.Granted
+            clearLanShareDiscoveryError()
+            startLanShareDiscoverySession()
+        }
+
+        val onLanShareNetworkPermissionsDenied: () -> Unit = {
+            _lanSharePermissionState.value = LanSharePermissionState.Denied
+            _lanShareDiscoveryError.value = null
         }
 
         fun sendMemo(device: DiscoveredDevice) {
@@ -177,15 +205,14 @@ class ShareViewModel
             }
         }
 
-        fun clearPairingCodeError() {
+        val clearPairingCodeError: () -> Unit = {
             _pairingCodeError.value = null
         }
 
-        fun clearOperationError() {
+        val clearOperationError: () -> Unit = {
             _operationError.value = null
+            _lanShareDiscoveryError.value = null
         }
-
-        fun isTechnicalShareError(message: String): Boolean = shareErrorPolicy.isTechnicalMessage(message)
 
         fun updateLanShareDeviceName(deviceName: String) {
             viewModelScope.launch {
@@ -226,5 +253,20 @@ class ShareViewModel
             val message = throwable.toUserMessage(fallbackMessage, shareErrorPolicy::sanitizeUserFacingMessage)
             _operationError.value = message
             Timber.e(throwable, "ShareViewModel operation failed: %s", message)
+        }
+
+        private fun LanShareStartupFailure.userFacingMessage(): String =
+            when (this) {
+                LanShareStartupFailure.DiscoveryStartFailed -> "Failed to start device discovery"
+                LanShareStartupFailure.ServiceRegistrationFailed ->
+                    "Failed to register this device for LAN sharing"
+            }
+
+        private fun clearLanShareDiscoveryError() {
+            val previousDiscoveryError = _lanShareDiscoveryError.value
+            _lanShareDiscoveryError.value = null
+            if (_operationError.value == previousDiscoveryError) {
+                _operationError.value = null
+            }
         }
     }

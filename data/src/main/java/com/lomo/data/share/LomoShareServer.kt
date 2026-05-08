@@ -15,11 +15,9 @@ import io.ktor.server.routing.get
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import timber.log.Timber
-import java.security.MessageDigest
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -30,6 +28,7 @@ import kotlin.uuid.Uuid
 class LomoShareServer {
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private val stateLock = Any()
+    private var discoveryDeviceName: String = DEFAULT_DISCOVERY_DEVICE_NAME
 
     private data class PendingApproval(
         val deferred: CompletableDeferred<Boolean>,
@@ -71,14 +70,62 @@ class LomoShareServer {
             isLenient = true
         }
 
-    suspend fun start(port: Int = 0): Int {
-        val prepareHandler = createPrepareHandler()
-        val transferHandler = createTransferHandler()
-        server = buildShareServer(port, json, prepareHandler, transferHandler).start(wait = false)
+    suspend fun start(
+        port: Int = 0,
+        host: String = LOOPBACK_SERVER_HOST,
+        deviceName: String = DEFAULT_DISCOVERY_DEVICE_NAME,
+    ): Int {
+        updateDiscoveryDeviceName(deviceName)
+        val prepareHandler =
+            createSharePrepareHandler(
+                json = json,
+                requestValidator = requestValidator,
+                authValidator = authValidator,
+                isE2eEnabled = { isE2eEnabled?.invoke() ?: true },
+                getPairingKeyHex = { getPairingKeyHex?.invoke() },
+                onIncomingPrepare = { onIncomingPrepare },
+                reserveApproval = ::reserveApproval,
+                storeApprovedSession = ::storeApprovedSession,
+                clearPendingApproval = {
+                    synchronized(stateLock) {
+                        pendingApproval = null
+                    }
+                },
+                buildRequestHash = ::buildShareRequestHash,
+                approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
+            )
+        val transferHandler =
+            createLomoShareTransferHandler(
+                json = json,
+                requestValidator = requestValidator,
+                authValidator = authValidator,
+                isE2eEnabled = { isE2eEnabled?.invoke() ?: true },
+                getPairingKeyHex = { getPairingKeyHex?.invoke() },
+                consumeApprovedSession = ::consumeApprovedSession,
+                buildRequestHash = ::buildShareRequestHash,
+                onSaveAttachment = { onSaveAttachment },
+                onDeleteAttachment = { onDeleteAttachment },
+                onSaveMemo = { onSaveMemo },
+            )
+        server =
+            buildShareServer(
+                port = port,
+                host = host,
+                jsonSerializer = json,
+                prepareHandler = prepareHandler,
+                transferHandler = transferHandler,
+                discoveryDeviceName = ::discoveryDeviceNameSnapshot,
+            ).start(wait = false)
 
         val finalPort = resolveBoundPort(server, port)
         Timber.tag(TAG).d("Server started on port $finalPort")
         return finalPort
+    }
+
+    fun updateDiscoveryDeviceName(deviceName: String) {
+        synchronized(stateLock) {
+            discoveryDeviceName = deviceName.ifBlank { DEFAULT_DISCOVERY_DEVICE_NAME }
+        }
     }
 
     fun stop() {
@@ -104,45 +151,6 @@ class LomoShareServer {
             pendingApproval?.deferred?.complete(false)
         }
     }
-
-    private fun createTransferHandler(): LomoShareTransferHandler =
-        LomoShareTransferHandler(
-            json = json,
-            isE2eEnabled = { this@LomoShareServer.isE2eEnabled?.invoke() ?: true },
-            validateTransferMetadata = requestValidator::validateTransferMetadata,
-            validateTransferAuthentication = { metadata ->
-                authValidator.validateTransferAuthentication(metadata) {
-                    getPairingKeyHex?.invoke()
-                }
-            },
-            consumeApprovedSession = ::consumeApprovedSession,
-            buildRequestHash = ::buildRequestHash,
-            onSaveAttachment = { onSaveAttachment },
-            onDeleteAttachment = { onDeleteAttachment },
-            onSaveMemo = { onSaveMemo },
-        )
-
-    private fun createPrepareHandler(): SharePrepareRequestProcessor =
-        SharePrepareRequestProcessor(
-            json = json,
-            isE2eEnabled = { this@LomoShareServer.isE2eEnabled?.invoke() ?: true },
-            validatePrepareRequest = requestValidator::validatePrepareRequest,
-            validatePrepareAuthentication = { request ->
-                authValidator.validatePrepareAuthentication(request) {
-                    getPairingKeyHex?.invoke()
-                }
-            },
-            onIncomingPrepare = { onIncomingPrepare },
-            reserveApproval = ::reserveApproval,
-            storeApprovedSession = ::storeApprovedSession,
-            clearPendingApproval = {
-                synchronized(stateLock) {
-                    pendingApproval = null
-                }
-            },
-            buildRequestHash = ::buildRequestHash,
-            approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
-        )
 
     private fun reserveApproval(deferred: CompletableDeferred<Boolean>): Boolean =
         synchronized(stateLock) {
@@ -198,27 +206,6 @@ class LomoShareServer {
         approvedSessions.entries.removeIf { (_, session) ->
             nowMs - session.createdAtMs > SESSION_TTL_MS
         }
-    }
-
-    private fun buildRequestHash(
-        content: String,
-        timestamp: Long,
-        attachmentNames: List<String>,
-        e2eEnabled: Boolean,
-    ): String {
-        val canonicalNames = attachmentNames.map { it.trim() }.sorted()
-        val raw =
-            buildString {
-                append(if (e2eEnabled) "e2e" else "open")
-                append('\n')
-                append(timestamp)
-                append('\n')
-                append(content)
-                append('\n')
-                canonicalNames.forEach { append(it).append('\n') }
-            }
-        val digest = MessageDigest.getInstance("SHA-256").digest(raw.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
     }
 
     // --- Protocol Data Classes ---
@@ -285,27 +272,36 @@ class LomoShareServer {
         private const val SERVER_STOP_GRACE_MS = 500L
         private const val SERVER_STOP_TIMEOUT_MS = 1_000L
         private const val SESSION_TTL_MS = 120_000L
+        private const val DEFAULT_DISCOVERY_DEVICE_NAME = "Lomo"
     }
+
+    private fun discoveryDeviceNameSnapshot(): String =
+        synchronized(stateLock) {
+            discoveryDeviceName
+        }
 }
 
-private const val BOUND_PORT_POLL_ATTEMPTS = 5
-private const val BOUND_PORT_POLL_DELAY_MS = 100L
-private const val SERVER_HOST = "0.0.0.0"
+private const val LOOPBACK_SERVER_HOST = "127.0.0.1"
 
 private fun buildShareServer(
     port: Int,
+    host: String,
     jsonSerializer: Json,
     prepareHandler: SharePrepareRequestProcessor,
     transferHandler: LomoShareTransferHandler,
+    discoveryDeviceName: () -> String,
 ): EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration> =
-    embeddedServer(CIO, port = port, host = SERVER_HOST) {
+    embeddedServer(CIO, port = port, host = host) {
         install(ContentNegotiation) {
             json(jsonSerializer)
         }
 
         routing {
             get("/share/ping") {
-                call.respondText("pong", ContentType.Text.Plain)
+                call.respondText(
+                    "$LAN_SHARE_PING_RESPONSE_PREFIX${discoveryDeviceName()}",
+                    ContentType.Text.Plain,
+                )
             }
             post("/share/prepare") {
                 prepareHandler.handle(call)
@@ -319,19 +315,11 @@ private fun buildShareServer(
 private suspend fun resolveBoundPort(
     server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>?,
     fallbackPort: Int,
-): Int {
-    var resolvedPort: Int? = null
-    repeat(BOUND_PORT_POLL_ATTEMPTS) {
-        resolvedPort =
-            server
-                ?.engine
-                ?.resolvedConnectors()
-                ?.firstOrNull()
-                ?.port
-        if (resolvedPort != null && resolvedPort != 0) {
-            return resolvedPort
-        }
-        delay(BOUND_PORT_POLL_DELAY_MS)
-    }
-    return resolvedPort ?: fallbackPort
-}
+): Int =
+    server
+        ?.engine
+        ?.resolvedConnectors()
+        ?.firstOrNull()
+        ?.port
+        ?.takeIf { it != 0 }
+        ?: fallbackPort

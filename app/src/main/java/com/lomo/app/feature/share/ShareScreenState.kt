@@ -12,9 +12,20 @@ import com.lomo.domain.model.ShareTransferState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 
+sealed interface LanSharePermissionState {
+    data object Unrequested : LanSharePermissionState
+
+    data object Denied : LanSharePermissionState
+
+    data object Granted : LanSharePermissionState
+}
+
 data class ShareScreenUiState(
     val discoveredDevices: ImmutableList<DiscoveredDevice>,
     val transferState: ShareTransferState,
+    val lanShareEnabled: Boolean,
+    val lanSharePermissionState: LanSharePermissionState,
+    val lanShareDiscoveryError: String?,
     val e2eEnabled: Boolean,
     val pairingConfigured: Boolean,
     val savedPairingCode: String,
@@ -46,6 +57,9 @@ fun rememberShareScreenLocalState(): ShareScreenLocalState = remember { ShareScr
 fun collectShareScreenUiState(viewModel: ShareViewModel): ShareScreenUiState {
     val devices = viewModel.discoveredDevices.collectAsStateWithLifecycle().value
     val transfer = viewModel.transferState.collectAsStateWithLifecycle().value
+    val lanShareEnabledValue = viewModel.lanShareEnabled.collectAsStateWithLifecycle().value
+    val lanSharePermissionStateValue = viewModel.lanSharePermissionState.collectAsStateWithLifecycle().value
+    val lanShareDiscoveryErrorValue = viewModel.lanShareDiscoveryError.collectAsStateWithLifecycle().value
     val e2e = viewModel.lanShareE2eEnabled.collectAsStateWithLifecycle().value
     val pairingConfiguredValue = viewModel.lanSharePairingConfigured.collectAsStateWithLifecycle().value
     val savedPairingCodeValue = viewModel.lanSharePairingCode.collectAsStateWithLifecycle().value
@@ -56,6 +70,9 @@ fun collectShareScreenUiState(viewModel: ShareViewModel): ShareScreenUiState {
     return ShareScreenUiState(
         discoveredDevices = devices.toImmutableList(),
         transferState = transfer,
+        lanShareEnabled = lanShareEnabledValue,
+        lanSharePermissionState = lanSharePermissionStateValue,
+        lanShareDiscoveryError = lanShareDiscoveryErrorValue,
         e2eEnabled = e2e,
         pairingConfigured = pairingConfiguredValue,
         savedPairingCode = savedPairingCodeValue,

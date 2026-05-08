@@ -73,7 +73,13 @@ internal class ShareTransferPayloadBuilder(
                 keyHex = requireNotNull(keyHex) { "Missing E2E key" },
             )
         } else {
-            buildOpenPayload(content, attachmentUris)
+            buildOpenPayload(
+                content = content,
+                timestamp = timestamp,
+                sessionToken = sessionToken,
+                attachmentUris = attachmentUris,
+                keyHex = requireNotNull(keyHex) { "Missing pairing key" },
+            )
         }
     }
 
@@ -143,7 +149,10 @@ internal class ShareTransferPayloadBuilder(
 
     private fun buildOpenPayload(
         content: String,
+        timestamp: Long,
+        sessionToken: String,
         attachmentUris: Map<String, Uri>,
+        keyHex: String,
     ): ShareTransferRequestPayload {
         val attachments = mutableListOf<ShareTransferAttachment>()
         var totalAttachmentBytes = 0L
@@ -168,12 +177,24 @@ internal class ShareTransferPayloadBuilder(
                     payloadSizeBytes = size,
                 )
         }
+        val authTimestampMs = System.currentTimeMillis()
+        val authNonce = ShareAuthUtils.generateNonce()
+        val signaturePayload =
+            ShareAuthUtils.buildTransferPayloadToSign(
+                sessionToken = sessionToken,
+                encryptedContent = content,
+                contentNonce = "",
+                timestamp = timestamp,
+                attachmentNames = attachments.map { it.name },
+                authTimestampMs = authTimestampMs,
+                authNonce = authNonce,
+            )
         return ShareTransferRequestPayload(
             payloadContent = content,
             contentNonce = "",
-            authTimestampMs = 0L,
-            authNonce = "",
-            authSignature = "",
+            authTimestampMs = authTimestampMs,
+            authNonce = authNonce,
+            authSignature = ShareAuthUtils.signPayloadHex(keyHex = keyHex, payload = signaturePayload),
             attachments = attachments,
             tempPayloadFiles = emptyList(),
         )

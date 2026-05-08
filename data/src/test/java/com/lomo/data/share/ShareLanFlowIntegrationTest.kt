@@ -17,7 +17,8 @@ import org.junit.Test
  * - Unit under test: LomoShareServer, LomoShareClient, SharePrepareRequestProcessor, ShareTransferRequestProcessor, and share request executors.
  * - Behavior focus: approval-driven prepare flow, open vs E2E transfer success, compatibility-key retry, and invalid-session rejection.
  * - Observable outcomes: prepared session token/key, captured incoming payload, saved memo content, and transfer success/failure.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because open-mode prepare still succeeds without sender or
+ *   receiver pairing configuration, so the new missing-pairing contract stays green incorrectly.
  * - Excludes: UI prompts, attachment file persistence internals, and discovery transport.
  */
 class ShareLanFlowIntegrationTest {
@@ -26,12 +27,14 @@ class ShareLanFlowIntegrationTest {
     @Test
     fun `open mode share flow saves memo after approval`() =
         runBlocking {
+            val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
+            val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
             val incomingPayloads = mutableListOf<SharePayload>()
             val savedMemos = mutableListOf<SavedMemo>()
             val server =
                 configuredServer(
                     e2eEnabled = false,
-                    pairingKeyHex = null,
+                    pairingKeyHex = receiverKey,
                     onIncomingPrepare = { payload, activeServer ->
                         incomingPayloads += payload
                         activeServer.acceptIncoming()
@@ -41,7 +44,7 @@ class ShareLanFlowIntegrationTest {
                     },
                 )
             val port = server.start()
-            val client = LomoShareClient(context = context) { null }
+            val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
                 val device = device(port)
@@ -83,6 +86,39 @@ class ShareLanFlowIntegrationTest {
                     incomingPayloads,
                 )
                 assertEquals(listOf(SavedMemo(content, timestamp, emptyMap())), savedMemos)
+            } finally {
+                client.close()
+                server.stop()
+            }
+        }
+
+    @Test
+    fun `open mode prepare fails when sender pairing code is missing`() =
+        runBlocking {
+            val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
+            val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
+            val server =
+                configuredServer(
+                    e2eEnabled = false,
+                    pairingKeyHex = receiverKey,
+                    onIncomingPrepare = { _, _ -> error("Prepare should fail before approval without sender pairing") },
+                    onSaveMemo = { _, _, _ -> error("Memo should not be saved without sender pairing") },
+                )
+            val port = server.start()
+            val client = LomoShareClient(context = context) { null }
+
+            try {
+                val result =
+                    client.prepare(
+                        device = device(port),
+                        content = "unsigned open mode",
+                        timestamp = 9L,
+                        senderName = "Sender",
+                        attachments = emptyList(),
+                        e2eEnabled = false,
+                    )
+
+                assertTrue(result.isFailure)
             } finally {
                 client.close()
                 server.stop()
@@ -160,17 +196,19 @@ class ShareLanFlowIntegrationTest {
     @Test
     fun `prepare returns empty session token when receiver rejects request`() =
         runBlocking {
+            val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
+            val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
             val server =
                 configuredServer(
                     e2eEnabled = false,
-                    pairingKeyHex = null,
+                    pairingKeyHex = receiverKey,
                     onIncomingPrepare = { _, activeServer ->
                         activeServer.rejectIncoming()
                     },
                     onSaveMemo = { _, _, _ -> error("Memo should not be saved when prepare is rejected") },
                 )
             val port = server.start()
-            val client = LomoShareClient(context = context) { null }
+            val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
                 val prepared =

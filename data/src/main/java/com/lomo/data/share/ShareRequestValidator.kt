@@ -102,8 +102,14 @@ internal class ShareRequestValidator {
                     .takeIf(String::isNotBlank)
                     ?.let { "Content nonce is not allowed in open mode" },
                 authTimestampMs
-                    .takeIf { hasOpenModeAuthFields(it, authNonce, authSignature) }
-                    ?.let { "Auth fields are not allowed in open mode" },
+                    .takeUnless { it > 0L }
+                    ?.let { "Invalid auth timestamp" },
+                authNonce
+                    .takeUnless(::isValidAuthNonce)
+                    ?.let { "Invalid auth nonce" },
+                authSignature
+                    .takeUnless(::isValidSignatureHex)
+                    ?.let { "Invalid auth signature" },
                 attachmentNonces
                     .takeIf(Map<String, String>::isNotEmpty)
                     ?.let { "Attachment nonces are not allowed in open mode" },
@@ -202,9 +208,3 @@ internal class ShareRequestValidator {
         private const val MAX_NONCE_BASE64_CHARS = 64
     }
 }
-
-private fun hasOpenModeAuthFields(
-    authTimestampMs: Long,
-    authNonce: String,
-    authSignature: String,
-): Boolean = authTimestampMs != 0L || authNonce.isNotBlank() || authSignature.isNotBlank()

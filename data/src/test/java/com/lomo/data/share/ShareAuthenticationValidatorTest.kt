@@ -17,7 +17,8 @@ import org.junit.Test
  * - Unit under test: ShareAuthenticationValidator
  * - Behavior focus: open-mode auth bypass, pairing-key requirements, signature validation, and replay protection.
  * - Observable outcomes: ShareAuthValidation status/message/keyHex for accepted and rejected requests.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before the fix because open-mode prepare authentication still short-circuits
+ *   on `!e2eEnabled`, allowing unsigned requests without a configured pairing key.
  * - Excludes: HTTP request parsing, payload decryption, and UI approval flow.
  */
 @OptIn(ExperimentalEncodingApi::class)
@@ -26,26 +27,43 @@ class ShareAuthenticationValidatorTest {
     private val primaryKeyHex = requireNotNull(resolvePrimaryKeyHex(keyMaterial))
 
     @Test
-    fun `validatePrepareAuthentication bypasses auth in open mode`() {
+    fun `validatePrepareAuthentication requires pairing key in open mode`() {
         val validator = ShareAuthenticationValidator()
         val request =
-            PrepareRequest(
-                senderName = "Sender",
+            signedPrepareRequest(
+                keyHex = primaryKeyHex,
+                e2eEnabled = false,
                 encryptedContent = "memo-content",
                 contentNonce = "",
-                timestamp = 10L,
-                e2eEnabled = false,
-                attachments = emptyList(),
-                authTimestampMs = 0L,
-                authNonce = "",
-                authSignature = "",
             )
 
         val result =
             kotlinx.coroutines.runBlocking {
                 validator.validatePrepareAuthentication(request) {
-                    error("Pairing key should not be resolved for open-mode requests")
+                    null
                 }
+            }
+
+        assertFalse(result.ok)
+        assertEquals(HttpStatusCode.PreconditionFailed, result.status)
+        assertEquals("LAN share pairing code is not configured on receiver", result.message)
+        assertNull(result.keyHex)
+    }
+
+    @Test
+    fun `validatePrepareAuthentication accepts valid signed open mode request`() {
+        val validator = ShareAuthenticationValidator()
+        val request =
+            signedPrepareRequest(
+                keyHex = primaryKeyHex,
+                e2eEnabled = false,
+                encryptedContent = "memo-content",
+                contentNonce = "",
+            )
+
+        val result =
+            kotlinx.coroutines.runBlocking {
+                validator.validatePrepareAuthentication(request) { keyMaterial }
             }
 
         assertTrue(result.ok)
@@ -106,6 +124,9 @@ class ShareAuthenticationValidatorTest {
 
     private fun signedPrepareRequest(
         keyHex: String,
+        e2eEnabled: Boolean = true,
+        encryptedContent: String = "ciphertext",
+        contentNonce: String = validNonce(seed = 1),
         signatureHex: String? = null,
         authNonce: String = ShareAuthUtils.generateNonce(),
         authTimestampMs: Long = System.currentTimeMillis(),
@@ -113,10 +134,10 @@ class ShareAuthenticationValidatorTest {
         val request =
             PrepareRequest(
                 senderName = "Sender",
-                encryptedContent = "ciphertext",
-                contentNonce = validNonce(seed = 1),
+                encryptedContent = encryptedContent,
+                contentNonce = contentNonce,
                 timestamp = 111L,
-                e2eEnabled = true,
+                e2eEnabled = e2eEnabled,
                 attachments = listOf(AttachmentInfo(name = "photo.jpg", type = "image", size = 12L)),
                 authTimestampMs = authTimestampMs,
                 authNonce = authNonce,

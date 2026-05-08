@@ -26,15 +26,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.lomo.app.R
-import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import com.lomo.app.feature.lanshare.LanSharePairingDialogTriggerPolicy
 import com.lomo.domain.model.ShareTransferState
+import com.lomo.domain.usecase.LanSharePairingCodePolicy
 import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.coroutines.delay
@@ -53,16 +54,23 @@ fun ShareScreen(
     onBackClick: () -> Unit,
     viewModel: ShareViewModel = hiltViewModel(),
 ) {
+    val context = LocalContext.current
     val uiState = collectShareScreenUiState(viewModel)
     val localState = rememberShareScreenLocalState()
     val canSaveDeviceName = localState.canSaveDeviceName(uiState.deviceName)
     val dismissIme = rememberDismissImeAction()
+    val requestLanShareNetworkPermissions =
+        rememberLanShareNetworkPermissionRequester(
+            lanShareEnabled = uiState.lanShareEnabled,
+            onPermissionGranted = viewModel.onLanShareNetworkPermissionsGranted,
+            onPermissionDenied = viewModel.onLanShareNetworkPermissionsDenied,
+        )
 
     ShareScreenEffects(
         uiState = uiState,
         localState = localState,
         canSaveDeviceName = canSaveDeviceName,
-        onClearPairingCodeError = viewModel::clearPairingCodeError,
+        onClearPairingCodeError = viewModel.clearPairingCodeError,
     )
 
     ShareScreenContent(
@@ -71,12 +79,14 @@ fun ShareScreen(
         canSaveDeviceName = canSaveDeviceName,
         onBackClick = onBackClick,
         dismissIme = dismissIme,
-        isTechnicalShareError = viewModel::isTechnicalShareError,
-        onClearPairingCodeError = viewModel::clearPairingCodeError,
+        isTechnicalShareError = viewModel.isTechnicalShareError,
+        onClearPairingCodeError = viewModel.clearPairingCodeError,
         onClearLanSharePairingCode = viewModel::clearLanSharePairingCode,
         onUpdateLanSharePairingCode = viewModel::updateLanSharePairingCode,
         onUpdateLanShareE2eEnabled = viewModel::updateLanShareE2eEnabled,
         onUpdateLanShareDeviceName = viewModel::updateLanShareDeviceName,
+        onRequestLanSharePermissions = requestLanShareNetworkPermissions,
+        onOpenAppSettings = { context.openAppSettings() },
         onSendMemo = viewModel::sendMemo,
         onResetTransferState = viewModel::resetTransferState,
     )
@@ -95,6 +105,8 @@ private fun ShareScreenContent(
     onUpdateLanSharePairingCode: (String) -> Unit,
     onUpdateLanShareE2eEnabled: (Boolean) -> Unit,
     onUpdateLanShareDeviceName: (String) -> Unit,
+    onRequestLanSharePermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onSendMemo: (com.lomo.domain.model.DiscoveredDevice) -> Unit,
     onResetTransferState: () -> Unit,
 ) {
@@ -131,6 +143,8 @@ private fun ShareScreenContent(
                 localState.deviceNameInput = ""
                 onUpdateLanShareDeviceName("")
             },
+            onRequestLanSharePermissions = onRequestLanSharePermissions,
+            onOpenAppSettings = onOpenAppSettings,
             onSendMemo = { device ->
                 dismissIme()
                 onSendMemo(device)
@@ -233,6 +247,8 @@ private fun ShareScreenBody(
     onNameFieldFocusChanged: (Boolean) -> Unit,
     onSaveDeviceName: () -> Unit,
     onUseSystemDeviceName: () -> Unit,
+    onRequestLanSharePermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onSendMemo: (com.lomo.domain.model.DiscoveredDevice) -> Unit,
     onDismissTransferState: () -> Unit,
     modifier: Modifier = Modifier,
@@ -275,7 +291,12 @@ private fun ShareScreenBody(
         DeviceDiscoverySection(
             showDevicesSection = localState.showDevicesSection,
             devices = uiState.discoveredDevices,
+            lanShareEnabled = uiState.lanShareEnabled,
+            permissionState = uiState.lanSharePermissionState,
+            discoveryError = uiState.lanShareDiscoveryError,
             transferState = uiState.transferState,
+            onRequestLanSharePermissions = onRequestLanSharePermissions,
+            onOpenAppSettings = onOpenAppSettings,
             onDeviceClick = onSendMemo,
             modifier = Modifier.weight(1f),
         )
@@ -432,15 +453,4 @@ private fun openPairingDialog(
     localState.pairingCodeVisible = false
     onClearPairingCodeError()
     localState.showPairingDialog = true
-}
-
-@Composable
-private fun rememberDismissImeAction(): () -> Unit {
-    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
-    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-
-    return {
-        focusManager.clearFocus(force = true)
-        keyboardController?.hide()
-    }
 }

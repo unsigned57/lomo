@@ -9,6 +9,7 @@ import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
+import java.net.Proxy
 
 /**
  * HTTP client for sending memos to peer devices on the LAN.
@@ -25,6 +26,11 @@ class LomoShareClient(
 
     private val client =
         HttpClient(OkHttp) {
+            engine {
+                config {
+                    proxy(Proxy.NO_PROXY)
+                }
+            }
             install(ContentNegotiation) {
                 json(json)
             }
@@ -104,8 +110,8 @@ class LomoShareClient(
     }
 
     internal companion object {
-        const val CONNECT_TIMEOUT_MS = 15_000L
+        const val CONNECT_TIMEOUT_MS = 5_000L
         const val PING_TIMEOUT_MS = 3_000L
-        const val REQUEST_TIMEOUT_MS = 70_000L
+        const val REQUEST_TIMEOUT_MS = 30_000L
     }
 }

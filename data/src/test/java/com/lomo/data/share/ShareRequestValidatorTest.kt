@@ -31,6 +31,9 @@ class ShareRequestValidatorTest {
                         AttachmentInfo(name = " photo.jpg ", type = "image", size = 12L),
                         AttachmentInfo(name = "voice.m4a", type = "audio", size = 34L),
                     ),
+                authTimestampMs = 123L,
+                authNonce = "ab12",
+                authSignature = VALID_SIGNATURE_HEX,
             )
 
         val result = validator.validatePrepareRequest(request)
@@ -48,6 +51,9 @@ class ShareRequestValidatorTest {
                         AttachmentInfo(name = " photo.jpg ", type = "image", size = 12L),
                         AttachmentInfo(name = "photo.jpg", type = "image", size = 34L),
                     ),
+                authTimestampMs = 123L,
+                authNonce = "ab12",
+                authSignature = VALID_SIGNATURE_HEX,
             )
 
         val result = validator.validatePrepareRequest(request)
@@ -56,18 +62,18 @@ class ShareRequestValidatorTest {
     }
 
     @Test
-    fun `validatePrepareRequest rejects auth fields in open mode`() {
+    fun `validatePrepareRequest requires auth fields in open mode`() {
         val request =
             prepareRequest(
                 e2eEnabled = false,
-                authTimestampMs = 1L,
-                authNonce = "ab12",
-                authSignature = VALID_SIGNATURE_HEX,
+                authTimestampMs = 0L,
+                authNonce = "",
+                authSignature = "",
             )
 
         val result = validator.validatePrepareRequest(request)
 
-        assertEquals("Auth fields are not allowed in open mode", result)
+        assertEquals("Invalid auth timestamp", result)
     }
 
     @Test

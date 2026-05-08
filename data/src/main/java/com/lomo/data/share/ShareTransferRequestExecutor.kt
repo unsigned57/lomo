@@ -32,7 +32,7 @@ internal class ShareTransferRequestExecutor(
         e2eEnabled: Boolean,
         e2eKeyHex: String?,
     ): Boolean {
-        val resolvedKey = resolveTransferKey(e2eEnabled, e2eKeyHex)
+        val resolvedKey = resolveTransferKey(e2eKeyHex)
         if (e2eEnabled && resolvedKey == null) {
             Timber.tag(TAG).w("LAN share pairing code is not configured")
             return false
@@ -66,22 +66,15 @@ internal class ShareTransferRequestExecutor(
         }
     }
 
-    private suspend fun resolveTransferKey(
-        e2eEnabled: Boolean,
-        e2eKeyHex: String?,
-    ): String? =
-        if (e2eEnabled) {
-            resolvePrimaryKeyHex(e2eKeyHex)
-                ?: resolvePrimaryKeyHex(getPairingKeyHex()?.trim())
-        } else {
-            null
-        }
+    private suspend fun resolveTransferKey(e2eKeyHex: String?): String? =
+        resolvePrimaryKeyHex(e2eKeyHex) ?: resolvePrimaryKeyHex(getPairingKeyHex()?.trim())
 
     private suspend fun submitTransferRequest(
         device: DiscoveredDevice,
         metadata: LomoShareServer.TransferMetadata,
         attachments: List<ShareTransferAttachment>,
     ): TransferHttpResponse {
+        require(isLanSharePrivateHost(device.host)) { "LAN share requires a private peer address" }
         val response =
             client.submitFormWithBinaryData(
                 url = "http://${device.host}:${device.port}/share/transfer",
