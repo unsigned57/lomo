@@ -2,6 +2,7 @@ package com.lomo.data.share
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.SharePayload
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareConfigurationController
@@ -63,6 +64,8 @@ class LanShareStateDelegate
         override val incomingShare: StateFlow<IncomingShareState> = incomingStateHolder.incomingShare
 
         override val transferState: StateFlow<ShareTransferState> = transferOrchestrator.transferState
+        override val lanShareStartupFailures: Flow<LanShareStartupFailure> =
+            lifecycleController.lanShareStartupFailures
 
         override val lanShareEnabled: Flow<Boolean> = pairingConfig.lanShareEnabled
         override val lanShareE2eEnabled: Flow<Boolean> = pairingConfig.lanShareE2eEnabled

@@ -2,6 +2,7 @@ package com.lomo.domain.repository
 
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareTransferState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,6 +14,7 @@ interface LanShareStateRepository {
     val discoveredDevices: StateFlow<List<DiscoveredDevice>>
     val incomingShare: StateFlow<IncomingShareState>
     val transferState: StateFlow<ShareTransferState>
+    val lanShareStartupFailures: Flow<LanShareStartupFailure>
     val lanSharePairingCode: StateFlow<String>
     val lanShareEnabled: Flow<Boolean>
     val lanShareE2eEnabled: Flow<Boolean>

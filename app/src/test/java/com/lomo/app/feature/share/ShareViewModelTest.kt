@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.lomo.app.navigation.ShareRoutePayloadStore
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.IncomingShareState
+import com.lomo.domain.model.LanShareStartupFailure
 import com.lomo.domain.model.ShareAttachmentExtractionResult
 import com.lomo.domain.model.ShareTransferState
 import com.lomo.domain.repository.LanShareService
@@ -16,6 +17,7 @@ import io.mockk.verify
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -33,16 +35,32 @@ import org.junit.Test
 /*
  * Test Contract:
  * - Unit under test: ShareViewModel
- * - Behavior focus: send preconditions, attachment extraction wiring, and user-visible error mapping for LAN share flows.
- * - Observable outcomes: operationError and pairingRequiredEvent state, plus send payload forwarding to LanShareService.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Behavior focus: permission-gated LAN share startup, send preconditions, attachment extraction
+ *   wiring, and user-visible error mapping for LAN share flows.
+ * - Observable outcomes: lanSharePermissionState, operationError and pairingRequiredEvent state,
+ *   plus send payload forwarding to LanShareService.
+ * - Red phase: Fails before the fix because ShareViewModel eagerly starts discovery in init,
+ *   exposes no permission state, and cannot consume LAN-share startup failure events.
  * - Excludes: NSD discovery internals, transport implementation, and Compose rendering.
+ */
+/*
+ * Test Change Justification:
+ * - Reason category: bug fix contract update.
+ * - Old behavior/assertion being replaced: ShareViewModel init immediately started discovery and
+ *   surfaced startup failure from the eager init path.
+ * - Why old assertion is no longer correct: Android 16 discovery must start only after runtime
+ *   permission grant, so init can no longer be the startup trigger.
+ * - Coverage preserved by: companion tests now lock init non-startup, permission-granted startup,
+ *   denied permission state, and propagated startup failure visibility.
+ * - Why this is not fitting the test to the implementation: the new assertions match the
+ *   user-visible permission gate required to make discovery recover correctly on Android 16.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ShareViewModelTest {
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var shareService: LanShareService
+    private lateinit var startupFailures: MutableSharedFlow<LanShareStartupFailure>
     private lateinit var extractShareAttachmentsUseCase: ExtractShareAttachmentsUseCase
     private lateinit var shareErrorPolicy: ShareErrorPolicy
 
@@ -51,11 +69,13 @@ class ShareViewModelTest {
         Dispatchers.setMain(testDispatcher)
 
         shareService = mockk(relaxed = true)
+        startupFailures = MutableSharedFlow(extraBufferCapacity = 1)
         extractShareAttachmentsUseCase = mockk(relaxed = true)
         shareErrorPolicy = ShareErrorPolicy()
         every { shareService.discoveredDevices } returns MutableStateFlow(emptyList())
         every { shareService.incomingShare } returns MutableStateFlow(IncomingShareState.None)
         every { shareService.transferState } returns MutableStateFlow(ShareTransferState.Idle)
+        every { shareService.lanShareStartupFailures } returns startupFailures
         every { shareService.lanSharePairingCode } returns MutableStateFlow("")
         every { shareService.lanShareEnabled } returns flowOf(true)
         every { shareService.lanShareE2eEnabled } returns flowOf(true)
@@ -262,7 +282,33 @@ class ShareViewModelTest {
         }
 
     @Test
-    fun `init reports operation error when discovery start fails`() =
+    fun `init leaves lan share permission state unrequested and does not start discovery`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(LanSharePermissionState.Unrequested, viewModel.lanSharePermissionState.value)
+            verify(exactly = 0) { shareService.startServices() }
+            verify(exactly = 0) { shareService.startDiscovery() }
+            assertNull(viewModel.operationError.value)
+        }
+
+    @Test
+    fun `onLanShareNetworkPermissionsGranted reports operation error when discovery start fails`() =
         runTest {
             val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
             every { shareService.startDiscovery() } throws IllegalStateException("discovery failed")
@@ -281,15 +327,69 @@ class ShareViewModelTest {
                         ),
                 )
 
+            viewModel.onLanShareNetworkPermissionsGranted()
             testDispatcher.scheduler.advanceUntilIdle()
+            assertEquals(LanSharePermissionState.Granted, viewModel.lanSharePermissionState.value)
             assertEquals("discovery failed", viewModel.operationError.value)
         }
 
     @Test
-    fun `init skips discovery when lan share is disabled`() =
+    fun `onLanShareNetworkPermissionsGranted starts services and discovery once`() =
         runTest {
             val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
-            every { shareService.lanShareEnabled } returns flowOf(false)
+
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.onLanShareNetworkPermissionsGranted()
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals(LanSharePermissionState.Granted, viewModel.lanSharePermissionState.value)
+            verify(exactly = 1) { shareService.startServices() }
+            verify(exactly = 1) { shareService.startDiscovery() }
+        }
+
+    @Test
+    fun `onLanShareNetworkPermissionsDenied marks denied state and skips startup`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
+
+            val viewModel =
+                ShareViewModel(
+                    lanShareUiCoordinator = LanShareUiCoordinator(shareService),
+                    extractShareAttachmentsUseCase = extractShareAttachmentsUseCase,
+                    shareErrorPolicy = shareErrorPolicy,
+                    savedStateHandle =
+                        SavedStateHandle(
+                            mapOf(
+                                "payloadKey" to payloadKey,
+                                "memoTimestamp" to 123L,
+                            ),
+                        ),
+                )
+
+            viewModel.onLanShareNetworkPermissionsDenied()
+
+            assertEquals(LanSharePermissionState.Denied, viewModel.lanSharePermissionState.value)
+            verify(exactly = 0) { shareService.startServices() }
+            verify(exactly = 0) { shareService.startDiscovery() }
+        }
+
+    @Test
+    fun `lan share startup failure events surface operation error`() =
+        runTest {
+            val payloadKey = ShareRoutePayloadStore.putMemoContent("memo-content")
 
             val viewModel =
                 ShareViewModel(
@@ -306,8 +406,10 @@ class ShareViewModelTest {
                 )
 
             testDispatcher.scheduler.advanceUntilIdle()
-            verify(exactly = 0) { shareService.startDiscovery() }
-            assertNull(viewModel.operationError.value)
+            startupFailures.tryEmit(LanShareStartupFailure.DiscoveryStartFailed)
+            testDispatcher.scheduler.advanceUntilIdle()
+
+            assertEquals("Failed to start device discovery", viewModel.operationError.value)
         }
 
     @Test

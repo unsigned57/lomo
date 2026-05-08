@@ -42,6 +42,7 @@ class ShareLanAttachmentFlowIntegrationTest {
     @Test
     fun `open mode attachment transfer copies bytes and saves memo mapping`() =
         runBlocking {
+            val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-attachments"))
             val attachmentFile = tempFile("share-open", ".png", "open-image-payload")
             val attachmentUri = fileUri(attachmentFile)
             val incomingPayloads = mutableListOf<SharePayload>()
@@ -50,7 +51,7 @@ class ShareLanAttachmentFlowIntegrationTest {
             val server =
                 LomoShareServer().apply {
                     isE2eEnabled = { false }
-                    getPairingKeyHex = { null }
+                    getPairingKeyHex = { pairingMaterial }
                     onIncomingPrepare = { payload ->
                         incomingPayloads += payload
                         acceptIncoming()
@@ -64,7 +65,7 @@ class ShareLanAttachmentFlowIntegrationTest {
                     }
                 }
             val port = server.start()
-            val client = LomoShareClient(context = context) { null }
+            val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
                 val prepared =
@@ -223,6 +224,7 @@ class ShareLanAttachmentFlowIntegrationTest {
     @Test
     fun `memo save failure rolls back previously saved attachments`() =
         runBlocking {
+            val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("rollback-attachments"))
             val attachmentFile = tempFile("share-rollback", ".png", "rollback-image-payload")
             val attachmentUri = fileUri(attachmentFile)
             val savedAttachments = mutableListOf<SavedAttachment>()
@@ -230,7 +232,7 @@ class ShareLanAttachmentFlowIntegrationTest {
             val server =
                 LomoShareServer().apply {
                     isE2eEnabled = { false }
-                    getPairingKeyHex = { null }
+                    getPairingKeyHex = { pairingMaterial }
                     onIncomingPrepare = { acceptIncoming() }
                     onSaveAttachment = { name, type, payloadFile ->
                         savedAttachments += SavedAttachment(name, type, payloadFile.readBytes().decodeToString())
@@ -244,7 +246,7 @@ class ShareLanAttachmentFlowIntegrationTest {
                     }
                 }
             val port = server.start()
-            val client = LomoShareClient(context = context) { null }
+            val client = LomoShareClient(context = context) { pairingMaterial }
 
             try {
                 val prepared =

@@ -33,12 +33,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiFind
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -82,14 +84,33 @@ private const val SEARCH_PULSE_DURATION_MILLIS = 1_200
 private val SEARCH_PULSE_ICON_SIZE = 64.dp
 private const val SEARCHING_HINT_ALPHA = 0.7f
 
+private enum class DeviceDiscoveryContentState {
+    Searching,
+    PermissionDenied,
+    StartupFailed,
+    Devices,
+}
+
 @Composable
 fun DeviceDiscoverySection(
     showDevicesSection: Boolean,
     devices: ImmutableList<DiscoveredDevice>,
+    lanShareEnabled: Boolean,
+    permissionState: LanSharePermissionState,
+    discoveryError: String?,
     transferState: ShareTransferState,
+    onRequestLanSharePermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
     onDeviceClick: (DiscoveredDevice) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val contentState =
+        when {
+            devices.isNotEmpty() -> DeviceDiscoveryContentState.Devices
+            permissionState == LanSharePermissionState.Denied -> DeviceDiscoveryContentState.PermissionDenied
+            discoveryError != null -> DeviceDiscoveryContentState.StartupFailed
+            else -> DeviceDiscoveryContentState.Searching
+        }
     AnimatedVisibility(
         visible = showDevicesSection,
         enter =
@@ -100,28 +121,43 @@ fun DeviceDiscoverySection(
                 ),
         exit = fadeOut(tween(DEVICE_DISCOVERY_EXIT_DURATION_MILLIS)),
     ) {
-        DeviceDiscoveryHeader(devices = devices)
+        DeviceDiscoveryHeader(
+            devices = devices,
+            showSearchingIndicator = lanShareEnabled && contentState == DeviceDiscoveryContentState.Searching,
+        )
     }
 
     val listState = rememberLazyListState()
     AnimatedContent(
-        targetState = devices.isEmpty(),
+        targetState = contentState,
         transitionSpec = {
             fadeIn(tween(DEVICE_DISCOVERY_CONTENT_ENTER_DURATION_MILLIS)) togetherWith
                 fadeOut(tween(DEVICE_DISCOVERY_EXIT_DURATION_MILLIS))
         },
         label = "device-list",
         modifier = modifier,
-    ) { isEmpty ->
-        if (isEmpty) {
-            DeviceSearchingState(modifier = Modifier.fillMaxSize())
-        } else {
-            DeviceDiscoveryList(
-                devices = devices,
-                transferState = transferState,
-                onDeviceClick = onDeviceClick,
-                listState = listState,
-            )
+    ) { state ->
+        when (state) {
+            DeviceDiscoveryContentState.Searching -> DeviceSearchingState(modifier = Modifier.fillMaxSize())
+            DeviceDiscoveryContentState.PermissionDenied ->
+                DevicePermissionRequiredState(
+                    onRequestLanSharePermissions = onRequestLanSharePermissions,
+                    onOpenAppSettings = onOpenAppSettings,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            DeviceDiscoveryContentState.StartupFailed ->
+                DeviceDiscoveryErrorState(
+                    message = discoveryError.orEmpty(),
+                    onRetry = onRequestLanSharePermissions,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            DeviceDiscoveryContentState.Devices ->
+                DeviceDiscoveryList(
+                    devices = devices,
+                    transferState = transferState,
+                    onDeviceClick = onDeviceClick,
+                    listState = listState,
+                )
         }
     }
 }
@@ -230,7 +266,10 @@ private fun DeviceSearchingState(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>) {
+private fun DeviceDiscoveryHeader(
+    devices: ImmutableList<DiscoveredDevice>,
+    showSearchingIndicator: Boolean,
+) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -254,7 +293,7 @@ private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>) {
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (devices.isEmpty()) {
+            if (showSearchingIndicator) {
                 Spacer(modifier = Modifier.width(AppSpacing.Small))
                 ExpressiveLoadingIndicator(
                     modifier = Modifier.size(DEVICE_DISCOVERY_LOADER_SIZE),
@@ -263,6 +302,88 @@ private fun DeviceDiscoveryHeader(devices: ImmutableList<DiscoveredDevice>) {
             }
         }
         Spacer(modifier = Modifier.height(AppSpacing.MediumSmall))
+    }
+}
+
+@Composable
+private fun DevicePermissionRequiredState(
+    onRequestLanSharePermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    DeviceDiscoveryPlaceholder(
+        title = stringResource(R.string.share_permission_required_title),
+        message = stringResource(R.string.share_permission_required_hint),
+        primaryActionLabel = stringResource(R.string.action_retry),
+        onPrimaryAction = onRequestLanSharePermissions,
+        secondaryActionLabel = stringResource(R.string.share_open_settings),
+        onSecondaryAction = onOpenAppSettings,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun DeviceDiscoveryErrorState(
+    message: String,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    DeviceDiscoveryPlaceholder(
+        title = message,
+        message = stringResource(R.string.share_searching_hint),
+        primaryActionLabel = stringResource(R.string.action_retry),
+        onPrimaryAction = onRetry,
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun DeviceDiscoveryPlaceholder(
+    title: String,
+    message: String,
+    primaryActionLabel: String,
+    onPrimaryAction: () -> Unit,
+    modifier: Modifier = Modifier,
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = AppSpacing.Large),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            Icons.Outlined.WifiFind,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(SEARCH_PULSE_ICON_SIZE),
+        )
+        Spacer(modifier = Modifier.height(AppSpacing.Medium))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(modifier = Modifier.height(AppSpacing.ExtraSmall))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = SEARCHING_HINT_ALPHA),
+        )
+        Spacer(modifier = Modifier.height(AppSpacing.Medium))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Button(onClick = onPrimaryAction) {
+                Text(primaryActionLabel)
+            }
+            if (secondaryActionLabel != null && onSecondaryAction != null) {
+                TextButton(onClick = onSecondaryAction) {
+                    Text(secondaryActionLabel)
+                }
+            }
+        }
     }
 }
 

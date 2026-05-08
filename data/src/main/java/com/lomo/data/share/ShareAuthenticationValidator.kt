@@ -68,10 +68,9 @@ internal class ShareAuthenticationValidator {
         resolvePairingKeyHex: suspend () -> String?,
         payloadBuilder: () -> String,
     ): ShareAuthValidation {
-        val keyCandidates = resolveKeyCandidates(e2eEnabled, resolvePairingKeyHex)
+        val keyCandidates = resolveKeyCandidates(resolvePairingKeyHex)
         val validationError =
             when {
-                !e2eEnabled -> ShareAuthValidation(ok = true, keyHex = null)
                 keyCandidates.isEmpty() -> pairingNotConfiguredValidation()
                 !ShareAuthUtils.isTimestampWithinWindow(authTimestampMs) -> {
                     ShareAuthValidation(false, HttpStatusCode.Unauthorized, EXPIRED_AUTH_TIMESTAMP_MESSAGE)
@@ -97,23 +96,16 @@ internal class ShareAuthenticationValidator {
                 null
             }
         return validationError
-            ?: verifiedKey?.let { ShareAuthValidation(true, keyHex = it) }
+            ?: verifiedKey?.let { ShareAuthValidation(true, keyHex = it.takeIf { e2eEnabled }) }
             ?: ShareAuthValidation(false, HttpStatusCode.Unauthorized, INVALID_AUTH_SIGNATURE_MESSAGE)
     }
 
-    private suspend fun resolveKeyCandidates(
-        e2eEnabled: Boolean,
-        resolvePairingKeyHex: suspend () -> String?,
-    ): List<String> =
-        if (!e2eEnabled) {
-            emptyList()
-        } else {
-            resolvePairingKeyHex()
-                ?.trim()
-                ?.takeIf(::isValidKeyHex)
-                ?.let(::resolveCandidateKeyHexes)
-                .orEmpty()
-        }
+    private suspend fun resolveKeyCandidates(resolvePairingKeyHex: suspend () -> String?): List<String> =
+        resolvePairingKeyHex()
+            ?.trim()
+            ?.takeIf(::isValidKeyHex)
+            ?.let(::resolveCandidateKeyHexes)
+            .orEmpty()
 
     private fun pairingNotConfiguredValidation(): ShareAuthValidation =
         ShareAuthValidation(

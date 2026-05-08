@@ -1,6 +1,7 @@
 package com.lomo.data.share
 
 import android.content.Context
+import android.net.Network
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
 import android.os.Build
@@ -11,7 +12,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import timber.log.Timber
-import kotlin.coroutines.cancellation.CancellationException
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class NsdDiscoveryService(
     private val context: Context,
+    private val onDiscoveryStartFailed: () -> Unit = {},
+    private val onServiceRegistrationFailed: () -> Unit = {},
 ) {
     private val nsdManager: NsdManager by lazy {
         context.getSystemService(Context.NSD_SERVICE) as NsdManager
@@ -40,13 +42,17 @@ class NsdDiscoveryService(
         port: Int,
         deviceName: String,
         uuid: String,
-    ) {
+        targetNetwork: Network? = null,
+    ): Boolean {
         val serviceInfo =
             NsdServiceInfo().apply {
                 serviceName = "$SERVICE_NAME_PREFIX$deviceName"
                 serviceType = SERVICE_TYPE
                 setPort(port)
                 setAttribute("uuid", uuid)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
+                    setNetwork(targetNetwork)
+                }
             }
 
         registrationListener =
@@ -61,6 +67,9 @@ class NsdDiscoveryService(
                     errorCode: Int,
                 ) {
                     Timber.tag(TAG).e("Registration failed: $errorCode")
+                    registrationListener = null
+                    registeredServiceName = null
+                    onServiceRegistrationFailed()
                 }
 
                 override fun onServiceUnregistered(info: NsdServiceInfo) {
@@ -75,24 +84,41 @@ class NsdDiscoveryService(
                 }
             }
 
-        runCatching {
-            nsdManager.registerService(
-                serviceInfo,
-                NsdManager.PROTOCOL_DNS_SD,
-                registrationListener,
-            )
-        }.onFailure { error -> logOperationFailure(error, "Failed to register NSD service") }
+        val listener = registrationListener ?: return false
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
+                nsdManager.registerService(
+                    serviceInfo,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    ContextCompat.getMainExecutor(context),
+                    listener,
+                )
+            } else {
+                nsdManager.registerService(
+                    serviceInfo,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    listener,
+                )
+            }
+        }.onFailure { error ->
+            registrationListener = null
+            registeredServiceName = null
+            logNsdOperationFailure(error, "Failed to register NSD service")
+        }.isSuccess
     }
 
     fun unregisterService() {
         runCatching {
             registrationListener?.let { nsdManager.unregisterService(it) }
-        }.onFailure { error -> logOperationFailure(error, "Failed to unregister NSD service") }
+        }.onFailure { error -> logNsdOperationFailure(error, "Failed to unregister NSD service") }
         registrationListener = null
         registeredServiceName = null
     }
 
-    fun startDiscovery(uuid: String) {
+    fun startDiscovery(
+        uuid: String,
+        targetNetwork: Network? = null,
+    ): Boolean {
         this.localUuid = uuid
         _discoveredDevices.value = emptyList()
 
@@ -134,6 +160,9 @@ class NsdDiscoveryService(
                     errorCode: Int,
                 ) {
                     Timber.tag(TAG).e("Start discovery failed: $errorCode")
+                    discoveryListener = null
+                    _discoveredDevices.value = emptyList()
+                    onDiscoveryStartFailed()
                 }
 
                 override fun onStopDiscoveryFailed(
@@ -144,19 +173,34 @@ class NsdDiscoveryService(
                 }
             }
 
-        runCatching {
-            nsdManager.discoverServices(
-                SERVICE_TYPE,
-                NsdManager.PROTOCOL_DNS_SD,
-                discoveryListener,
-            )
-        }.onFailure { error -> logOperationFailure(error, "Failed to start NSD discovery") }
+        val listener = discoveryListener ?: return false
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && targetNetwork != null) {
+                nsdManager.discoverServices(
+                    SERVICE_TYPE,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    targetNetwork,
+                    ContextCompat.getMainExecutor(context),
+                    listener,
+                )
+            } else {
+                nsdManager.discoverServices(
+                    SERVICE_TYPE,
+                    NsdManager.PROTOCOL_DNS_SD,
+                    listener,
+                )
+            }
+        }.onFailure { error ->
+            discoveryListener = null
+            _discoveredDevices.value = emptyList()
+            logNsdOperationFailure(error, "Failed to start NSD discovery")
+        }.isSuccess
     }
 
     fun stopDiscovery() {
         runCatching {
             discoveryListener?.let { nsdManager.stopServiceDiscovery(it) }
-        }.onFailure { error -> logOperationFailure(error, "Failed to stop NSD discovery") }
+        }.onFailure { error -> logNsdOperationFailure(error, "Failed to stop NSD discovery") }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             serviceInfoCallbacks.values.toList().forEach { callback ->
                 runCatching { nsdManager.unregisterServiceInfoCallback(callback) }
@@ -166,6 +210,14 @@ class NsdDiscoveryService(
         }
         discoveryListener = null
         _discoveredDevices.value = emptyList()
+    }
+
+    fun mergeDiscoveredDevices(devices: List<DiscoveredDevice>) {
+        if (devices.isEmpty()) return
+        _discoveredDevices.update { existing ->
+            val incomingKeys = devices.map { device -> "${device.host}:${device.port}" }.toSet()
+            existing.filterNot { device -> "${device.host}:${device.port}" in incomingKeys } + devices
+        }
     }
 
     private fun resolveService(serviceInfo: NsdServiceInfo) {
@@ -214,7 +266,7 @@ class NsdDiscoveryService(
                 callback,
             )
         }.onFailure { error ->
-            logOperationFailure(error, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
+            logNsdOperationFailure(error, "Failed to register ServiceInfo callback for ${serviceInfo.serviceName}")
             serviceInfoCallbacks.remove(key, callback)
         }
     }
@@ -240,72 +292,32 @@ class NsdDiscoveryService(
                     "resolveService",
                     NsdServiceInfo::class.java,
                     NsdManager.ResolveListener::class.java,
-                )
+            )
             resolveService.invoke(nsdManager, serviceInfo, listener)
         }.onFailure { error ->
-            Timber.tag(TAG).e(error, "Failed to resolve service for ${serviceInfo.serviceName}")
+            logNsdOperationFailure(error, "Failed to resolve service for ${serviceInfo.serviceName}")
         }
     }
 
-    private fun callbackKey(serviceInfo: NsdServiceInfo): String =
-        "${serviceInfo.serviceName}|${serviceInfo.serviceType}"
-
-    private fun logOperationFailure(
-        error: Throwable,
-        message: String,
-    ) {
-        if (error is CancellationException) throw error
-        Timber.tag(TAG).e(error, message)
-    }
-
     private fun handleResolvedService(info: NsdServiceInfo) {
-        val hostAddress: java.net.InetAddress? =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                info.hostAddresses.firstOrNull { it is java.net.Inet4Address }
-            } else {
-                runCatching {
-                    NsdServiceInfo::class.java
-                        .getMethod("getHost")
-                        .invoke(info) as? java.net.InetAddress
-                }.getOrNull()
-            }
+        val device =
+            mapResolvedLanShareDevice(
+                serviceName = info.serviceName,
+                hostAddresses = resolvedHostAddresses(info),
+                port = info.port,
+                attributes = info.attributes,
+                localUuid = localUuid,
+            )
+        if (device == null) {
+            Timber.tag(TAG).d("Ignored unresolved or self NSD service: ${info.serviceName}")
+            return
+        }
 
-        val host = (hostAddress as? java.net.Inet4Address)?.hostAddress
-        val port = info.port
-        val name = info.serviceName.removePrefix(SERVICE_NAME_PREFIX)
-
-        val uuidBytes = info.attributes["uuid"]
-        val remoteUuid = uuidBytes?.let { String(it, Charsets.UTF_8) }
-
-        when {
-            hostAddress !is java.net.Inet4Address -> {
-                Timber.tag(TAG).d("Ignored non-IPv4 host: $hostAddress")
-            }
-
-            host == null -> {
-                Timber.tag(TAG).d("Ignored null hostAddress string for ${info.serviceName}")
-            }
-
-            localUuid != null && remoteUuid == localUuid -> {
-                Timber.tag(TAG).d("Ignored self: $name ($remoteUuid)")
-            }
-
-            else -> {
-                Timber.tag(TAG).d("Resolved: $name at $host:$port (uuid=$remoteUuid)")
-
-                val device =
-                    DiscoveredDevice(
-                        name = name,
-                        host = host,
-                        port = port,
-                    )
-
-                _discoveredDevices.update { list ->
-                    // Deduplicate by host to prevent multiple entries for the same device (e.g. after rename)
-                    val existing = list.filter { it.host != host }
-                    existing + device
-                }
-            }
+        Timber.tag(TAG).d("Resolved: ${device.name} at ${device.host}:${device.port}")
+        _discoveredDevices.update { list ->
+            // Deduplicate by host to prevent multiple entries for the same device (e.g. after rename)
+            val existing = list.filter { it.host != device.host }
+            existing + device
         }
     }
 

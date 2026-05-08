@@ -12,6 +12,7 @@ class LanShareUiCoordinator
     ) {
         val discoveredDevices = lanShareService.discoveredDevices
         val transferState = lanShareService.transferState
+        val lanShareStartupFailures = lanShareService.lanShareStartupFailures
         val lanShareEnabled = lanShareService.lanShareEnabled
         val lanShareE2eEnabled = lanShareService.lanShareE2eEnabled
         val lanSharePairingConfigured = lanShareService.lanSharePairingConfigured
@@ -20,6 +21,10 @@ class LanShareUiCoordinator
 
         fun startDiscovery() {
             lanShareService.startDiscovery()
+        }
+
+        fun startServices() {
+            lanShareService.startServices()
         }
 
         fun stopDiscovery() {

@@ -73,6 +73,19 @@ class SharePairingConfigTest {
         }
 
     @Test
+    fun `setLanShareDeviceName strips bidi spoofing controls`() =
+        runTest {
+            every { dataStore.lanShareE2eEnabled } returns flowOf(true)
+            every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
+            every { dataStore.lanShareDeviceName } returns flowOf("My Device")
+            val config = SharePairingConfig(dataStore)
+
+            config.setLanShareDeviceName("  My\u202E Phone\u2066  ")
+
+            coVerify(exactly = 1) { dataStore.updateLanShareDeviceName("My Phone") }
+        }
+
+    @Test
     fun `requiresPairingBeforeSend returns false when e2e is disabled`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(false)

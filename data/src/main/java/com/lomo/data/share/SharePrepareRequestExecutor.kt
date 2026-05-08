@@ -20,6 +20,18 @@ internal class SharePrepareRequestExecutor(
     private val json: Json,
     private val getPairingKeyHex: suspend () -> String?,
 ) {
+    private val ensureReachable: suspend (DiscoveredDevice) -> Unit = { device ->
+        require(isLanSharePrivateHost(device.host)) { "LAN share requires a private peer address" }
+        runNonFatalCatching {
+            client.get("http://${device.host}:${device.port}/share/ping") {
+                timeout { requestTimeoutMillis = LomoShareClient.PING_TIMEOUT_MS }
+            }
+        }.getOrElse { error ->
+            Timber.tag(TAG).e(error, "Connectivity check failed")
+            throw SharePrepareRequestException("Device unreachable", error)
+        }
+    }
+
     suspend fun prepare(
         device: DiscoveredDevice,
         content: String,
@@ -54,17 +66,6 @@ internal class SharePrepareRequestExecutor(
             Timber.tag(TAG).e(error, "Prepare request failed")
         }
 
-    private suspend fun ensureReachable(device: DiscoveredDevice) {
-        runNonFatalCatching {
-            client.get("http://${device.host}:${device.port}/share/ping") {
-                timeout { requestTimeoutMillis = LomoShareClient.PING_TIMEOUT_MS }
-            }
-        }.getOrElse { error ->
-            Timber.tag(TAG).e(error, "Connectivity check failed")
-            throw SharePrepareRequestException("Device unreachable", error)
-        }
-    }
-
     private suspend fun prepareOpenSession(
         device: DiscoveredDevice,
         senderName: String,
@@ -73,6 +74,9 @@ internal class SharePrepareRequestExecutor(
         attachments: List<ShareAttachmentInfo>,
         attachmentNames: List<String>,
     ): LomoShareClient.PreparedSession {
+        val keyHex =
+            resolvePrimaryKeyHex(getPairingKeyHex()?.trim())
+                ?: throw IllegalStateException("LAN share pairing code is not configured")
         val request =
             buildPrepareRequest(
                 senderName = senderName,
@@ -81,7 +85,7 @@ internal class SharePrepareRequestExecutor(
                 attachments = attachments,
                 attachmentNames = attachmentNames,
                 e2eEnabled = false,
-                keyHex = null,
+                keyHex = keyHex,
             )
         val response = submitPrepareRequest(device, request)
         return decodeSuccessfulSession(response.bodyText, keyHex = null)
@@ -191,6 +195,14 @@ internal class SharePrepareRequestExecutor(
                     attachmentNames = attachmentNames,
                     keyHex = requireNotNull(keyHex) { "Missing E2E key" },
                 )
+            } else if (keyHex != null) {
+                buildOpenPrepareAuthPayload(
+                    senderName = senderName,
+                    content = content,
+                    timestamp = timestamp,
+                    attachmentNames = attachmentNames,
+                    keyHex = keyHex,
+                )
             } else {
                 PrepareAuthPayload(
                     encryptedContent = content,
@@ -244,6 +256,34 @@ internal class SharePrepareRequestExecutor(
         return PrepareAuthPayload(
             encryptedContent = encryptedContent.ciphertextBase64,
             contentNonce = encryptedContent.nonceBase64,
+            authTimestampMs = authTimestampMs,
+            authNonce = authNonce,
+            authSignature = ShareAuthUtils.signPayloadHex(keyHex = keyHex, payload = signaturePayload),
+        )
+    }
+
+    private fun buildOpenPrepareAuthPayload(
+        senderName: String,
+        content: String,
+        timestamp: Long,
+        attachmentNames: List<String>,
+        keyHex: String,
+    ): PrepareAuthPayload {
+        val authTimestampMs = System.currentTimeMillis()
+        val authNonce = ShareAuthUtils.generateNonce()
+        val signaturePayload =
+            ShareAuthUtils.buildPreparePayloadToSign(
+                senderName = senderName,
+                encryptedContent = content,
+                contentNonce = "",
+                timestamp = timestamp,
+                attachmentNames = attachmentNames,
+                authTimestampMs = authTimestampMs,
+                authNonce = authNonce,
+            )
+        return PrepareAuthPayload(
+            encryptedContent = content,
+            contentNonce = "",
             authTimestampMs = authTimestampMs,
             authNonce = authNonce,
             authSignature = ShareAuthUtils.signPayloadHex(keyHex = keyHex, payload = signaturePayload),
