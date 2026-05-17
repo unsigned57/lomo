@@ -76,6 +76,13 @@ class LomoShareServer {
         deviceName: String = DEFAULT_DISCOVERY_DEVICE_NAME,
     ): Int {
         updateDiscoveryDeviceName(deviceName)
+        if (port != 0) {
+            // Ktor's CIO engine binds asynchronously from an internal coroutine, so a
+            // BindException is thrown from a child job and propagates to the process'
+            // uncaught handler — which terminates the app. Probe the port synchronously
+            // so a port conflict surfaces as a regular Exception we can recover from.
+            ensurePortBindable(host, port)
+        }
         val prepareHandler =
             createSharePrepareHandler(
                 json = json,
@@ -323,3 +330,10 @@ private suspend fun resolveBoundPort(
         ?.port
         ?.takeIf { it != 0 }
         ?: fallbackPort
+
+private fun ensurePortBindable(host: String, port: Int) {
+    java.net.ServerSocket().use { probe ->
+        probe.reuseAddress = true
+        probe.bind(java.net.InetSocketAddress(host, port))
+    }
+}

@@ -7,6 +7,10 @@ import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.model.ShareTransferLimits
 import timber.log.Timber
 import java.io.File
+import okio.Buffer
+import okio.buffer
+import okio.sink
+import okio.source
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -260,19 +264,24 @@ internal class ShareTransferPayloadBuilder(
         cipher: javax.crypto.Cipher,
         maxBytes: Long,
     ) {
-        encryptedFile.outputStream().buffered().use { encryptedOut ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        encryptedFile.outputStream().sink().buffer().use { encryptedOut ->
             var totalPlainBytes = 0L
-            while (true) {
-                val read = source.read(buffer)
-                if (read <= 0) {
-                    break
+            source.source().use { okioSource ->
+                while (true) {
+                    val chunkBuffer = Buffer()
+                    val read = okioSource.read(chunkBuffer, DEFAULT_BUFFER_SIZE.toLong())
+                    if (read <= 0L) {
+                        break
+                    }
+                    totalPlainBytes += read
+                    if (totalPlainBytes > maxBytes) {
+                        throw IllegalArgumentException("Attachment too large")
+                    }
+                    cipher
+                        .update(chunkBuffer.readByteArray(read))
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let(encryptedOut::write)
                 }
-                totalPlainBytes += read.toLong()
-                if (totalPlainBytes > maxBytes) {
-                    throw IllegalArgumentException("Attachment too large")
-                }
-                cipher.update(buffer, 0, read)?.takeIf { it.isNotEmpty() }?.let(encryptedOut::write)
             }
             cipher.doFinal().takeIf { it.isNotEmpty() }?.let(encryptedOut::write)
         }

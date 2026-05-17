@@ -59,7 +59,7 @@ internal class ShareTransferRequestProcessor(
                                 else -> Unit
                             }
                         } finally {
-                            part.dispose()
+                            part.release()
                         }
                         part = multipart.readPart()
                     }

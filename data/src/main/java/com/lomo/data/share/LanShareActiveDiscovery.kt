@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+import android.net.Network
 import com.lomo.domain.model.DiscoveredDevice
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -19,9 +20,17 @@ internal const val LAN_SHARE_PING_RESPONSE_PREFIX = "lomo-share\t"
 internal data class LanShareActiveDiscoveryTarget(
     val host: String,
     val port: Int,
+    val network: Network? = null,
 )
 
-internal fun buildLanShareActiveDiscoveryTargets(bindHost: String): List<LanShareActiveDiscoveryTarget> {
+internal interface LanShareActiveDiscoveryScanner {
+    suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice>
+}
+
+internal fun buildLanShareActiveDiscoveryTargets(
+    bindHost: String,
+    network: Network? = null,
+): List<LanShareActiveDiscoveryTarget> {
     val localAddress = runCatching { InetAddress.getByName(bindHost) }.getOrNull() as? Inet4Address
         ?: return emptyList()
     if (!localAddress.isSiteLocalAddress) return emptyList()
@@ -33,16 +42,20 @@ internal fun buildLanShareActiveDiscoveryTargets(bindHost: String): List<LanShar
         .asSequence()
         .map { hostSuffix -> "$prefix$hostSuffix" }
         .filterNot { host -> host == bindHost }
-        .map { host -> LanShareActiveDiscoveryTarget(host, LAN_SHARE_DISCOVERY_PORT) }
+        .map { host -> LanShareActiveDiscoveryTarget(host, LAN_SHARE_DISCOVERY_PORT, network) }
         .toList()
 }
 
 internal class LanShareActiveDiscoveryClient(
     private val probeDevice: suspend (LanShareActiveDiscoveryTarget) -> DiscoveredDevice? =
         ::probeLanShareDevice,
-) {
-    suspend fun scan(bindHost: String): List<DiscoveredDevice> {
-        val targets = buildLanShareActiveDiscoveryTargets(bindHost)
+) : LanShareActiveDiscoveryScanner {
+    override suspend fun scan(snapshot: LanShareActiveNetworkSnapshot): List<DiscoveredDevice> {
+        val targets =
+            buildLanShareActiveDiscoveryTargets(
+                bindHost = snapshot.bindHost,
+                network = snapshot.network,
+            )
         if (targets.isEmpty()) return emptyList()
         return targets
             .chunked(ACTIVE_DISCOVERY_CONCURRENCY)
@@ -60,14 +73,15 @@ internal class LanShareActiveDiscoveryClient(
                         }.awaitAll()
                         .filterNotNull()
                 }
-            }.distinctBy { device -> "${device.host}:${device.port}" }
+            }.distinctBy { device -> device.endpointKey() }
     }
 }
 
 private suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget): DiscoveredDevice? =
     withContext(Dispatchers.IO) {
+        val url = URI("http://${target.host}:${target.port}/share/ping").toURL()
         val connection =
-            (URI("http://${target.host}:${target.port}/share/ping").toURL().openConnection() as HttpURLConnection)
+            ((target.network?.openConnection(url) ?: url.openConnection()) as HttpURLConnection)
                 .apply {
                     requestMethod = "GET"
                     connectTimeout = ACTIVE_DISCOVERY_TIMEOUT_MS
@@ -76,22 +90,31 @@ private suspend fun probeLanShareDevice(target: LanShareActiveDiscoveryTarget): 
         try {
             if (connection.responseCode != HttpURLConnection.HTTP_OK) return@withContext null
             val body = connection.inputStream.bufferedReader().use { reader -> reader.readText() }
-            val deviceName =
-                body
-                    .takeIf { it.startsWith(LAN_SHARE_PING_RESPONSE_PREFIX) }
-                    ?.removePrefix(LAN_SHARE_PING_RESPONSE_PREFIX)
-                    ?.trim()
-                    ?.takeIf(String::isNotBlank)
-                    ?: return@withContext null
-            DiscoveredDevice(
-                name = deviceName,
-                host = target.host,
-                port = target.port,
-            )
+            mapLanSharePingResponse(target, body)
         } finally {
             connection.disconnect()
         }
     }
+
+internal fun mapLanSharePingResponse(
+    target: LanShareActiveDiscoveryTarget,
+    body: String,
+): DiscoveredDevice? {
+    val deviceName =
+        body
+            .takeIf { it.startsWith(LAN_SHARE_PING_RESPONSE_PREFIX) }
+            ?.removePrefix(LAN_SHARE_PING_RESPONSE_PREFIX)
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: return null
+    return DiscoveredDevice(
+        name = deviceName,
+        host = target.host,
+        port = target.port,
+    )
+}
+
+private fun DiscoveredDevice.endpointKey(): String = "$host:$port"
 
 private const val TAG = "LanShareActiveDiscovery"
 private const val ACTIVE_DISCOVERY_CONCURRENCY = 32
