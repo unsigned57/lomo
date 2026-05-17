@@ -1,0 +1,2 @@
+[libraries]
+junit-vintage-engine = { module = "org.junit.vintage:junit-vintage-engine", version = "5.13.4" }

@@ -41,4 +41,4 @@ echo "ai-fast-quality-check: running ./gradlew fastQualityCheck"
 echo "ai-fast-quality-check: using GRADLE_USER_HOME at $ai_gradle_user_home"
 echo "ai-fast-quality-check: using HOME at $ai_home"
 
-exec lomo_ai_run_gradle fastQualityCheck "$@"
+lomo_ai_run_gradle fastQualityCheck "$@"

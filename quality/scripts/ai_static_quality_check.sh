@@ -11,4 +11,4 @@ echo "ai-static-quality-check: running ./gradlew staticQualityCheck"
 echo "ai-static-quality-check: using GRADLE_USER_HOME at $ai_gradle_user_home"
 echo "ai-static-quality-check: using HOME at $ai_home"
 
-exec lomo_ai_run_gradle staticQualityCheck "$@"
+lomo_ai_run_gradle staticQualityCheck "$@"
