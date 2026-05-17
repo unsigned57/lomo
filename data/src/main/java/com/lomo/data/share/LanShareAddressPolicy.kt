@@ -67,56 +67,18 @@ internal fun resolveLanShareBindHost(connectivityManager: ConnectivityManager?):
 internal fun resolveLanShareActiveNetworkSnapshot(
     connectivityManager: ConnectivityManager?,
     candidateNetworks: Set<Network> = emptySet(),
-): LanShareActiveNetworkSnapshot? {
-    val networkSnapshot =
-        connectivityManager
-            ?.toLanShareNetworkProbes(candidateNetworks)
-            ?.let(::selectLanShareActiveNetworkSnapshot)
-    return networkSnapshot ?: selectLanShareInterfaceFallbackSnapshot(enumerateLanShareInterfaceProbes())
-}
+): LanShareActiveNetworkSnapshot? =
+    resolveLanShareEligibleNetworkSnapshots(connectivityManager, candidateNetworks).firstOrNull()
 
 internal fun selectLanShareActiveNetworkSnapshot(
     probes: List<LanShareNetworkProbe>,
-): LanShareActiveNetworkSnapshot? =
-    probes
-        .asSequence()
-        .mapNotNull { probe ->
-            val priority = probe.lanSharePriority() ?: return@mapNotNull null
-            val bindHost = probe.bindHost ?: return@mapNotNull null
-            priority to
-                LanShareActiveNetworkSnapshot(
-                    networkKey = probe.networkKey,
-                    bindHost = bindHost,
-                    network = probe.network,
-                )
-        }.sortedWith(
-            compareBy<Pair<Int, LanShareActiveNetworkSnapshot>> { it.first }
-                .thenByDescending { (_, snapshot) ->
-                    probes.firstOrNull { probe -> probe.networkKey == snapshot.networkKey }?.isActiveNetwork == true
-                },
-        ).firstOrNull()
-        ?.second
+): LanShareActiveNetworkSnapshot? = selectLanShareEligibleNetworkSnapshots(probes).firstOrNull()
 
 internal fun selectLanShareInterfaceFallbackSnapshot(
     probes: List<LanShareInterfaceProbe>,
-): LanShareActiveNetworkSnapshot? =
-    probes
-        .asSequence()
-        .mapNotNull { probe ->
-            val priority = probe.lanShareInterfacePriority() ?: return@mapNotNull null
-            val bindHost = selectLanShareBindHostAddress(probe.addresses) ?: return@mapNotNull null
-            priority to
-                LanShareActiveNetworkSnapshot(
-                    networkKey = "if:${probe.name}",
-                    bindHost = bindHost,
-                )
-        }.sortedWith(
-            compareBy<Pair<Int, LanShareActiveNetworkSnapshot>> { it.first }
-                .thenBy { (_, snapshot) -> snapshot.networkKey },
-        ).firstOrNull()
-        ?.second
+): LanShareActiveNetworkSnapshot? = selectLanShareEligibleInterfaceFallbackSnapshots(probes).firstOrNull()
 
-private fun ConnectivityManager.toLanShareNetworkProbes(candidateNetworks: Set<Network>): List<LanShareNetworkProbe> {
+internal fun ConnectivityManager.toLanShareNetworkProbes(candidateNetworks: Set<Network>): List<LanShareNetworkProbe> {
     val activeNetwork = activeNetwork
     val orderedNetworks =
         buildList {
@@ -152,7 +114,7 @@ private fun ConnectivityManager.reflectedLanShareNetworks(): List<Network> =
         networks?.filterIsInstance<Network>().orEmpty()
     }.getOrDefault(emptyList())
 
-private fun enumerateLanShareInterfaceProbes(): List<LanShareInterfaceProbe> =
+internal fun enumerateLanShareInterfaceProbes(): List<LanShareInterfaceProbe> =
     runCatching {
         val interfaces = NetworkInterface.getNetworkInterfaces() ?: return@runCatching emptyList()
         Collections.list(interfaces).map { networkInterface ->
