@@ -38,8 +38,8 @@ jobs:
 
       - name: Validate Local Baseline Profiles
         run: |
-          test -s app/src/release/generated/baselineProfiles/baseline-prof.txt
-          test -s app/src/release/generated/baselineProfiles/startup-prof.txt
+          test -s app/src/main/baseline-prof.txt
+          test -s app/src/main/baselineProfiles/generated.txt
 
       - name: Decode Keystore
         env:
