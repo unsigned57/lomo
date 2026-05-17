@@ -5,7 +5,6 @@ import java.io.File
 
 internal class DirectMarkdownStorageBackendDelegate(
     private val rootDir: File,
-    private val secureWipeBeforeDeleteEnabled: suspend () -> Boolean = { false },
 ) : MarkdownStorageBackend {
     override suspend fun listMetadataIn(directory: MemoDirectoryType): List<FileMetadata> =
         routeMarkdownDirectory(
@@ -69,6 +68,10 @@ internal class DirectMarkdownStorageBackendDelegate(
             },
         )
 
+    // Permanent delete always wipes the file with zeros before unlinking. The trash already
+    // owns the non-destructive recovery flow; once we reach this path the user has confirmed
+    // an irreversible removal so the wipe is a non-configurable application invariant rather
+    // than a user setting.
     override suspend fun deleteFileIn(
         directory: MemoDirectoryType,
         filename: String,
@@ -76,20 +79,8 @@ internal class DirectMarkdownStorageBackendDelegate(
     ) {
         routeMarkdownDirectory(
             directory = directory,
-            onMain = {
-                directDeleteFile(
-                    rootDir = rootDir,
-                    filename = filename,
-                    overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
-                )
-            },
-            onTrash = {
-                directDeleteTrashFile(
-                    rootDir = rootDir,
-                    filename = filename,
-                    overwriteBeforeUnlink = secureWipeBeforeDeleteEnabled(),
-                )
-            },
+            onMain = { directDeleteFile(rootDir = rootDir, filename = filename) },
+            onTrash = { directDeleteTrashFile(rootDir = rootDir, filename = filename) },
         )
     }
 }

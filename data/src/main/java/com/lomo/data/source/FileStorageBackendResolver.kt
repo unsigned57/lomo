@@ -2,7 +2,6 @@ package com.lomo.data.source
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
-import kotlinx.coroutines.flow.first
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -44,7 +43,6 @@ class FileStorageBackendResolver
             buildResolvedMediaRoot(
                 rootConfig = dataStore.readStorageRootConfig(type),
                 context = context,
-                secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
             )
 
         suspend fun voiceBackend(): MediaStorageBackend? {
@@ -64,7 +62,6 @@ class FileStorageBackendResolver
                     VfsStorageBackend(
                         context = context,
                         rootVfs = it,
-                        secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
                     )
                 }
             currentMarkdownBackend = backend
@@ -77,7 +74,6 @@ class FileStorageBackendResolver
             return buildResolvedMediaRoot(
                 rootConfig = dataStore.readStorageRootConfig(StorageRootType.MAIN),
                 context = context,
-                secureWipeBeforeDeleteEnabled = { dataStore.secureWipeBeforeDeleteEnabled.first() },
             )?.backend
         }
     }
@@ -85,7 +81,6 @@ class FileStorageBackendResolver
 private fun buildResolvedMediaRoot(
     rootConfig: StorageRootConfig,
     context: Context,
-    secureWipeBeforeDeleteEnabled: suspend () -> Boolean,
 ): ResolvedMediaRoot? {
     val vfs = rootConfig.toWorkspaceVfs() ?: return null
     return ResolvedMediaRoot(
@@ -93,7 +88,6 @@ private fun buildResolvedMediaRoot(
             VfsStorageBackend(
                 context = context,
                 rootVfs = vfs,
-                secureWipeBeforeDeleteEnabled = secureWipeBeforeDeleteEnabled,
             ),
         vfs = vfs,
         configuredUriMarker = rootConfig.configuredUri,

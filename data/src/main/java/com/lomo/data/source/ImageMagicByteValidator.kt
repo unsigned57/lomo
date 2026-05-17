@@ -2,6 +2,8 @@ package com.lomo.data.source
 
 import android.content.ContentResolver
 import android.net.Uri
+import okio.Buffer
+import okio.source
 import timber.log.Timber
 import java.io.IOException
 
@@ -19,14 +21,14 @@ internal object ImageMagicByteValidator {
     ) {
         val header =
             contentResolver.openInputStream(uri)?.use { stream ->
-                val buffer = ByteArray(HEADER_SIZE)
-                var total = 0
-                while (total < HEADER_SIZE) {
-                    val read = stream.read(buffer, total, HEADER_SIZE - total)
-                    if (read <= 0) break
-                    total += read
+                val headerBuffer = Buffer()
+                stream.source().use { source ->
+                    while (headerBuffer.size < HEADER_SIZE.toLong()) {
+                        val read = source.read(headerBuffer, HEADER_SIZE.toLong() - headerBuffer.size)
+                        if (read <= 0L) break
+                    }
                 }
-                buffer.copyOf(total)
+                headerBuffer.readByteArray()
             } ?: throw IOException("Cannot open source image URI for validation")
         if (!looksLikeSupportedImage(header)) {
             Timber.w("Rejected non-image content for uri=%s (size=%d)", uri, header.size)

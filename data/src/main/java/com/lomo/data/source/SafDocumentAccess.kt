@@ -4,10 +4,11 @@ import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import com.lomo.data.util.runNonFatalCatching
+import okio.buffer
+import okio.sink
+import okio.source
 import timber.log.Timber
-import java.io.BufferedReader
 import java.io.IOException
-import java.io.InputStreamReader
 
 internal class SafDocumentAccess(
     private val context: Context,
@@ -78,9 +79,7 @@ internal class SafDocumentAccess(
 
     fun readTextFromUri(uri: Uri): String? =
         try {
-            context.contentResolver.openInputStream(uri)?.use {
-                BufferedReader(InputStreamReader(it)).readText()
-            }
+            context.contentResolver.openInputStream(uri)?.source()?.buffer()?.use { it.readUtf8() }
         } catch (_: Exception) {
             null
         }
@@ -93,8 +92,8 @@ internal class SafDocumentAccess(
         val output =
             context.contentResolver.openOutputStream(uri, mode)
                 ?: throw IOException("openOutputStream returned null for uri=$uri mode=$mode")
-        output.use { stream ->
-            stream.write(content.toByteArray())
+        output.sink().buffer().use { sink ->
+            sink.writeUtf8(content)
         }
     }
 

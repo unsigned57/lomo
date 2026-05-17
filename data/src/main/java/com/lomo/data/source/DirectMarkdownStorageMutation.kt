@@ -154,12 +154,11 @@ internal fun directWriteTextAtomically(
 internal suspend fun directDeleteFile(
     rootDir: File,
     filename: String,
-    overwriteBeforeUnlink: Boolean = false,
     secureWipe: (File) -> Unit = ::secureWipeFileBeforeDelete,
 ) = withContext(Dispatchers.IO) {
     val file = File(rootDir, filename)
     ensureWithinDirectory(rootDir, file)
-    if (overwriteBeforeUnlink && file.exists()) {
+    if (file.exists()) {
         secureWipe(file)
     }
     file.delete()
@@ -169,13 +168,12 @@ internal suspend fun directDeleteFile(
 internal suspend fun directDeleteTrashFile(
     rootDir: File,
     filename: String,
-    overwriteBeforeUnlink: Boolean = false,
     secureWipe: (File) -> Unit = ::secureWipeFileBeforeDelete,
 ) = withContext(Dispatchers.IO) {
     val trashDir = directTrashDir(rootDir)
     val file = File(trashDir, filename)
     ensureWithinDirectory(trashDir, file)
-    if (overwriteBeforeUnlink && file.exists()) {
+    if (file.exists()) {
         secureWipe(file)
     }
     file.delete()
