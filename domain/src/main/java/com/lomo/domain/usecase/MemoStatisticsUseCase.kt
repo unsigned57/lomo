@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.first
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 import java.time.temporal.WeekFields
@@ -42,6 +43,7 @@ class MemoStatisticsUseCase(
             val monthStart = today.withDayOfMonth(1)
             val lastMonthStart = monthStart.minusMonths(1)
             val yearStart = today.withDayOfYear(1)
+            val nextYearStart = yearStart.plusYears(1)
             val lastYearStart = yearStart.minusYears(1)
 
             var thisWeekCount = 0
@@ -50,6 +52,7 @@ class MemoStatisticsUseCase(
             var lastMonthCount = 0
             var thisYearCount = 0
             var lastYearCount = 0
+            var dailyMemoTimeBounds = DailyMemoTimeBounds()
 
             for (memo in memos) {
                 val content = memo.content
@@ -60,6 +63,7 @@ class MemoStatisticsUseCase(
                 val dateTime = instant.atZone(zone)
                 val date = dateTime.toLocalDate()
                 val hour = dateTime.hour
+                val localTime = dateTime.toLocalTime()
                 val dayOfWeek = dateTime.dayOfWeek
 
                 memoCountByDate[date] = (memoCountByDate[date] ?: 0) + 1
@@ -80,6 +84,9 @@ class MemoStatisticsUseCase(
                     !date.isBefore(yearStart) -> thisYearCount++
                     !date.isBefore(lastYearStart) -> lastYearCount++
                 }
+                if (!date.isBefore(yearStart) && date.isBefore(nextYearStart)) {
+                    dailyMemoTimeBounds = dailyMemoTimeBounds.including(localTime)
+                }
             }
 
             val sortedDates = memoCountByDate.keys.sorted()
@@ -97,6 +104,8 @@ class MemoStatisticsUseCase(
                 memoCountByDate = memoCountByDate,
                 hourlyDistribution = hourlyDistribution,
                 weeklyHourDistribution = weeklyHourDistribution,
+                earliestDailyMemoTime = dailyMemoTimeBounds.earliest,
+                latestDailyMemoTime = dailyMemoTimeBounds.latest,
                 thisWeekCount = thisWeekCount,
                 lastWeekCount = lastWeekCount,
                 thisMonthCount = thisMonthCount,
@@ -105,6 +114,17 @@ class MemoStatisticsUseCase(
                 lastYearCount = lastYearCount,
                 tagCounts = tagCounts,
             )
+        }
+
+        private data class DailyMemoTimeBounds(
+            val earliest: LocalTime? = null,
+            val latest: LocalTime? = null,
+        ) {
+            fun including(time: LocalTime): DailyMemoTimeBounds =
+                DailyMemoTimeBounds(
+                    earliest = earliest?.takeIf { current -> !time.isBefore(current) } ?: time,
+                    latest = latest?.takeIf { current -> !time.isAfter(current) } ?: time,
+                )
         }
 
         private fun countWords(text: String): Int {
