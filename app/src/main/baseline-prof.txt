@@ -1,68 +1,24 @@
-# Baseline Profile for Lomo App
-# This profile optimizes critical startup paths and common user journeys
-# Generated from code analysis when device extraction is unavailable
+# Manual static baseline hints for cold-start critical classes.
+# Keep this layer at class granularity; method coverage comes from app/baseline-rules.txt
+# and regenerated app/src/main/baselineProfiles/generated.txt.
 
-# Application startup
-HSPLcom/lomo/app/LomoApplication;->onCreate()V
-HSPLcom/lomo/app/MainActivity;->onCreate(Landroid/os/Bundle;)V
-
-# Hilt injection
-HSPLdagger/hilt/android/internal/managers/ActivityComponentManager;->generatedComponent()Ljava/lang/Object;
-HSPLdagger/hilt/android/internal/lifecycle/HiltViewModelFactory;->create(Ljava/lang/Class;)Landroidx/lifecycle/ViewModel;
-
-# Compose runtime
-HSPLandroidx/compose/runtime/ComposerImpl;->startGroup(I)V
-HSPLandroidx/compose/runtime/ComposerImpl;->endGroup()V
-HSPLandroidx/compose/runtime/ComposerImpl;->changed(Ljava/lang/Object;)Z
-
-# Compose UI
-HSPLandroidx/compose/ui/platform/AndroidComposeView;->onDraw(Landroid/graphics/Canvas;)V
-HSPLandroidx/compose/foundation/lazy/LazyListState;->scrollToItem(II)V
-
-# Material 3
-HSPLandroidx/compose/material3/MaterialTheme_androidKt;->MaterialTheme(Landroidx/compose/runtime/Composer;I)V
+Lcom/lomo/app/LomoApplication;
+Lcom/lomo/app/MainActivity;
+Lcom/lomo/app/feature/main/MainViewModel;
+Lcom/lomo/app/feature/main/MainMemoListStateHolder;
+Lcom/lomo/app/feature/main/MemoUiMapper;
+Lcom/lomo/app/feature/common/AppConfigStateProvider;
+Lcom/lomo/app/feature/common/AppConfigUiCoordinator;
+Lcom/lomo/app/provider/ImageMapProvider;
+Lcom/lomo/app/navigation/LomoNavHostKt;
+Lcom/lomo/app/feature/gallery/GalleryScreenKt;
+Lcom/lomo/app/feature/gallery/GalleryReelScreenKt;
+Lcom/lomo/ui/component/markdown/ModernMarkdownRenderPlanKt;
+Lcom/lomo/ui/component/markdown/ModernMarkdownRendererKt;
+Lcom/lomo/ui/component/card/MemoCardKt;
 SPLandroidx/compose/material3/MotionScheme$Companion;->expressive()Landroidx/compose/material3/MotionScheme;
-SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;-><clinit>()V
 SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->defaultSpatialSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
-SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->fastSpatialSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
-SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->slowSpatialSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
 SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->defaultEffectsSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
-SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->fastEffectsSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
-SPLandroidx/compose/material3/MotionScheme$ExpressiveMotionSchemeImpl;->slowEffectsSpec()Landroidx/compose/animation/core/FiniteAnimationSpec;
-
-# Room
-HSPLandroidx/room/RoomDatabase;->query(Landroidx/sqlite/db/SupportSQLiteQuery;)Landroid/database/Cursor;
-
-# Navigation
-HSPLandroidx/navigation/compose/NavHostKt;->NavHost(Landroidx/compose/runtime/Composer;I)V
-
-# ViewModel
-HSPLandroidx/lifecycle/ViewModel;->clear()V
-HSPLandroidx/lifecycle/ViewModelStore;->get(Ljava/lang/String;)Landroidx/lifecycle/ViewModel;
-
-# Coroutines
-HSPLkotlinx/coroutines/flow/StateFlowImpl;->getValue()Ljava/lang/Object;
-HSPLkotlinx/coroutines/flow/SharedFlowImpl;->collect(Lkotlinx/coroutines/flow/FlowCollector;Lkotlin/coroutines/Continuation;)Ljava/lang/Object;
-
-# Coil
-HSPLcoil3/compose/AsyncImageStateKt;->SubcomposeAsyncImage(Ljava/lang/Object;Ljava/lang/String;Landroidx/compose/ui/Modifier;Landroidx/compose/runtime/Composer;I)V
-
-# App ViewModels
-HSPLcom/lomo/app/feature/main/MainViewModel;-><init>(Lcom/lomo/domain/repository/MemoRepository;Lcom/lomo/app/feature/main/MemoUiMapper;Lcom/lomo/data/util/MemoTextProcessor;Lcom/lomo/domain/usecase/GetFilteredMemosUseCase;)V
-HSPLcom/lomo/app/feature/main/SidebarViewModel;-><init>(Lcom/lomo/domain/usecase/GetMemoStatsUseCase;Lcom/lomo/domain/repository/MemoRepository;)V
-
-# App Screens
-HSPLcom/lomo/app/feature/main/MainScreenKt;->MainScreen(Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function2;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lcom/lomo/app/feature/main/MainViewModel;Lcom/lomo/app/feature/main/SidebarViewModel;Landroidx/compose/runtime/Composer;II)V
-
-# UI Components
-HSPLcom/lomo/ui/component/card/MemoCardKt;->MemoCard(Ljava/lang/String;Ljava/lang/String;Lcom/lomo/ui/component/markdown/ImmutableNode;JLkotlinx/collections/immutable/ImmutableList;Landroidx/compose/ui/Modifier;Ljava/lang/String;Ljava/lang/String;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Ljava/util/Map;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;III)V
-HSPLcom/lomo/ui/component/markdown/MarkdownRendererKt;->MarkdownRenderer(Ljava/lang/String;Landroidx/compose/ui/Modifier;ILkotlin/jvm/functions/Function2;Ljava/util/Map;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lcom/lomo/ui/component/markdown/ImmutableNode;Landroidx/compose/runtime/Composer;II)V
-SPLcom/lomo/ui/component/menu/MemoMenuHostKt;->MemoMenuHost(Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;ZZLkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;II)V
-PLcom/lomo/ui/component/menu/MemoMenuBottomSheetKt;->MemoMenuBottomSheet(Lcom/lomo/ui/component/menu/MemoMenuState;Landroidx/compose/material3/SheetState;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;ZZLandroidx/compose/runtime/Composer;III)V
-HPLcom/lomo/ui/component/menu/MemoActionSheetKt;->MemoActionSheet(Lcom/lomo/ui/component/menu/MemoMenuState;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;ZZLjava/util/List;ZZZLandroidx/compose/runtime/Composer;III)V
-
-# Theme
-HSPLcom/lomo/ui/theme/ThemeKt;->LomoTheme(ZZLkotlin/jvm/functions/Function2;Landroidx/compose/runtime/Composer;II)V
-
-# Repository
-HSPLcom/lomo/data/repository/MemoRepositoryImpl;->getAllMemosList()Lkotlinx/coroutines/flow/Flow;
+SPLcom/lomo/ui/component/menu/MemoMenuHostKt;->MemoMenuHost(Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;ZZZLkotlinx/collections/immutable/ImmutableList;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function3;Landroidx/compose/runtime/Composer;III)V
+PLcom/lomo/ui/component/menu/MemoMenuBottomSheetKt;->MemoMenuBottomSheet(Lcom/lomo/ui/component/menu/MemoMenuState;Landroidx/compose/material3/SheetState;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;ZZZLkotlinx/collections/immutable/ImmutableList;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;Lkotlin/jvm/functions/Function1;Landroidx/compose/runtime/Composer;IIII)V
+HPLcom/lomo/ui/component/menu/MemoActionSheetKt;->MemoActionSheet(Lcom/lomo/ui/component/menu/MemoMenuState;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Landroidx/compose/ui/Modifier;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function0;ZZLkotlinx/collections/immutable/ImmutableList;ZLkotlinx/collections/immutable/ImmutableList;Lkotlin/jvm/functions/Function1;Lkotlin/jvm/functions/Function1;Ljava/lang/String;Lkotlin/jvm/functions/Function1;ZZZLandroidx/compose/runtime/Composer;IIII)V
