@@ -21,6 +21,7 @@ import org.jetbrains.kotlin.psi.KtDoWhileExpression
 import org.jetbrains.kotlin.psi.KtExpression
 import org.jetbrains.kotlin.psi.KtFile
 import org.jetbrains.kotlin.psi.KtIfExpression
+import org.jetbrains.kotlin.psi.KtIsExpression
 import org.jetbrains.kotlin.psi.KtNameReferenceExpression
 import org.jetbrains.kotlin.psi.KtNamedDeclaration
 import org.jetbrains.kotlin.psi.KtNamedFunction
@@ -66,6 +67,7 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
                 RuleName("NoRedundantExhaustiveElse") to ::NoRedundantExhaustiveElseRule,
                 RuleName("NoCrossFileDuplicateTopLevel") to ::NoCrossFileDuplicateTopLevelRule,
                 RuleName("NoUnreferencedTopLevelDeclaration") to ::NoUnreferencedTopLevelDeclarationRule,
+                RuleName("ShouldBeInstanceOfAssertion") to ::ShouldBeInstanceOfAssertionRule,
             ),
         )
 }
@@ -772,6 +774,34 @@ private class NoUnreferencedTopLevelDeclarationRule(
                 )
             }
     }
+}
+
+private class ShouldBeInstanceOfAssertionRule(
+    config: Config,
+) : LomoArchitectureRule(
+    config,
+    "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
+) {
+    override fun visitBinaryExpression(expression: KtBinaryExpression) {
+        super.visitBinaryExpression(expression)
+        if (expression.operationReference.text != "shouldBe") return
+        val right = expression.right?.unwrapParens() ?: return
+        if (right.text != "true") return
+        val left = expression.left?.unwrapParens() ?: return
+        if (left !is KtIsExpression || left.isNegated) return
+        reportElement(
+            expression,
+            "Use shouldBeInstanceOf<T>() instead of asserting `(x is T) shouldBe true`.",
+        )
+    }
+}
+
+private fun KtExpression.unwrapParens(): KtExpression {
+    var current: KtExpression = this
+    while (current is KtParenthesizedExpression) {
+        current = current.expression ?: return current
+    }
+    return current
 }
 
 private fun KtExpression.evaluateBooleanConstant(): Boolean? =

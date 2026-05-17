@@ -33,6 +33,10 @@ If a file is mostly rendering or wiring but hides real branching, extract the br
   - why the failure proves the target behavior is currently broken or missing
 - If the request is truly test-only and no production code should change, the AI must state that explicitly and keep production files untouched.
 
+## Authoring Style
+
+After reading this policy, read `quality/testing/ai-kotlin-test-style.md` before writing Kotlin tests. It pins the approved Kotest/FunSpec stack, coroutine scaffolding, Turbine patterns, and the repository preference for `Fake*` collaborators over stateful mocks.
+
 ## Locked Existing Tests Policy
 
 Pre-existing tests are behavior locks by default, not disposable scaffolding.
@@ -93,7 +97,7 @@ After the scenario matrix, AI must perform an existing-test impact check:
 After the scenario matrix, follow this sequence:
 
 1. Write or modify the reproducer test before any related production edit.
-2. Add the required `Test Contract` metadata, including `Red phase`.
+2. Add the required `Test Contract` metadata, including the structured `Scenario matrix` block and `Red phase`.
 3. If changing an existing test, write `Test Change Justification` before editing it and prefer adding a companion test first.
 4. If the task requires a production change:
    - run the narrowest relevant test task
@@ -102,6 +106,12 @@ After the scenario matrix, follow this sequence:
 5. Only after red proof may AI modify production code.
 6. Re-run the reproducer to green, then broaden validation if the change surface justifies it.
 7. If no production change is required, state that the task is a test-only coverage lock-in and do not edit production code.
+
+Sample walkthroughs live in:
+
+- `quality/testing/samples/usecase-golden-sample.md`
+- `quality/testing/samples/viewmodel-golden-sample.md`
+- `quality/testing/samples/property-based-golden-sample.md`
 
 When a production change adds or reshapes branching (`if`, `when`, `catch`, Elvis fallback, early-return guard), the red proof must show why the branch is reachable or why removing it preserves reachable behavior. Do not accept tests that merely compile the branch or assert collaborator calls without proving an observable outcome.
 
@@ -130,17 +140,35 @@ Reject the test if it only proves:
 
 Every changed test file must contain either a file header comment or an adjacent markdown contract file.
 
-Preferred in-file header format:
+Preferred in-file header format for newly added tests:
 
 ```kotlin
 /*
  * Test Contract:
  * - Unit under test: SyncAndRebuildUseCase
- * - Behavior focus: refresh ordering, failure propagation, force vs best-effort sync.
- * - Observable outcomes: thrown exception type, refresh execution, collaborator call ordering.
- * - Red phase: Fails before the fix when refresh is skipped after a sync exception.
- * - Excludes: repository internals, transport implementation details, UI rendering.
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: refresh runs after a successful sync and returns normally.
+ * - Boundary: best-effort sync still refreshes memo state when no remote work is needed.
+ * - Failure: sync exception is propagated after the refresh contract is evaluated.
+ * - Must-not-happen: refresh is never skipped silently after a reachable sync path.
+ *
+ * Observable outcomes:
+ * - thrown exception type, refresh execution, collaborator call ordering.
+ *
+ * Red phase:
+ * - Fails before the fix when refresh is skipped after a sync exception.
+ *
+ * Excludes:
+ * - repository internals, transport implementation details, UI rendering.
  */
+class SyncAndRebuildUseCaseTest : FunSpec({
+    test("refresh runs after a successful sync") {
+        // ...
+    }
+})
 ```
 
 Accepted adjacent file format: `MyTest.contract.md`
@@ -148,9 +176,17 @@ Accepted adjacent file format: `MyTest.contract.md`
 Required sections:
 
 - `Test Contract`
+- `Scenario matrix`
 - `Observable outcomes`
 - `Red phase`
 - `Excludes`
+
+Rules:
+
+- Newly added test files must use the structured header shape above, including `Scenario matrix` with `Happy`, `Boundary`, `Failure`, and `Must-not-happen`.
+- Newly added Kotlin `src/test` files should use Kotest `FunSpec` and Kotest assertions such as `shouldBe` / `shouldThrow` per `ai-kotlin-test-style.md`.
+- Existing tests that already carry the legacy four-section metadata remain valid until they are touched, but any touched contract should be upgraded to the structured form when practical.
+- Adjacent `*.contract.md` files must carry the same sections when used instead of an in-file header.
 
 Use `Red phase` to record one of:
 
@@ -165,7 +201,15 @@ When AI edits an existing test file for any reason other than adding a new indep
 - `Coverage preserved by`
 - `Why this is not fitting the test to the implementation`
 
-CI and pre-commit currently enforce the base contract metadata sections for changed test files. `Test Change Justification` is still a repository policy requirement even when it is not yet machine-enforced.
+CI and pre-commit now enforce the base contract metadata sections for changed test files, require `Scenario matrix` on newly added tests, reject new source-string tests outside the architecture-boundary exception, block `Red phase: Not applicable` when production code changed, and reject half-migrated JUnit/Kotest assertion files. `Test Change Justification` is still a repository policy requirement even when it is not yet machine-enforced.
+
+## Forbidden Test Shape
+
+Do not read Kotlin source files at test time and assert on their string contents as a substitute for behavior coverage. Tests such as `File(...).readText()` plus `assertTrue(content.contains(...))` or `content shouldContain "token"` lock tokens, not runtime behavior.
+
+Allowed exceptions are limited to architecture-boundary checks that live under `**/src/test/**/architecture/**` or files marked near the top with `// architectural-boundary-check`.
+
+If a test wants to assert source tokens for real behavior, stop and extract the production policy into a smaller unit instead. Then assert the observable outcome of that unit.
 
 ## Review Standard
 

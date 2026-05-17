@@ -6,10 +6,12 @@ import dev.detekt.api.RuleName
 import dev.detekt.test.TestConfig
 import dev.detekt.test.lint
 import dev.detekt.test.utils.compileForTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.collections.shouldHaveSize
+import io.kotest.matchers.nulls.shouldNotBeNull
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 import org.jetbrains.kotlin.config.LanguageVersionSettingsImpl
 import java.nio.file.Files
 import kotlin.io.path.createDirectories
@@ -23,20 +25,19 @@ import kotlin.io.path.writeText
  * - Red phase: Fails before the fix because the new duplicate/dead-declaration rules are not yet registered and therefore do not report the cross-file regressions.
  * - Excludes: detekt engine integration, Gradle task wiring, compiler-native diagnostics outside rule execution, and cross-module dead-code analysis for public APIs.
  */
-class DeadCodeGuardRulesTest {
-    @Test
-    fun `registers dead-code guard rules in the rule set`() {
+class DeadCodeGuardRulesTest : FunSpec() {
+    init {
+    test("registers dead-code guard rules in the rule set") {
         val rules = LomoArchitectureRuleSetProvider().instance().rules
 
-        assertNotNull(rules[RuleName("NoConstantBranchCondition")])
-        assertNotNull(rules[RuleName("NoUnreachableBlockTail")])
-        assertNotNull(rules[RuleName("NoRedundantExhaustiveElse")])
-        assertNotNull(rules[RuleName("NoCrossFileDuplicateTopLevel")])
-        assertNotNull(rules[RuleName("NoUnreferencedTopLevelDeclaration")])
+        rules[RuleName("NoConstantBranchCondition")].shouldNotBeNull()
+        rules[RuleName("NoUnreachableBlockTail")].shouldNotBeNull()
+        rules[RuleName("NoRedundantExhaustiveElse")].shouldNotBeNull()
+        rules[RuleName("NoCrossFileDuplicateTopLevel")].shouldNotBeNull()
+        rules[RuleName("NoUnreferencedTopLevelDeclaration")].shouldNotBeNull()
     }
 
-    @Test
-    fun `reports literal if conditions in production source`() {
+    test("reports literal if conditions in production source") {
         val findings =
             rule("NoConstantBranchCondition").findingsForMainSource(
                 """
@@ -51,12 +52,11 @@ class DeadCodeGuardRulesTest {
                 """,
             )
 
-        assertEquals(1, findings.size)
-        assertTrue(findings.single().message.contains("always"))
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "always"
     }
 
-    @Test
-    fun `ignores runtime conditions in production source`() {
+    test("ignores runtime conditions in production source") {
         val findings =
             rule("NoConstantBranchCondition").findingsForMainSource(
                 """
@@ -67,11 +67,10 @@ class DeadCodeGuardRulesTest {
                 """,
             )
 
-        assertTrue(findings.isEmpty())
+        findings shouldBe emptyList()
     }
 
-    @Test
-    fun `reports statements after return in the same block`() {
+    test("reports statements after return in the same block") {
         val findings =
             rule("NoUnreachableBlockTail").findingsForMainSource(
                 """
@@ -84,12 +83,11 @@ class DeadCodeGuardRulesTest {
                 """,
             )
 
-        assertEquals(1, findings.size)
-        assertTrue(findings.single().message.contains("Unreachable"))
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "Unreachable"
     }
 
-    @Test
-    fun `reports redundant else after boolean when is already exhaustive`() {
+    test("reports redundant else after boolean when is already exhaustive") {
         val findings =
             rule("NoRedundantExhaustiveElse").findingsForMainSource(
                 """
@@ -104,12 +102,11 @@ class DeadCodeGuardRulesTest {
                 """,
             )
 
-        assertEquals(1, findings.size)
-        assertTrue(findings.single().message.contains("else"))
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "else"
     }
 
-    @Test
-    fun `ignores production guards in test source paths`() {
+    test("ignores production guards in test source paths") {
         val findings =
             rule("NoConstantBranchCondition").findingsForSource(
                 relativePath = "src/test/kotlin/com/lomo/sample/DeadCodeGuardRulesFixtureTest.kt",
@@ -123,14 +120,13 @@ class DeadCodeGuardRulesTest {
                         }
                         return 2
                     }
-                    """,
+                """,
             )
 
-        assertTrue(findings.isEmpty())
+        findings shouldBe emptyList()
     }
 
-    @Test
-    fun `allows configured no-source-suppressions path exceptions`() {
+    test("allows configured no-source-suppressions path exceptions") {
         val findings =
             rule(
                 name = "NoSourceSuppressions",
@@ -146,14 +142,13 @@ class DeadCodeGuardRulesTest {
 
                     @Suppress("DEPRECATION")
                     private const val sample = 1
-                    """,
+                """,
             )
 
-        assertTrue(findings.isEmpty())
+        findings shouldBe emptyList()
     }
 
-    @Test
-    fun `still reports no-source-suppressions outside configured exceptions`() {
+    test("still reports no-source-suppressions outside configured exceptions") {
         val findings =
             rule(
                 name = "NoSourceSuppressions",
@@ -170,11 +165,10 @@ class DeadCodeGuardRulesTest {
                 """,
             )
 
-        assertEquals(1, findings.size)
+        findings.shouldHaveSize(1)
     }
 
-    @Test
-    fun `reports duplicate top level functions across production files`() {
+    test("reports duplicate top level functions across production files") {
         val findings =
             rule("NoCrossFileDuplicateTopLevel").findingsForSources(
                 "src/main/java/com/lomo/sample/First.kt" to
@@ -191,12 +185,11 @@ class DeadCodeGuardRulesTest {
                     """,
             )
 
-        assertEquals(1, findings.size)
-        assertTrue(findings.single().message.contains("Duplicate top-level declaration"))
+        findings.shouldHaveSize(1)
+        findings.single().message shouldContain "Duplicate top-level declaration"
     }
 
-    @Test
-    fun `ignores duplicate top level functions when only test sources are involved`() {
+    test("ignores duplicate top level functions when only test sources are involved") {
         val findings =
             rule("NoCrossFileDuplicateTopLevel").findingsForSources(
                 "src/main/java/com/lomo/sample/First.kt" to
@@ -210,14 +203,13 @@ class DeadCodeGuardRulesTest {
                     package com.lomo.sample
 
                     internal fun dpToPx(value: Int): Int = value * 2
-                    """,
+                """,
             )
 
-        assertTrue(findings.isEmpty())
+        findings shouldBe emptyList()
     }
 
-    @Test
-    fun `reports unreferenced non public top level declarations across production files`() {
+    test("reports unreferenced non public top level declarations across production files") {
         val findings =
             rule("NoUnreferencedTopLevelDeclaration").findingsForSources(
                 "src/main/java/com/lomo/sample/UnusedHelper.kt" to
@@ -231,15 +223,14 @@ class DeadCodeGuardRulesTest {
                     package com.lomo.sample
 
                     internal fun consumer(): Int = 1
-                    """,
+                """,
             )
 
-        assertEquals(2, findings.size)
-        assertTrue(findings.all { it.message.contains("Unreferenced top-level declaration") })
+        findings.shouldHaveSize(2)
+        findings.all { it.message.contains("Unreferenced top-level declaration") }.shouldBeTrue()
     }
 
-    @Test
-    fun `keeps referenced non public top level declarations`() {
+    test("keeps referenced non public top level declarations") {
         val findings =
             rule("NoUnreferencedTopLevelDeclaration").findingsForSources(
                 "src/main/java/com/lomo/sample/Helpers.kt" to
@@ -253,10 +244,11 @@ class DeadCodeGuardRulesTest {
                     package com.lomo.sample
 
                     fun consumer(): Int = reachableHelper()
-                    """,
+                """,
             )
 
-        assertTrue(findings.isEmpty())
+        findings shouldBe emptyList()
+    }
     }
 
     private fun rule(

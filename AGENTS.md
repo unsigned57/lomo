@@ -35,7 +35,18 @@ Read in this order and only when the task actually requires the next layer:
 - **Review Grade**: Write with review-grade clarity and correctness. Assume code will be reviewed by Claude.
 - **No Suppress**: Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings`.
 - **Statics First**: Fix static check complaints by refactoring or moving logic, not by suppressing.
-- **TDD Requirement**: AI must follow Test-Driven Development (TDD): write the test first to establish red proof before touching production code, then implement, then refactor. Refer to `quality/testing/ai-meaningful-tests.md` for full policy.
+- **TDD Requirement**: AI must follow Test-Driven Development (TDD) **as a strict four-step loop, with explicit red proof**, never collapsing the loop into "write test + implementation back-to-back":
+
+  1. **Write the failing test first.** State the contract in the test body and a Test Contract comment before touching production code.
+  2. **Run the test and confirm RED.** Execute `quality/scripts/ai_static_quality_check.sh` or the targeted `./gradlew :<module>:testDebugUnitTest --tests <FQN>` command and **paste / observe a real failure**: either a compilation failure naming the missing symbol, an assertion failure, or an explicit "X tests failed". A green run at this stage means the test is a no-op — go back and tighten it. Do not write a single line of production code until you have seen the failure for *this specific test*.
+  3. **Write the minimum implementation to flip the test to GREEN.** Re-run the same command and confirm "BUILD SUCCESSFUL" *with* the test name shown as passing.
+  4. **Refactor under green.** Re-run the test after each non-trivial refactor to keep the green proof.
+
+  Writing the test, the implementation, and running tests only at the end of the session is **not** TDD even if the final run is green — it loses the red proof that the test actually pins the contract. If multiple tests/implementations are needed for a single change, repeat the loop per behavior; do **not** batch.
+
+  When authoring or editing Kotlin tests, follow `quality/testing/ai-kotlin-test-style.md` to the letter — in particular the **Spec Form** rule: a Kotest file uses a single `FunSpec({ ... })` constructor block (preferred) or a single `init { ... }` block; **never** open one `init` per `test(...)`. Treat old specs with the per-`test` `init` pattern as JUnit4-migration debt: whenever you have to edit one of those files for any reason, refactor it into the single-block form in the same change ("opportunistic migration"). Do not preserve the anti-pattern out of inertia, and do not invent a new anti-pattern by copying it into a new file.
+
+  Refer to `quality/testing/ai-meaningful-tests.md` for the repository policy and `quality/testing/ai-kotlin-test-style.md` for Kotlin authoring guidance.
 - **Reuse Before Rewrite**: Before adding any new helper or utility, search the owning module and the shared `domain` / `ui-components` layers for an existing implementation. Reuse or extract shared logic instead of duplicating it.
 - **Delete Dead Paths**: After refactors, remove obsolete helpers, old entry points, stale DI wiring, and unused resources. Do not keep dead code "just in case".
 
@@ -47,7 +58,10 @@ Run commands from the repository root. Prefer `quality/scripts/` for AI verifica
 - **Local Maintenance**: `quality/scripts/ai_local_maintenance_check.sh` for dependency updates, dependency-analysis advice, CVE scanning, and R8 release diagnostics.
 - **Full Gate**: `quality/scripts/ai_quality_check.sh`
 - **AI Scripts**: Use `quality/scripts/` for automated verification because they also produce AI-readable local maintenance reports.
-- **Commit Rule**: Run a full `qualityCheck` before creating any commit.
+- **Commit Rule**: Run a full `qualityCheck` before creating any commit. For one unchanged
+  working tree split into multiple consecutive commits, use `quality/scripts/verified_batch_commit.sh`
+  so the batch runs `qualityCheck` before the first commit and after the final commit while the
+  intermediate commits use `git commit --no-verify` through the script.
 
 Refer to `quality/README.md` for the full command matrix and triage guide.
 

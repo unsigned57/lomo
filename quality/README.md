@@ -43,6 +43,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | I want JVM tests only | `./gradlew unitTestCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
 | I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
+| I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
 | I want dependency usage advice | `./gradlew dependencyAnalysisCheck` |
 | I want CVE scanning for dependencies | `./gradlew dependencyVulnerabilityCheck` |
 | Final handoff or pre-merge gate | `./gradlew qualityCheck` |
@@ -64,8 +65,11 @@ Policy notes:
 - AGENTS/prompt/doc-policy changes belong on the static AI verification path, not the fast test/docs path.
 - Docs-only work may intentionally skip verification, but the final summary must say so explicitly.
 - Commits are stricter than handoff drafts: before the first commit in a code-change batch, run a full `qualityCheck`.
-- If you split one unchanged, already-verified batch into multiple consecutive commits, you may reuse that same successful `qualityCheck` for the later commits in the batch.
-- If any code changes are made after that successful `qualityCheck`, the result is stale and another full `qualityCheck` is required before committing again.
+- If you split one unchanged, already-verified batch into multiple consecutive commits, use
+  `quality/scripts/verified_batch_commit.sh`. It records the verified final tree, runs intermediate
+  commits with `--no-verify`, and reruns `qualityCheck` after the final commit.
+- If any code changes are made after the successful start check, the batch marker is stale. Abort and
+  restart the verified batch flow so the final tree is checked from the new state.
 
 Execution defaults:
 
@@ -84,6 +88,38 @@ The quality chain is intentionally staged so the first real failure appears earl
 2. `unitTestCheck`
 3. `staticQualityCheck`
 4. `qualityCheck`
+
+## Verified Batch Commit Flow
+
+Use this flow when a single unchanged working tree has already been validated and needs to be split
+into several logical commits. It prevents the pre-commit hook from running the full Gradle gate for
+every commit while still preserving a before/after full `qualityCheck`.
+
+```bash
+quality/scripts/verified_batch_commit.sh start
+
+git add -- path/to/first/group
+quality/scripts/verified_batch_commit.sh commit -F /tmp/first-message.txt
+
+git add -- path/to/second/group
+quality/scripts/verified_batch_commit.sh commit -F /tmp/second-message.txt
+
+quality/scripts/verified_batch_commit.sh finish
+```
+
+What the script enforces:
+
+- `start` checks changed test metadata in working-tree mode, runs `qualityCheck`, and records a Git
+  tree snapshot of the entire verified working tree, including untracked non-ignored files.
+- `commit` requires an active batch and staged changes, then runs `git commit --no-verify`.
+- `finish` requires a clean working tree whose HEAD tree exactly matches the snapshot recorded at
+  `start`, checks test metadata across the committed range, reruns `qualityCheck`, and clears the
+  batch marker.
+- `abort` clears the marker when the batch is no longer valid.
+- `status` reports whether the current clean HEAD matches the verified tree.
+
+Do not edit files after `start`. If edits are necessary, run `quality/scripts/verified_batch_commit.sh abort`,
+make the changes, then run `start` again.
 
 Task roles:
 

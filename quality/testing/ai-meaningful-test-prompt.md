@@ -7,15 +7,7 @@ Write meaningful tests for <TARGET_CLASS>.
 
 Repository rules:
 - Read `AGENTS.md` first, then open `quality/testing/ai-meaningful-tests.md` only after confirming the task is actually test-related.
-- First read quality/testing/ai-meaningful-tests.md in full, then follow it.
-- Prefer behavior-bearing tests over line coverage.
-- Refuse to add tests if the target is render-only or wiring-only; recommend a logic extraction instead.
-- For new features, bug fixes, and contract changes, write or modify the test before any related production edit.
-- For new features, bug fixes, and contract changes, prove the new test is red before applying the fix.
-- Treat existing tests as locked behavior contracts by default.
-- When an existing test fails after a production edit, do not rewrite the test to match the implementation by default. Prove why the test is wrong before touching it.
-- Do not delete, weaken, or narrow an existing test just to make a new implementation pass.
-- Do not introduce `@Suppress`, `@SuppressLint`, or `@SuppressWarnings` in newly written or modified test code unless a repository rule explicitly allows that exception.
+- Follow `quality/testing/ai-meaningful-tests.md` in full (target priority, test-first policy, locked-tests policy, forbidden test shape, review standard) and `quality/testing/ai-kotlin-test-style.md` (Kotest spec form, coroutine scaffolding, type-narrowing, Fake* collaborators).
 
 Target:
 - Layer owner: <app/domain/data/ui-components>
@@ -32,10 +24,10 @@ Required output order:
    - whether this is test-only work or a production-changing task
    - whether any existing tests are contract locks that must stay unchanged
 2. Scenario matrix:
-   - Happy path
-   - Boundary path
-   - Failure/cancellation/conflict path
-   - Must-not-happen path
+    - Happy path
+    - Boundary path
+    - Failure/cancellation/conflict path
+    - Must-not-happen path
 3. Short rationale for why each scenario is meaningful
 4. Existing test impact check:
    - which current tests already cover adjacent behavior
@@ -52,24 +44,44 @@ Required output order:
    - which scenario should fail before a production fix
    - why that failure is observable
 7. Test code
-   - prefer adding a new companion reproducer before editing any old test
+    - prefer adding a new companion reproducer before editing any old test
+    - use Kotest `FunSpec` in constructor-block form: `class XTest : FunSpec({ test("...") { ... } })`. Do NOT open multiple `init { test {} }` blocks.
+    - use `shouldBe` / `shouldThrow` / `shouldBeInstanceOf<T>()` / Turbine assertions. Do not write `(x is T) shouldBe true` followed by an `as T` cast.
+    - use `MainDispatcherExtension` for app coroutine tests; register via `extension(...)` inside the spec init.
+    - prefer hand-written `Fake*` over `mockk(relaxed = true)` for collaborators with meaningful state (DAOs, repositories, data sources, file-system providers).
+    - when asserting multiple properties of one result, wrap with `assertSoftly { ... }`.
 8. Red-phase proof:
-   - exact command to run first
-   - expected failing assertion, exception, or symptom
+    - exact command to run first
+    - expected failing assertion, exception, or symptom
    - or explicit statement that no production change is intended
-9. File header comment in this format:
-   Test Contract:
-   Observable outcomes:
-   Red phase:
-   Excludes:
+9. File header comment in this exact format (the script enforces presence of all sections; Scenario matrix is required for newly added files):
+    Test Contract:
+    - Unit under test: <FQN>
+    - Owning layer: <domain | data | app | ui-components>
+    - Priority tier: <P0 | P1 | P2>
+    Scenario matrix:
+    - Happy: <one line>
+    - Boundary: <one line>
+    - Failure: <one line>
+    - Must-not-happen: <one line>
+    Observable outcomes:
+    - <returned value | emitted state | side-effect ordering | mapped error>
+    Red phase:
+    - <Fails before fix when ...> OR <Not applicable - test-only coverage; no production change.>
+    Excludes:
+    - <what is intentionally not asserted>
 
 Required assertions:
 - observable return value, emitted state, side-effect ordering, or mapped error
 - at least one regression-prone branch
 - no private implementation assertions
 - no mock-only verification without an outcome assertion
+- no source-string assertions outside the documented architecture-boundary exception
 - if production code will change, explain why the test should fail pre-fix
 - no rewriting of an old test into a weaker or narrower scenario without a documented contract change
+- prefer shouldBeInstanceOf<T>() over (x is T) shouldBe true
+- when asserting multiple properties of one object, wrap them in assertSoftly
+- consider kotest-property `checkAll` for parser/util/policy classes whose input is naturally a generator
 ```
 
 ## Good Targets
