@@ -3,43 +3,37 @@ package com.lomo.app.feature.gallery
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.AnchoredDraggableState
-import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import coil3.compose.AsyncImage
 import com.lomo.app.R
 import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.coil.ZoomableAsyncImage
@@ -50,8 +44,12 @@ private const val GALLERY_REEL_SCROLL_LOCK_THRESHOLD = 0.01f
 private const val GALLERY_REEL_MAX_ZOOM_FACTOR = 5f
 private const val GALLERY_REEL_SINGLE_PAGE_THRESHOLD = 1
 private const val GALLERY_REEL_PAGE_INDEX_OFFSET = 1
-private val GALLERY_REEL_INDICATOR_BOTTOM_PADDING = 224.dp
-private val GALLERY_REEL_INDICATOR_DOT_SIZE = 6.dp
+
+private data class GalleryReelActiveImageState(
+    val memoId: String,
+    val currentPage: Int,
+    val pageCount: Int,
+)
 
 @Composable
 fun GalleryReelScreen(
@@ -59,8 +57,10 @@ fun GalleryReelScreen(
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
     modifier: Modifier = Modifier,
+    viewerMode: GalleryReelMode = GalleryReelMode.Gallery,
+    memoChromeEnabled: Boolean = true,
+    onShowMenu: ((MemoMenuState) -> Unit)? = null,
 ) {
     Box(
         modifier =
@@ -75,6 +75,8 @@ fun GalleryReelScreen(
         } else {
             GalleryReelLoadedRoute(
                 request = request,
+                viewerMode = viewerMode,
+                memoChromeEnabled = memoChromeEnabled,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 onBackClick = onBackClick,
@@ -87,41 +89,81 @@ fun GalleryReelScreen(
 @Composable
 private fun BoxScope.GalleryReelLoadedRoute(
     request: GalleryReelRequest,
+    viewerMode: GalleryReelMode,
+    memoChromeEnabled: Boolean,
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: ((MemoMenuState) -> Unit)?,
 ) {
+    GalleryReelImmersiveSystemBars()
+
     val initialMemoIndex = request.initialMemoIndex.coerceIn(0, request.memos.lastIndex)
     val verticalPagerState =
         rememberPagerState(
             initialPage = initialMemoIndex,
             pageCount = { request.memos.size },
         )
-    val overlayState =
-        remember {
-            AnchoredDraggableState(GalleryReelOverlayAnchor.Collapsed)
-        }
-    val scope = rememberCoroutineScope()
+    var chromeVisibility by rememberSaveable {
+        mutableStateOf(GalleryReelChromeVisibility.Visible)
+    }
     var activeZoomFraction by remember { mutableFloatStateOf(0f) }
     var activeMemoId by rememberSaveable {
         mutableStateOf(request.memos[initialMemoIndex].memo.id)
     }
+    var activeImageIndicatorState by remember(request.memos, initialMemoIndex, request.initialImageIndex) {
+        val initialMemo = request.memos.getOrNull(initialMemoIndex)
+        val initialImageCount = initialMemo?.imageUrls?.size ?: 0
+        mutableStateOf(
+            if (initialMemo != null && initialImageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD) {
+                GalleryReelActiveImageState(
+                    memoId = initialMemo.memo.id,
+                    currentPage =
+                        request.initialImageIndex.coerceIn(
+                            0,
+                            initialImageCount - GALLERY_REEL_PAGE_INDEX_OFFSET,
+                        ),
+                    pageCount = initialImageCount,
+                )
+            } else {
+                null
+            },
+        )
+    }
+    var activeImageIndex by rememberSaveable { mutableIntStateOf(request.initialImageIndex) }
     val currentMemo = request.memos.getOrNull(verticalPagerState.currentPage)
+    val activeImageUrl = currentMemo?.imageUrls?.getOrNull(activeImageIndex)
+
+    if (activeImageUrl != null) {
+        AsyncImage(
+            model = activeImageUrl,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(radius = 72.dp),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.4f)),
+        )
+    }
 
     GalleryReelScreenEffects(
         request = request,
+        viewerMode = viewerMode,
         verticalPagerState = verticalPagerState,
-        overlayState = overlayState,
+        chromeVisibility = chromeVisibility,
         activeMemoId = activeMemoId,
         onActiveMemoIdChanged = { activeMemoId = it },
+        onChromeVisibilityChanged = { chromeVisibility = it },
         onActiveZoomFractionChanged = { activeZoomFraction = it },
         onBackClick = onBackClick,
     )
     GalleryReelBackHandler(
-        overlayState = overlayState,
+        chromeVisibility = chromeVisibility,
         onBackClick = onBackClick,
-        animateScope = scope,
     )
 
     GalleryReelContent(
@@ -129,13 +171,26 @@ private fun BoxScope.GalleryReelLoadedRoute(
         currentMemo = currentMemo,
         initialMemoIndex = initialMemoIndex,
         verticalPagerState = verticalPagerState,
-        overlayState = overlayState,
+        viewerMode = viewerMode,
+        memoChromeEnabled = memoChromeEnabled,
+        chromeVisibility = chromeVisibility,
         activeZoomFraction = activeZoomFraction,
+        activeImageIndicatorState = activeImageIndicatorState,
         dateFormat = dateFormat,
         timeFormat = timeFormat,
         onBackClick = onBackClick,
         onShowMenu = onShowMenu,
+        onToggleChrome = { chromeVisibility = toggleGalleryReelChromeVisibility(chromeVisibility) },
         onActiveZoomFractionChanged = { activeZoomFraction = it },
+        onActiveImagePageChanged = { memoId, currentPage, pageCount ->
+            activeImageIndex = currentPage
+            activeImageIndicatorState =
+                GalleryReelActiveImageState(
+                    memoId = memoId,
+                    currentPage = currentPage,
+                    pageCount = pageCount,
+                ).takeIf { pageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD }
+        },
     )
 }
 
@@ -145,24 +200,44 @@ private fun BoxScope.GalleryReelContent(
     currentMemo: com.lomo.app.feature.main.MemoUiModel?,
     initialMemoIndex: Int,
     verticalPagerState: PagerState,
-    overlayState: AnchoredDraggableState<GalleryReelOverlayAnchor>,
+    viewerMode: GalleryReelMode,
+    memoChromeEnabled: Boolean,
+    chromeVisibility: GalleryReelChromeVisibility,
     activeZoomFraction: Float,
+    activeImageIndicatorState: GalleryReelActiveImageState?,
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: ((MemoMenuState) -> Unit)?,
+    onToggleChrome: () -> Unit,
     onActiveZoomFractionChanged: (Float) -> Unit,
+    onActiveImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
 ) {
-    GalleryReelVerticalPager(
-        request = request,
-        initialMemoIndex = initialMemoIndex,
-        verticalPagerState = verticalPagerState,
-        activeZoomFraction = activeZoomFraction,
-        onActiveZoomFractionChanged = onActiveZoomFractionChanged,
-    )
+    if (viewerMode.allowsMemoPaging) {
+        GalleryReelVerticalPager(
+            request = request,
+            initialMemoIndex = initialMemoIndex,
+            verticalPagerState = verticalPagerState,
+            activeZoomFraction = activeZoomFraction,
+            onImageClick = onToggleChrome,
+            onActiveZoomFractionChanged = onActiveZoomFractionChanged,
+            onActiveImagePageChanged = onActiveImagePageChanged,
+        )
+    } else {
+        GalleryReelSingleMemoPage(
+            memo = currentMemo,
+            initialMemoIndex = initialMemoIndex,
+            initialImageIndex = request.initialImageIndex,
+            onImageClick = onToggleChrome,
+            onActiveZoomFractionChanged = onActiveZoomFractionChanged,
+            onActiveImagePageChanged = onActiveImagePageChanged,
+        )
+    }
     GalleryReelChrome(
         memo = currentMemo,
-        overlayState = overlayState,
+        memoChromeEnabled = memoChromeEnabled,
+        chromeVisibility = chromeVisibility,
+        imageIndicatorState = activeImageIndicatorState,
         dateFormat = dateFormat,
         timeFormat = timeFormat,
         onBackClick = onBackClick,
@@ -176,7 +251,9 @@ private fun GalleryReelVerticalPager(
     initialMemoIndex: Int,
     verticalPagerState: PagerState,
     activeZoomFraction: Float,
+    onImageClick: () -> Unit,
     onActiveZoomFractionChanged: (Float) -> Unit,
+    onActiveImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
 ) {
     VerticalPager(
         state = verticalPagerState,
@@ -191,96 +268,155 @@ private fun GalleryReelVerticalPager(
             initialMemoIndex = initialMemoIndex,
             initialImageIndex = request.initialImageIndex,
             isActive = page == verticalPagerState.currentPage,
+            onImageClick = onImageClick,
             onZoomFractionChanged = { zoomFraction ->
                 if (page == verticalPagerState.currentPage) {
                     onActiveZoomFractionChanged(zoomFraction)
                 }
             },
+            onImagePageChanged = onActiveImagePageChanged,
         )
     }
+}
+
+@Composable
+private fun GalleryReelSingleMemoPage(
+    memo: com.lomo.app.feature.main.MemoUiModel?,
+    initialMemoIndex: Int,
+    initialImageIndex: Int,
+    onImageClick: () -> Unit,
+    onActiveZoomFractionChanged: (Float) -> Unit,
+    onActiveImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
+) {
+    memo ?: return
+    GalleryReelPage(
+        memo = memo,
+        memoIndex = initialMemoIndex,
+        initialMemoIndex = initialMemoIndex,
+        initialImageIndex = initialImageIndex,
+        isActive = true,
+        onImageClick = onImageClick,
+        onZoomFractionChanged = onActiveZoomFractionChanged,
+        onImagePageChanged = onActiveImagePageChanged,
+    )
 }
 
 @Composable
 private fun BoxScope.GalleryReelChrome(
     memo: com.lomo.app.feature.main.MemoUiModel?,
-    overlayState: AnchoredDraggableState<GalleryReelOverlayAnchor>,
+    memoChromeEnabled: Boolean,
+    chromeVisibility: GalleryReelChromeVisibility,
+    imageIndicatorState: GalleryReelActiveImageState?,
     dateFormat: String,
     timeFormat: String,
     onBackClick: () -> Unit,
-    onShowMenu: (MemoMenuState) -> Unit,
+    onShowMenu: ((MemoMenuState) -> Unit)?,
 ) {
     memo ?: return
-    val showMenu = {
-        onShowMenu(
-            memoMenuState(
-                memo = memo.memo,
-                dateFormat = dateFormat,
-                timeFormat = timeFormat,
-                imageUrls = memo.imageUrls,
-            ),
-        )
+    val showMenu =
+        onShowMenu?.let { show ->
+            {
+                show(
+                    memoMenuState(
+                        memo = memo.memo,
+                        dateFormat = dateFormat,
+                        timeFormat = timeFormat,
+                        imageUrls = memo.imageUrls,
+                    ),
+                )
+            }
+        }
+    val visibleImageIndicatorState =
+        imageIndicatorState?.takeIf { indicatorState ->
+            indicatorState.memoId == memo.memo.id &&
+                indicatorState.pageCount > GALLERY_REEL_SINGLE_PAGE_THRESHOLD
+        }
+    val indicatorViewState =
+        visibleImageIndicatorState?.let {
+            GalleryReelImageIndicatorState(
+                currentPage = it.currentPage,
+                pageCount = it.pageCount,
+            )
+        }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = chromeVisibility == GalleryReelChromeVisibility.Visible,
+        enter = androidx.compose.animation.fadeIn(),
+        exit = androidx.compose.animation.fadeOut(),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (memoChromeEnabled || indicatorViewState != null) {
+                GalleryReelMemoOverlay(
+                    memo = memo,
+                    dateFormat = dateFormat,
+                    timeFormat = timeFormat,
+                    imageIndicator = indicatorViewState,
+                    showMemoDetails = memoChromeEnabled,
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .zIndex(1f),
+                )
+            }
+            GalleryReelTopBar(
+                onClose = onBackClick,
+                onShowMenu = showMenu,
+                modifier = Modifier.zIndex(2f),
+            )
+        }
     }
-    GalleryReelMemoOverlay(
-        memo = memo,
-        draggableState = overlayState,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        onShowMoreMenu = showMenu,
-        modifier =
-            Modifier
-                .fillMaxSize()
-                .zIndex(1f),
-    )
-    GalleryReelTopBar(
-        onClose = onBackClick,
-        onShowMenu = showMenu,
-        modifier = Modifier.zIndex(2f),
-    )
 }
 
 @Composable
 private fun GalleryReelScreenEffects(
     request: GalleryReelRequest,
+    viewerMode: GalleryReelMode,
     verticalPagerState: PagerState,
-    overlayState: AnchoredDraggableState<GalleryReelOverlayAnchor>,
+    chromeVisibility: GalleryReelChromeVisibility,
     activeMemoId: String,
     onActiveMemoIdChanged: (String) -> Unit,
+    onChromeVisibilityChanged: (GalleryReelChromeVisibility) -> Unit,
     onActiveZoomFractionChanged: (Float) -> Unit,
     onBackClick: () -> Unit,
 ) {
+    val latestChromeVisibility by rememberUpdatedState(chromeVisibility)
+
     LaunchedEffect(verticalPagerState, request.memos) {
         snapshotFlow { verticalPagerState.currentPage }
             .collectLatest { page ->
                 onActiveZoomFractionChanged(0f)
                 request.memos.getOrNull(page)?.let { onActiveMemoIdChanged(it.memo.id) }
-                overlayState.animateTo(GalleryReelOverlayAnchor.Collapsed)
+                onChromeVisibilityChanged(nextChromeVisibilityOnPageChange(latestChromeVisibility))
             }
     }
 
-    LaunchedEffect(request.memos, activeMemoId) {
-        if (request.memos.none { uiModel -> uiModel.memo.id == activeMemoId }) {
-            onBackClick()
+    LaunchedEffect(request.memos, viewerMode, activeMemoId) {
+        when (
+            val resolution =
+                resolveGalleryReelActiveMemo(
+                    viewerMode = viewerMode,
+                    activeMemoId = activeMemoId,
+                    requestMemoIds = request.memos.map { uiModel -> uiModel.memo.id },
+                )
+        ) {
+            GalleryReelActiveMemoResolution.KeepActiveMemo -> Unit
+            GalleryReelActiveMemoResolution.PopRoute -> onBackClick()
+            is GalleryReelActiveMemoResolution.UpdateActiveMemo -> {
+                onActiveMemoIdChanged(resolution.memoId)
+            }
         }
     }
 }
 
 @Composable
 private fun GalleryReelBackHandler(
-    overlayState: AnchoredDraggableState<GalleryReelOverlayAnchor>,
+    chromeVisibility: GalleryReelChromeVisibility,
     onBackClick: () -> Unit,
-    animateScope: kotlinx.coroutines.CoroutineScope,
 ) {
     BackHandler {
-        val nextAnchor = nextAnchorOnBack(overlayState.currentValue)
-        val shouldPopRoute =
-            nextAnchor == GalleryReelOverlayAnchor.Hidden &&
-                overlayState.currentValue == GalleryReelOverlayAnchor.Hidden
-        if (shouldPopRoute) {
-            onBackClick()
-        } else {
-            animateScope.launch {
-                overlayState.animateTo(nextAnchor)
-            }
+        when (resolveGalleryReelBackAction(chromeVisibility)) {
+            GalleryReelBackAction.PopRoute -> onBackClick()
         }
     }
 }
@@ -292,7 +428,9 @@ private fun GalleryReelPage(
     initialMemoIndex: Int,
     initialImageIndex: Int,
     isActive: Boolean,
+    onImageClick: () -> Unit,
     onZoomFractionChanged: (Float) -> Unit,
+    onImagePageChanged: (memoId: String, currentPage: Int, pageCount: Int) -> Unit,
 ) {
     val imageUrls = memo.imageUrls
     if (imageUrls.isEmpty()) return
@@ -328,6 +466,14 @@ private fun GalleryReelPage(
     LaunchedEffect(isActive, activeZoomFraction) {
         if (isActive) onZoomFractionChanged(activeZoomFraction)
     }
+    LaunchedEffect(isActive, pagerState, imageUrls.size) {
+        if (isActive) {
+            snapshotFlow { pagerState.currentPage }
+                .collectLatest { currentPage ->
+                    onImagePageChanged(memo.memo.id, currentPage, imageUrls.size)
+                }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         HorizontalPager(
@@ -342,22 +488,12 @@ private fun GalleryReelPage(
                 imageUrl = imageUrls[imageIndex],
                 imageIndex = imageIndex,
                 isInitiallyShared = memoIndex == initialMemoIndex && imageIndex == effectiveInitialImageIndex,
+                onClick = onImageClick,
                 onZoomFractionChanged = { zoomFraction ->
                     if (imageIndex == pagerState.currentPage) {
                         activeZoomFraction = zoomFraction
                     }
                 },
-            )
-        }
-
-        if (imageUrls.size > GALLERY_REEL_SINGLE_PAGE_THRESHOLD) {
-            GalleryReelImageDots(
-                currentPage = pagerState.currentPage,
-                pageCount = imageUrls.size,
-                modifier =
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = GALLERY_REEL_INDICATOR_BOTTOM_PADDING),
             )
         }
     }
@@ -369,6 +505,7 @@ private fun GalleryReelImage(
     imageUrl: String,
     imageIndex: Int,
     isInitiallyShared: Boolean,
+    onClick: () -> Unit,
     onZoomFractionChanged: (Float) -> Unit,
 ) {
     val zoomableState = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = GALLERY_REEL_MAX_ZOOM_FACTOR))
@@ -399,6 +536,7 @@ private fun GalleryReelImage(
                 ),
         state = zoomableImageState,
         contentScale = ContentScale.Fit,
+        onClick = { onClick() },
     )
 }
 
@@ -420,51 +558,5 @@ private fun Modifier.rememberGalleryReelSharedElementModifier(
         }
     } else {
         this
-    }
-}
-
-@Composable
-private fun BoxScope.GalleryReelImageDots(
-    currentPage: Int,
-    pageCount: Int,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        color = Color.Black.copy(alpha = 0.36f),
-        shape = MaterialTheme.shapes.extraLarge,
-        modifier = modifier,
-    ) {
-        Row(
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        ) {
-            Text(
-                text =
-                    stringResource(
-                        R.string.gallery_reel_image_indicator,
-                        currentPage + GALLERY_REEL_PAGE_INDEX_OFFSET,
-                        pageCount,
-                    ),
-                color = Color.White,
-                style = MaterialTheme.typography.labelMedium,
-            )
-            repeat(pageCount) { index ->
-                Box(
-                    modifier =
-                        Modifier
-                            .size(GALLERY_REEL_INDICATOR_DOT_SIZE)
-                            .background(
-                                color =
-                                    if (index == currentPage) {
-                                        Color.White
-                                    } else {
-                                        Color.White.copy(alpha = 0.36f)
-                                    },
-                                shape = MaterialTheme.shapes.extraLarge,
-                            ),
-                )
-            }
-        }
     }
 }

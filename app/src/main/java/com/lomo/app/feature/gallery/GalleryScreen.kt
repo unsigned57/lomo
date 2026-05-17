@@ -21,17 +21,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.imageLoader
 import com.lomo.app.R
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.image.enqueueImagePreloadRequests
+import com.lomo.app.feature.main.GalleryUiMemosState
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.memo.MemoMenuBinder
 import com.lomo.app.feature.memo.handleMemoJumpToMain
 import com.lomo.app.util.activityHiltViewModel
 import com.lomo.ui.component.common.EmptyState
+import com.lomo.ui.component.common.ExpressiveContainedLoadingIndicator
 import com.lomo.ui.component.menu.MemoMenuState
 import com.lomo.ui.theme.AppSpacing
 import kotlinx.collections.immutable.ImmutableList
@@ -40,6 +46,8 @@ import kotlinx.collections.immutable.ImmutableSet
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableSet
 import kotlinx.collections.immutable.toPersistentMap
+
+private const val GALLERY_DIMENSION_PREFETCH_COUNT = 12
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -51,40 +59,116 @@ fun GalleryScreen(
     lanShareEnabled: Boolean = true,
 ) {
     val viewModel: MainViewModel = activityHiltViewModel()
-    val memos by viewModel.galleryUiMemos.collectAsStateWithLifecycle()
+    val galleryState by viewModel.galleryUiMemosState.collectAsStateWithLifecycle()
+    val memos =
+        remember(galleryState) {
+            when (val state = galleryState) {
+                GalleryUiMemosState.Loading -> emptyList()
+                is GalleryUiMemosState.Loaded -> state.memos
+            }
+        }
     val deletingMemoIds by viewModel.deletingMemoIds.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
-    val dimensionResolver = remember { GalleryImageDimensionResolver() }
+    val context = LocalContext.current
+    val imageLoader = context.imageLoader
+    val dimensionResolver = remember(context) { GalleryImageDimensionResolver(context.contentResolver) }
     val aspectByPath by dimensionResolver.aspectFlow.collectAsStateWithLifecycle()
-    val aspectByMemoId =
-        remember(memos, aspectByPath) {
+    val galleryLayoutInputs =
+        remember(memos) {
+            memos.mapNotNull { uiModel ->
+                val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
+                galleryLayoutInput(
+                    memoId = uiModel.memo.id,
+                    firstImageUrl = firstImageUrl,
+                )
+            }
+        }
+    val prefetchedImageUrls =
+        remember(memos) {
             memos
-                .mapNotNull { uiModel ->
-                    val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
-                    uiModel.memo.id to (aspectByPath[firstImageUrl] ?: GALLERY_DEFAULT_ASPECT_RATIO)
-                }.toMap()
-                .toPersistentMap()
+                .asSequence()
+                .mapNotNull { uiModel -> uiModel.imageUrls.firstOrNull() }
+                .distinct()
+                .take(GALLERY_DIMENSION_PREFETCH_COUNT)
+                .toList()
+                .toImmutableList()
+        }
+    val aspectByMemoId =
+        remember(galleryLayoutInputs, aspectByPath) {
+            resolveGalleryAspectByMemoIdOrNull(
+                layoutInputs = galleryLayoutInputs,
+                aspectByImageUrl = aspectByPath,
+            )?.toPersistentMap()
         }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val snackbarHostState = remember { SnackbarHostState() }
     val haptic = com.lomo.ui.util.LocalAppHapticFeedback.current
 
     GalleryScreenEffects(
-        onSyncImageCacheNow = viewModel.syncImageCacheNow,
         errorMessage = errorMessage,
         snackbarHostState = snackbarHostState,
         onClearError = viewModel.clearError,
         memos = remember(memos) { memos.toImmutableList() },
         deletingMemoIds = remember(deletingMemoIds) { deletingMemoIds.toImmutableSet() },
         onDeleteAnimationSettled = viewModel::onPagedDeleteAnimationSettled,
+        prefetchedImageUrls = prefetchedImageUrls,
+        context = context,
+        imageLoader = imageLoader,
         dimensionResolver = dimensionResolver,
     )
 
-    MemoMenuBinder(
+    GalleryScreenMenuContent(
+        onBackClick = onBackClick,
+        onNavigateToShare = onNavigateToShare,
+        onNavigateToMain = onNavigateToMain,
+        lanShareEnabled = lanShareEnabled,
+        viewModel = viewModel,
         shareCardShowTime = appPreferences.shareCardShowTime,
         shareCardShowSignature = appPreferences.shareCardShowBrand,
         shareCardSignatureText = appPreferences.shareCardSignatureText,
+        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
+        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.GALLERY),
+        galleryState = galleryState,
+        aspectByMemoId = aspectByMemoId,
+        dateFormat = appPreferences.dateFormat,
+        timeFormat = appPreferences.timeFormat,
+        onNavigateToReel = onNavigateToReel,
+        onResolveImageAspect = { imageUrl ->
+            dimensionResolver.resolve(imageUrl)
+        },
+        haptic = haptic,
+        scrollBehavior = scrollBehavior,
+        snackbarHostState = snackbarHostState,
+    )
+}
+
+@Composable
+private fun GalleryScreenMenuContent(
+    onBackClick: () -> Unit,
+    onNavigateToShare: (String, Long) -> Unit,
+    onNavigateToMain: () -> Unit,
+    lanShareEnabled: Boolean,
+    viewModel: MainViewModel,
+    shareCardShowTime: Boolean,
+    shareCardShowSignature: Boolean,
+    shareCardSignatureText: String,
+    memoActionAutoReorderEnabled: Boolean,
+    memoActionOrder: ImmutableList<String>,
+    galleryState: GalleryUiMemosState,
+    aspectByMemoId: ImmutableMap<String, Float>?,
+    dateFormat: String,
+    timeFormat: String,
+    onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
+    onResolveImageAspect: suspend (String) -> Unit,
+    haptic: com.lomo.ui.util.AppHapticFeedback,
+    scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
+    snackbarHostState: SnackbarHostState,
+) {
+    MemoMenuBinder(
+        shareCardShowTime = shareCardShowTime,
+        shareCardShowSignature = shareCardShowSignature,
+        shareCardSignatureText = shareCardSignatureText,
         onEditMemo = { memo ->
             viewModel.requestOpenMemo(memo.id)
             onBackClick()
@@ -99,8 +183,8 @@ fun GalleryScreen(
             )
         },
         showJump = true,
-        memoActionAutoReorderEnabled = appPreferences.memoActionAutoReorderEnabled,
-        memoActionOrder = appPreferences.memoActionOrderFor(MemoActionOrderScopes.GALLERY),
+        memoActionAutoReorderEnabled = memoActionAutoReorderEnabled,
+        memoActionOrder = memoActionOrder,
         onMemoActionInvoked = viewModel.recordGalleryMemoActionUsage,
         onMemoActionOrderChanged = viewModel.updateGalleryMemoActionOrder,
     ) { showMenu ->
@@ -111,13 +195,14 @@ fun GalleryScreen(
             snackbarHostState = snackbarHostState,
         ) { padding ->
             GalleryScreenContent(
-                memos = remember(memos) { memos.toImmutableList() },
+                galleryState = galleryState,
                 aspectByMemoId = aspectByMemoId,
-                dateFormat = appPreferences.dateFormat,
-                timeFormat = appPreferences.timeFormat,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
                 padding = padding,
                 onShowMenu = showMenu,
                 onNavigateToReel = onNavigateToReel,
+                onResolveImageAspect = onResolveImageAspect,
             )
         }
     }
@@ -125,30 +210,32 @@ fun GalleryScreen(
 
 @Composable
 private fun GalleryScreenEffects(
-    onSyncImageCacheNow: () -> Unit,
     errorMessage: String?,
     snackbarHostState: SnackbarHostState,
     onClearError: () -> Unit,
     memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
     deletingMemoIds: ImmutableSet<String>,
     onDeleteAnimationSettled: (String) -> Unit,
+    prefetchedImageUrls: ImmutableList<String>,
+    context: android.content.Context,
+    imageLoader: coil3.ImageLoader,
     dimensionResolver: GalleryImageDimensionResolver,
 ) {
-    LaunchedEffect(Unit) {
-        onSyncImageCacheNow()
-    }
     LaunchedEffect(errorMessage) {
         errorMessage?.let { message ->
             snackbarHostState.showSnackbar(message)
             onClearError()
         }
     }
-    LaunchedEffect(memos, dimensionResolver) {
-        memos
-            .asSequence()
-            .mapNotNull { uiModel -> uiModel.imageUrls.firstOrNull() }
-            .distinct()
-            .forEach { imageUrl -> dimensionResolver.resolve(imageUrl) }
+    LaunchedEffect(prefetchedImageUrls, context, imageLoader, dimensionResolver) {
+        enqueueImagePreloadRequests(
+            context = context,
+            imageLoader = imageLoader,
+            urls = prefetchedImageUrls,
+        )
+        for (imageUrl in prefetchedImageUrls) {
+            dimensionResolver.resolve(imageUrl)
+        }
     }
     LaunchedEffect(memos, deletingMemoIds) {
         val visibleMemoIds = memos.asSequence().map { uiModel -> uiModel.memo.id }.toSet()
@@ -201,45 +288,65 @@ private fun GalleryScreenScaffold(
 
 @Composable
 private fun GalleryScreenContent(
-    memos: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
-    aspectByMemoId: ImmutableMap<String, Float>,
+    galleryState: GalleryUiMemosState,
+    aspectByMemoId: ImmutableMap<String, Float>?,
     dateFormat: String,
     timeFormat: String,
     padding: PaddingValues,
     onShowMenu: (MemoMenuState) -> Unit,
     onNavigateToReel: (memoId: String, imageIndex: Int, aspectByMemoId: Map<String, Float>) -> Unit,
+    onResolveImageAspect: suspend (String) -> Unit,
 ) {
-    if (memos.isEmpty()) {
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-        ) {
-            EmptyState(
-                icon = Icons.Outlined.PhotoLibrary,
-                title = stringResource(R.string.gallery_empty_title),
-                description = stringResource(R.string.gallery_empty_desc),
+    when (val displayState = resolveGalleryScreenDisplayState(galleryState, aspectByMemoId)) {
+        GalleryScreenDisplayState.Loading -> GalleryLoadingState(padding = padding)
+        GalleryScreenDisplayState.Empty -> GalleryEmptyState(padding = padding)
+        is GalleryScreenDisplayState.Grid ->
+            GalleryGridContent(
+                memos = displayState.memos,
+                aspectByMemoId = displayState.aspectByMemoId,
+                dateFormat = dateFormat,
+                timeFormat = timeFormat,
+                onShowMenu = onShowMenu,
+                contentPadding =
+                    PaddingValues(
+                        top = padding.calculateTopPadding() + AppSpacing.Medium,
+                        start = AppSpacing.Medium,
+                        end = AppSpacing.Medium,
+                        bottom = AppSpacing.Medium,
+                    ),
+                onCellClick = { memoId, imageIndex ->
+                    onNavigateToReel(memoId, imageIndex, displayState.aspectByMemoId)
+                },
+                onResolveImageAspect = onResolveImageAspect,
             )
-        }
-        return
     }
+}
 
-    GalleryGridContent(
-        memos = memos,
-        aspectByMemoId = aspectByMemoId,
-        dateFormat = dateFormat,
-        timeFormat = timeFormat,
-        onShowMenu = onShowMenu,
-        contentPadding =
-            PaddingValues(
-                top = padding.calculateTopPadding() + AppSpacing.Medium,
-                start = AppSpacing.Medium,
-                end = AppSpacing.Medium,
-                bottom = AppSpacing.Medium,
-            ),
-        onCellClick = { memoId, imageIndex ->
-            onNavigateToReel(memoId, imageIndex, aspectByMemoId)
-        },
-    )
+@Composable
+private fun GalleryLoadingState(padding: PaddingValues) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+        contentAlignment = Alignment.Center,
+    ) {
+        ExpressiveContainedLoadingIndicator()
+    }
+}
+
+@Composable
+private fun GalleryEmptyState(padding: PaddingValues) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .padding(padding),
+    ) {
+        EmptyState(
+            icon = Icons.Outlined.PhotoLibrary,
+            title = stringResource(R.string.gallery_empty_title),
+            description = stringResource(R.string.gallery_empty_desc),
+        )
+    }
 }
