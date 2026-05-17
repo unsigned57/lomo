@@ -5,6 +5,8 @@ import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.repository.AppVersionRepository
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.SyncInboxRepository
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 class StartupMaintenanceUseCase
 (
@@ -21,9 +23,27 @@ class StartupMaintenanceUseCase
             rootDir: String?,
             currentVersion: String,
         ) {
-            processSyncInboxOnStartup()
-            warmImageCacheOnStartup()
+            coroutineScope {
+                val imageWarmup =
+                    launch {
+                        warmImageCacheOnStartup()
+                    }
+                val inboxProcessing =
+                    launch {
+                        processSyncInboxOnStartup()
+                    }
+                imageWarmup.join()
+                inboxProcessing.join()
+            }
             resyncCachesIfAppVersionChanged(rootDir = rootDir, currentVersion = currentVersion)
+        }
+
+        private suspend fun warmImageCacheOnStartup() {
+            try {
+                mediaRepository.refreshImageLocations()
+            } catch (_: Exception) {
+                // Best-effort image map warm-up.
+            }
         }
 
         private suspend fun processSyncInboxOnStartup() {
@@ -38,14 +58,6 @@ class StartupMaintenanceUseCase
                 throw exception
             } catch (_: Exception) {
                 // Best-effort inbox import.
-            }
-        }
-
-        private suspend fun warmImageCacheOnStartup() {
-            try {
-                mediaRepository.refreshImageLocations()
-            } catch (_: Exception) {
-                // Best-effort cache warm-up.
             }
         }
 

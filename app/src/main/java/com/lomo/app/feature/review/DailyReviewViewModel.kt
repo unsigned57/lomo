@@ -2,6 +2,7 @@ package com.lomo.app.feature.review
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.MemoUiCoordinator
@@ -40,6 +41,7 @@ class DailyReviewViewModel
     @Inject
     constructor(
         private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
@@ -62,33 +64,16 @@ class DailyReviewViewModel
         private var canLoadMore = true
         private var currentSession: DailyReviewSession? = null
 
-        val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigUiCoordinator
-                .appPreferences()
-                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
                 .activeDayCount()
                 .stateIn(viewModelScope, appWhileSubscribed(), 0)
 
-        val rootDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .rootDirectory()
-                .stateIn(
-                    scope = viewModelScope,
-                    started = appWhileSubscribed(),
-                    initialValue = null,
-                )
+        val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
 
-        val imageDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .imageDirectory()
-                .stateIn(
-                    scope = viewModelScope,
-                    started = appWhileSubscribed(),
-                    initialValue = null,
-                )
+        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 

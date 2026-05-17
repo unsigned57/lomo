@@ -83,7 +83,17 @@ class WebDavSyncSettingsUseCase
 private class WebDavSyncSettingsStateObservationImpl(
     private val webDavSyncRepository: WebDavSyncRepository,
 ) : WebDavSyncSettingsStateObservation {
-    override fun observeWebDavSyncEnabled(): Flow<Boolean> = webDavSyncRepository.isWebDavSyncEnabled()
+    private val shared =
+        RemoteSyncSharedStateObservationImpl(
+            enabled = webDavSyncRepository::isWebDavSyncEnabled,
+            autoSyncEnabled = webDavSyncRepository::getAutoSyncEnabled,
+            autoSyncInterval = webDavSyncRepository::getAutoSyncInterval,
+            syncOnRefreshEnabled = webDavSyncRepository::getSyncOnRefreshEnabled,
+            lastSyncTimeMillis = webDavSyncRepository::observeLastSyncTimeMillis,
+            syncState = webDavSyncRepository::syncState,
+        )
+
+    override fun observeWebDavSyncEnabled(): Flow<Boolean> = shared.observeSyncEnabled()
 
     override fun observeProvider(): Flow<WebDavProvider> = webDavSyncRepository.getProvider()
 
@@ -93,15 +103,15 @@ private class WebDavSyncSettingsStateObservationImpl(
 
     override fun observeUsername(): Flow<String?> = webDavSyncRepository.getUsername()
 
-    override fun observeAutoSyncEnabled(): Flow<Boolean> = webDavSyncRepository.getAutoSyncEnabled()
+    override fun observeAutoSyncEnabled(): Flow<Boolean> = shared.observeAutoSyncEnabled()
 
-    override fun observeAutoSyncInterval(): Flow<String> = webDavSyncRepository.getAutoSyncInterval()
+    override fun observeAutoSyncInterval(): Flow<String> = shared.observeAutoSyncInterval()
 
-    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = webDavSyncRepository.getSyncOnRefreshEnabled()
+    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = shared.observeSyncOnRefreshEnabled()
 
-    override fun observeLastSyncTimeMillis(): Flow<Long?> = webDavSyncRepository.observeLastSyncTimeMillis()
+    override fun observeLastSyncTimeMillis(): Flow<Long?> = shared.observeLastSyncTimeMillis()
 
-    override fun observeSyncState(): Flow<WebDavSyncState> = webDavSyncRepository.syncState()
+    override fun observeSyncState(): Flow<WebDavSyncState> = shared.observeSyncState()
 }
 
 private class WebDavSyncCredentialObservationImpl(
@@ -114,9 +124,17 @@ private class WebDavSyncSettingsMutationImpl(
     private val webDavSyncRepository: WebDavSyncRepository,
     private val syncPolicyRepository: SyncPolicyRepository,
 ) : WebDavSyncSettingsMutation {
+    private val shared =
+        RemoteSyncSharedMutationImpl(
+            backendType = SyncBackendType.WEBDAV,
+            syncPolicyRepository = syncPolicyRepository,
+            autoSyncEnabledUpdater = webDavSyncRepository::setAutoSyncEnabled,
+            autoSyncIntervalUpdater = webDavSyncRepository::setAutoSyncInterval,
+            syncOnRefreshUpdater = webDavSyncRepository::setSyncOnRefreshEnabled,
+        )
+
     override suspend fun updateWebDavSyncEnabled(enabled: Boolean) {
-        syncPolicyRepository.setRemoteSyncBackend(if (enabled) SyncBackendType.WEBDAV else SyncBackendType.NONE)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateSyncEnabled(enabled)
     }
 
     override suspend fun updateProvider(provider: WebDavProvider) {
@@ -140,17 +158,15 @@ private class WebDavSyncSettingsMutationImpl(
     }
 
     override suspend fun updateAutoSyncEnabled(enabled: Boolean) {
-        webDavSyncRepository.setAutoSyncEnabled(enabled)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncEnabled(enabled)
     }
 
     override suspend fun updateAutoSyncInterval(interval: String) {
-        webDavSyncRepository.setAutoSyncInterval(interval)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncInterval(interval)
     }
 
     override suspend fun updateSyncOnRefreshEnabled(enabled: Boolean) {
-        webDavSyncRepository.setSyncOnRefreshEnabled(enabled)
+        shared.updateSyncOnRefreshEnabled(enabled)
     }
 }
 
@@ -158,9 +174,15 @@ private class WebDavSyncSettingsActionsImpl(
     private val webDavSyncRepository: WebDavSyncRepository,
     private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
 ) : WebDavSyncSettingsActions {
+    private val shared =
+        RemoteSyncSharedActionsImpl(
+            syncAndRebuildUseCase = syncAndRebuildUseCase,
+            connectionTester = webDavSyncRepository::testConnection,
+        )
+
     override suspend fun triggerSyncNow() {
-        syncAndRebuildUseCase(forceSync = true)
+        shared.triggerSyncNow()
     }
 
-    override suspend fun testConnection(): WebDavSyncResult = webDavSyncRepository.testConnection()
+    override suspend fun testConnection(): WebDavSyncResult = shared.testConnection()
 }

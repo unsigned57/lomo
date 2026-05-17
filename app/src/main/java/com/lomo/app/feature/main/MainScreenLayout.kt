@@ -20,6 +20,7 @@ import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -194,11 +195,12 @@ private fun MainScreenDrawerLayout(
     sidebarContent: @Composable () -> Unit,
     content: @Composable () -> Unit,
 ) {
+    val drawerSidebarContent = remember(sidebarContent) { movableContentOf { sidebarContent() } }
     if (isExpanded) {
         PermanentNavigationDrawer(
             drawerContent = {
                 PermanentDrawerSheet(modifier = Modifier.width(300.dp)) {
-                    sidebarContent()
+                    drawerSidebarContent()
                 }
             },
             content = content,
@@ -208,7 +210,7 @@ private fun MainScreenDrawerLayout(
             drawerState = drawerState,
             drawerContent = {
                 ModalDrawerSheet(modifier = Modifier.fillMaxWidth(MAIN_SCREEN_MODAL_DRAWER_WIDTH_FRACTION)) {
-                    sidebarContent()
+                    drawerSidebarContent()
                 }
             },
             content = content,

@@ -18,7 +18,12 @@ internal fun rememberLanShareNetworkPermissionRequester(
     onPermissionDenied: () -> Unit,
 ): () -> Unit {
     val context = LocalContext.current
-    val requiredPermissions = remember { requiredLanShareNetworkPermissions() }
+    val requiredPermissions =
+        remember(context) {
+            requiredLanShareNetworkPermissions(
+                isPermissionRecognized = lanSharePermissionRecognizer(context),
+            )
+        }
     val permissionLauncher =
         rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),

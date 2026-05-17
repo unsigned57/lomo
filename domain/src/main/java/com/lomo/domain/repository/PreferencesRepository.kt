@@ -53,10 +53,6 @@ interface InteractionBehaviorPreferencesRepository {
     fun isScrollbarEnabled(): Flow<Boolean>
 
     suspend fun setScrollbarEnabled(enabled: Boolean)
-
-    fun isSecureWipeBeforeDeleteEnabled(): Flow<Boolean>
-
-    suspend fun setSecureWipeBeforeDeleteEnabled(enabled: Boolean)
 }
 
 interface MemoActionPreferencesRepository {

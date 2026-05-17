@@ -9,7 +9,6 @@ import org.bouncycastle.crypto.generators.SCrypt
 import org.bouncycastle.crypto.macs.Poly1305
 import org.bouncycastle.crypto.params.KeyParameter
 import org.bouncycastle.crypto.params.ParametersWithIV
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
@@ -20,6 +19,7 @@ import java.security.SecureRandom
 import java.util.Base64
 import javax.crypto.Cipher
 import javax.crypto.spec.SecretKeySpec
+import okio.Buffer
 
 class S3RcloneCryptCompatCodec(
     private val nonceGenerator: () -> ByteArray = ::generateNonce,
@@ -112,12 +112,12 @@ class S3RcloneCryptCompatCodec(
             "Rclone-compatible nonce must be 24 bytes"
         }
 
-        val output = ByteArrayOutputStream(FILE_HEADER_SIZE + plaintext.size + SECRETBOX_MAC_SIZE)
+        val output = Buffer()
         output.write(FILE_MAGIC)
         output.write(initialNonce)
 
         if (plaintext.isEmpty()) {
-            return output.toByteArray()
+            return output.readByteArray()
         }
 
         val blockNonce = initialNonce.copyOf()
@@ -129,7 +129,7 @@ class S3RcloneCryptCompatCodec(
             incrementNonce(blockNonce)
             offset = endExclusive
         }
-        return output.toByteArray()
+        return output.readByteArray()
     }
 
     fun decryptBytes(
@@ -155,7 +155,7 @@ class S3RcloneCryptCompatCodec(
         }
 
         val blockNonce = encrypted.copyOfRange(FILE_MAGIC.size, FILE_HEADER_SIZE)
-        val output = ByteArrayOutputStream(encrypted.size - FILE_HEADER_SIZE)
+        val output = Buffer()
         var offset = FILE_HEADER_SIZE
         while (offset < encrypted.size) {
             val remaining = encrypted.size - offset
@@ -168,7 +168,7 @@ class S3RcloneCryptCompatCodec(
             incrementNonce(blockNonce)
             offset += blockSize
         }
-        return output.toByteArray()
+        return output.readByteArray()
     }
 
     fun encryptFile(
@@ -775,7 +775,7 @@ private object Base32HexLowercaseNoPadding : FilenameEncoding {
         require(!input.endsWith('=')) { "Encrypted rclone filename is not valid base32hex" }
         if (input.isEmpty()) return ByteArray(0)
 
-        val output = ByteArrayOutputStream((input.length * BASE32_BITS) / Byte.SIZE_BITS)
+        val output = Buffer()
         var buffer = 0
         var bits = 0
         input.forEach { char ->
@@ -785,11 +785,11 @@ private object Base32HexLowercaseNoPadding : FilenameEncoding {
             bits += BASE32_BITS
             while (bits >= Byte.SIZE_BITS) {
                 bits -= Byte.SIZE_BITS
-                output.write((buffer shr bits) and BYTE_MASK)
+                output.writeByte((buffer shr bits) and BYTE_MASK)
                 buffer = buffer and ((1 shl bits) - 1)
             }
         }
-        return output.toByteArray()
+        return output.readByteArray()
     }
 }
 

@@ -3,7 +3,6 @@ package com.lomo.data.di
 import android.content.Context
 import androidx.room3.Room
 import androidx.room3.RoomDatabase
-import androidx.room3.useReaderConnection
 import androidx.sqlite.driver.bundled.BundledSQLiteDriver
 import com.lomo.data.local.ALL_DATABASE_MIGRATIONS
 import com.lomo.data.local.ALL_DATABASE_MIGRATION_EDGES
@@ -67,7 +66,6 @@ import com.lomo.data.repository.WorkspaceMediaAccess
 import com.lomo.data.repository.WorkspaceTransitionRepositoryImpl
 import com.lomo.data.sync.SyncConflictBackupManager
 import com.lomo.data.source.FileDataSourceImpl
-import com.lomo.data.util.runNonFatalCatching
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.AppRuntimeInfoRepository
 import com.lomo.domain.repository.AppUpdateDownloadRepository
@@ -98,8 +96,6 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
-import kotlinx.coroutines.runBlocking
-import timber.log.Timber
 import java.io.File
 import javax.inject.Singleton
 
@@ -117,31 +113,7 @@ object DatabaseModule {
             migrationEdges = ALL_DATABASE_MIGRATION_EDGES,
         )
 
-        val db = buildMemoDatabase(context)
-        return runNonFatalCatching {
-            // Force database open now to trigger migration inside the provider.
-            // If migration fails, preserve the existing database instead of silently deleting it.
-            runBlocking {
-                db.useReaderConnection { connection ->
-                    connection.usePrepared("SELECT 1") { statement ->
-                        statement.step()
-                    }
-                }
-            }
-            db
-        }.getOrElse { error ->
-            val databaseFile = context.getDatabasePath(DatabaseTransitionStrategy.DATABASE_NAME)
-            Timber.tag("DataModule").e(
-                error,
-                "Database open/migration failed; preserving existing database at %s",
-                databaseFile.path,
-            )
-            runCatching { db.close() }
-            throw IllegalStateException(
-                "Database open/migration failed; existing database preserved at ${databaseFile.path}",
-                error,
-            )
-        }
+        return buildMemoDatabase(context)
     }
 
     private fun buildMemoDatabase(context: Context): MemoDatabase =

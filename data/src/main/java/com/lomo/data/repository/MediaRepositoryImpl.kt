@@ -1,6 +1,8 @@
 package com.lomo.data.repository
 
 import androidx.core.net.toUri
+import com.lomo.data.local.dao.ImageLocationCacheDao
+import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.source.MediaStorageDataSource
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
@@ -24,6 +26,7 @@ class MediaRepositoryImpl
         private val mediaStorageDataSource: MediaStorageDataSource,
         private val s3LocalChangeRecorder: S3LocalChangeRecorder,
         private val webDavLocalChangeRecorder: WebDavLocalChangeRecorder,
+        private val imageLocationCacheDao: ImageLocationCacheDao,
     ) : MediaRepository {
         private val imageLocationMap = MutableStateFlow<Map<MediaEntryId, StorageLocation>>(emptyMap())
 
@@ -50,14 +53,32 @@ class MediaRepositoryImpl
 
         override suspend fun refreshImageLocations() {
             if (workspaceConfigSource.getRootFlow(StorageRootType.IMAGE).first() == null) {
+                imageLocationCacheDao.clearAll()
                 imageLocationMap.value = emptyMap()
                 return
             }
 
             imageLocationMap.value =
-                mediaStorageDataSource.listImageFiles().associate { (name, uri) ->
+                imageLocationCacheDao.readAll().associate { entry ->
+                    MediaEntryId(entry.name) to StorageLocation(entry.uri)
+                }
+
+            val refreshedEntries = mediaStorageDataSource.listImageFiles()
+            imageLocationMap.value =
+                refreshedEntries.associate { (name, uri) ->
                     MediaEntryId(name) to StorageLocation(uri)
                 }
+            imageLocationCacheDao.clearAll()
+            if (refreshedEntries.isNotEmpty()) {
+                imageLocationCacheDao.upsertAll(
+                    refreshedEntries.map { (name, uri) ->
+                        ImageLocationCacheEntity(
+                            name = name,
+                            uri = uri,
+                        )
+                    },
+                )
+            }
         }
 
         override suspend fun ensureCategoryWorkspace(category: MediaCategory): StorageLocation? =

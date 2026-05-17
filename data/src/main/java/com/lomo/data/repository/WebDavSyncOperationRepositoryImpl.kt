@@ -29,7 +29,6 @@ import timber.log.Timber
 import java.io.File
 import java.nio.charset.StandardCharsets
 import kotlin.io.path.createTempFile
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,7 +41,10 @@ class WebDavSyncOperationRepositoryImpl
         private val stateHolder: WebDavSyncStateHolder,
         private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) : WebDavSyncOperationRepository {
-        private val syncGuard = AtomicBoolean(false)
+        private val syncExecutionGate =
+            SyncExecutionGate<WebDavSyncResult>(
+                defaultInProgressResult = { WebDavSyncResult.Success("WebDAV sync already in progress") },
+            )
 
         override suspend fun sync(): WebDavSyncResult =
             withSyncGuard(inProgressMessage = "WebDAV sync already in progress") {
@@ -61,27 +63,28 @@ class WebDavSyncOperationRepositoryImpl
         private suspend fun withSyncGuard(
             inProgressMessage: String,
             block: suspend () -> WebDavSyncResult,
-        ): WebDavSyncResult {
-            if (!syncGuard.compareAndSet(false, true)) {
-                return WebDavSyncResult.Success(inProgressMessage)
-            }
-            return try {
-                block()
-            } finally {
-                syncGuard.set(false)
-            }
-        }
+        ): WebDavSyncResult =
+            syncExecutionGate.run(
+                inProgressResult = { WebDavSyncResult.Success(inProgressMessage) },
+                block = block,
+            )
 
         private suspend fun restorePendingConflictIfPresent(): WebDavSyncResult? {
-            val pending = pendingConflictStore.read(SyncBackendType.WEBDAV) ?: return null
-            stateHolder.state.value = WebDavSyncState.ConflictDetected(pending)
-            return WebDavSyncResult.Conflict("Pending conflicts remain", pending)
+            return restorePendingConflict(
+                pendingConflictStore = pendingConflictStore,
+                backendType = SyncBackendType.WEBDAV,
+                onRestored = { pending -> stateHolder.state.value = WebDavSyncState.ConflictDetected(pending) },
+                asResult = { pending -> WebDavSyncResult.Conflict("Pending conflicts remain", pending) },
+            )
         }
 
         private suspend fun clearPendingConflictsOnSuccess(result: WebDavSyncResult) {
-            if (result is WebDavSyncResult.Success) {
-                pendingConflictStore.clear(SyncBackendType.WEBDAV)
-            }
+            clearPendingConflictOnSuccess(
+                pendingConflictStore = pendingConflictStore,
+                backendType = SyncBackendType.WEBDAV,
+                result = result,
+                isSuccess = { candidate -> candidate is WebDavSyncResult.Success },
+            )
         }
     }
 

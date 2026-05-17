@@ -110,12 +110,60 @@ class LocalMediaSyncStore
                     }.associateBy { it.relativePath }
             }
 
+        suspend fun getFile(
+            relativePath: String,
+            layout: SyncDirectoryLayout,
+        ): LocalMediaSyncFile? =
+            withContext(Dispatchers.IO) {
+                val stripped = stripMediaSyncPrefix(relativePath.trim().trimStart('/'))
+                val located =
+                    locateMediaFile(
+                        relativePath = stripped,
+                        layout = layout,
+                        cachedRoots = configuredRootsState.value,
+                        dataStore = dataStore,
+                    ) ?: return@withContext null
+                when (val root = located.root) {
+                    is MediaRoot.Direct -> {
+                        val file = File(root.path, located.filename)
+                        if (!file.exists() || !file.isFile) {
+                            null
+                        } else {
+                            LocalMediaSyncFile(
+                                relativePath = stripped,
+                                lastModified = file.lastModified(),
+                                size = file.length(),
+                            )
+                        }
+                    }
+
+                    is MediaRoot.Saf -> {
+                        val document = getSafRoot(context, root)?.findFile(located.filename)
+                        if (document == null || !document.isFile) {
+                            null
+                        } else {
+                            LocalMediaSyncFile(
+                                relativePath = stripped,
+                                lastModified = document.lastModified(),
+                                size = document.length(),
+                            )
+                        }
+                    }
+                }
+            }
+
         suspend fun readBytes(
             relativePath: String,
             layout: SyncDirectoryLayout,
         ): ByteArray =
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath, layout) ?: throw IOException("Media file not found: $relativePath")
+                val located =
+                    locateMediaFile(
+                        relativePath = relativePath,
+                        layout = layout,
+                        cachedRoots = configuredRootsState.value,
+                        dataStore = dataStore,
+                    ) ?: throw IOException("Media file not found: $relativePath")
                 when (val root = located.root) {
                     is MediaRoot.Direct -> {
                         File(root.path, located.filename).readBytes()
@@ -137,7 +185,13 @@ class LocalMediaSyncStore
             layout: SyncDirectoryLayout,
         ): String =
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath, layout) ?: throw IOException("Media file not found: $relativePath")
+                val located =
+                    locateMediaFile(
+                        relativePath = relativePath,
+                        layout = layout,
+                        cachedRoots = configuredRootsState.value,
+                        dataStore = dataStore,
+                    ) ?: throw IOException("Media file not found: $relativePath")
                 when (val root = located.root) {
                     is MediaRoot.Direct ->
                         File(root.path, located.filename).inputStream().use { input ->
@@ -160,7 +214,16 @@ class LocalMediaSyncStore
             layout: SyncDirectoryLayout,
         ) {
             withContext(Dispatchers.IO) {
-                val located = requireLocatedMediaFile(locate(relativePath, layout), relativePath)
+                val located =
+                    requireLocatedMediaFile(
+                        locateMediaFile(
+                            relativePath = relativePath,
+                            layout = layout,
+                            cachedRoots = configuredRootsState.value,
+                            dataStore = dataStore,
+                        ),
+                        relativePath,
+                    )
                 when (val root = located.root) {
                     is MediaRoot.Direct -> {
                         val directory = File(root.path)
@@ -187,7 +250,16 @@ class LocalMediaSyncStore
             destination: File,
         ) {
             withContext(Dispatchers.IO) {
-                val located = requireLocatedMediaFile(locate(relativePath, layout), relativePath)
+                val located =
+                    requireLocatedMediaFile(
+                        locateMediaFile(
+                            relativePath = relativePath,
+                            layout = layout,
+                            cachedRoots = configuredRootsState.value,
+                            dataStore = dataStore,
+                        ),
+                        relativePath,
+                    )
                 destination.parentFile?.mkdirs()
                 when (val root = located.root) {
                     is MediaRoot.Direct ->
@@ -218,7 +290,16 @@ class LocalMediaSyncStore
             layout: SyncDirectoryLayout,
         ) {
             withContext(Dispatchers.IO) {
-                val located = requireLocatedMediaFile(locate(relativePath, layout), relativePath)
+                val located =
+                    requireLocatedMediaFile(
+                        locateMediaFile(
+                            relativePath = relativePath,
+                            layout = layout,
+                            cachedRoots = configuredRootsState.value,
+                            dataStore = dataStore,
+                        ),
+                        relativePath,
+                    )
                 when (val root = located.root) {
                     is MediaRoot.Direct -> {
                         val directory = File(root.path)
@@ -250,7 +331,13 @@ class LocalMediaSyncStore
             layout: SyncDirectoryLayout,
         ) {
             withContext(Dispatchers.IO) {
-                val located = locate(relativePath, layout) ?: return@withContext
+                val located =
+                    locateMediaFile(
+                        relativePath = relativePath,
+                        layout = layout,
+                        cachedRoots = configuredRootsState.value,
+                        dataStore = dataStore,
+                    ) ?: return@withContext
                 when (val root = located.root) {
                     is MediaRoot.Direct -> File(root.path, located.filename).delete()
                     is MediaRoot.Saf -> getSafRoot(context, root)?.findFile(located.filename)?.delete()
@@ -261,37 +348,17 @@ class LocalMediaSyncStore
         fun isMediaPath(
             path: String,
             layout: SyncDirectoryLayout,
-        ): Boolean = mediaCategoryForPath(stripSyncPrefix(path), layout) != null
+        ): Boolean = mediaCategoryForPath(stripMediaSyncPrefix(path), layout) != null
 
         fun contentTypeForPath(
             path: String,
             layout: SyncDirectoryLayout,
         ): String {
-            val stripped = stripSyncPrefix(path)
+            val stripped = stripMediaSyncPrefix(path)
             val category = mediaCategoryForPath(stripped, layout) ?: return OCTET_STREAM
             return contentTypeFor(stripped.substringAfterLast('/'), category)
         }
 
-        private suspend fun locate(
-            relativePath: String,
-            layout: SyncDirectoryLayout,
-        ): LocatedMediaFile? {
-            val stripped = stripSyncPrefix(relativePath.trim().trimStart('/'))
-            val category = mediaCategoryForPath(stripped, layout)
-            val filename = stripped.substringAfter('/', "")
-            val root =
-                category?.let { resolvedCategory ->
-                    resolveConfiguredMediaRoots(
-                        cachedRoots = configuredRootsState.value,
-                        dataStore = dataStore,
-                    ).firstOrNull { it.category == resolvedCategory }
-                }
-            return if (filename.isNotBlank() && root != null) {
-                LocatedMediaFile(root = root, filename = filename)
-            } else {
-                null
-            }
-        }
     }
 
 internal fun buildConfiguredRoots(
@@ -362,7 +429,7 @@ private fun contentTypeFor(
     }
 }
 
-private fun mediaCategoryForPath(
+internal fun mediaCategoryForPath(
     path: String,
     layout: SyncDirectoryLayout,
 ): MediaSyncCategory? =
@@ -372,7 +439,7 @@ private fun mediaCategoryForPath(
         else -> null
     }
 
-private fun stripSyncPrefix(path: String): String =
+internal fun stripMediaSyncPrefix(path: String): String =
     if (path.startsWith(WEBDAV_PREFIX)) path.removePrefix(WEBDAV_PREFIX) else path
 
 private fun folderPrefix(folder: String): String = "$folder/"

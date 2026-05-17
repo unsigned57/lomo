@@ -31,7 +31,7 @@ class GitSyncOperationRepositoryImpl
         private val maintenanceExecutor: GitSyncMaintenanceExecutor,
     ) : GitSyncOperationRepository {
         private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val isSyncInProgress = AtomicBoolean(false)
+        private val syncGuard = SyncExecutionGate<GitSyncResult>()
 
         init {
             @OptIn(FlowPreview::class)
@@ -75,16 +75,11 @@ class GitSyncOperationRepositoryImpl
         private suspend fun withSyncGuard(
             inProgressMessage: String,
             block: suspend () -> GitSyncResult,
-        ): GitSyncResult {
-            if (!isSyncInProgress.compareAndSet(false, true)) {
-                return GitSyncResult.Success(inProgressMessage)
-            }
-            return try {
-                block()
-            } finally {
-                isSyncInProgress.set(false)
-            }
-        }
+        ): GitSyncResult =
+            syncGuard.run(
+                inProgressResult = { GitSyncResult.Success(inProgressMessage) },
+                block = block,
+            )
     }
 
 @Singleton
