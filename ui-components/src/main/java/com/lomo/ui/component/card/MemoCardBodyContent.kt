@@ -17,10 +17,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.lomo.ui.component.markdown.MarkdownRenderer
+import com.lomo.ui.component.markdown.MarkdownRendererWithTextSelectionRegistrar
+import com.lomo.ui.text.MemoTextSelectionRegistrar
+import com.lomo.ui.text.MemoTextSelectionScope
 import com.lomo.ui.theme.MotionTokens
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -32,6 +35,7 @@ internal fun MemoCardBodyContent(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
@@ -43,7 +47,7 @@ internal fun MemoCardBodyContent(
     onImageClick: ((String) -> Unit)?,
     bodyTransitionMode: MemoCardBodyTransitionMode,
 ) {
-    val bodyContent: @Composable () -> Unit = {
+    val bodyContent: @Composable (MemoTextSelectionRegistrar?) -> Unit = { selectionRegistrar ->
         when (bodyTransitionMode) {
             MemoCardBodyTransitionMode.Snap -> {
                 MemoCardBodyStateContent(
@@ -56,6 +60,7 @@ internal fun MemoCardBodyContent(
                     collapsedSummary = collapsedSummary,
                     allowFreeTextCopy = allowFreeTextCopy,
                     onTapFeedback = onTapFeedback,
+                    onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
                     processedContent = processedContent,
                     precomputedRenderPlan = precomputedRenderPlan,
@@ -63,6 +68,7 @@ internal fun MemoCardBodyContent(
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    selectionRegistrar = selectionRegistrar,
                 )
             }
 
@@ -99,6 +105,7 @@ internal fun MemoCardBodyContent(
                         collapsedSummary = collapsedSummary,
                         allowFreeTextCopy = allowFreeTextCopy,
                         onTapFeedback = onTapFeedback,
+                        onBodyClick = onBodyClick,
                         onDoubleClick = onDoubleClick,
                         processedContent = processedContent,
                         precomputedRenderPlan = precomputedRenderPlan,
@@ -106,13 +113,19 @@ internal fun MemoCardBodyContent(
                         onTodoClick = onTodoClick,
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
+                        selectionRegistrar = selectionRegistrar,
                     )
                 }
             }
         }
     }
 
-    bodyContent()
+    MemoTextSelectionScope(
+        enabled = allowFreeTextCopy,
+        modifier = Modifier.fillMaxWidth(),
+    ) { selectionRegistrar ->
+        bodyContent(selectionRegistrar)
+    }
 }
 
 @Composable
@@ -122,6 +135,7 @@ private fun MemoCardBodyStateContent(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     processedContent: String,
     precomputedRenderPlan: com.lomo.ui.component.markdown.ModernMarkdownRenderPlan?,
@@ -129,6 +143,7 @@ private fun MemoCardBodyStateContent(
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
 ) {
     when (visualState) {
         MemoCardBodyVisualState.Expanded -> {
@@ -139,10 +154,12 @@ private fun MemoCardBodyStateContent(
                 isCollapsedPreview = false,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTapFeedback = onTapFeedback,
+                onBodyClick = onBodyClick,
                 onDoubleClick = onDoubleClick,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
+                selectionRegistrar = selectionRegistrar,
             )
         }
 
@@ -152,7 +169,9 @@ private fun MemoCardBodyStateContent(
                     collapsedSummary = collapsedSummary,
                     allowFreeTextCopy = allowFreeTextCopy,
                     onTapFeedback = onTapFeedback,
+                    onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
+                    selectionRegistrar = selectionRegistrar,
                 )
             }
         }
@@ -166,10 +185,12 @@ private fun MemoCardBodyStateContent(
                     isCollapsedPreview = collapsedPreviewMode == MemoCardCollapsedPreviewMode.MarkdownPreview,
                     allowFreeTextCopy = allowFreeTextCopy,
                     onTapFeedback = onTapFeedback,
+                    onBodyClick = onBodyClick,
                     onDoubleClick = onDoubleClick,
                     onTodoClick = onTodoClick,
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
+                    selectionRegistrar = selectionRegistrar,
                 )
             }
         }
@@ -179,7 +200,11 @@ private fun MemoCardBodyStateContent(
 @Composable
 private fun MemoCardCollapsedBody(content: @Composable BoxScope.() -> Unit) {
     Box(
-        modifier = Modifier.fillMaxWidth().heightIn(max = COLLAPSED_BODY_MAX_HEIGHT),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = COLLAPSED_BODY_MAX_HEIGHT)
+                .clipToBounds(),
     ) {
         content()
         MemoCardCollapsedOverlay()
@@ -194,12 +219,14 @@ private fun MemoCardMarkdownContent(
     isCollapsedPreview: Boolean,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
 ) {
-    MarkdownRenderer(
+    MarkdownRendererWithTextSelectionRegistrar(
         content = processedContent,
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = if (precomputedRenderPlan == null) tags else persistentListOf(),
@@ -209,7 +236,9 @@ private fun MemoCardMarkdownContent(
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
         enableTextSelection = allowFreeTextCopy,
+        textSelectionRegistrar = selectionRegistrar,
         onTextTapFeedback = onTapFeedback,
+        onTextBodyClick = onBodyClick,
         onTextDoubleClick = onDoubleClick,
     )
 }

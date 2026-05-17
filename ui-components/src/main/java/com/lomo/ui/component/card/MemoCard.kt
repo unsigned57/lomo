@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.lomo.ui.R
 import com.lomo.ui.component.markdown.MarkdownKnownTagFilter
 import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.scriptAwareFor
 import com.lomo.ui.theme.AppShapes
@@ -122,6 +123,7 @@ fun MemoCard(
                 doubleClick()
             }
         }
+    // Plain memo-body taps intentionally mirror the footer toggle: collapsed taps expand and expanded taps collapse.
     val effectiveOnClick: () -> Unit = if (expandOnClick && shouldShowExpand) {
         {
             updateExpanded(!effectiveExpanded)
@@ -172,7 +174,8 @@ fun MemoCard(
                 isExpanded = effectiveExpanded,
                 allowFreeTextCopy = allowFreeTextCopy,
                 onTapFeedback = memoCardTapFeedback,
-                onDoubleClick = onDoubleClick?.let { quickEditOnDoubleClick },
+                onBodyClick = effectiveOnClick,
+                onDoubleClick = quickEditOnDoubleClick,
                 onTodoClick = onTodoClick,
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
@@ -331,6 +334,7 @@ private fun MemoCardBody(
     isExpanded: Boolean,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
     onTodoClick: ((Int, Boolean) -> Unit)?,
     todoOverrides: ImmutableMap<Int, Boolean>,
@@ -356,14 +360,14 @@ private fun MemoCardBody(
 
                         MemoCardBodyContainerSizeAnimation.Disabled -> base
                     }
-                }
-                .clip(AppShapes.Small),
+                },
     ) {
         MemoCardBodyContent(
             collapsedPreviewMode = collapsedPreviewMode,
             collapsedSummary = collapsedSummary,
             allowFreeTextCopy = allowFreeTextCopy,
             onTapFeedback = onTapFeedback,
+            onBodyClick = onBodyClick,
             onDoubleClick = onDoubleClick,
             processedContent = processedContent,
             precomputedRenderPlan = precomputedRenderPlan,
@@ -383,7 +387,9 @@ internal fun MemoCardCollapsedSummary(
     collapsedSummary: String,
     allowFreeTextCopy: Boolean,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: (() -> Unit)?,
+    selectionRegistrar: MemoTextSelectionRegistrar? = null,
 ) {
     val displaySummary = collapsedSummary.normalizeCjkMixedSpacingForDisplay()
     val summaryStyle =
@@ -397,7 +403,9 @@ internal fun MemoCardCollapsedSummary(
         overflow = TextOverflow.Ellipsis,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         selectable = allowFreeTextCopy,
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTapFeedback,
+        onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
     )
 }

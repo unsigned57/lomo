@@ -22,7 +22,10 @@ internal fun MemoParagraphText(
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
     selectable: Boolean = false,
+    blockKey: Any? = null,
+    selectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTapFeedback: (() -> Unit)? = null,
+    onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
 ) {
     MemoParagraphText(
@@ -32,7 +35,10 @@ internal fun MemoParagraphText(
         maxLines = maxLines,
         overflow = overflow,
         selectable = selectable,
+        blockKey = blockKey,
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTapFeedback,
+        onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
     )
 }
@@ -45,7 +51,10 @@ internal fun MemoParagraphText(
     maxLines: Int = Int.MAX_VALUE,
     overflow: TextOverflow = TextOverflow.Clip,
     selectable: Boolean = false,
+    blockKey: Any? = null,
+    selectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTapFeedback: (() -> Unit)? = null,
+    onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -69,9 +78,11 @@ internal fun MemoParagraphText(
         overflow = overflow,
         selectable = selectable,
         selectionHighlightColor = memoPlatformTextSelectionHighlightColor(colorScheme),
-        selectionHandleColor = memoPlatformTextHandleColor(colorScheme),
         defaultLinkColor = memoPlatformTextHandleColor(colorScheme),
+        blockKey = blockKey,
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTapFeedback,
+        onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
     )
 }

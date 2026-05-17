@@ -47,14 +47,33 @@ private fun DrawScope.drawMemoTextBackgrounds(
 ) {
     val selectedRange = selectionState.selectedRange
     layout.lines.forEach { line ->
+        var selectionMinX = Float.MAX_VALUE
+        var selectionMaxX = Float.MIN_VALUE
+        var hasSelection = false
+
         line.forEachGlyph(annotatedText.text, measurer, baseLetterSpacingPx) { glyph ->
             val backgroundColor = annotatedText.resolveBackgroundColor(glyph.start)
             if (backgroundColor != Color.Unspecified) {
                 drawGlyphBackground(line, glyph, backgroundColor)
             }
             if (selectedRange?.contains(glyph.start) == true) {
-                drawGlyphBackground(line, glyph, selectionHighlightColor)
+                hasSelection = true
+                if (glyph.xPx < selectionMinX) {
+                    selectionMinX = glyph.xPx
+                }
+                val glyphMaxX = glyph.xPx + glyph.widthPx
+                if (glyphMaxX > selectionMaxX) {
+                    selectionMaxX = glyphMaxX
+                }
             }
+        }
+
+        if (hasSelection) {
+            drawRect(
+                color = selectionHighlightColor,
+                topLeft = Offset(selectionMinX, line.topPx),
+                size = Size(width = selectionMaxX - selectionMinX, height = line.bottomPx - line.topPx),
+            )
         }
     }
 }
