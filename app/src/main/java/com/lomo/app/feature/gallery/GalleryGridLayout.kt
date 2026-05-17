@@ -1,9 +1,11 @@
 package com.lomo.app.feature.gallery
 
+import kotlinx.collections.immutable.ImmutableList
+
 const val GALLERY_PORTRAIT_ASPECT_MAX = 0.7f
 const val GALLERY_LANDSCAPE_ASPECT_MIN = 1.4f
 const val GALLERY_DEFAULT_ASPECT_RATIO = 1f
-const val GALLERY_DEFAULT_HIGHLIGHT_STRIDE = 8
+const val GALLERY_MOSAIC_COLUMN_COUNT = 12
 
 enum class GalleryAspectKind {
     Portrait,
@@ -16,12 +18,20 @@ data class GalleryLayoutInput(
     val firstImageUrl: String,
 )
 
-data class GalleryCellLayout(
+data class GalleryMosaicTile(
     val memoId: String,
     val firstImageUrl: String,
     val aspectKind: GalleryAspectKind,
     val aspectRatio: Float,
-    val isHighlight: Boolean,
+    val column: Int,
+    val row: Int,
+    val columnSpan: Int,
+    val rowSpan: Int,
+)
+
+data class GalleryMosaicLayout(
+    val tiles: ImmutableList<GalleryMosaicTile>,
+    val rowCount: Int,
 )
 
 fun galleryLayoutInput(
@@ -38,36 +48,25 @@ fun gallerySharedElementKey(
     imageIndex: Int,
 ): String = "gallery:$memoId:$imageIndex"
 
-fun planGalleryLayout(
-    memos: List<GalleryLayoutInput>,
-    aspectByMemoId: Map<String, Float>,
-    highlightStride: Int = GALLERY_DEFAULT_HIGHLIGHT_STRIDE,
-): List<GalleryCellLayout> =
-    memos.mapIndexed { index, memo ->
-        val resolvedAspect = sanitizeGalleryAspect(aspectByMemoId[memo.memoId])
-        val aspectKind = resolvedAspect.toGalleryAspectKind()
-        val isHighlight =
-            highlightStride > 0 &&
-                index % highlightStride == 0 &&
-                aspectKind == GalleryAspectKind.Square
-
-        GalleryCellLayout(
-            memoId = memo.memoId,
-            firstImageUrl = memo.firstImageUrl,
-            aspectKind = aspectKind,
-            aspectRatio = if (isHighlight) GALLERY_DEFAULT_ASPECT_RATIO else resolvedAspect,
-            isHighlight = isHighlight,
-        )
+internal fun resolveGalleryAspectByMemoIdOrNull(
+    layoutInputs: List<GalleryLayoutInput>,
+    aspectByImageUrl: Map<String, Float>,
+): Map<String, Float>? {
+    val aspectByMemoId = LinkedHashMap<String, Float>(layoutInputs.size)
+    layoutInputs.forEach { input ->
+        aspectByMemoId[input.memoId] = sanitizeGalleryAspect(aspectByImageUrl[input.firstImageUrl])
     }
+    return aspectByMemoId
+}
 
-private fun sanitizeGalleryAspect(aspectRatio: Float?): Float =
+internal fun sanitizeGalleryAspect(aspectRatio: Float?): Float =
     aspectRatio
         ?.takeIf { it.isFinite() && it > 0f }
         ?: GALLERY_DEFAULT_ASPECT_RATIO
 
-private fun Float.toGalleryAspectKind(): GalleryAspectKind =
+internal fun galleryAspectKindFor(aspectRatio: Float): GalleryAspectKind =
     when {
-        this < GALLERY_PORTRAIT_ASPECT_MAX -> GalleryAspectKind.Portrait
-        this > GALLERY_LANDSCAPE_ASPECT_MIN -> GalleryAspectKind.Landscape
+        aspectRatio < GALLERY_PORTRAIT_ASPECT_MAX -> GalleryAspectKind.Portrait
+        aspectRatio > GALLERY_LANDSCAPE_ASPECT_MIN -> GalleryAspectKind.Landscape
         else -> GalleryAspectKind.Square
     }

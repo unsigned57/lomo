@@ -6,22 +6,22 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
-import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.lomo.app.feature.main.MemoUiModel
@@ -29,10 +29,11 @@ import com.lomo.app.feature.memo.memoMenuState
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
+import kotlin.math.max
 
-private const val GALLERY_GRID_COLUMNS = 3
 private val GALLERY_GRID_ITEM_SPACING = 6.dp
 private val GALLERY_GRID_CELL_SHAPE = RoundedCornerShape(12.dp)
+private const val GALLERY_MOSAIC_CONTENT_TYPE = "gallery-mosaic"
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -44,12 +45,13 @@ fun GalleryGridContent(
     contentPadding: PaddingValues,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
+    onResolveImageAspect: suspend (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val memoById = remember(memos) { memos.associateBy { uiModel -> uiModel.memo.id } }
     val layout =
         remember(memos, aspectByMemoId) {
-            planGalleryLayout(
+            planGalleryMosaicLayout(
                 memos =
                     memos.mapNotNull { uiModel ->
                         val firstImageUrl = uiModel.imageUrls.firstOrNull() ?: return@mapNotNull null
@@ -61,48 +63,138 @@ fun GalleryGridContent(
                 aspectByMemoId = aspectByMemoId,
             )
         }
-
-    LazyVerticalStaggeredGrid(
-        columns = StaggeredGridCells.Fixed(GALLERY_GRID_COLUMNS),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = contentPadding,
-        verticalItemSpacing = GALLERY_GRID_ITEM_SPACING,
-        horizontalArrangement = Arrangement.spacedBy(GALLERY_GRID_ITEM_SPACING),
-    ) {
-        itemsIndexed(
-            items = layout,
-            key = { _, cell -> cell.memoId },
-            contentType = { _, cell -> cell.aspectKind },
-            span = { _, cell ->
-                if (cell.isHighlight) {
-                    StaggeredGridItemSpan.FullLine
-                } else {
-                    StaggeredGridItemSpan.SingleLane
-                }
-            },
-        ) { _, cell ->
-            val uiModel = memoById[cell.memoId] ?: return@itemsIndexed
-            GalleryGridCell(
-                uiModel = uiModel,
-                layout = cell,
+    val cellContext =
+        remember(memoById, dateFormat, timeFormat, onCellClick, onShowMenu, onResolveImageAspect) {
+            GalleryMosaicCellContext(
+                memoById = memoById,
                 dateFormat = dateFormat,
                 timeFormat = timeFormat,
                 onCellClick = onCellClick,
                 onShowMenu = onShowMenu,
+                onResolveImageAspect = onResolveImageAspect,
+            )
+        }
+
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = contentPadding,
+        verticalArrangement = Arrangement.spacedBy(GALLERY_GRID_ITEM_SPACING),
+    ) {
+        items(
+            items = layout,
+            key = { mosaicLayout -> mosaicLayout.key },
+            contentType = { GALLERY_MOSAIC_CONTENT_TYPE },
+        ) { mosaicLayout ->
+            GalleryMosaicBand(
+                mosaicLayout = mosaicLayout,
+                cellContext = cellContext,
             )
         }
     }
+}
+
+private data class GalleryMosaicCellContext(
+    val memoById: Map<String, MemoUiModel>,
+    val dateFormat: String,
+    val timeFormat: String,
+    val onCellClick: (memoId: String, imageIndex: Int) -> Unit,
+    val onShowMenu: (MemoMenuState) -> Unit,
+    val onResolveImageAspect: suspend (String) -> Unit,
+)
+
+@Composable
+private fun GalleryMosaicBand(
+    mosaicLayout: GalleryMosaicLayout,
+    cellContext: GalleryMosaicCellContext,
+    modifier: Modifier = Modifier,
+) {
+    Layout(
+        modifier = modifier.fillMaxWidth(),
+        content = {
+            mosaicLayout.tiles.forEach { tile ->
+                key(tile.memoId) {
+                    GalleryMosaicCell(
+                        cellContext = cellContext,
+                        tile = tile,
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val spacingPx = GALLERY_GRID_ITEM_SPACING.roundToPx()
+        val layoutWidth = constraints.galleryMosaicWidth()
+        val cellSize = galleryMosaicCellSize(layoutWidth, spacingPx)
+        val layoutHeight = galleryMosaicSpanSize(
+            cellSize = cellSize,
+            spacingPx = spacingPx,
+            span = mosaicLayout.rowCount,
+        )
+        val placeables =
+            measurables.mapIndexed { index, measurable ->
+                val tile = mosaicLayout.tiles[index]
+                measurable.measure(
+                    Constraints.fixed(
+                        width =
+                            galleryMosaicSpanSize(
+                                cellSize = cellSize,
+                                spacingPx = spacingPx,
+                                span = tile.columnSpan,
+                            ),
+                        height =
+                            galleryMosaicSpanSize(
+                                cellSize = cellSize,
+                                spacingPx = spacingPx,
+                                span = tile.rowSpan,
+                            ),
+                    ),
+                )
+            }
+
+        layout(
+            width = layoutWidth,
+            height = constraints.galleryMosaicHeight(layoutHeight),
+        ) {
+            placeables.forEachIndexed { index, placeable ->
+                val tile = mosaicLayout.tiles[index]
+                placeable.placeRelative(
+                    x = tile.column * (cellSize + spacingPx),
+                    y = tile.row * (cellSize + spacingPx),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GalleryMosaicCell(
+    cellContext: GalleryMosaicCellContext,
+    tile: GalleryMosaicTile,
+    modifier: Modifier = Modifier,
+) {
+    val uiModel = cellContext.memoById[tile.memoId] ?: return
+    GalleryGridCell(
+        uiModel = uiModel,
+        layout = tile,
+        dateFormat = cellContext.dateFormat,
+        timeFormat = cellContext.timeFormat,
+        onCellClick = cellContext.onCellClick,
+        onShowMenu = cellContext.onShowMenu,
+        onResolveImageAspect = cellContext.onResolveImageAspect,
+        modifier = modifier,
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun GalleryGridCell(
     uiModel: MemoUiModel,
-    layout: GalleryCellLayout,
+    layout: GalleryMosaicTile,
     dateFormat: String,
     timeFormat: String,
     onCellClick: (memoId: String, imageIndex: Int) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
+    onResolveImageAspect: suspend (String) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val imageUrls = uiModel.imageUrls
     if (imageUrls.isEmpty()) return
@@ -117,9 +209,7 @@ private fun GalleryGridCell(
 
     Box(
         modifier =
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(layout.aspectRatio)
+            modifier
                 .clip(GALLERY_GRID_CELL_SHAPE)
                 .combinedClickable(
                     onClick = {
@@ -145,6 +235,7 @@ private fun GalleryGridCell(
                 memoId = uiModel.memo.id,
                 imageUrl = layout.firstImageUrl,
                 imageIndex = 0,
+                onResolveImageAspect = onResolveImageAspect,
             )
         } else {
             HorizontalPager(
@@ -156,18 +247,62 @@ private fun GalleryGridCell(
                     memoId = uiModel.memo.id,
                     imageUrl = imageUrls[page],
                     imageIndex = page,
+                    onResolveImageAspect = onResolveImageAspect,
                 )
             }
         }
     }
 }
 
+private val GalleryMosaicLayout.key: String
+    get() = tiles.joinToString(separator = "|") { tile -> tile.memoId }
+
+private fun Constraints.galleryMosaicWidth(): Int =
+    if (maxWidth == Constraints.Infinity) {
+        minWidth
+    } else {
+        maxWidth
+    }
+
+private fun Constraints.galleryMosaicHeight(layoutHeight: Int): Int =
+    if (maxHeight == Constraints.Infinity) {
+        max(minHeight, layoutHeight)
+    } else {
+        layoutHeight.coerceIn(minHeight, maxHeight)
+    }
+
+private fun galleryMosaicCellSize(
+    layoutWidth: Int,
+    spacingPx: Int,
+): Int {
+    val spacingWidth = spacingPx * (GALLERY_MOSAIC_COLUMN_COUNT - 1)
+    return max(
+        1,
+        (layoutWidth - spacingWidth) / GALLERY_MOSAIC_COLUMN_COUNT,
+    )
+}
+
+private fun galleryMosaicSpanSize(
+    cellSize: Int,
+    spacingPx: Int,
+    span: Int,
+): Int =
+    if (span <= 0) {
+        0
+    } else {
+        span * cellSize + (span - 1) * spacingPx
+    }
+
 @Composable
 private fun GalleryGridImage(
     memoId: String,
     imageUrl: String,
     imageIndex: Int,
+    onResolveImageAspect: suspend (String) -> Unit,
 ) {
+    LaunchedEffect(imageUrl) {
+        onResolveImageAspect(imageUrl)
+    }
     AsyncImage(
         model = imageUrl,
         contentDescription = null,
@@ -202,4 +337,3 @@ private fun Modifier.rememberGallerySharedElementModifier(
         this
     }
 }
-
