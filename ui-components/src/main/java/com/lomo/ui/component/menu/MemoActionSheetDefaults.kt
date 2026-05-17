@@ -171,6 +171,10 @@ private fun primaryMemoActions(
                     icon = Icons.Outlined.ContentCopy,
                     label = labels.copy,
                     onClick = { handlers.onCopy.value() },
+                    // The host's onCopy now drives the sheet hide animation via
+                    // hideSheetAndConsumeState; letting the chip also call onDismiss would race the
+                    // animation against an immediate composition drop.
+                    dismissAfterClick = false,
                 )
 
             MemoActionId.SHARE_IMAGE ->

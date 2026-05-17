@@ -1,6 +1,5 @@
 package com.lomo.ui.component.menu
 
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -13,6 +12,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.lomo.ui.R
+import com.lomo.ui.util.copyPlainTextAsync
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.coroutines.launch
@@ -111,11 +113,30 @@ private fun MemoMenuBottomSheetHost(
     benchmarkActionAnchorForId: (MemoActionId) -> String?,
 ) {
     current?.let { state ->
+        val clipboardMemoLabel = stringResource(R.string.clipboard_label_memo)
         MemoMenuBottomSheet(
             state = state,
             sheetState = sheetState,
             onDismissRequest = clearActiveState,
-            onCopy = { copyMemoContent(context = context, text = state.content) },
+            onCopy = {
+                // Dispatch the clipboard write IMMEDIATELY (IO-bound, off the main thread) so the
+                // system clipboard preview animates in parallel with the sheet hide animation. The
+                // sheet itself uses the standard hideSheetAndConsumeState lifecycle with a no-op
+                // handler so dismissal motion matches Edit/Delete exactly.
+                copyMemoContent(
+                    context = context,
+                    scope = scope,
+                    label = clipboardMemoLabel,
+                    text = state.content,
+                )
+                hideSheetAndConsumeState(
+                    scope = scope,
+                    sheetState = sheetState,
+                    activeStateProvider = activeStateProvider,
+                    clearActiveState = clearActiveState,
+                    handler = {},
+                )
+            },
             onShareImage = {
                 clearActiveState()
                 onShareImage(state)
@@ -181,6 +202,8 @@ private fun MemoMenuBottomSheetHost(
 
 private fun copyMemoContent(
     context: Context,
+    scope: kotlinx.coroutines.CoroutineScope,
+    label: String,
     text: String,
 ) {
     val clipboard =
@@ -188,8 +211,7 @@ private fun copyMemoContent(
             context,
             ClipboardManager::class.java,
         )
-    val clip = ClipData.newPlainText("memo", text)
-    clipboard?.setPrimaryClip(clip)
+    clipboard?.copyPlainTextAsync(scope = scope, label = label, text = text)
 }
 
 private fun createOptionalStateAction(
