@@ -42,10 +42,13 @@ const val SCHEMA_VERSION_50 = 50
 const val SCHEMA_VERSION_51 = 51
 const val SCHEMA_VERSION_52 = 52
 const val SCHEMA_VERSION_53 = 53
+const val SCHEMA_VERSION_54 = 54
+const val SCHEMA_VERSION_55 = 55
 
 const val MEMO_TABLE = "Lomo"
 const val TRASH_MEMO_TABLE = "LomoTrash"
 const val LOCAL_FILE_STATE_TABLE = "local_file_state"
+const val IMAGE_LOCATION_CACHE_TABLE = "image_location_cache"
 const val DROP_TABLE_IF_EXISTS = "DROP TABLE IF EXISTS"
 const val COLUMN_TIMESTAMP = "timestamp"
 const val COLUMN_CONTENT = "content"
@@ -379,6 +382,19 @@ val MIGRATION_52_53: Migration =
         }
     }
 
+val MIGRATION_53_54: Migration =
+    object : Migration(SCHEMA_VERSION_53, SCHEMA_VERSION_54) {
+        override suspend fun migrate(connection: SQLiteConnection) {
+            val db = connection
+            createImageLocationCacheTable(db)
+        }
+    }
+
+val MIGRATION_54_55: Migration =
+    object : Migration(SCHEMA_VERSION_54, SCHEMA_VERSION_55) {
+        override suspend fun migrate(connection: SQLiteConnection) = Unit
+    }
+
 /**
  * Direct migrations are only retained for DB versions that shipped in stable releases.
  *
@@ -430,6 +446,8 @@ private val INCREMENTAL_MIGRATIONS: Array<Migration> =
         MIGRATION_50_51,
         MIGRATION_51_52,
         MIGRATION_52_53,
+        MIGRATION_53_54,
+        MIGRATION_54_55,
     )
 
 val ALL_DATABASE_MIGRATIONS: Array<Migration> =
@@ -475,6 +493,8 @@ val ALL_DATABASE_MIGRATION_EDGES: List<Pair<Int, Int>> =
  * Phase W: Apply v48→v49 changes (memo image attachment index).
  * Phase X: Apply v49→v52 changes (direct final external-content FTS5 index build).
  * Phase AA: Apply v52→v53 changes (memo outbox operation enum persistence).
+ * Phase AB: Apply v53→v54 changes (persisted image-location cache).
+ * Phase AC: Apply v54→v55 changes (stable 1.5.0 release baseline marker; no schema delta).
  *
  * Hard migration rule for memo search:
  * Any migration that rebuilds, replaces, or bulk-copies the `Lomo` table must run
@@ -597,6 +617,12 @@ private fun consolidateToCurrentSchema(db: SQLiteConnection) {
     normalizeMemoFileOutboxTable(db)
     ensureS3RemoteIndexSupportingIndex(db)
     ensureS3LocalChangeJournalIndex(db)
+
+    // ── Phase AB: v53 → v54 (persisted image-location cache) ──────────
+    createImageLocationCacheTable(db)
+
+    // ── Phase AC: v54 → v55 (stable release baseline marker) ──────────
+    // No schema delta. This version bump exists so the 1.5.0 stable release has an explicit DB baseline.
 }
 
 private fun normalizeS3SyncMetadataTable(db: SQLiteConnection) {

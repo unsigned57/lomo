@@ -5,6 +5,7 @@ import androidx.room3.RoomDatabase
 import androidx.room3.TypeConverters
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.DefaultMainListDao
+import com.lomo.data.local.dao.ImageLocationCacheDao
 import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.dao.MemoImageDao
@@ -25,6 +26,7 @@ import com.lomo.data.local.dao.S3SyncProtocolStateDao
 import com.lomo.data.local.dao.WebDavLocalChangeJournalDao
 import com.lomo.data.local.dao.WebDavLocalFingerprintDao
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
+import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoFileOutboxEntity
@@ -47,7 +49,7 @@ import com.lomo.data.local.entity.WebDavLocalChangeJournalEntity
 import com.lomo.data.local.entity.WebDavLocalFingerprintEntity
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 
-const val MEMO_DATABASE_VERSION = 53
+const val MEMO_DATABASE_VERSION = 55
 
 @Database(
     entities =
@@ -56,6 +58,7 @@ const val MEMO_DATABASE_VERSION = 53
             TrashMemoEntity::class,
             MemoTagCrossRefEntity::class,
             MemoImageAttachmentEntity::class,
+            ImageLocationCacheEntity::class,
             LocalFileStateEntity::class,
             MemoFileOutboxEntity::class,
             MemoPinEntity::class,
@@ -93,6 +96,8 @@ abstract class MemoDatabase : RoomDatabase() {
     abstract fun memoTagDao(): MemoTagDao
 
     abstract fun memoImageDao(): MemoImageDao
+
+    abstract fun imageLocationCacheDao(): ImageLocationCacheDao
 
     abstract fun memoIdentityDao(): MemoIdentityDao
 
