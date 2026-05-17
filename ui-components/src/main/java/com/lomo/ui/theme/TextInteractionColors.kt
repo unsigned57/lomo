@@ -5,7 +5,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 
 private object MemoTextInteractionAlpha {
-    const val SELECTION_BACKGROUND = 0.24f
+    const val SELECTION_BACKGROUND = 0.55f
 }
 
 internal val memoTextSelectionBackgroundAlpha: Float

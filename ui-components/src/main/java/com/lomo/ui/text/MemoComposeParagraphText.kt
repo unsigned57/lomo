@@ -1,52 +1,30 @@
 package com.lomo.ui.text
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
-import com.lomo.ui.R
-import kotlin.math.roundToInt
 
-private val SelectionToolbarCornerRadius = 8.dp
-private const val SELECTION_HANDLE_STEM_WIDTH_FRACTION = 0.28f
-private const val SELECTION_HANDLE_STEM_HEIGHT_FRACTION = 0.5f
-private const val SELECTION_HANDLE_CIRCLE_RADIUS_FRACTION = 0.38f
-private const val SELECTION_HANDLE_CIRCLE_CENTER_Y_FRACTION = 0.62f
 
 @Composable
 internal fun MemoComposeParagraphText(
@@ -56,17 +34,27 @@ internal fun MemoComposeParagraphText(
     overflow: TextOverflow,
     selectable: Boolean,
     selectionHighlightColor: Color,
-    selectionHandleColor: Color,
     defaultLinkColor: Color,
     modifier: Modifier = Modifier,
+    blockKey: Any? = null,
+    selectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTapFeedback: (() -> Unit)? = null,
+    onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
 ) {
-    val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
-    val copyLabel = stringResource(R.string.action_copy)
-    val clipboardLabel = stringResource(R.string.clipboard_label_memo)
-    var selectionState by remember(text.text) { mutableStateOf(MemoTextSelectionState.None) }
+    val scope = selectionRegistrar
+    val resolvedBlockKey = remember(blockKey) { blockKey ?: Any() }
+    // Read scope.selection here (inside the composable) so the snapshot system propagates
+    // changes to this paragraph block even when its own `rangeForBlock` would return null
+    // (e.g. an out-of-selection paragraph whose only signal is the scope-level boolean).
+    val scopeSelectionSnapshot = scope?.selection
+    val scopeHasSelection =
+        if (scope != null && scopeSelectionSnapshot != null) {
+            scopeSelectionSnapshot.hasSelection(scope.blockOrder())
+        } else {
+            false
+        }
 
     BoxWithConstraints(modifier = modifier) {
         val paragraphLayout =
@@ -84,18 +72,30 @@ internal fun MemoComposeParagraphText(
                     .coerceAtLeast(paragraphLayout.lineMetrics.lineHeightPx)
                     .toDp()
             }
+        val bindings =
+            rememberMemoParagraphScopeBindings(
+                scope = scope,
+                blockKey = resolvedBlockKey,
+                selectable = selectable,
+                paragraphLayout = paragraphLayout,
+                text = text.text,
+            )
         Box(
             modifier =
                 Modifier
                     .height(heightDp)
                     .semantics { this.text = AnnotatedString(text.text) }
+                    .onGloballyPositioned(bindings.onCoordinatesChanged)
                     .memoParagraphPointerInput(
                         selectable = selectable,
-                        selectionState = selectionState,
+                        selectionState = bindings.selectionState,
                         paragraphLayout = paragraphLayout,
-                        onSelectionChange = { selectionState = it },
+                        onSelectionChange = bindings.onSelectionChange,
+                        scopeHasSelection = scopeHasSelection,
+                        clearScopeSelection = { scope?.clear() },
                         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
                         onTapFeedback = onTapFeedback,
+                        onBodyClick = onBodyClick,
                         onDoubleClick = onDoubleClick?.let { doubleClick ->
                             { _: Offset ->
                                 doubleClick()
@@ -110,27 +110,84 @@ internal fun MemoComposeParagraphText(
                     layout = paragraphLayout.layout,
                     measurer = paragraphLayout.measurer,
                     baseLetterSpacingPx = paragraphLayout.baseLetterSpacingPx,
-                    selectionState = selectionState,
+                    selectionState = bindings.selectionState,
                     selectionHighlightColor = selectionHighlightColor,
                     defaultLinkColor = defaultLinkColor,
                 )
             }
-            MemoSelectionChrome(
-                paragraphLayout = paragraphLayout,
-                selectionState = selectionState,
-                selectionHandleColor = selectionHandleColor,
-                copyLabel = copyLabel,
-                onCopy = {
-                    val selectedText = selectionState.selectedText(text.text)
-                    if (selectedText.isNotEmpty()) {
-                        copyMemoTextSelection(context, clipboardLabel, selectedText)
-                    }
-                    selectionState = selectionState.clear()
-                },
-                onSelectionChange = { selectionState = it },
-            )
         }
     }
+}
+
+private data class MemoParagraphScopeBindings(
+    val selectionState: MemoTextSelectionState,
+    val onSelectionChange: (MemoTextSelectionState) -> Unit,
+    val onCoordinatesChanged: (LayoutCoordinates) -> Unit,
+)
+
+@Composable
+private fun rememberMemoParagraphScopeBindings(
+    scope: MemoTextSelectionRegistrar?,
+    blockKey: Any,
+    selectable: Boolean,
+    paragraphLayout: MemoComposeParagraphLayout,
+    text: String,
+): MemoParagraphScopeBindings {
+    val currentScope by rememberUpdatedState(scope)
+    if (scope != null && selectable) {
+        DisposableEffect(scope, blockKey) {
+            onDispose { scope.unregister(blockKey) }
+        }
+    }
+    val selectionRange =
+        if (scope != null && selectable) {
+            scope.rangeForBlock(blockKey)
+        } else {
+            null
+        }
+    val selectionState =
+        if (selectionRange != null) {
+            MemoTextSelectionState(
+                anchorOffset = selectionRange.first,
+                focusOffset = selectionRange.last + 1,
+            )
+        } else {
+            MemoTextSelectionState.None
+        }
+    val onSelectionChange: (MemoTextSelectionState) -> Unit =
+        remember(scope, blockKey, text) {
+            change@{ next ->
+                val activeScope = currentScope ?: return@change
+                val range = next.selectedRange
+                if (range == null) {
+                    activeScope.clear()
+                } else {
+                    activeScope.beginSelection(blockKey, range)
+                }
+            }
+        }
+    val onCoordinatesChanged: (LayoutCoordinates) -> Unit =
+        remember(scope, blockKey, paragraphLayout, text) {
+            coords@{ coordinates ->
+                val activeScope = currentScope ?: return@coords
+                if (!selectable) return@coords
+                activeScope.register(
+                    MemoTextSelectionScopeBlock(
+                        key = blockKey,
+                        text = text,
+                        coordinates = coordinates,
+                        layout = paragraphLayout.layout,
+                        measurer = paragraphLayout.measurer,
+                        baseLetterSpacingPx = paragraphLayout.baseLetterSpacingPx,
+                    ),
+                )
+            }
+        }
+    return MemoParagraphScopeBindings(
+        selectionState = selectionState,
+        onSelectionChange = onSelectionChange,
+        onCoordinatesChanged = onCoordinatesChanged,
+    )
 }
 
 @Composable
@@ -188,32 +245,76 @@ private fun Modifier.memoParagraphPointerInput(
     selectionState: MemoTextSelectionState,
     paragraphLayout: MemoComposeParagraphLayout,
     onSelectionChange: (MemoTextSelectionState) -> Unit,
+    scopeHasSelection: Boolean,
+    clearScopeSelection: () -> Unit,
     onOpenUrl: (String) -> Unit,
     onTapFeedback: (() -> Unit)?,
+    onBodyClick: (() -> Unit)?,
     onDoubleClick: ((Offset) -> Unit)?,
 ): Modifier =
-    pointerInput(paragraphLayout, selectable, selectionState, onTapFeedback, onDoubleClick) {
+    pointerInput(
+        paragraphLayout,
+        selectable,
+        selectionState,
+        scopeHasSelection,
+        onTapFeedback,
+        onBodyClick,
+        onDoubleClick,
+    ) {
         detectTapGestures(
             onPress = {
-                if (!selectionState.hasSelection) {
+                if (!selectionState.hasSelection && !scopeHasSelection) {
                     onTapFeedback?.invoke()
                 }
             },
             onTap = { position ->
                 val offset = paragraphLayout.offsetForPosition(position)
                 val link = paragraphLayout.linkRanges.firstOrNull { range -> range.contains(offset) }
-                when {
-                    link != null &&
-                        shouldActivateMemoTextLink(selectionState, offset, paragraphLayout.linkRanges) ->
-                        onOpenUrl(link.url)
+                val outcome =
+                    resolveMemoParagraphTapOutcome(
+                        link = link,
+                        paragraphHasSelection = selectionState.hasSelection,
+                        scopeHasSelection = scopeHasSelection,
+                    )
+                when (outcome) {
+                    is MemoParagraphTapOutcome.OpenLink -> onOpenUrl(outcome.url)
+                    MemoParagraphTapOutcome.ClearSelection -> {
+                        // When the current paragraph owns the selection we clear via the binding so
+                        // its own selectionState reflects the change; otherwise we go straight to
+                        // the scope-level clear so cross-paragraph selections collapse from a tap
+                        // on any block in the memo body.
+                        if (selectionState.hasSelection) {
+                            onSelectionChange(selectionState.clear())
+                        } else {
+                            clearScopeSelection()
+                        }
+                    }
 
-                    selectionState.hasSelection -> onSelectionChange(selectionState.clear())
+                    MemoParagraphTapOutcome.InvokeBodyClick -> onBodyClick?.invoke()
+                    MemoParagraphTapOutcome.Ignore -> Unit
                 }
             },
             onDoubleTap = onDoubleClick?.let { doubleClick ->
                 { position ->
-                    if (!selectionState.hasSelection) {
-                        doubleClick(position)
+                    val outcome =
+                        resolveMemoParagraphDoubleTapOutcome(
+                            hasDoubleClickHandler = true,
+                            paragraphHasSelection = selectionState.hasSelection,
+                            scopeHasSelection = scopeHasSelection,
+                        )
+                    when (outcome) {
+                        is MemoParagraphDoubleTapOutcome.OpenEditor -> {
+                            if (outcome.clearSelectionFirst) {
+                                if (selectionState.hasSelection) {
+                                    onSelectionChange(selectionState.clear())
+                                } else {
+                                    clearScopeSelection()
+                                }
+                            }
+                            doubleClick(position)
+                        }
+
+                        MemoParagraphDoubleTapOutcome.Ignore -> Unit
                     }
                 }
             },
@@ -231,111 +332,7 @@ private fun Modifier.memoParagraphPointerInput(
         )
     }
 
-@Composable
-private fun MemoSelectionChrome(
-    paragraphLayout: MemoComposeParagraphLayout,
-    selectionState: MemoTextSelectionState,
-    selectionHandleColor: Color,
-    copyLabel: String,
-    onCopy: () -> Unit,
-    onSelectionChange: (MemoTextSelectionState) -> Unit,
-) {
-    val startOffset = selectionState.selectedAnchorOffset() ?: return
-    val endOffset = selectionState.selectedFocusOffset() ?: return
-    val startPosition = paragraphLayout.positionForOffset(startOffset)
-    val endPosition = paragraphLayout.positionForOffset(endOffset)
-    Box(modifier = Modifier.fillMaxSize()) {
-        SelectionCopyToolbar(position = startPosition, copyLabel = copyLabel, onCopy = onCopy)
-        SelectionHandle(
-            position = startPosition,
-            color = selectionHandleColor,
-            onDrag = { position ->
-                onSelectionChange(
-                    selectionState.copy(anchorOffset = paragraphLayout.offsetForPosition(position)),
-                )
-            },
-        )
-        SelectionHandle(
-            position = endPosition,
-            color = selectionHandleColor,
-            onDrag = { position ->
-                onSelectionChange(
-                    selectionState.updateFocus(paragraphLayout.offsetForPosition(position)),
-                )
-            },
-        )
-    }
-}
-
-@Composable
-private fun SelectionCopyToolbar(
-    position: Offset,
-    copyLabel: String,
-    onCopy: () -> Unit,
-) {
-    Surface(
-        modifier =
-            Modifier.offset {
-                IntOffset(
-                    x = position.x.roundToInt(),
-                    y = (position.y - 48.dp.roundToPx()).roundToInt().coerceAtLeast(0),
-                )
-            },
-        shape = RoundedCornerShape(SelectionToolbarCornerRadius),
-        color = MaterialTheme.colorScheme.inverseSurface,
-        tonalElevation = 4.dp,
-    ) {
-        TextButton(onClick = onCopy) {
-            Text(text = copyLabel, color = MaterialTheme.colorScheme.inverseOnSurface)
-        }
-    }
-}
-
-@Composable
-private fun SelectionHandle(
-    position: Offset,
-    color: Color,
-    onDrag: (Offset) -> Unit,
-) {
-    val handleSizePx = with(LocalDensity.current) { MemoTextSelectionHandleTouchSize.toPx() }
-    Box(
-        modifier =
-            Modifier
-                .offset {
-                    resolveMemoTextSelectionHandleTopLeft(
-                        anchorPosition = position,
-                        handleSizePx = handleSizePx,
-                    )
-                }
-                .size(MemoTextSelectionHandleTouchSize)
-                .pointerInput(onDrag) {
-                    var latestPosition = position
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        latestPosition += dragAmount
-                        onDrag(latestPosition)
-                    }
-                },
-    ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val stemWidth = size.width * SELECTION_HANDLE_STEM_WIDTH_FRACTION
-            val stemHeight = size.height * SELECTION_HANDLE_STEM_HEIGHT_FRACTION
-            drawRoundRect(
-                color = color,
-                topLeft = Offset((size.width - stemWidth) / 2f, 0f),
-                size = Size(stemWidth, stemHeight),
-                cornerRadius = CornerRadius(stemWidth / 2f, stemWidth / 2f),
-            )
-            drawCircle(
-                color = color,
-                radius = size.minDimension * SELECTION_HANDLE_CIRCLE_RADIUS_FRACTION,
-                center = Offset(size.width / 2f, size.height * SELECTION_HANDLE_CIRCLE_CENTER_Y_FRACTION),
-            )
-        }
-    }
-}
-
-private data class MemoComposeParagraphLayout(
+internal data class MemoComposeParagraphLayout(
     val layout: MemoTextLayout,
     val measurer: MemoTextMeasurer,
     val lineMetrics: MemoLineMetrics,
@@ -347,13 +344,4 @@ private data class MemoComposeParagraphLayout(
 
     fun positionForOffset(offset: Int): Offset =
         layout.positionForOffset(offset, measurer, baseLetterSpacingPx)
-}
-
-private fun copyMemoTextSelection(
-    context: Context,
-    label: String,
-    text: String,
-) {
-    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
 }
