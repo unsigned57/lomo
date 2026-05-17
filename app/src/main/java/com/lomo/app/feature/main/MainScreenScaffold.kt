@@ -30,6 +30,7 @@ import com.lomo.domain.model.MemoListFilter
 import com.lomo.domain.model.MemoSortOption
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.menu.MemoMenuState
+import com.lomo.ui.component.menu.PrewarmMemoMenuMotion
 import kotlinx.collections.immutable.ImmutableSet
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -129,6 +130,8 @@ internal fun MainScreenScaffoldContent(
         onEndDateSelected = onMemoEndDateSelected,
         onDismiss = onDismissMemoFilterSheet,
     )
+
+    PrewarmMemoMenuMotion()
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

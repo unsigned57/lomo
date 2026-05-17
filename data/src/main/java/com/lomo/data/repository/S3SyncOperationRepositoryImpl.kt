@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -42,7 +41,10 @@ class S3SyncOperationRepositoryImpl
         private val protocolStateStore: S3SyncProtocolStateStore = DisabledS3SyncProtocolStateStore,
         private val pendingConflictStore: PendingSyncConflictStore = DisabledPendingSyncConflictStore,
     ) : S3SyncOperationRepository {
-        private val syncGuard = AtomicBoolean(false)
+        private val syncExecutionGate =
+            SyncExecutionGate<S3SyncResult>(
+                defaultInProgressResult = { S3SyncResult.Success("S3 sync already in progress") },
+            )
         private val refreshRequestMutex = Mutex()
         private var refreshLoopActive = false
         private var pendingRefreshSignal: S3RefreshSignal? = null
@@ -101,27 +103,28 @@ class S3SyncOperationRepositoryImpl
         private suspend fun withSyncGuard(
             inProgressMessage: String,
             block: suspend () -> S3SyncResult,
-        ): S3SyncResult {
-            if (!syncGuard.compareAndSet(false, true)) {
-                return S3SyncResult.Success(inProgressMessage)
-            }
-            return try {
-                block()
-            } finally {
-                syncGuard.set(false)
-            }
-        }
+        ): S3SyncResult =
+            syncExecutionGate.run(
+                inProgressResult = { S3SyncResult.Success(inProgressMessage) },
+                block = block,
+            )
 
         private suspend fun restorePendingConflictIfPresent(): S3SyncResult? {
-            val pending = pendingConflictStore.read(SyncBackendType.S3) ?: return null
-            stateHolder.state.value = pending.toS3ConflictState()
-            return S3SyncResult.Conflict("Pending conflicts remain", pending)
+            return restorePendingConflict(
+                pendingConflictStore = pendingConflictStore,
+                backendType = SyncBackendType.S3,
+                onRestored = { pending -> stateHolder.state.value = pending.toS3ConflictState() },
+                asResult = { pending -> S3SyncResult.Conflict("Pending conflicts remain", pending) },
+            )
         }
 
         private suspend fun clearPendingConflictsOnSuccess(result: S3SyncResult) {
-            if (result is S3SyncResult.Success) {
-                pendingConflictStore.clear(SyncBackendType.S3)
-            }
+            clearPendingConflictOnSuccess(
+                pendingConflictStore = pendingConflictStore,
+                backendType = SyncBackendType.S3,
+                result = result,
+                isSuccess = { candidate -> candidate is S3SyncResult.Success },
+            )
         }
 
         private suspend fun beginRefreshRequest(): S3RefreshSignal? =
@@ -393,7 +396,6 @@ class S3SyncStatusTester
             val config = support.resolveConfig() ?: return support.notConfiguredResult()
             return runNonFatalCatching {
                 support.withClient(config) { client ->
-                    runtime.stateHolder.state.value = S3SyncState.Connecting
                     val prefix = encodingSupport.remoteKeyPrefix(config)
                     val layout = SyncDirectoryLayout.resolve(runtime.dataStore)
                     val mode = resolveLocalSyncMode(runtime)

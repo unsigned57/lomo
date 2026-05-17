@@ -3,6 +3,7 @@ package com.lomo.domain.model
 enum class SyncConflictSessionKind {
     STANDARD_CONFLICT,
     INITIAL_SYNC_PREVIEW,
+    SYNC_INBOX_REVIEW,
 }
 
 enum class SyncConflictResolutionChoice {
@@ -12,6 +13,12 @@ enum class SyncConflictResolutionChoice {
     SKIP_FOR_NOW,
 }
 
+enum class SyncConflictFileReviewState {
+    CONTENT_DIFFERENCE,
+    READY_TO_IMPORT,
+    BLOCKED,
+}
+
 data class SyncConflictFile(
     val relativePath: String,
     val localContent: String?,
@@ -19,6 +26,8 @@ data class SyncConflictFile(
     val isBinary: Boolean,
     val localLastModified: Long? = null,
     val remoteLastModified: Long? = null,
+    val reviewState: SyncConflictFileReviewState = SyncConflictFileReviewState.CONTENT_DIFFERENCE,
+    val reviewMessage: String? = null,
 )
 
 data class SyncConflictSet(

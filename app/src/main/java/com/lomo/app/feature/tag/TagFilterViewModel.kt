@@ -3,6 +3,7 @@ package com.lomo.app.feature.tag
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.MemoUiCoordinator
@@ -18,6 +19,7 @@ import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
+import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import com.lomo.ui.component.menu.MemoActionId
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -38,11 +40,13 @@ class TagFilterViewModel
     constructor(
         savedStateHandle: SavedStateHandle,
         private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
         private val deleteMemoUseCase: DeleteMemoUseCase,
         private val updateMemoContentUseCase: UpdateMemoContentUseCase,
+        private val toggleMemoCheckboxUseCase: ToggleMemoCheckboxUseCase,
         private val saveImageUseCase: SaveImageUseCase,
     ) : ViewModel() {
         val tagName: String = savedStateHandle.get<String>("tagName") ?: ""
@@ -51,20 +55,11 @@ class TagFilterViewModel
         private val _deletingMemoIds = MutableStateFlow<Set<String>>(emptySet())
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
 
-        private val rootDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .rootDirectory()
-                .stateIn(viewModelScope, appWhileSubscribed(), null)
+        private val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
 
-        private val imageDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .imageDirectory()
-                .stateIn(viewModelScope, appWhileSubscribed(), null)
+        private val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
 
-        val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigUiCoordinator
-                .appPreferences()
-                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
@@ -121,6 +116,23 @@ class TagFilterViewModel
                         throw throwable
                     }
                     _errorMessage.value = throwable.toUserMessage("Failed to update memo")
+                }
+            }
+        }
+
+        fun toggleTodo(
+            memo: Memo,
+            lineIndex: Int,
+            checked: Boolean,
+        ) {
+            viewModelScope.launch {
+                runCatching {
+                    toggleMemoCheckboxUseCase(memo = memo, lineIndex = lineIndex, checked = checked)
+                }.onFailure { throwable ->
+                    if (throwable is kotlinx.coroutines.CancellationException) {
+                        throw throwable
+                    }
+                    _errorMessage.value = throwable.toUserMessage("Failed to update todo")
                 }
             }
         }

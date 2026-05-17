@@ -47,7 +47,6 @@ object PreferenceKeys {
     const val SIDEBAR_TAG_ORDER = "sidebar_tag_order"
     const val QUICK_SAVE_ON_BACK_ENABLED = "quick_save_on_back_enabled"
     const val SCROLLBAR_ENABLED = "scrollbar_enabled"
-    const val SECURE_WIPE_BEFORE_DELETE_ENABLED = "secure_wipe_before_delete_enabled"
     const val APP_LOCK_ENABLED = "app_lock_enabled"
     const val LAN_SHARE_ENABLED = "lan_share_enabled"
     const val LAN_SHARE_PAIRING_KEY_HEX = "lan_share_pairing_key_hex"
@@ -121,7 +120,6 @@ object PreferenceKeys {
         const val SIDEBAR_TAG_ORDER = PreferenceDefaults.SIDEBAR_TAG_ORDER
         const val QUICK_SAVE_ON_BACK_ENABLED = PreferenceDefaults.QUICK_SAVE_ON_BACK_ENABLED
         const val SCROLLBAR_ENABLED = PreferenceDefaults.SCROLLBAR_ENABLED
-        const val SECURE_WIPE_BEFORE_DELETE_ENABLED = PreferenceDefaults.SECURE_WIPE_BEFORE_DELETE_ENABLED
         const val APP_LOCK_ENABLED = PreferenceDefaults.APP_LOCK_ENABLED
         const val LAN_SHARE_ENABLED = PreferenceDefaults.LAN_SHARE_ENABLED
         const val LAN_SHARE_E2E_ENABLED = PreferenceDefaults.LAN_SHARE_E2E_ENABLED

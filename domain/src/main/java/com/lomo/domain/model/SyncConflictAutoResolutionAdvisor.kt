@@ -4,11 +4,13 @@ object SyncConflictAutoResolutionAdvisor {
     private const val MUCH_NEWER_THRESHOLD_MS = 5 * 60 * 1000L
 
     fun suggestedChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
+        if (file.reviewState == SyncConflictFileReviewState.BLOCKED) return null
         val safeChoice = safeAutoResolutionChoice(file)
         return safeChoice ?: newerSideChoice(file)
     }
 
     fun safeAutoResolutionChoice(file: SyncConflictFile): SyncConflictResolutionChoice? {
+        if (file.reviewState == SyncConflictFileReviewState.BLOCKED) return null
         if (file.isBinary) return null
 
         val localContent = file.localContent.orEmpty()

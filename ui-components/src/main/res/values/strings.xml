@@ -76,6 +76,7 @@
     <string name="action_history">History</string>
     <string name="sync_conflict_title_standard">Resolve Sync Conflicts</string>
     <string name="sync_conflict_title_initial_preview">Review First Sync Differences</string>
+    <string name="sync_conflict_title_inbox_review">Review Sync Inbox</string>
     <string name="sync_conflict_choice_keep_all_local">Keep All Local</string>
     <string name="sync_conflict_choice_keep_all_remote">Keep All Remote</string>
     <string name="sync_conflict_choice_accept_suggestions">Accept Suggestions</string>
@@ -86,12 +87,17 @@
     <string name="sync_conflict_binary_file">Binary File</string>
     <string name="sync_conflict_choice_local_short">Local</string>
     <string name="sync_conflict_choice_remote_short">Remote</string>
+    <string name="sync_conflict_choice_current_short">Current</string>
+    <string name="sync_conflict_choice_inbox_short">Inbox</string>
     <string name="sync_conflict_apply_resolution">Apply Resolution</string>
     <string name="sync_conflict_resolving">Resolving conflicts…</string>
     <string name="sync_conflict_no_text_diffs">No exact text differences found.</string>
     <string name="sync_conflict_section_auto">Safe to Auto-resolve</string>
     <string name="sync_conflict_section_manual">Manual Review Required</string>
+    <string name="sync_conflict_section_ready">Ready to Apply</string>
+    <string name="sync_conflict_section_attention">Needs Attention</string>
     <string name="sync_conflict_merge_preview">Merge Preview</string>
+    <string name="sync_conflict_review_message">Cannot import yet: %1$s</string>
     <string name="sync_conflict_backup_warning">Overwritten files will be backed up before changes are applied.</string>
     <string name="sync_conflict_close">Close</string>
     <string name="sync_conflict_expand">Expand</string>

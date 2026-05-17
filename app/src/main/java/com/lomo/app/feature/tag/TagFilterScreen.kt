@@ -129,6 +129,7 @@ fun TagFilterScreen(
                 onMemoEdit = openEditor,
                 onShowMenu = showMenu,
                 onImageClick = onNavigateToImage,
+                onTodoClick = viewModel::toggleTodo,
                 onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
                 modifier = modifier.padding(padding),
             )
@@ -215,6 +216,7 @@ private fun TagFilterScreenContent(
     onMemoEdit: (com.lomo.domain.model.Memo) -> Unit,
     onShowMenu: (com.lomo.ui.component.menu.MemoMenuState) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
+    onTodoClick: (com.lomo.domain.model.Memo, Int, Boolean) -> Unit,
     onDeleteAnimationSettled: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -235,6 +237,7 @@ private fun TagFilterScreenContent(
                 onMemoEdit = onMemoEdit,
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
+                onTodoClick = onTodoClick,
                 animation = MemoCardListAnimation.Placement,
                 deletingMemoIds = deletingMemoIds,
                 onDeleteAnimationSettled = onDeleteAnimationSettled,

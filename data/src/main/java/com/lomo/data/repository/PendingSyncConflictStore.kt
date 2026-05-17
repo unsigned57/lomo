@@ -4,6 +4,7 @@ import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.entity.PendingSyncConflictEntity
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictFileReviewState
 import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import javax.inject.Inject
@@ -88,6 +89,8 @@ private fun SyncConflictSet.toEntity(json: Json): PendingSyncConflictEntity =
                                 isBinary = file.isBinary,
                                 localLastModified = file.localLastModified,
                                 remoteLastModified = file.remoteLastModified,
+                                reviewState = file.reviewState.name,
+                                reviewMessage = file.reviewMessage,
                             )
                         },
                 ),
@@ -107,12 +110,19 @@ private fun PendingSyncConflictEntity.toConflictSet(json: Json): SyncConflictSet
                     isBinary = file.isBinary,
                     localLastModified = file.localLastModified,
                     remoteLastModified = file.remoteLastModified,
+                    reviewState = syncConflictFileReviewStateOrDefault(file.reviewState),
+                    reviewMessage = file.reviewMessage,
                 )
             },
         timestamp = timestamp,
         sessionKind = SyncConflictSessionKind.valueOf(sessionKind),
     )
 }
+
+private fun syncConflictFileReviewStateOrDefault(raw: String?): SyncConflictFileReviewState =
+    raw
+        ?.let { value -> runCatching { SyncConflictFileReviewState.valueOf(value) }.getOrNull() }
+        ?: SyncConflictFileReviewState.CONTENT_DIFFERENCE
 
 @Serializable
 private data class PendingSyncConflictPayload(
@@ -127,4 +137,6 @@ private data class PendingSyncConflictFilePayload(
     val isBinary: Boolean,
     val localLastModified: Long? = null,
     val remoteLastModified: Long? = null,
+    val reviewState: String? = null,
+    val reviewMessage: String? = null,
 )

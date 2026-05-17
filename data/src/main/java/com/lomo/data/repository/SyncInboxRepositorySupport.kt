@@ -4,9 +4,6 @@ import android.content.Context
 import com.lomo.data.repository.WorkspaceMediaCategory.IMAGE
 import com.lomo.data.repository.WorkspaceMediaCategory.VOICE
 import com.lomo.domain.model.MediaFileExtensions
-import com.lomo.domain.model.SyncConflictAutoResolutionAdvisor
-import com.lomo.domain.model.SyncConflictFile
-import com.lomo.domain.model.SyncConflictResolutionChoice
 import java.security.MessageDigest
 import java.io.OutputStream
 
@@ -22,16 +19,6 @@ private val AUDIO_PATTERN =
         """(?<!!)\[[^\]]*]\((.+?\.(?:${MediaFileExtensions.AUDIO.joinToString("|")}))\)""",
         RegexOption.IGNORE_CASE,
     )
-
-internal fun safeAutoResolvedContent(conflictFile: SyncConflictFile): String? =
-    when (SyncConflictAutoResolutionAdvisor.safeAutoResolutionChoice(conflictFile)) {
-        SyncConflictResolutionChoice.KEEP_LOCAL -> conflictFile.localContent
-        SyncConflictResolutionChoice.KEEP_REMOTE -> conflictFile.remoteContent
-        SyncConflictResolutionChoice.MERGE_TEXT -> SyncConflictAutoResolutionAdvisor.mergedText(conflictFile)
-        SyncConflictResolutionChoice.SKIP_FOR_NOW,
-        null,
-        -> null
-    }
 
 internal fun previewInboxMediaReferences(
     markdown: String,
@@ -50,6 +37,26 @@ internal fun previewInboxMediaReferences(
         rewrittenMarkdown = rewritten,
         importedAttachments = attachmentReferences.map { it.sourceCandidates.first() }.distinct(),
     )
+}
+
+internal suspend fun missingInboxMediaReferences(
+    context: Context,
+    inboxRoot: String,
+    markdown: String,
+): List<String> {
+    val missingAttachments = mutableListOf<String>()
+    extractInboxAttachmentReferences(markdown).forEach { attachment ->
+        val resolvedAttachment =
+            resolveInboxAttachmentSource(
+                context = context,
+                inboxRoot = inboxRoot,
+                attachment = attachment,
+            )
+        if (resolvedAttachment == null) {
+            missingAttachments += attachment.sourcePath
+        }
+    }
+    return missingAttachments.distinct()
 }
 
 internal suspend fun importInboxMediaReferences(

@@ -2,6 +2,7 @@ package com.lomo.app.feature.trash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
@@ -25,6 +26,7 @@ class TrashViewModel
     @Inject
     constructor(
         private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val imageMapProvider: ImageMapProvider,
         private val memoUiMapper: MemoUiMapper,
@@ -36,29 +38,16 @@ class TrashViewModel
         val deletingMemoIds: StateFlow<Set<String>> = _deletingMemoIds.asStateFlow()
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
-        val imageDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .imageDirectory()
-                .stateIn(
-                    viewModelScope,
-                    appWhileSubscribed(),
-                    null,
-                )
+        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
 
         val trashMemos: StateFlow<List<Memo>> =
             memoUiCoordinator
                 .deletedMemos()
                 .stateIn(viewModelScope, appWhileSubscribed(), emptyList())
 
-        val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigUiCoordinator
-                .appPreferences()
-                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
-        val rootDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .rootDirectory()
-                .stateIn(viewModelScope, appWhileSubscribed(), null)
+        val rootDirectory: StateFlow<String?> = appConfigStateProvider.rootDirectory
 
         @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
         val trashUiMemos: StateFlow<List<com.lomo.app.feature.main.MemoUiModel>> =

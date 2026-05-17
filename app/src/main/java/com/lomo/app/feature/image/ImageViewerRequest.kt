@@ -3,11 +3,13 @@ package com.lomo.app.feature.image
 data class ImageViewerRequest(
     val imageUrls: List<String>,
     val initialIndex: Int,
+    val memoId: String? = null,
 )
 
 fun createImageViewerRequest(
     imageUrls: List<String>,
     clickedUrl: String,
+    memoId: String? = null,
 ): ImageViewerRequest {
     val normalizedUrls =
         imageUrls
@@ -21,6 +23,7 @@ fun createImageViewerRequest(
         return ImageViewerRequest(
             imageUrls = if (fallbackUrl.isNotEmpty()) listOf(fallbackUrl) else emptyList(),
             initialIndex = 0,
+            memoId = memoId,
         )
     }
 
@@ -28,5 +31,6 @@ fun createImageViewerRequest(
     return ImageViewerRequest(
         imageUrls = normalizedUrls,
         initialIndex = index,
+        memoId = memoId,
     )
 }

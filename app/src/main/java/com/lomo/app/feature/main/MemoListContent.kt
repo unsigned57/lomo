@@ -1,5 +1,6 @@
 package com.lomo.app.feature.main
 
+import androidx.collection.LruCache
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.shrinkVertically
@@ -33,8 +34,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.imageLoader
-import coil3.request.ImageRequest
 import com.lomo.app.feature.image.ImageViewerRequest
+import com.lomo.app.feature.image.enqueueImagePreloadRequests
 import com.lomo.app.feature.image.createImageViewerRequest
 import com.lomo.app.feature.memo.MemoCardEntry
 import com.lomo.domain.model.Memo
@@ -52,6 +53,7 @@ private const val STARTUP_PRELOAD_MEMO_COUNT = 6
 private const val PRELOAD_EVENT_THROTTLE_MS = 150L
 private const val PRELOAD_URL_DEDUPE_MS = 12_000L
 private const val PRELOAD_TRACKED_URL_LIMIT = 512
+private const val PRELOAD_SIGNATURE_HASH_MULTIPLIER = 31
 
 internal val MEMO_LIST_HORIZONTAL_PADDING = 16.dp
 internal val MEMO_LIST_TOP_PADDING = 16.dp
@@ -87,8 +89,15 @@ internal fun MemoListPreloadEffect(
     val imageLoader = context.imageLoader
     val preloadGate = rememberSaveable(saver = ImagePreloadGate.Saver) { ImagePreloadGate() }
     val latestMemos by rememberUpdatedState(memos)
+    val startupPreloadMemoSignature =
+        remember(memos) {
+            memos.take(STARTUP_PRELOAD_MEMO_COUNT)
+                .fold(0) { acc, memo ->
+                    PRELOAD_SIGNATURE_HASH_MULTIPLIER * acc + memo.memo.id.hashCode()
+                }
+        }
 
-    LaunchedEffect(memos, context, imageLoader, preloadGate) {
+    LaunchedEffect(startupPreloadMemoSignature, context, imageLoader, preloadGate) {
         val urlsToPreload =
             withContext(Dispatchers.Default) {
                 preloadGate.selectUrlsToEnqueue(
@@ -119,7 +128,7 @@ internal fun MemoListPreloadEffect(
                                 visibleCount = visibleCount,
                                 lookaheadCount = PRELOAD_LOOKAHEAD_COUNT,
                             )
-                        preloadGate.selectUrlsToEnqueue(preloadCandidates)
+                        preloadGate.selectPriorityUrlsToEnqueue(preloadCandidates)
                     }
                 enqueueImagePreloadRequests(
                     context = context,
@@ -155,21 +164,6 @@ private fun buildVisibleAndLookaheadImagePreloadCandidates(
         .filter { index -> index in memos.indices }
         .flatMap { index -> memos[index].imageUrls.asSequence() }
         .toList()
-}
-
-private fun enqueueImagePreloadRequests(
-    context: android.content.Context,
-    imageLoader: coil3.ImageLoader,
-    urls: List<String>,
-) {
-    urls.forEach { url ->
-        val request =
-            ImageRequest
-                .Builder(context)
-                .data(url)
-                .build()
-        imageLoader.enqueue(request)
-    }
 }
 
 @Composable
@@ -237,6 +231,7 @@ internal fun MemoListItem(
                     createImageViewerRequest(
                         imageUrls = uiModel.imageUrls,
                         clickedUrl = url,
+                        memoId = uiModel.memo.id,
                     ),
                 )
             }
@@ -328,12 +323,27 @@ internal class ImagePreloadGate(
     private val maxTrackedUrls: Int = PRELOAD_TRACKED_URL_LIMIT,
     private val nowMs: () -> Long = { System.currentTimeMillis() },
 ) {
-    private val lastEnqueueAtMsByUrl = LinkedHashMap<String, Long>()
+    private val lastEnqueueAtMsByUrl = LruCache<String, Long>(maxTrackedUrls)
     private var lastEventAtMs: Long? = null
 
-    fun selectUrlsToEnqueue(candidates: Iterable<String>): List<String> {
+    fun selectUrlsToEnqueue(candidates: Iterable<String>): List<String> =
+        selectUrlsToEnqueue(
+            candidates = candidates,
+            enforceEventThrottle = true,
+        )
+
+    fun selectPriorityUrlsToEnqueue(candidates: Iterable<String>): List<String> =
+        selectUrlsToEnqueue(
+            candidates = candidates,
+            enforceEventThrottle = false,
+        )
+
+    private fun selectUrlsToEnqueue(
+        candidates: Iterable<String>,
+        enforceEventThrottle: Boolean,
+    ): List<String> {
         val now = nowMs()
-        if (shouldThrottle(now)) {
+        if (enforceEventThrottle && shouldThrottle(now)) {
             return emptyList()
         }
         evictExpired(now)
@@ -346,11 +356,10 @@ internal class ImagePreloadGate(
             }
             val lastEnqueueAt = lastEnqueueAtMsByUrl[url]
             if (lastEnqueueAt == null || now - lastEnqueueAt >= dedupeWindowMs) {
-                lastEnqueueAtMsByUrl[url] = now
+                lastEnqueueAtMsByUrl.put(url, now)
                 result += url
             }
         }
-        trimTrackingMap()
         return result
     }
 
@@ -364,34 +373,22 @@ internal class ImagePreloadGate(
     }
 
     private fun evictExpired(now: Long) {
-        if (lastEnqueueAtMsByUrl.isEmpty()) {
+        val trackedUrls = lastEnqueueAtMsByUrl.snapshot()
+        if (trackedUrls.isEmpty()) {
             return
         }
-        val iterator = lastEnqueueAtMsByUrl.entries.iterator()
-        while (iterator.hasNext()) {
-            val (_, lastEnqueueAt) = iterator.next()
+        trackedUrls.forEach { (url, lastEnqueueAt) ->
             if (now - lastEnqueueAt > dedupeWindowMs) {
-                iterator.remove()
+                lastEnqueueAtMsByUrl.remove(url)
             }
-        }
-    }
-
-    private fun trimTrackingMap() {
-        if (lastEnqueueAtMsByUrl.size <= maxTrackedUrls) {
-            return
-        }
-        val iterator = lastEnqueueAtMsByUrl.entries.iterator()
-        while (lastEnqueueAtMsByUrl.size > maxTrackedUrls && iterator.hasNext()) {
-            iterator.next()
-            iterator.remove()
         }
     }
 
     internal fun snapshot(): Snapshot =
         Snapshot(
             trackedUrls =
-                buildList(lastEnqueueAtMsByUrl.size * 2) {
-                    lastEnqueueAtMsByUrl.forEach { (url, timestamp) ->
+                buildList(lastEnqueueAtMsByUrl.snapshot().size * 2) {
+                    lastEnqueueAtMsByUrl.snapshot().forEach { (url, timestamp) ->
                         add(url)
                         add(timestamp.toString())
                     }
@@ -400,12 +397,12 @@ internal class ImagePreloadGate(
         )
 
     internal fun restore(snapshot: Snapshot) {
-        lastEnqueueAtMsByUrl.clear()
+        lastEnqueueAtMsByUrl.evictAll()
         snapshot.trackedUrls
             .chunked(2)
             .forEach { entry ->
                 if (entry.size == 2) {
-                    lastEnqueueAtMsByUrl[entry[0]] = entry[1].toLong()
+                    lastEnqueueAtMsByUrl.put(entry[0], entry[1].toLong())
                 }
             }
         lastEventAtMs = snapshot.lastEventAtMs

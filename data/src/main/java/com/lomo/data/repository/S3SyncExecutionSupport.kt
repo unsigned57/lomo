@@ -204,5 +204,7 @@ internal fun determineS3ConflictSessionKind(
 internal fun SyncConflictSet.toS3ConflictState(): S3SyncState =
     when (sessionKind) {
         SyncConflictSessionKind.INITIAL_SYNC_PREVIEW -> S3SyncState.PreviewingInitialSync(this)
-        SyncConflictSessionKind.STANDARD_CONFLICT -> S3SyncState.ConflictDetected(this)
+        SyncConflictSessionKind.STANDARD_CONFLICT,
+        SyncConflictSessionKind.SYNC_INBOX_REVIEW,
+        -> S3SyncState.ConflictDetected(this)
     }

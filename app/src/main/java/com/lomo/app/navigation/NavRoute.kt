@@ -1,7 +1,7 @@
 package com.lomo.app.navigation
 
 import kotlinx.serialization.Serializable
-import java.util.LinkedHashMap
+import com.lomo.ui.util.SynchronizedLruStore
 import java.util.UUID
 
 @Serializable
@@ -28,6 +28,7 @@ sealed interface NavRoute {
         val url: String,
         val payloadKey: String,
         val initialIndex: Int,
+        val memoId: String? = null,
     ) : NavRoute
 
     @Serializable
@@ -65,17 +66,15 @@ object ShareRoutePayloadStore {
 
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private const val STORE_LOAD_FACTOR = 0.75f
-    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, STORE_LOAD_FACTOR, true)
+    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES)
 
     @Synchronized
     fun putMemoContent(content: String): String {
         val now = System.currentTimeMillis()
         pruneLocked(now)
-        trimLocked()
 
         val key = UUID.randomUUID().toString()
-        store[key] = Entry(content = content, createdAtMillis = now)
+        store.put(key, Entry(content = content, createdAtMillis = now))
         return key
     }
 
@@ -92,19 +91,10 @@ object ShareRoutePayloadStore {
     }
 
     private fun pruneLocked(now: Long) {
-        val iterator = store.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next().value
+        store.snapshot().forEach { (key, entry) ->
             if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS) {
-                iterator.remove()
+                store.remove(key)
             }
-        }
-    }
-
-    private fun trimLocked() {
-        while (store.size >= MAX_ENTRIES) {
-            val oldestKey = store.entries.firstOrNull()?.key ?: return
-            store.remove(oldestKey)
         }
     }
 }
@@ -121,17 +111,16 @@ object ImageViewerRoutePayloadStore {
 
     private const val MAX_ENTRIES = 64
     private const val ENTRY_TTL_MILLIS = 10 * 60 * 1000L
-    private const val STORE_LOAD_FACTOR = 0.75f
-    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES, STORE_LOAD_FACTOR, true)
+    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES)
 
     @Synchronized
     fun putImageUrls(imageUrls: List<String>): String {
         val now = System.currentTimeMillis()
         pruneLocked(now)
-        trimLocked()
 
         val key = UUID.randomUUID().toString()
-        store[key] =
+        store.put(
+            key,
             Entry(
                 imageUrls =
                     imageUrls
@@ -140,7 +129,8 @@ object ImageViewerRoutePayloadStore {
                         .filter(String::isNotEmpty)
                         .toList(),
                 createdAtMillis = now,
-            )
+            ),
+        )
         return key
     }
 
@@ -148,7 +138,7 @@ object ImageViewerRoutePayloadStore {
     fun getImageUrls(key: String): List<String>? {
         val now = System.currentTimeMillis()
         pruneLocked(now)
-        return store[key]?.imageUrls
+        return store.get(key)?.imageUrls
     }
 
     @Synchronized
@@ -157,19 +147,10 @@ object ImageViewerRoutePayloadStore {
     }
 
     private fun pruneLocked(now: Long) {
-        val iterator = store.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next().value
+        store.snapshot().forEach { (key, entry) ->
             if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS) {
-                iterator.remove()
+                store.remove(key)
             }
-        }
-    }
-
-    private fun trimLocked() {
-        while (store.size >= MAX_ENTRIES) {
-            val oldestKey = store.entries.firstOrNull()?.key ?: return
-            store.remove(oldestKey)
         }
     }
 }
@@ -191,18 +172,17 @@ object GalleryReelPayloadStore {
 
     const val MAX_ENTRIES_FOR_TEST = 64
     const val ENTRY_TTL_MILLIS_FOR_TEST = 10 * 60 * 1000L
-    private const val STORE_LOAD_FACTOR = 0.75f
-    private val store = LinkedHashMap<String, Entry>(MAX_ENTRIES_FOR_TEST, STORE_LOAD_FACTOR, true)
+    private val store = SynchronizedLruStore<String, Entry>(MAX_ENTRIES_FOR_TEST)
     private var clock: () -> Long = System::currentTimeMillis
 
     @Synchronized
     fun put(payload: Payload): String {
         val now = clock()
         pruneLocked(now)
-        trimLocked()
 
         val key = UUID.randomUUID().toString()
-        store[key] =
+        store.put(
+            key,
             Entry(
                 payload =
                     Payload(
@@ -219,7 +199,8 @@ object GalleryReelPayloadStore {
                                 .filterValues { aspect -> aspect.isFinite() && aspect > 0f },
                     ),
                 createdAtMillis = now,
-            )
+            ),
+        )
         return key
     }
 
@@ -227,7 +208,7 @@ object GalleryReelPayloadStore {
     fun get(key: String): Payload? {
         val now = clock()
         pruneLocked(now)
-        return store[key]?.payload
+        return store.get(key)?.payload
     }
 
     @Synchronized
@@ -242,19 +223,10 @@ object GalleryReelPayloadStore {
     }
 
     private fun pruneLocked(now: Long) {
-        val iterator = store.entries.iterator()
-        while (iterator.hasNext()) {
-            val entry = iterator.next().value
+        store.snapshot().forEach { (key, entry) ->
             if (now - entry.createdAtMillis > ENTRY_TTL_MILLIS_FOR_TEST) {
-                iterator.remove()
+                store.remove(key)
             }
-        }
-    }
-
-    private fun trimLocked() {
-        while (store.size >= MAX_ENTRIES_FOR_TEST) {
-            val oldestKey = store.entries.firstOrNull()?.key ?: return
-            store.remove(oldestKey)
         }
     }
 }

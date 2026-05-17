@@ -9,6 +9,7 @@ import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.appWhileSubscribed
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoListFilter
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -26,6 +27,14 @@ private const val DEFAULT_MAIN_LIST_PAGE_SIZE = 20
 private const val DEFAULT_MAIN_LIST_INITIAL_LOAD_SIZE = DEFAULT_MAIN_LIST_PAGE_SIZE
 private const val DEFAULT_MAIN_LIST_PREFETCH_DISTANCE = 10
 private const val DEFAULT_MAIN_LIST_DIRECT_JUMP_THRESHOLD = DEFAULT_MAIN_LIST_PAGE_SIZE * 3
+
+sealed interface GalleryUiMemosState {
+    data object Loading : GalleryUiMemosState
+
+    data class Loaded(
+        val memos: List<MemoUiModel>,
+    ) : GalleryUiMemosState
+}
 
 internal class MainMemoListStateHolder(
     scope: CoroutineScope,
@@ -127,13 +136,12 @@ internal class MainMemoListStateHolder(
         }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val galleryUiMemos: StateFlow<List<MemoUiModel>> =
-        memoUiCoordinator.galleryMemos().mapToUiModelState(
+    val galleryUiMemosState: StateFlow<GalleryUiMemosState> =
+        memoUiCoordinator.galleryMemos().mapToUiModels(
             rootDirectory = rootDirectory,
             imageDirectory = imageDirectory,
             imageMap = imageMap,
             memoUiMapper = memoUiMapper,
-            scope = scope,
             transformMemos = { currentMemos ->
                 currentMemos
                     .asSequence()
@@ -141,7 +149,18 @@ internal class MainMemoListStateHolder(
                     .sortedByDescending { memo -> memo.timestamp }
                     .toList()
             },
-        )
+        ).map { uiMemos ->
+            GalleryUiMemosState.Loaded(uiMemos.toImmutableList())
+        }.stateIn(scope, appWhileSubscribed(), GalleryUiMemosState.Loading)
+
+    val galleryUiMemos: StateFlow<List<MemoUiModel>> =
+        galleryUiMemosState
+            .map { state ->
+                when (state) {
+                    GalleryUiMemosState.Loading -> emptyList()
+                    is GalleryUiMemosState.Loaded -> state.memos
+                }
+            }.stateIn(scope, appWhileSubscribed(), emptyList())
 }
 
 private data class MemoQueryInput(

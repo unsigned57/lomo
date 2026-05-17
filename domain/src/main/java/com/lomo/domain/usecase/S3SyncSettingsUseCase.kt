@@ -150,7 +150,17 @@ class S3SyncSettingsUseCase(
 private class S3SyncConnectionObservationImpl(
     private val s3SyncRepository: S3SyncRepository,
 ) : S3SyncConnectionObservation {
-    override fun observeS3SyncEnabled(): Flow<Boolean> = s3SyncRepository.isS3SyncEnabled()
+    private val shared =
+        RemoteSyncSharedStateObservationImpl(
+            enabled = s3SyncRepository::isS3SyncEnabled,
+            autoSyncEnabled = s3SyncRepository::getAutoSyncEnabled,
+            autoSyncInterval = s3SyncRepository::getAutoSyncInterval,
+            syncOnRefreshEnabled = s3SyncRepository::getSyncOnRefreshEnabled,
+            lastSyncTimeMillis = s3SyncRepository::observeLastSyncTimeMillis,
+            syncState = s3SyncRepository::syncState,
+        )
+
+    override fun observeS3SyncEnabled(): Flow<Boolean> = shared.observeSyncEnabled()
 
     override fun observeEndpointUrl(): Flow<String?> = s3SyncRepository.getEndpointUrl()
 
@@ -168,6 +178,16 @@ private class S3SyncConnectionObservationImpl(
 private class S3SyncBehaviorObservationImpl(
     private val s3SyncRepository: S3SyncRepository,
 ) : S3SyncBehaviorObservation {
+    private val shared =
+        RemoteSyncSharedStateObservationImpl(
+            enabled = s3SyncRepository::isS3SyncEnabled,
+            autoSyncEnabled = s3SyncRepository::getAutoSyncEnabled,
+            autoSyncInterval = s3SyncRepository::getAutoSyncInterval,
+            syncOnRefreshEnabled = s3SyncRepository::getSyncOnRefreshEnabled,
+            lastSyncTimeMillis = s3SyncRepository::observeLastSyncTimeMillis,
+            syncState = s3SyncRepository::syncState,
+        )
+
     override fun observeEncryptionMode(): Flow<S3EncryptionMode> = s3SyncRepository.getEncryptionMode()
 
     override fun observeRcloneFilenameEncryption(): Flow<S3RcloneFilenameEncryption> =
@@ -185,15 +205,15 @@ private class S3SyncBehaviorObservationImpl(
     override fun observeRcloneEncryptedSuffix(): Flow<String> =
         s3SyncRepository.getRcloneEncryptedSuffix()
 
-    override fun observeAutoSyncEnabled(): Flow<Boolean> = s3SyncRepository.getAutoSyncEnabled()
+    override fun observeAutoSyncEnabled(): Flow<Boolean> = shared.observeAutoSyncEnabled()
 
-    override fun observeAutoSyncInterval(): Flow<String> = s3SyncRepository.getAutoSyncInterval()
+    override fun observeAutoSyncInterval(): Flow<String> = shared.observeAutoSyncInterval()
 
-    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = s3SyncRepository.getSyncOnRefreshEnabled()
+    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = shared.observeSyncOnRefreshEnabled()
 
-    override fun observeLastSyncTimeMillis(): Flow<Long?> = s3SyncRepository.observeLastSyncTimeMillis()
+    override fun observeLastSyncTimeMillis(): Flow<Long?> = shared.observeLastSyncTimeMillis()
 
-    override fun observeSyncState(): Flow<S3SyncState> = s3SyncRepository.syncState()
+    override fun observeSyncState(): Flow<S3SyncState> = shared.observeSyncState()
 }
 
 private class S3SyncCredentialObservationImpl(
@@ -216,9 +236,17 @@ private class S3SyncConnectionMutationImpl(
     private val s3SyncRepository: S3SyncRepository,
     private val syncPolicyRepository: SyncPolicyRepository,
 ) : S3SyncConnectionMutation {
+    private val shared =
+        RemoteSyncSharedMutationImpl(
+            backendType = SyncBackendType.S3,
+            syncPolicyRepository = syncPolicyRepository,
+            autoSyncEnabledUpdater = s3SyncRepository::setAutoSyncEnabled,
+            autoSyncIntervalUpdater = s3SyncRepository::setAutoSyncInterval,
+            syncOnRefreshUpdater = s3SyncRepository::setSyncOnRefreshEnabled,
+        )
+
     override suspend fun updateS3SyncEnabled(enabled: Boolean) {
-        syncPolicyRepository.setRemoteSyncBackend(if (enabled) SyncBackendType.S3 else SyncBackendType.NONE)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateSyncEnabled(enabled)
     }
 
     override suspend fun updateEndpointUrl(url: String) {
@@ -278,6 +306,15 @@ private class S3SyncBehaviorMutationImpl(
     private val s3SyncRepository: S3SyncRepository,
     private val syncPolicyRepository: SyncPolicyRepository,
 ) : S3SyncBehaviorMutation {
+    private val shared =
+        RemoteSyncSharedMutationImpl(
+            backendType = SyncBackendType.S3,
+            syncPolicyRepository = syncPolicyRepository,
+            autoSyncEnabledUpdater = s3SyncRepository::setAutoSyncEnabled,
+            autoSyncIntervalUpdater = s3SyncRepository::setAutoSyncInterval,
+            syncOnRefreshUpdater = s3SyncRepository::setSyncOnRefreshEnabled,
+        )
+
     override suspend fun updateEncryptionMode(mode: S3EncryptionMode) {
         s3SyncRepository.setEncryptionMode(mode)
     }
@@ -303,17 +340,15 @@ private class S3SyncBehaviorMutationImpl(
     }
 
     override suspend fun updateAutoSyncEnabled(enabled: Boolean) {
-        s3SyncRepository.setAutoSyncEnabled(enabled)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncEnabled(enabled)
     }
 
     override suspend fun updateAutoSyncInterval(interval: String) {
-        s3SyncRepository.setAutoSyncInterval(interval)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncInterval(interval)
     }
 
     override suspend fun updateSyncOnRefreshEnabled(enabled: Boolean) {
-        s3SyncRepository.setSyncOnRefreshEnabled(enabled)
+        shared.updateSyncOnRefreshEnabled(enabled)
     }
 }
 
@@ -321,9 +356,15 @@ private class S3SyncSettingsActionsImpl(
     private val s3SyncRepository: S3SyncRepository,
     private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
 ) : S3SyncSettingsActions {
+    private val shared =
+        RemoteSyncSharedActionsImpl(
+            syncAndRebuildUseCase = syncAndRebuildUseCase,
+            connectionTester = s3SyncRepository::testConnection,
+        )
+
     override suspend fun triggerSyncNow() {
-        syncAndRebuildUseCase(forceSync = true)
+        shared.triggerSyncNow()
     }
 
-    override suspend fun testConnection(): S3SyncResult = s3SyncRepository.testConnection()
+    override suspend fun testConnection(): S3SyncResult = shared.testConnection()
 }

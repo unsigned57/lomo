@@ -86,6 +86,7 @@ fun MemoCardList(
     listState: LazyListState? = null,
     freeTextCopyEnabled: Boolean = false,
     onImageClick: (ImageViewerRequest) -> Unit = {},
+    onTodoClick: ((Memo, Int, Boolean) -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(16.dp),
     animation: MemoCardListAnimation = MemoCardListAnimation.FadeIn,
     showScrollbar: Boolean = false,
@@ -154,6 +155,7 @@ fun MemoCardList(
                     onMemoEdit = onMemoEdit,
                     onShowMenu = onShowMenu,
                     onImageClick = onImageClick,
+                    onTodoClick = onTodoClick,
                     animation = animation,
                     entranceState = entranceState,
                     isDeleting = uiModel.memo.id in deletingMemoIds,
@@ -205,6 +207,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     onImageClick: (ImageViewerRequest) -> Unit,
+    onTodoClick: ((Memo, Int, Boolean) -> Unit)?,
     animation: MemoCardListAnimation,
     entranceState: MemoCardListEntranceState,
     isDeleting: Boolean,
@@ -226,8 +229,19 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
                     createImageViewerRequest(
                         imageUrls = uiModel.imageUrls,
                         clickedUrl = url,
+                        memoId = uiModel.memo.id,
                     ),
                 )
+            }
+        }
+    val stableTodoClick: ((Int, Boolean) -> Unit)? =
+        remember(uiModel.memo, onTodoClick) {
+            if (onTodoClick == null) {
+                null
+            } else {
+                { lineIndex: Int, checked: Boolean ->
+                    onTodoClick.invoke(uiModel.memo, lineIndex, checked)
+                }
             }
         }
     val itemModifier =
@@ -260,6 +274,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.MemoCardAnimatedItem(
         onMemoEdit = onMemoEdit,
         onShowMenu = onShowMenu,
         onImageClick = stableImageClick,
+        onTodoClick = stableTodoClick,
         modifier = itemModifier,
         isExpanded = isExpanded,
         onExpandedChange = onExpandedChange,
@@ -397,6 +412,7 @@ private fun MemoCardDeleteAnimatedContainer(
     onMemoEdit: (Memo) -> Unit,
     onShowMenu: (MemoMenuState) -> Unit,
     onImageClick: (String) -> Unit,
+    onTodoClick: ((Int, Boolean) -> Unit)?,
     isExpanded: Boolean,
     modifier: Modifier = Modifier,
     onExpandedChange: (Boolean) -> Unit,
@@ -462,6 +478,7 @@ private fun MemoCardDeleteAnimatedContainer(
                 onMemoEdit = onMemoEdit,
                 onShowMenu = onShowMenu,
                 onImageClick = onImageClick,
+                onTodoClick = onTodoClick,
                 isExpanded = isExpanded,
                 onExpandedChange = onExpandedChange,
             )

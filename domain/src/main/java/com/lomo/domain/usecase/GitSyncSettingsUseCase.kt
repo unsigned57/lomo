@@ -95,7 +95,17 @@ class GitSyncSettingsUseCase
 private class GitSyncSettingsStateObservationImpl(
     private val gitSyncRepository: GitSyncRepository,
 ) : GitSyncSettingsStateObservation {
-    override fun observeGitSyncEnabled(): Flow<Boolean> = gitSyncRepository.isGitSyncEnabled()
+    private val shared =
+        RemoteSyncSharedStateObservationImpl(
+            enabled = gitSyncRepository::isGitSyncEnabled,
+            autoSyncEnabled = gitSyncRepository::getAutoSyncEnabled,
+            autoSyncInterval = gitSyncRepository::getAutoSyncInterval,
+            syncOnRefreshEnabled = gitSyncRepository::getSyncOnRefreshEnabled,
+            lastSyncTimeMillis = gitSyncRepository::observeLastSyncTimeMillis,
+            syncState = gitSyncRepository::syncState,
+        )
+
+    override fun observeGitSyncEnabled(): Flow<Boolean> = shared.observeSyncEnabled()
 
     override fun observeRemoteUrl(): Flow<String?> = gitSyncRepository.getRemoteUrl()
 
@@ -103,15 +113,15 @@ private class GitSyncSettingsStateObservationImpl(
 
     override fun observeAuthorEmail(): Flow<String> = gitSyncRepository.getAuthorEmail()
 
-    override fun observeAutoSyncEnabled(): Flow<Boolean> = gitSyncRepository.getAutoSyncEnabled()
+    override fun observeAutoSyncEnabled(): Flow<Boolean> = shared.observeAutoSyncEnabled()
 
-    override fun observeAutoSyncInterval(): Flow<String> = gitSyncRepository.getAutoSyncInterval()
+    override fun observeAutoSyncInterval(): Flow<String> = shared.observeAutoSyncInterval()
 
-    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = gitSyncRepository.getSyncOnRefreshEnabled()
+    override fun observeSyncOnRefreshEnabled(): Flow<Boolean> = shared.observeSyncOnRefreshEnabled()
 
-    override fun observeLastSyncTimeMillis(): Flow<Long?> = gitSyncRepository.observeLastSyncTimeMillis()
+    override fun observeLastSyncTimeMillis(): Flow<Long?> = shared.observeLastSyncTimeMillis()
 
-    override fun observeSyncState(): Flow<UnifiedSyncState> = gitSyncRepository.syncState()
+    override fun observeSyncState(): Flow<UnifiedSyncState> = shared.observeSyncState()
 }
 
 private class GitSyncSettingsValidationImpl(
@@ -128,9 +138,17 @@ private class GitSyncSettingsMutationImpl(
     private val syncPolicyRepository: SyncPolicyRepository,
     private val gitRemoteUrlUseCase: GitRemoteUrlUseCase,
 ) : GitSyncSettingsMutation {
+    private val shared =
+        RemoteSyncSharedMutationImpl(
+            backendType = SyncBackendType.GIT,
+            syncPolicyRepository = syncPolicyRepository,
+            autoSyncEnabledUpdater = gitSyncRepository::setAutoSyncEnabled,
+            autoSyncIntervalUpdater = gitSyncRepository::setAutoSyncInterval,
+            syncOnRefreshUpdater = gitSyncRepository::setSyncOnRefreshEnabled,
+        )
+
     override suspend fun updateGitSyncEnabled(enabled: Boolean) {
-        syncPolicyRepository.setRemoteSyncBackend(if (enabled) SyncBackendType.GIT else SyncBackendType.NONE)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateSyncEnabled(enabled)
     }
 
     override suspend fun updateRemoteUrl(url: String) {
@@ -149,17 +167,15 @@ private class GitSyncSettingsMutationImpl(
     }
 
     override suspend fun updateAutoSyncEnabled(enabled: Boolean) {
-        gitSyncRepository.setAutoSyncEnabled(enabled)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncEnabled(enabled)
     }
 
     override suspend fun updateAutoSyncInterval(interval: String) {
-        gitSyncRepository.setAutoSyncInterval(interval)
-        syncPolicyRepository.applyRemoteSyncPolicy()
+        shared.updateAutoSyncInterval(interval)
     }
 
     override suspend fun updateSyncOnRefreshEnabled(enabled: Boolean) {
-        gitSyncRepository.setSyncOnRefreshEnabled(enabled)
+        shared.updateSyncOnRefreshEnabled(enabled)
     }
 }
 
@@ -167,8 +183,14 @@ private class GitSyncSettingsActionsImpl(
     private val gitSyncRepository: GitSyncRepository,
     private val syncAndRebuildUseCase: SyncAndRebuildUseCase,
 ) : GitSyncSettingsActions {
+    private val shared =
+        RemoteSyncSharedActionsImpl(
+            syncAndRebuildUseCase = syncAndRebuildUseCase,
+            connectionTester = gitSyncRepository::testConnection,
+        )
+
     override suspend fun triggerSyncNow() {
-        syncAndRebuildUseCase(forceSync = true)
+        shared.triggerSyncNow()
     }
 
     override suspend fun resolveConflictUsingRemote(): GitSyncResult =
@@ -193,7 +215,7 @@ private class GitSyncSettingsActionsImpl(
             }
         }
 
-    override suspend fun testConnection(): GitSyncResult = gitSyncRepository.testConnection()
+    override suspend fun testConnection(): GitSyncResult = shared.testConnection()
 
     override suspend fun resetRepository(): GitSyncResult = gitSyncRepository.resetRepository()
 

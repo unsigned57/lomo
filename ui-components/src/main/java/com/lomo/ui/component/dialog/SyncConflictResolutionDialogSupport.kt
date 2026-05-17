@@ -114,15 +114,51 @@ internal fun ChoicePill(
 }
 
 @Composable
+internal fun ReviewMessage(message: String) {
+    Surface(
+        shape = AppShapes.Small,
+        color = MaterialTheme.colorScheme.errorContainer,
+    ) {
+        Text(
+            text = stringResource(R.string.sync_conflict_review_message, message),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer,
+            modifier = Modifier.padding(horizontal = AppSpacing.Small, vertical = AppSpacing.ExtraSmall),
+        )
+    }
+}
+
+@Composable
 internal fun choiceLabel(
     choice: SyncConflictResolutionChoice,
+    source: SyncBackendType = SyncBackendType.NONE,
 ): String =
     when (choice) {
-        SyncConflictResolutionChoice.KEEP_LOCAL -> stringResource(R.string.sync_conflict_choice_local_short)
-        SyncConflictResolutionChoice.KEEP_REMOTE -> stringResource(R.string.sync_conflict_choice_remote_short)
+        SyncConflictResolutionChoice.KEEP_LOCAL -> localChoiceLabel(source)
+        SyncConflictResolutionChoice.KEEP_REMOTE -> remoteChoiceLabel(source)
         SyncConflictResolutionChoice.MERGE_TEXT -> stringResource(R.string.sync_conflict_choice_merge)
         SyncConflictResolutionChoice.SKIP_FOR_NOW -> stringResource(R.string.sync_conflict_choice_skip)
     }
+
+@Composable
+internal fun localChoiceLabel(source: SyncBackendType): String =
+    stringResource(
+        if (source == SyncBackendType.INBOX) {
+            R.string.sync_conflict_choice_current_short
+        } else {
+            R.string.sync_conflict_choice_local_short
+        },
+    )
+
+@Composable
+internal fun remoteChoiceLabel(source: SyncBackendType): String =
+    stringResource(
+        if (source == SyncBackendType.INBOX) {
+            R.string.sync_conflict_choice_inbox_short
+        } else {
+            R.string.sync_conflict_choice_remote_short
+        },
+    )
 
 internal fun SyncBackendType.supportsDeferredConflictResolutionUi(): Boolean =
     supportsDeferredConflictResolution()

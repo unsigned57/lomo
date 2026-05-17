@@ -10,7 +10,7 @@
     <string name="settings_image_storage">Image Storage</string>
     <string name="settings_voice_storage">Voice Storage</string>
     <string name="settings_sync_inbox_enabled">Sync inbox folder</string>
-    <string name="settings_sync_inbox_enabled_subtitle">Automatically merge incoming markdown, images, and audio from this folder before refresh</string>
+    <string name="settings_sync_inbox_enabled_subtitle">Review incoming markdown, images, and audio from this folder before applying changes</string>
     <string name="settings_sync_inbox_directory">Sync inbox directory</string>
     <string name="settings_filename_format">Filename Format</string>
     <string name="settings_timestamp_format">Timestamp Format</string>
@@ -51,8 +51,6 @@
     <string name="settings_quick_save_on_back_subtitle">Automatically save new memo when pressing back instead of showing discard dialog</string>
     <string name="settings_scrollbar">Show scrollbar</string>
     <string name="settings_scrollbar_subtitle">Display a draggable scrollbar on the main list</string>
-    <string name="settings_secure_wipe_before_delete">Secure wipe before delete</string>
-    <string name="settings_secure_wipe_before_delete_subtitle">Overwrite direct-storage markdown files with zeros before unlinking them during permanent delete</string>
     <string name="settings_check_updates">Check updates on startup</string>
     <string name="settings_check_updates_subtitle">Automatically check for updates when app starts</string>
     <string name="settings_check_updates_now">Check for updates</string>
@@ -211,9 +209,13 @@
     <string name="stats_avg_words">Avg Words</string>
     <string name="stats_total_tags">Tags</string>
     <string name="stats_total_chars">Characters</string>
+    <string name="stats_earliest_note_time">Earliest Note Time</string>
+    <string name="stats_latest_note_time">Latest Note Time</string>
     <string name="stats_this_week">This Week</string>
     <string name="stats_this_month">This Month</string>
     <string name="stats_this_year">This Year</string>
+    <string name="stats_share_current_page">Share current statistics</string>
+    <string name="stats_share_sheet_title">Share statistics</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">Menu</string>
@@ -269,7 +271,6 @@
     <string name="gallery_empty_desc">Memos containing images will appear here</string>
     <string name="gallery_reel_close">Close</string>
     <string name="gallery_reel_image_indicator">%1$d / %2$d</string>
-    <string name="gallery_reel_overlay_summary_more">Tap for full memo</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">Trash Bin</string>

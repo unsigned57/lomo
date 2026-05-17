@@ -130,6 +130,7 @@ fun SyncConflictResolutionDialog(
             Scaffold(
                 topBar = {
                     TopBar(
+                        source = conflictSet.source,
                         sessionKind = conflictSet.sessionKind,
                         onDismiss = onDismiss,
                     )
@@ -215,7 +216,14 @@ private fun ConflictFileList(
         if (autoResolvableFiles.isNotEmpty()) {
             item(key = "auto-resolvable-header") {
                 ConflictSectionHeader(
-                    text = stringResource(R.string.sync_conflict_section_auto),
+                    text =
+                        stringResource(
+                            if (source == SyncBackendType.INBOX) {
+                                R.string.sync_conflict_section_ready
+                            } else {
+                                R.string.sync_conflict_section_auto
+                            },
+                        ),
                     count = autoResolvableFiles.size,
                 )
             }
@@ -224,6 +232,7 @@ private fun ConflictFileList(
                 key = { it.relativePath },
             ) { file ->
                 ConflictFileCard(
+                    source = source,
                     file = file,
                     choice = perFileChoices[file.relativePath],
                     suggestedChoice = suggestedChoices[file.relativePath],
@@ -239,7 +248,14 @@ private fun ConflictFileList(
         if (manualFiles.isNotEmpty()) {
             item(key = "manual-header") {
                 ConflictSectionHeader(
-                    text = stringResource(R.string.sync_conflict_section_manual),
+                    text =
+                        stringResource(
+                            if (source == SyncBackendType.INBOX) {
+                                R.string.sync_conflict_section_attention
+                            } else {
+                                R.string.sync_conflict_section_manual
+                            },
+                        ),
                     count = manualFiles.size,
                 )
             }
@@ -248,6 +264,7 @@ private fun ConflictFileList(
                 key = { it.relativePath },
             ) { file ->
                 ConflictFileCard(
+                    source = source,
                     file = file,
                     choice = perFileChoices[file.relativePath],
                     suggestedChoice = null,
@@ -266,18 +283,21 @@ private fun ConflictFileList(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
+    source: SyncBackendType,
     sessionKind: SyncConflictSessionKind,
     onDismiss: () -> Unit,
 ) {
     CenterAlignedTopAppBar(
         title = {
-            val titleText = stringResource(
-                if (sessionKind == SyncConflictSessionKind.INITIAL_SYNC_PREVIEW) {
-                    R.string.sync_conflict_title_initial_preview
-                } else {
-                    R.string.sync_conflict_title_standard
-                },
-            )
+            val titleText =
+                stringResource(
+                    when {
+                        source == SyncBackendType.INBOX -> R.string.sync_conflict_title_inbox_review
+                        sessionKind == SyncConflictSessionKind.INITIAL_SYNC_PREVIEW ->
+                            R.string.sync_conflict_title_initial_preview
+                        else -> R.string.sync_conflict_title_standard
+                    },
+                )
             Text(
                 text = titleText,
                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
@@ -375,7 +395,7 @@ private fun GlobalActionRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ChoicePill(
-                text = stringResource(R.string.sync_conflict_choice_local_short),
+                text = localChoiceLabel(conflictSet.source),
                 selected = globalChoice == SyncConflictResolutionChoice.KEEP_LOCAL,
                 onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_LOCAL) },
                 selectedColor = MaterialTheme.colorScheme.primaryContainer,
@@ -383,7 +403,7 @@ private fun GlobalActionRow(
                 modifier = Modifier.weight(1f),
             )
             ChoicePill(
-                text = stringResource(R.string.sync_conflict_choice_remote_short),
+                text = remoteChoiceLabel(conflictSet.source),
                 selected = globalChoice == SyncConflictResolutionChoice.KEEP_REMOTE,
                 onClick = { onAllChoicesChanged(SyncConflictResolutionChoice.KEEP_REMOTE) },
                 selectedColor = MaterialTheme.colorScheme.secondaryContainer,
@@ -415,6 +435,7 @@ private fun resolveGlobalChoice(
 
 @Composable
 private fun ConflictFileCard(
+    source: SyncBackendType,
     file: SyncConflictFile,
     choice: SyncConflictResolutionChoice?,
     suggestedChoice: SyncConflictResolutionChoice?,
@@ -446,13 +467,19 @@ private fun ConflictFileCard(
     ) {
         Column(modifier = Modifier.padding(AppSpacing.Medium)) {
             ConflictFileHeader(
+                source = source,
                 file = file,
                 isExpanded = isExpanded,
                 suggestedChoice = suggestedChoice,
                 onToggleExpanded = onToggleExpanded,
             )
+            file.reviewMessage?.let { message ->
+                Spacer(modifier = Modifier.height(AppSpacing.Small))
+                ReviewMessage(message = message)
+            }
             Spacer(modifier = Modifier.height(AppSpacing.Medium))
             CustomChoiceToggle(
+                source = source,
                 choice = choice,
                 mergeAvailable = mergeAvailable,
                 supportsSkip = supportsSkip,
@@ -470,6 +497,7 @@ private fun ConflictFileCard(
 
 @Composable
 private fun ConflictFileHeader(
+    source: SyncBackendType,
     file: SyncConflictFile,
     isExpanded: Boolean,
     suggestedChoice: SyncConflictResolutionChoice?,
@@ -533,7 +561,7 @@ private fun ConflictFileHeader(
                         color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
-                            text = choiceLabel(suggestedChoice),
+                            text = choiceLabel(suggestedChoice, source),
                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = AppSpacing.Small, vertical = 4.dp),
@@ -599,6 +627,7 @@ private fun ConflictDiffSection(
 
 @Composable
 private fun CustomChoiceToggle(
+    source: SyncBackendType,
     choice: SyncConflictResolutionChoice?,
     mergeAvailable: Boolean,
     supportsSkip: Boolean,
@@ -613,7 +642,7 @@ private fun CustomChoiceToggle(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         ChoicePill(
-            text = stringResource(R.string.sync_conflict_choice_local_short),
+            text = localChoiceLabel(source),
             selected = choice == SyncConflictResolutionChoice.KEEP_LOCAL,
             onClick = { onChoiceChanged(SyncConflictResolutionChoice.KEEP_LOCAL) },
             selectedColor = MaterialTheme.colorScheme.primaryContainer,
@@ -621,7 +650,7 @@ private fun CustomChoiceToggle(
             modifier = Modifier.weight(1f),
         )
         ChoicePill(
-            text = stringResource(R.string.sync_conflict_choice_remote_short),
+            text = remoteChoiceLabel(source),
             selected = choice == SyncConflictResolutionChoice.KEEP_REMOTE,
             onClick = { onChoiceChanged(SyncConflictResolutionChoice.KEEP_REMOTE) },
             selectedColor = MaterialTheme.colorScheme.secondaryContainer,

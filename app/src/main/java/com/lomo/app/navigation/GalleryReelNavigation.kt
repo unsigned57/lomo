@@ -9,6 +9,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.gallery.GalleryReelMode
 import com.lomo.app.feature.gallery.GalleryReelRequest
 import com.lomo.app.feature.gallery.GalleryReelScreen
 import com.lomo.app.feature.main.MainViewModel
@@ -88,6 +89,13 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
                 )
             }
 
+        if (request == null) {
+            // Gallery memos are still loading after a cold start — wait for them
+            // instead of treating the empty initial state as "memo removed" and
+            // popping the route right away.
+            return@composable
+        }
+
         androidx.compose.runtime.CompositionLocalProvider(
             com.lomo.ui.util.LocalAnimatedVisibilityScope provides this,
         ) {
@@ -116,6 +124,7 @@ internal fun NavGraphBuilder.addGalleryReelDestination(
             ) { showMenu ->
                 GalleryReelScreen(
                     request = request,
+                    viewerMode = GalleryReelMode.Gallery,
                     dateFormat = appPreferences.dateFormat,
                     timeFormat = appPreferences.timeFormat,
                     onBackClick = popBackStackSafely,
@@ -131,7 +140,14 @@ private fun buildGalleryReelRequest(
     galleryMemos: ImmutableList<MemoUiModel>,
     initialMemoIndex: Int,
     initialImageIndex: Int,
-): GalleryReelRequest {
+): GalleryReelRequest? {
+    // Cold-start race guard: the gallery's UI memo flow seeds with an empty
+    // list before the first DB emission. If the payload has memo ids but the
+    // live list is still empty, treat it as "loading" and signal the caller
+    // to wait — returning an empty request here would auto-pop the screen
+    // before the user has a chance to see anything.
+    if (galleryMemos.isEmpty() && payload.memoIds.isNotEmpty()) return null
+
     val liveMemoById = galleryMemos.associateBy { uiModel -> uiModel.memo.id }
     val orderedMemos =
         payload.memoIds
@@ -166,4 +182,3 @@ private fun NavHostController.popBackStackToMainOrNavigate() {
         }
     }
 }
-

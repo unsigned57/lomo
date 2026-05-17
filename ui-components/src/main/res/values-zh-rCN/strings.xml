@@ -72,6 +72,7 @@
     <string name="action_history">历史版本</string>
     <string name="sync_conflict_title_standard">解决同步冲突</string>
     <string name="sync_conflict_title_initial_preview">检查首次同步差异</string>
+    <string name="sync_conflict_title_inbox_review">审阅同步收件箱</string>
     <string name="sync_conflict_choice_keep_all_local">全部保留本地</string>
     <string name="sync_conflict_choice_keep_all_remote">全部保留远端</string>
     <string name="sync_conflict_choice_accept_suggestions">接受建议</string>
@@ -82,12 +83,17 @@
     <string name="sync_conflict_binary_file">二进制文件</string>
     <string name="sync_conflict_choice_local_short">本地</string>
     <string name="sync_conflict_choice_remote_short">远端</string>
+    <string name="sync_conflict_choice_current_short">当前</string>
+    <string name="sync_conflict_choice_inbox_short">收件箱</string>
     <string name="sync_conflict_apply_resolution">应用并保存</string>
     <string name="sync_conflict_resolving">正在解决冲突…</string>
     <string name="sync_conflict_no_text_diffs">未发现明确的文本差异。</string>
     <string name="sync_conflict_section_auto">可自动处理</string>
     <string name="sync_conflict_section_manual">需要手动检查</string>
+    <string name="sync_conflict_section_ready">可应用</string>
+    <string name="sync_conflict_section_attention">需要处理</string>
     <string name="sync_conflict_merge_preview">合并预览</string>
+    <string name="sync_conflict_review_message">暂不能导入：%1$s</string>
     <string name="sync_conflict_backup_warning">覆盖文件前将自动备份当前版本。</string>
     <string name="sync_conflict_close">关闭</string>
     <string name="sync_conflict_expand">展开</string>

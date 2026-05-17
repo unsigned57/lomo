@@ -11,7 +11,7 @@
     <string name="settings_image_storage">图片存储</string>
     <string name="settings_voice_storage">语音存储</string>
     <string name="settings_sync_inbox_enabled">同步收件箱文件夹</string>
-    <string name="settings_sync_inbox_enabled_subtitle">刷新前自动处理此目录中的 markdown、图片和音频并合并到当前主线</string>
+    <string name="settings_sync_inbox_enabled_subtitle">先审阅此目录中的 markdown、图片和音频，再决定是否应用到当前主线</string>
     <string name="settings_sync_inbox_directory">同步收件箱目录</string>
     <string name="settings_filename_format">文件名格式</string>
     <string name="settings_timestamp_format">时间戳格式</string>
@@ -52,8 +52,6 @@
     <string name="settings_quick_save_on_back_subtitle">新建备忘录时按返回键自动保存，而非显示丢弃确认对话框</string>
     <string name="settings_scrollbar">显示滚动条</string>
     <string name="settings_scrollbar_subtitle">在主列表上显示可拖拽的滚动条</string>
-    <string name="settings_secure_wipe_before_delete">删除前安全覆写</string>
-    <string name="settings_secure_wipe_before_delete_subtitle">永久删除时，先用零字节覆写直连存储中的 markdown 文件，再执行 unlink</string>
     <string name="settings_lan_share_pairing_code">局域网分享配对密码</string>
     <string name="settings_lan_share_pairing_configured">已配置（点击可更新或清除）</string>
     <string name="settings_lan_share_pairing_not_set">未配置（局域网分享需要）</string>
@@ -206,9 +204,13 @@
     <string name="stats_avg_words">平均字数</string>
     <string name="stats_total_tags">标签</string>
     <string name="stats_total_chars">字符数</string>
+    <string name="stats_earliest_note_time">最早记录时间</string>
+    <string name="stats_latest_note_time">最晚记录时间</string>
     <string name="stats_this_week">本周</string>
     <string name="stats_this_month">本月</string>
     <string name="stats_this_year">今年</string>
+    <string name="stats_share_current_page">分享当前统计页截图</string>
+    <string name="stats_share_sheet_title">分享统计</string>
 
     <!-- Content Descriptions -->
     <string name="cd_menu">菜单</string>
@@ -264,7 +266,6 @@
     <string name="gallery_empty_desc">包含图片的备忘录会显示在这里</string>
     <string name="gallery_reel_close">关闭</string>
     <string name="gallery_reel_image_indicator">%1$d / %2$d</string>
-    <string name="gallery_reel_overlay_summary_more">点击展开备忘录</string>
 
     <!-- Trash Screen -->
     <string name="trash_title">回收站</string>

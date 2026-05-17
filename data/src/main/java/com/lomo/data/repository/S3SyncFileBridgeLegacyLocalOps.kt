@@ -59,7 +59,7 @@ internal suspend fun legacyLocalFile(
     } else {
         legacyDirectMediaLocalFile(path, layout, mode)
             ?: runtime.localMediaSyncStore
-                .listFiles(layout)[path.removePrefix("$S3_ROOT/")]
+                .getFile(path, layout)
                 ?.let { metadata ->
                     LocalS3File(path = path, lastModified = metadata.lastModified, size = metadata.size)
                 }

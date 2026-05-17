@@ -347,6 +347,7 @@ private fun DailyReviewPagerPage(
                     createImageViewerRequest(
                         imageUrls = memo.imageUrls,
                         clickedUrl = url,
+                        memoId = memo.memo.id,
                     ),
                 )
             }

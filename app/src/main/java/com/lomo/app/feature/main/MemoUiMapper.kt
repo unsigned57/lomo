@@ -1,14 +1,18 @@
 package com.lomo.app.feature.main
 
 import android.net.Uri
+import androidx.collection.LruCache
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.card.buildMemoCardCollapsedSummary
 import com.lomo.ui.component.card.shouldShowMemoCardExpand
 import com.lomo.ui.component.markdown.ModernMarkdownRenderPlan
 import com.lomo.ui.component.markdown.createModernMarkdownRenderPlan
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -24,12 +28,7 @@ class MemoUiMapper
 
         private val imageContentResolver = MemoUiImageContentResolver()
         private val cacheMutex = Mutex()
-        private val cachedModels =
-            LinkedHashMap<String, CachedMemoUiModel>(
-                DEFAULT_CACHE_SIZE,
-                DEFAULT_CACHE_LOAD_FACTOR,
-                true,
-            )
+        private val cachedModels = LruCache<String, CachedMemoUiModel>(DEFAULT_CACHE_SIZE)
 
         suspend fun mapToUiModels(
             memos: List<Memo>,
@@ -56,22 +55,46 @@ class MemoUiMapper
 
                 val currentMemoIds = memos.asSequence().map(Memo::id).toSet()
                 cacheMutex.withLock {
-                    cachedModels.keys.retainAll(currentMemoIds)
+                    cachedModels.snapshot().keys
+                        .filterNot(currentMemoIds::contains)
+                        .forEach(cachedModels::remove)
                 }
 
-                val results = ArrayList<MemoUiModel>(memos.size)
-                for (memo in memos) {
-                    val precomputeMarkdown = memo.id in prioritizedIds
-                    results +=
-                        mapToCachedUiModel(
-                            memo = memo,
-                            rootPath = rootPath,
-                            imagePath = imagePath,
-                            imageMap = imageMap,
-                            precomputeMarkdown = precomputeMarkdown,
-                        )
+                coroutineScope {
+                    val startupParallelDispatcher = backgroundDispatcher.limitedParallelism(2)
+                    val startupMappedById =
+                        memos
+                            .take(INITIAL_PARALLEL_PRECOMPUTE_COUNT)
+                            .map { memo ->
+                                async(startupParallelDispatcher) {
+                                    memo.id to
+                                        mapToCachedUiModel(
+                                            memo = memo,
+                                            rootPath = rootPath,
+                                            imagePath = imagePath,
+                                            imageMap = imageMap,
+                                            precomputeMarkdown = memo.id in prioritizedIds,
+                                        )
+                                }
+                            }.awaitAll()
+                            .toMap(LinkedHashMap(INITIAL_PARALLEL_PRECOMPUTE_COUNT))
+
+                    val results = ArrayList<MemoUiModel>(memos.size)
+                    memos.take(INITIAL_PARALLEL_PRECOMPUTE_COUNT).forEach { memo ->
+                        results += checkNotNull(startupMappedById[memo.id])
+                    }
+                    memos.drop(INITIAL_PARALLEL_PRECOMPUTE_COUNT).forEach { memo ->
+                        results +=
+                            mapToCachedUiModel(
+                                memo = memo,
+                                rootPath = rootPath,
+                                imagePath = imagePath,
+                                imageMap = imageMap,
+                                precomputeMarkdown = memo.id in prioritizedIds,
+                            )
+                    }
+                    results
                 }
-                results
             }
 
         fun mapToUiModel(
@@ -163,27 +186,21 @@ class MemoUiMapper
                     existingProcessedContent = cached?.model?.processedContent,
                 )
             cacheMutex.withLock {
-                cachedModels[memo.id] =
+                cachedModels.put(
+                    memo.id,
                     CachedMemoUiModel(
                         key = cacheKey,
                         model = uiModel,
-                    )
-                trimCacheIfNeeded()
+                    ),
+                )
             }
             return uiModel
         }
 
-        private fun trimCacheIfNeeded() {
-            while (cachedModels.size > DEFAULT_CACHE_SIZE) {
-                val eldestKey = cachedModels.entries.firstOrNull()?.key ?: return
-                cachedModels.remove(eldestKey)
-            }
-        }
-
         private companion object {
             private const val DEFAULT_PRIORITY_WINDOW_SIZE = 20
+            private const val INITIAL_PARALLEL_PRECOMPUTE_COUNT = 6
             private const val DEFAULT_CACHE_SIZE = 256
-            private const val DEFAULT_CACHE_LOAD_FACTOR = 0.75f
         }
     }
 

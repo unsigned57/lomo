@@ -3,6 +3,7 @@ package com.lomo.app.feature.main
 import androidx.paging.PagingData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.lomo.app.feature.common.AppConfigStateProvider
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoActionOrderScopes
 import com.lomo.app.feature.common.MemoUiCoordinator
@@ -26,24 +27,28 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.LocalDate
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import kotlin.time.TimeMark
 import kotlin.time.TimeSource
 
-private const val DEFERRED_STARTUP_DELAY_MILLIS = 350L
 private const val AUTO_REFRESH_MIN_INTERVAL_MILLIS = 45_000L
 private const val IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS = 300L
 
@@ -52,6 +57,7 @@ class MainViewModel
     @Inject
     constructor(
         private val memoUiCoordinator: MemoUiCoordinator,
+        private val appConfigStateProvider: AppConfigStateProvider,
         private val appConfigUiCoordinator: AppConfigUiCoordinator,
         private val sidebarStateHolder: MainSidebarStateHolder,
         private val versionHistoryCoordinator: MainVersionHistoryCoordinator,
@@ -128,22 +134,19 @@ class MainViewModel
         private val _hasResolvedInitialRoot = MutableStateFlow(false)
         private val _isInitialDirectoryImporting = MutableStateFlow(false)
         private val _rootDirectory = MutableStateFlow<String?>(null)
+        private val imageCacheSyncReady = MutableStateFlow(false)
         private var automaticRefreshJob: kotlinx.coroutines.Job? = null
+        private var imageCacheSyncJob: kotlinx.coroutines.Job? = null
         private var lastAutomaticRefreshMark: TimeMark? = null
         private val manualRootRefreshPath = AtomicReference<String?>(null)
+        private val deferredStartupRequested = AtomicBoolean(false)
         val rootDirectory: StateFlow<String?> = _rootDirectory.asStateFlow()
 
-        val imageDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .imageDirectory()
-                .stateIn(viewModelScope, appWhileSubscribed(), null)
+        val imageDirectory: StateFlow<String?> = appConfigStateProvider.imageDirectory
 
         val imageMap: StateFlow<Map<String, android.net.Uri>> = imageMapProvider.imageMap
 
-        val voiceDirectory: StateFlow<String?> =
-            appConfigUiCoordinator
-                .voiceDirectory()
-                .stateIn(viewModelScope, appWhileSubscribed(), null)
+        val voiceDirectory: StateFlow<String?> = appConfigStateProvider.voiceDirectory
 
         private val memoListStateHolder =
             MainMemoListStateHolder(
@@ -179,6 +182,8 @@ class MainViewModel
 
         val mainListTotalCount: StateFlow<Int> = memoListStateHolder.mainListTotalCount
 
+        val galleryUiMemosState: StateFlow<GalleryUiMemosState> = memoListStateHolder.galleryUiMemosState
+
         val galleryUiMemos: StateFlow<List<MemoUiModel>> = memoListStateHolder.galleryUiMemos
 
         init {
@@ -188,24 +193,6 @@ class MainViewModel
                 // Step 1: Get initial value and set state immediately
                 val initialDir = startupCoordinator.initializeRootDirectory()
                 updateRootDirectoryUiState(initialDir)
-
-                // Step 1.5: Delay non-critical startup warmups to avoid blocking first render.
-                viewModelScope.launch {
-                    kotlinx.coroutines.delay(DEFERRED_STARTUP_DELAY_MILLIS)
-                    runCatching {
-                        startupCoordinator.runDeferredStartupTasks(initialDir)
-                    }.onFailure { throwable ->
-                        when (throwable) {
-                            is CancellationException -> throw throwable
-                            is com.lomo.domain.usecase.SyncConflictException ->
-                                _syncConflictEvent.tryEmit(throwable.conflicts)
-                            is Exception ->
-                                _errorMessage.value =
-                                    throwable.toUserMessage("Failed to finish startup sync")
-                            else -> throw throwable
-                        }
-                    }
-                }
 
                 // Step 2: Listen for persisted root updates; unchanged restored values are ignored below.
                 startupCoordinator
@@ -221,15 +208,9 @@ class MainViewModel
             loadImageMap()
         }
 
-        val appPreferences: StateFlow<AppPreferencesState> =
-            appConfigUiCoordinator
-                .appPreferences()
-                .stateIn(viewModelScope, appWhileSubscribed(), AppPreferencesState.defaults())
+        val appPreferences: StateFlow<AppPreferencesState> = appConfigStateProvider.appPreferences
 
-        val appLockEnabled: StateFlow<Boolean?> =
-            appConfigUiCoordinator
-                .appLockEnabled()
-                .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, null)
+        val appLockEnabled: StateFlow<Boolean?> = appConfigStateProvider.appLockEnabled
 
         val activeDayCount: StateFlow<Int> =
             memoUiCoordinator
@@ -463,16 +444,28 @@ class MainViewModel
         }
 
         val syncImageCacheNow: () -> Unit = {
-            viewModelScope.launch {
-                runCatching {
-                    workspaceCoordinator.syncImageCacheBestEffort()
-                }.onFailure { throwable ->
-                    if (throwable is kotlinx.coroutines.CancellationException) {
-                        throw throwable
-                    }
-                    _errorMessage.value = throwable.toUserMessage("Failed to sync image cache")
-                }
+            requestImageCacheSync("Failed to sync image cache")
+        }
+
+        private fun requestImageCacheSync(fallbackMessage: String) {
+            if (imageCacheSyncJob?.isActive == true) {
+                return
             }
+            imageCacheSyncJob =
+                viewModelScope.launch {
+                    try {
+                        runCatching {
+                            workspaceCoordinator.syncImageCacheBestEffort()
+                        }.onFailure { throwable ->
+                            if (throwable is kotlinx.coroutines.CancellationException) {
+                                throw throwable
+                            }
+                            _errorMessage.value = throwable.toUserMessage(fallbackMessage)
+                        }
+                    } finally {
+                        imageCacheSyncJob = null
+                    }
+                }
         }
 
         val loadVersionHistory: (Memo) -> Unit = { memo ->
@@ -562,6 +555,30 @@ class MainViewModel
             _errorMessage.value = null
         }
 
+        suspend fun runDeferredStartupTasksIfNeeded() {
+            if (!deferredStartupRequested.compareAndSet(false, true)) {
+                return
+            }
+            if (!_hasResolvedInitialRoot.value) {
+                _hasResolvedInitialRoot.filter { resolved -> resolved }.first()
+            }
+            runCatching {
+                startupCoordinator.runDeferredStartupTasks(_rootDirectory.value)
+            }.onFailure { throwable ->
+                when (throwable) {
+                    is CancellationException -> throw throwable
+                    is com.lomo.domain.usecase.SyncConflictException ->
+                        _syncConflictEvent.tryEmit(throwable.conflicts)
+                    is Exception ->
+                        _errorMessage.value =
+                            throwable.toUserMessage("Failed to finish startup sync")
+                    else -> throw throwable
+                }
+            }.also {
+                imageCacheSyncReady.value = true
+            }
+        }
+
         private fun updateRootDirectoryUiState(directory: String?) {
             val previousDirectory = _rootDirectory.value
             if (_hasResolvedInitialRoot.value && directory != null && directory != previousDirectory) {
@@ -577,28 +594,39 @@ class MainViewModel
             }
         }
 
-        @OptIn(FlowPreview::class)
+        @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
         private fun loadImageMap() {
             // Image map now provided by ImageMapProvider (P2-001 refactor)
             // No need to collect here - imageMap exposed directly from provider
+            viewModelScope.launch {
+                val initialConfiguredImageDirectory = appConfigStateProvider.currentImageDirectory()
+                val gateInitialConfiguredDirectorySync = AtomicBoolean(initialConfiguredImageDirectory != null)
 
-            // Trigger sync in background whenever image directory changes
-            imageDirectory
-                .drop(1)
-                .distinctUntilChanged()
-                .debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
-                .onEach { path: String? ->
-                    if (path != null) {
-                        workspaceCoordinator.syncImageCacheBestEffort()
-                    }
-                }.launchIn(viewModelScope)
-
+                imageDirectory
+                    .filterNotNull()
+                    .distinctUntilChanged()
+                    .transformLatest { directory ->
+                        val shouldWaitForDeferredStartup =
+                            gateInitialConfiguredDirectorySync.get() &&
+                                directory == initialConfiguredImageDirectory
+                        if (shouldWaitForDeferredStartup) {
+                            gateInitialConfiguredDirectorySync.set(false)
+                            imageCacheSyncReady.filter { ready -> ready }.first()
+                        }
+                        emit(directory)
+                    }.debounce(IMAGE_DIRECTORY_SYNC_DEBOUNCE_MILLIS)
+                    .collect { requestImageCacheSync("Failed to sync image cache") }
+            }
         }
 
         private suspend fun handleObservedRootDirectoryChange(directory: String?) {
             val previousDirectory = _rootDirectory.value
             updateRootDirectoryUiState(directory)
-            if (directory != null && directory != previousDirectory && !consumeManualRootRefresh(directory)) {
+            val shouldRefreshForObservedRootChange =
+                directory != null &&
+                    directory != previousDirectory &&
+                    !manualRootRefreshPath.compareAndSet(directory, null)
+            if (shouldRefreshForObservedRootChange) {
                 refreshForRootChange()
             }
         }
@@ -662,8 +690,6 @@ class MainViewModel
                 _isInitialDirectoryImporting.value = false
             }
         }
-
-        private fun consumeManualRootRefresh(path: String): Boolean = manualRootRefreshPath.compareAndSet(path, null)
 
         private fun handleRefreshFailure(
             throwable: Throwable,
