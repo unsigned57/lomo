@@ -2,6 +2,7 @@ package com.lomo.domain.model
 
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalTime
 
 data class MemoStatistics(
     val totalMemos: Int,
@@ -15,6 +16,8 @@ data class MemoStatistics(
     val memoCountByDate: Map<LocalDate, Int>,
     val hourlyDistribution: Map<Int, Int>,
     val weeklyHourDistribution: Map<DayOfWeek, Map<Int, Int>>,
+    val earliestDailyMemoTime: LocalTime?,
+    val latestDailyMemoTime: LocalTime?,
     val thisWeekCount: Int,
     val lastWeekCount: Int,
     val thisMonthCount: Int,

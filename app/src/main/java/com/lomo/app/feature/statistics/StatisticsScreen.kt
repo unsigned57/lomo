@@ -16,19 +16,30 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -47,7 +58,10 @@ import com.lomo.ui.theme.AppSpacing
 import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.collections.immutable.toImmutableMap
+import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 
@@ -57,6 +71,7 @@ private const val NUMBER_FORMAT_THOUSAND_THRESHOLD = 1_000
 private const val NUMBER_FORMAT_THOUSAND_DIVISOR = 1_000.0
 private const val NUMBER_FORMAT_MILLION_DIVISOR = 1_000_000.0
 private const val STATISTICS_TIME_DISTRIBUTION_TWO_COLUMN_MIN_WIDTH_DP = 720
+private val STATISTICS_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm")
 
 internal enum class StatisticsTimeDistributionLayout {
     Stacked,
@@ -78,11 +93,30 @@ fun StatisticsScreen(
     viewModel: StatisticsViewModel = hiltViewModel(),
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val shareImageEvent by viewModel.shareImageEvent.collectAsStateWithLifecycle()
+    val shareErrorMessage by viewModel.shareErrorMessage.collectAsStateWithLifecycle()
     val haptic = LocalAppHapticFeedback.current
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
+    LaunchedEffect(viewModel) {
+        viewModel.ensureLoaded()
+    }
+
+    StatisticsShareEffects(
+        context = context,
+        shareImageEvent = shareImageEvent,
+        shareErrorMessage = shareErrorMessage,
+        snackbarHostState = snackbarHostState,
+        onShareEventConsumed = viewModel::consumeShareImageEvent,
+        onShareFailed = viewModel::reportShareFailure,
+        onShareErrorConsumed = viewModel::clearShareError,
+    )
 
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.sidebar_statistics)) },
@@ -123,7 +157,11 @@ fun StatisticsScreen(
                     )
                 }
                 is UiState.Success -> {
-                    StatisticsContent(stats = state.data)
+                    StatisticsContent(
+                        stats = state.data,
+                        onShareImageCaptured = viewModel::shareStatisticsImage,
+                        onShareCaptureFailed = viewModel::reportShareFailure,
+                    )
                 }
                 else -> Unit
             }
@@ -133,8 +171,15 @@ fun StatisticsScreen(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatisticsContent(stats: MemoStatistics) {
+private fun StatisticsContent(
+    stats: MemoStatistics,
+    onShareImageCaptured: (ByteArray) -> Unit,
+    onShareCaptureFailed: (Throwable) -> Unit,
+) {
     val scrollState = rememberScrollState()
+    val screenshotLayer = rememberGraphicsLayer()
+    val coroutineScope = rememberCoroutineScope()
+    val screenshotBackgroundColor = MaterialTheme.colorScheme.surface
     val today = LocalDate.now()
     val weekDays =
         ChronoUnit.DAYS
@@ -143,19 +188,54 @@ private fun StatisticsContent(stats: MemoStatistics) {
             .coerceAtLeast(1)
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = AppSpacing.Medium, vertical = AppSpacing.Small),
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
     ) {
-        StatisticsOverviewSection(stats = stats)
-        StatisticsActivitySection(stats = stats, today = today)
-        StatisticsTimeSection(stats = stats)
-        StatisticsReportsSection(stats = stats, today = today, weekDays = weekDays)
-        StatisticsTagsSection(stats = stats)
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .drawWithContent {
+                        screenshotLayer.record {
+                            drawRect(screenshotBackgroundColor)
+                            this@drawWithContent.drawContent()
+                        }
+                        drawLayer(screenshotLayer)
+                    },
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.Medium),
+        ) {
+            StatisticsOverviewSection(stats = stats)
+            StatisticsActivitySection(stats = stats, today = today)
+            StatisticsTimeSection(stats = stats)
+            StatisticsReportsSection(stats = stats, today = today, weekDays = weekDays)
+            StatisticsTagsSection(stats = stats)
 
-        Spacer(modifier = Modifier.height(AppSpacing.ExtraLarge))
+            Spacer(modifier = Modifier.height(AppSpacing.ExtraLarge))
+        }
+        FilledTonalButton(
+            onClick = {
+                coroutineScope.launch {
+                    runCatching {
+                        captureStatisticsPngBytes(screenshotLayer)
+                    }.onSuccess(onShareImageCaptured)
+                        .onFailure(onShareCaptureFailed)
+                }
+            },
+            modifier =
+                Modifier
+                    .fillMaxWidth(),
+        ) {
+            Icon(
+                Icons.Outlined.Share,
+                contentDescription = null,
+            )
+            Spacer(modifier = Modifier.padding(horizontal = AppSpacing.ExtraSmall))
+            Text(stringResource(R.string.stats_share_current_page))
+        }
     }
 }
 
@@ -232,6 +312,7 @@ private fun StatisticsActivitySection(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StatisticsTimeSection(stats: MemoStatistics) {
     Column(
@@ -239,6 +320,22 @@ private fun StatisticsTimeSection(stats: MemoStatistics) {
         verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
     ) {
         SectionHeader(text = stringResource(R.string.stats_section_time))
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.Small),
+        ) {
+            StatCard(
+                value = formatStatisticsDailyMemoTime(stats.earliestDailyMemoTime),
+                label = stringResource(R.string.stats_earliest_note_time),
+                modifier = Modifier.weight(1f),
+            )
+            StatCard(
+                value = formatStatisticsDailyMemoTime(stats.latestDailyMemoTime),
+                label = stringResource(R.string.stats_latest_note_time),
+                modifier = Modifier.weight(1f),
+            )
+        }
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             when (resolveStatisticsTimeDistributionLayout(widthDp = maxWidth.value.roundToInt())) {
                 StatisticsTimeDistributionLayout.Stacked -> {
@@ -350,3 +447,6 @@ private fun formatNumber(n: Int): String =
         n >= NUMBER_FORMAT_THOUSAND_THRESHOLD -> "%,d".format(n)
         else -> n.toString()
     }
+
+private fun formatStatisticsDailyMemoTime(time: LocalTime?): String =
+    time?.format(STATISTICS_TIME_FORMATTER) ?: "--:--"
