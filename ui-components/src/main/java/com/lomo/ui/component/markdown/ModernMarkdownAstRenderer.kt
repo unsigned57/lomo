@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.toImmutableList
@@ -43,7 +44,9 @@ internal fun ModernMarkdownRenderPlanContent(
     todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
     onImageClick: ((String) -> Unit)? = null,
     enableTextSelection: Boolean = false,
+    textSelectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTextTapFeedback: (() -> Unit)? = null,
+    onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
 ) {
     val tokenSpec = rememberModernMarkdownTokenSpec()
@@ -77,14 +80,16 @@ internal fun ModernMarkdownRenderPlanContent(
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
                         enableTextSelection = enableTextSelection,
+                        textSelectionRegistrar = textSelectionRegistrar,
                         onTextTapFeedback = onTextTapFeedback,
+                        onTextBodyClick = onTextBodyClick,
                         onTextDoubleClick = onTextDoubleClick,
                     )
                 }
 
                 is ModernMarkdownRenderItem.Gallery -> {
                     MDImageGallery(
-                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage).toImmutableList(),
+                        images = item.images.toImmutableList(),
                         onImageClick = onImageClick,
                     )
                 }
@@ -106,7 +111,9 @@ internal fun ModernMarkdownBlock(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
     baseParagraphStyle: TextStyle? = null,
 ) {
@@ -117,7 +124,9 @@ internal fun ModernMarkdownBlock(
             style = headingStyle,
             tokenSpec = tokenSpec,
             enableTextSelection = enableTextSelection,
+            selectionRegistrar = textSelectionRegistrar,
             onTextTapFeedback = onTextTapFeedback,
+            onTextBodyClick = onTextBodyClick,
             onTextDoubleClick = onTextDoubleClick,
         )
         return
@@ -131,7 +140,9 @@ internal fun ModernMarkdownBlock(
         todoOverrides = todoOverrides,
         onImageClick = onImageClick,
         enableTextSelection = enableTextSelection,
+        textSelectionRegistrar = textSelectionRegistrar,
         onTextTapFeedback = onTextTapFeedback,
+        onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
         baseParagraphStyle = baseParagraphStyle,
     )
@@ -146,7 +157,9 @@ private fun RenderModernMarkdownStandardBlock(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
     baseParagraphStyle: TextStyle?,
 ) {
@@ -159,7 +172,9 @@ private fun RenderModernMarkdownStandardBlock(
                 textStyle = baseParagraphStyle ?: tokenSpec.paragraphStyle,
                 onImageClick = onImageClick,
                 enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -169,7 +184,9 @@ private fun RenderModernMarkdownStandardBlock(
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -179,7 +196,9 @@ private fun RenderModernMarkdownStandardBlock(
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -195,7 +214,9 @@ private fun RenderModernMarkdownStandardBlock(
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -207,7 +228,9 @@ private fun RenderModernMarkdownStandardBlock(
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
     }
@@ -222,7 +245,9 @@ private fun RenderModernMarkdownStructuredBlock(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     when (node.type) {
@@ -235,7 +260,9 @@ private fun RenderModernMarkdownStructuredBlock(
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -248,7 +275,9 @@ private fun RenderModernMarkdownStructuredBlock(
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -261,7 +290,9 @@ private fun RenderModernMarkdownStructuredBlock(
                 todoOverrides = todoOverrides,
                 onImageClick = onImageClick,
                 enableTextSelection = enableTextSelection,
+                textSelectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
 
@@ -271,7 +302,9 @@ private fun RenderModernMarkdownStructuredBlock(
                 content = content,
                 tokenSpec = tokenSpec,
                 enableTextSelection = enableTextSelection,
+                selectionRegistrar = textSelectionRegistrar,
                 onTextTapFeedback = onTextTapFeedback,
+                onTextBodyClick = onTextBodyClick,
                 onTextDoubleClick = onTextDoubleClick,
             )
     }
@@ -284,7 +317,9 @@ private fun ModernMarkdownHeading(
     style: TextStyle,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val annotatedText =
@@ -313,7 +348,10 @@ private fun ModernMarkdownHeading(
                 .fillMaxWidth()
                 .padding(top = 12.dp, bottom = 4.dp),
         selectable = enableTextSelection,
+        blockKey = MarkdownBlockKey.heading(node.startOffset),
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTextTapFeedback,
+        onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
     )
 }
@@ -326,7 +364,9 @@ private fun ModernMarkdownParagraph(
     textStyle: TextStyle,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val items =
@@ -341,28 +381,31 @@ private fun ModernMarkdownParagraph(
     if (items.isEmpty()) return
 
     Column(modifier = Modifier.fillMaxWidth()) {
-        items.forEach { item ->
+        items.forEachIndexed { index, item ->
             when (item) {
                 is ModernParagraphItem.Text -> {
                     MDText(
                         text = item.text,
                         style = textStyle,
                         enableTextSelection = enableTextSelection,
+                        blockKey = MarkdownBlockKey.paragraphItem(node.startOffset, index),
+                        selectionRegistrar = selectionRegistrar,
                         onTapFeedback = onTextTapFeedback,
+                        onBodyClick = onTextBodyClick,
                         onDoubleClick = onTextDoubleClick,
                     )
                 }
 
                 is ModernParagraphItem.Image -> {
                     MDImage(
-                        image = item.image.toCommonMarkImage(),
+                        image = item.image,
                         onImageClick = onImageClick,
                     )
                 }
 
                 is ModernParagraphItem.Gallery -> {
                     MDImageGallery(
-                        images = item.images.map(ModernMarkdownImage::toCommonMarkImage).toImmutableList(),
+                        images = item.images.toImmutableList(),
                         onImageClick = onImageClick,
                     )
                 }
@@ -381,7 +424,9 @@ private fun ModernMarkdownCodeFence(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val code = remember(content, node) { node.extractCodeFenceContent(content) }
@@ -398,7 +443,10 @@ private fun ModernMarkdownCodeFence(
             style = tokenSpec.codeStyle.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier.padding(8.dp),
             selectable = enableTextSelection,
+            blockKey = MarkdownBlockKey.codeFence(node.startOffset),
+            selectionRegistrar = selectionRegistrar,
             onTapFeedback = onTextTapFeedback,
+            onBodyClick = onTextBodyClick,
             onDoubleClick = onTextDoubleClick,
         )
     }
@@ -410,7 +458,9 @@ private fun ModernMarkdownIndentedCodeBlock(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val code = remember(content, node) { node.extractIndentedCodeContent(content) }
@@ -422,7 +472,10 @@ private fun ModernMarkdownIndentedCodeBlock(
                 .fillMaxWidth()
                 .padding(top = 4.dp, bottom = 4.dp),
         selectable = enableTextSelection,
+        blockKey = MarkdownBlockKey.codeBlock(node.startOffset),
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTextTapFeedback,
+        onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
     )
 }
@@ -433,7 +486,9 @@ private fun ModernMarkdownTable(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val rows = remember(content, node) { node.extractModernMarkdownTableRows(content) }
@@ -463,7 +518,7 @@ private fun ModernMarkdownTable(
                             },
                         ),
             ) {
-                row.cells.forEach { cell ->
+                row.cells.forEachIndexed { cellIndex, cell ->
                     val annotatedText =
                         remember(cell, tokenSpec) {
                             buildModernMarkdownAnnotatedTextFromFragment(
@@ -487,7 +542,10 @@ private fun ModernMarkdownTable(
                                     tokenSpec.tableStyle
                                 },
                             enableTextSelection = enableTextSelection,
+                            blockKey = MarkdownBlockKey.tableCell(node.startOffset, rowIndex, cellIndex),
+                            selectionRegistrar = selectionRegistrar,
                             onTapFeedback = onTextTapFeedback,
+                            onBodyClick = onTextBodyClick,
                             onDoubleClick = onTextDoubleClick,
                         )
                     }
@@ -509,7 +567,9 @@ private fun ModernMarkdownBlockQuote(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val indicatorStyle = resolveModernMarkdownQuoteIndicatorStyle(MaterialTheme.colorScheme)
@@ -540,10 +600,12 @@ private fun ModernMarkdownBlockQuote(
                             todoOverrides = todoOverrides,
                             onImageClick = onImageClick,
                             enableTextSelection = enableTextSelection,
-                            onTextTapFeedback = onTextTapFeedback,
-                            onTextDoubleClick = onTextDoubleClick,
-                            baseParagraphStyle =
-                                resolveModernMarkdownBlockTextStyle(
+                        textSelectionRegistrar = textSelectionRegistrar,
+                        onTextTapFeedback = onTextTapFeedback,
+                        onTextBodyClick = onTextBodyClick,
+                        onTextDoubleClick = onTextDoubleClick,
+                        baseParagraphStyle =
+                            resolveModernMarkdownBlockTextStyle(
                                     node = node,
                                     tokenSpec = tokenSpec,
                                     baseParagraphStyle = tokenSpec.paragraphStyle,
@@ -595,7 +657,9 @@ private fun ModernMarkdownFallbackBlock(
     content: String,
     tokenSpec: ModernMarkdownTokenSpec,
     enableTextSelection: Boolean,
+    selectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val fragment = content.substring(node.startOffset, node.endOffset)
@@ -613,7 +677,10 @@ private fun ModernMarkdownFallbackBlock(
         text = annotatedText,
         style = tokenSpec.paragraphStyle,
         enableTextSelection = enableTextSelection,
+        blockKey = MarkdownBlockKey.fallback(node.startOffset),
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTextTapFeedback,
+        onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
     )
 }

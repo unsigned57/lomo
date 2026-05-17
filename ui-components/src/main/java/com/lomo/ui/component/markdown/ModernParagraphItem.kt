@@ -176,7 +176,4 @@ internal fun ASTNode.isBlankWhitespaceNode(content: String): Boolean =
     (type == MarkdownTokenTypes.WHITE_SPACE || type == MarkdownTokenTypes.TEXT) &&
         extractNodeText(content).isBlank()
 
-internal fun ModernMarkdownImage.toCommonMarkImage(): org.commonmark.node.Image =
-    org.commonmark.node.Image(destination, title)
-
 internal fun String.isVoiceMemoPath(): Boolean = MediaFileExtensions.hasAudioExtension(this)

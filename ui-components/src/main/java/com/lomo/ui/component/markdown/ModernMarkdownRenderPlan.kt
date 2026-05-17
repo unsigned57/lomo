@@ -39,20 +39,29 @@ internal data class ModernTaskListPresentation(
     val effectiveChecked: Boolean,
 )
 
+internal data class SanitizedModernMarkdownContent(
+    val content: String,
+    val reusableRoot: ASTNode?,
+)
+
 internal fun parseModernMarkdownDocument(content: String): ASTNode =
     modernMarkdownParser.buildMarkdownTreeFromString(content)
 
 internal fun sanitizeModernMarkdownKnownTags(
     content: String,
     tags: Iterable<String>,
-): String {
+): SanitizedModernMarkdownContent {
     val sanitizedTags = tags.toList()
-    if (sanitizedTags.isEmpty()) return content
+    if (sanitizedTags.isEmpty()) {
+        return SanitizedModernMarkdownContent(content = content, reusableRoot = null)
+    }
 
     val root = parseModernMarkdownDocument(content)
     val leafRanges = mutableListOf<IntRange>()
     collectModernTagSanitizableLeafRanges(root, leafRanges)
-    if (leafRanges.isEmpty()) return content
+    if (leafRanges.isEmpty()) {
+        return SanitizedModernMarkdownContent(content = content, reusableRoot = root)
+    }
 
     val mergedRanges = mergeContiguousRanges(leafRanges)
     val output = StringBuilder(content.length)
@@ -70,7 +79,11 @@ internal fun sanitizeModernMarkdownKnownTags(
         cursor = endExclusive
     }
     output.append(content, cursor, content.length)
-    return output.toString()
+    val sanitizedContent = output.toString()
+    return SanitizedModernMarkdownContent(
+        content = sanitizedContent,
+        reusableRoot = root.takeIf { sanitizedContent == content },
+    )
 }
 
 fun createModernMarkdownRenderPlan(
@@ -78,8 +91,9 @@ fun createModernMarkdownRenderPlan(
     maxVisibleBlocks: Int = Int.MAX_VALUE,
     knownTagsToStrip: Iterable<String>,
 ): ModernMarkdownRenderPlan {
-    val sanitizedContent = sanitizeModernMarkdownKnownTags(content, knownTagsToStrip)
-    val root = parseModernMarkdownDocument(sanitizedContent)
+    val sanitized = sanitizeModernMarkdownKnownTags(content, knownTagsToStrip)
+    val sanitizedContent = sanitized.content
+    val root = sanitized.reusableRoot ?: parseModernMarkdownDocument(sanitizedContent)
     val renderableBlocks =
         root.children.filter { node ->
             isModernRenderableTopLevelBlock(node, sanitizedContent)

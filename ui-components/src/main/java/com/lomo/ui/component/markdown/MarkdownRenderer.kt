@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.text.normalizeCjkMixedSpacingForDisplay
 import com.lomo.ui.text.resolveRawMemoPlainTextStyle
 import kotlinx.collections.immutable.ImmutableList
@@ -25,7 +26,78 @@ fun MarkdownRenderer(
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
     onTextTapFeedback: (() -> Unit)? = null,
+    onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
+) {
+    MarkdownRendererContent(
+        content = content,
+        modifier = modifier,
+        maxVisibleBlocks = maxVisibleBlocks,
+        onTodoClick = onTodoClick,
+        todoOverrides = todoOverrides,
+        onImageClick = onImageClick,
+        onTotalBlocks = onTotalBlocks,
+        precomputedRenderPlan = precomputedRenderPlan,
+        knownTagsToStrip = knownTagsToStrip,
+        enableTextSelection = enableTextSelection,
+        textSelectionRegistrar = null,
+        onTextTapFeedback = onTextTapFeedback,
+        onTextBodyClick = onTextBodyClick,
+        onTextDoubleClick = onTextDoubleClick,
+    )
+}
+
+@Composable
+internal fun MarkdownRendererWithTextSelectionRegistrar(
+    content: String,
+    modifier: Modifier = Modifier,
+    maxVisibleBlocks: Int = Int.MAX_VALUE,
+    onTodoClick: ((Int, Boolean) -> Unit)? = null,
+    todoOverrides: ImmutableMap<Int, Boolean> = persistentHashMapOf(),
+    onImageClick: ((String) -> Unit)? = null,
+    onTotalBlocks: ((Int) -> Unit)? = null,
+    precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
+    knownTagsToStrip: ImmutableList<String> = persistentListOf(),
+    enableTextSelection: Boolean = false,
+    textSelectionRegistrar: MemoTextSelectionRegistrar? = null,
+    onTextTapFeedback: (() -> Unit)? = null,
+    onTextBodyClick: (() -> Unit)? = null,
+    onTextDoubleClick: (() -> Unit)? = null,
+) {
+    MarkdownRendererContent(
+        content = content,
+        modifier = modifier,
+        maxVisibleBlocks = maxVisibleBlocks,
+        onTodoClick = onTodoClick,
+        todoOverrides = todoOverrides,
+        onImageClick = onImageClick,
+        onTotalBlocks = onTotalBlocks,
+        precomputedRenderPlan = precomputedRenderPlan,
+        knownTagsToStrip = knownTagsToStrip,
+        enableTextSelection = enableTextSelection,
+        textSelectionRegistrar = textSelectionRegistrar,
+        onTextTapFeedback = onTextTapFeedback,
+        onTextBodyClick = onTextBodyClick,
+        onTextDoubleClick = onTextDoubleClick,
+    )
+}
+
+@Composable
+private fun MarkdownRendererContent(
+    content: String,
+    maxVisibleBlocks: Int,
+    onTodoClick: ((Int, Boolean) -> Unit)?,
+    todoOverrides: ImmutableMap<Int, Boolean>,
+    onImageClick: ((String) -> Unit)?,
+    onTotalBlocks: ((Int) -> Unit)?,
+    precomputedRenderPlan: ModernMarkdownRenderPlan?,
+    knownTagsToStrip: ImmutableList<String>,
+    enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
+    onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+    onTextDoubleClick: (() -> Unit)?,
 ) {
     ModernMarkdownRenderer(
         content = content,
@@ -38,7 +110,9 @@ fun MarkdownRenderer(
         precomputedRenderPlan = precomputedRenderPlan,
         knownTagsToStrip = knownTagsToStrip,
         enableTextSelection = enableTextSelection,
+        textSelectionRegistrar = textSelectionRegistrar,
         onTextTapFeedback = onTextTapFeedback,
+        onTextBodyClick = onTextBodyClick,
         onTextDoubleClick = onTextDoubleClick,
     )
 }
@@ -48,7 +122,9 @@ internal fun MarkdownRendererFallback(
     content: String,
     modifier: Modifier = Modifier,
     enableTextSelection: Boolean = false,
+    textSelectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTextTapFeedback: (() -> Unit)? = null,
+    onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
 ) {
     val normalizedContent = remember(content) { content.normalizeCjkMixedSpacingForDisplay() }
@@ -63,7 +139,9 @@ internal fun MarkdownRendererFallback(
         style = textStyle,
         modifier = modifier,
         selectable = enableTextSelection,
+        selectionRegistrar = textSelectionRegistrar,
         onTapFeedback = onTextTapFeedback,
+        onBodyClick = onTextBodyClick,
         onDoubleClick = onTextDoubleClick,
     )
 }

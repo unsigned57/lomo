@@ -6,6 +6,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,10 +24,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.theme.memoListTextStyle
 import com.lomo.ui.theme.memoParagraphBlockSpacing
+import com.lomo.ui.util.LocalAppHapticFeedback
 import kotlinx.collections.immutable.ImmutableMap
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
@@ -42,7 +46,9 @@ internal fun ModernMarkdownUnorderedList(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     Column(
@@ -64,7 +70,9 @@ internal fun ModernMarkdownUnorderedList(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
+                    onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
                 )
             }
@@ -80,7 +88,9 @@ internal fun ModernMarkdownOrderedList(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     Column(
@@ -103,7 +113,9 @@ internal fun ModernMarkdownOrderedList(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
+                    onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
                 )
             }
@@ -120,7 +132,9 @@ private fun ModernMarkdownListItem(
     todoOverrides: ImmutableMap<Int, Boolean>,
     onImageClick: ((String) -> Unit)?,
     enableTextSelection: Boolean,
+    textSelectionRegistrar: MemoTextSelectionRegistrar?,
     onTextTapFeedback: (() -> Unit)?,
+    onTextBodyClick: (() -> Unit)?,
     onTextDoubleClick: (() -> Unit)?,
 ) {
     val presentation = remember(content, listItemNode, todoOverrides) {
@@ -142,6 +156,7 @@ private fun ModernMarkdownListItem(
             Modifier
                 .fillMaxWidth()
                 .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ModernMarkdownListItemLeading(
             bullet = bullet,
@@ -163,7 +178,9 @@ private fun ModernMarkdownListItem(
                         todoOverrides = todoOverrides,
                         onImageClick = onImageClick,
                         enableTextSelection = enableTextSelection,
+                        textSelectionRegistrar = textSelectionRegistrar,
                         onTextTapFeedback = onTextTapFeedback,
+                        onTextBodyClick = onTextBodyClick,
                         onTextDoubleClick = onTextDoubleClick,
                         baseParagraphStyle = itemStyle,
                     )
@@ -179,9 +196,8 @@ private fun ModernMarkdownListItemLeading(
     onTodoClick: ((Int, Boolean) -> Unit)?,
 ) {
     if (presentation.isTask) {
-        val appHaptic = com.lomo.ui.util.LocalAppHapticFeedback.current
-        val scale by animateFloatAsState(
-            targetValue = if (presentation.effectiveChecked) 1.0f else 0.92f,
+        val checkboxScale by animateFloatAsState(
+            targetValue = if (onTodoClick == null || presentation.effectiveChecked) 1.0f else 0.92f,
             animationSpec =
                 spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -189,21 +205,33 @@ private fun ModernMarkdownListItemLeading(
                 ),
             label = "modern_checkbox_scale",
         )
-        Checkbox(
-            checked = presentation.effectiveChecked,
-            onCheckedChange = { checked ->
-                appHaptic.medium()
-                onTodoClick?.invoke(presentation.sourceLine, checked)
-            },
-            modifier =
+        val checkboxModifier =
+            if (onTodoClick == null) {
+                Modifier.size(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
+            } else {
                 Modifier
-                    .size(24.dp)
-                    .padding(end = 8.dp)
+                    .size(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
                     .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
+                        scaleX = checkboxScale
+                        scaleY = checkboxScale
+                    }
+            }
+        ModernMarkdownListLeadingSlot {
+            Checkbox(
+                checked = presentation.effectiveChecked,
+                onCheckedChange =
+                    if (onTodoClick == null) {
+                        null
+                    } else {
+                        val appHaptic = LocalAppHapticFeedback.current
+                        { checked ->
+                            appHaptic.medium()
+                            onTodoClick(presentation.sourceLine, checked)
+                        }
                     },
-        )
+                modifier = checkboxModifier,
+            )
+        }
     } else {
         ModernMarkdownBulletLeading(bullet)
     }
@@ -212,32 +240,45 @@ private fun ModernMarkdownListItemLeading(
 @Composable
 private fun ModernMarkdownBulletLeading(bullet: String) {
     if (bullet == "•") {
-        Box(
-            modifier =
-                Modifier
-                    .width(24.dp)
-                    .height(24.dp)
-                    .padding(end = 4.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+        ModernMarkdownListLeadingSlot {
             val dotColor = MaterialTheme.colorScheme.onSurfaceVariant
             Canvas(modifier = Modifier.size(6.dp)) { drawCircle(color = dotColor) }
         }
     } else {
-        Text(
-            text = bullet,
-            style =
-                MaterialTheme.typography
-                    .memoListTextStyle()
-                    .copy(fontWeight = FontWeight.Bold),
+        ModernMarkdownListLeadingSlot {
+            Text(
+                text = bullet,
+                style =
+                    MaterialTheme.typography
+                        .memoListTextStyle()
+                        .copy(fontWeight = FontWeight.Bold),
+                modifier = Modifier.width(20.dp),
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModernMarkdownListLeadingSlot(content: @Composable BoxScope.() -> Unit) {
+    Box(
+        modifier = Modifier.width(MODERN_MARKDOWN_LEADING_SLOT_WIDTH),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Box(
             modifier =
                 Modifier
-                    .width(20.dp)
-                    .padding(end = 4.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    .width(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH)
+                    .height(MODERN_MARKDOWN_LEADING_VISUAL_WIDTH),
+            contentAlignment = Alignment.Center,
+            content = content,
         )
     }
 }
+
+private val MODERN_MARKDOWN_LEADING_SLOT_WIDTH = 28.dp
+private val MODERN_MARKDOWN_LEADING_VISUAL_WIDTH = 24.dp
 
 private fun ASTNode.extractOrderedListMarker(content: String): String? =
     children

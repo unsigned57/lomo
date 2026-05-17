@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentHashMapOf
@@ -45,7 +46,7 @@ internal fun buildPendingModernMarkdownFallbackText(
     sanitizeModernMarkdownKnownTags(
         content = content,
         tags = knownTagsToStrip,
-    ).trim().ifBlank { content.trim() }
+    ).content.trim().ifBlank { content.trim() }
 
 @Composable
 internal fun ModernMarkdownRenderer(
@@ -59,7 +60,9 @@ internal fun ModernMarkdownRenderer(
     precomputedRenderPlan: ModernMarkdownRenderPlan? = null,
     knownTagsToStrip: ImmutableList<String> = persistentListOf(),
     enableTextSelection: Boolean = false,
+    textSelectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTextTapFeedback: (() -> Unit)? = null,
+    onTextBodyClick: (() -> Unit)? = null,
     onTextDoubleClick: (() -> Unit)? = null,
 ) {
     val basePlan by
@@ -100,7 +103,9 @@ internal fun ModernMarkdownRenderer(
                     content = renderState.fallbackText,
                     modifier = modifier,
                     enableTextSelection = enableTextSelection,
+                    textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
+                    onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
                 )
             }
@@ -113,7 +118,9 @@ internal fun ModernMarkdownRenderer(
                     todoOverrides = todoOverrides,
                     onImageClick = onImageClick,
                     enableTextSelection = enableTextSelection,
+                    textSelectionRegistrar = textSelectionRegistrar,
                     onTextTapFeedback = onTextTapFeedback,
+                    onTextBodyClick = onTextBodyClick,
                     onTextDoubleClick = onTextDoubleClick,
                 )
             }

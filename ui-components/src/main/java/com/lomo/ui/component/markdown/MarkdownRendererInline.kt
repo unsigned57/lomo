@@ -7,16 +7,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import com.lomo.ui.text.MemoParagraphText
+import com.lomo.ui.text.MemoTextSelectionRegistrar
 import com.lomo.ui.theme.memoBodyTextStyle
 import kotlinx.collections.immutable.ImmutableList
-import org.commonmark.node.Image
 
 @Composable
 internal fun MDText(
     text: AnnotatedString,
     style: TextStyle?,
     enableTextSelection: Boolean = false,
+    blockKey: Any? = null,
+    selectionRegistrar: MemoTextSelectionRegistrar? = null,
     onTapFeedback: (() -> Unit)? = null,
+    onBodyClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
 ) {
     if (text.isEmpty()) return
@@ -35,14 +38,17 @@ internal fun MDText(
         style = finalStyle,
         modifier = Modifier.fillMaxWidth(),
         selectable = enableTextSelection,
+        blockKey = blockKey,
+        selectionRegistrar = selectionRegistrar,
         onTapFeedback = onTapFeedback,
+        onBodyClick = onBodyClick,
         onDoubleClick = onDoubleClick,
     )
 }
 
 @Composable
 internal fun MDImage(
-    image: Image,
+    image: ModernMarkdownImage,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     MarkdownImageBlock(
@@ -53,7 +59,7 @@ internal fun MDImage(
 
 @Composable
 internal fun MDImageGallery(
-    images: ImmutableList<Image>,
+    images: ImmutableList<ModernMarkdownImage>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     MarkdownImagePager(

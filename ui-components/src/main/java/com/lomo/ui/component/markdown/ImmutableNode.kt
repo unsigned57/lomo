@@ -1,12 +1,8 @@
 package com.lomo.ui.component.markdown
 
-import org.commonmark.node.Node
+import org.intellij.markdown.ast.ASTNode
 
-/**
- * Wrapper for parsed CommonMark nodes.
- *
- * `Node` is mutable, so this type intentionally avoids Compose `@Immutable`.
- */
 data class ImmutableNode(
-    val node: Node,
+    val node: ASTNode,
+    val content: String,
 )
