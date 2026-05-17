@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -21,15 +22,13 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
  * Test Contract:
@@ -39,9 +38,34 @@ import java.io.File
  * - Red phase: Fails before the fix because (1) large upload/download actions still route through LocalMediaSyncStore.readBytes/writeBytes; (2) media uploads/downloads leave md5 metadata/fingerprint empty since memoContentFingerprint only returns md5 for memo paths; and (3) applier verify helpers ignore observedMissingRemotePaths, so HEAD is re-issued even when the gate already saw the remote as missing.
  * - Excludes: AWS SDK transport internals, planner action selection, metadata persistence, and reconcile behavior.
  */
-class S3SyncActionApplierTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class S3SyncActionApplierTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setUp()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("large direct media upload bypasses local media byte reads") { `large direct media upload bypasses local media byte reads`() }
+
+        test("large direct media download bypasses local media byte writes") { `large direct media download bypasses local media byte writes`() }
+
+        test("upload records md5 metadata for non-memo media") { `upload records md5 metadata for non-memo media`() }
+
+        test("download records md5 fingerprint for non-memo media") { `download records md5 fingerprint for non-memo media`() }
+
+        test("upload skips HEAD when path is in observedMissingRemotePaths") { `upload skips HEAD when path is in observedMissingRemotePaths`() }
+
+        test("delete remote skips HEAD when path is in observedMissingRemotePaths") { `delete remote skips HEAD when path is in observedMissingRemotePaths`() }
+
+        test("delete local skips HEAD when path is in observedMissingRemotePaths") { `delete local skips HEAD when path is in observedMissingRemotePaths`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -74,7 +98,6 @@ class S3SyncActionApplierTest {
     private lateinit var mode: S3LocalSyncMode.Legacy
     private lateinit var config: S3ResolvedConfig
 
-    @Before
     fun setUp() {
         MockKAnnotations.init(this)
 
@@ -125,8 +148,7 @@ class S3SyncActionApplierTest {
         applier = S3SyncActionApplier(runtime, encodingSupport, fileBridge)
     }
 
-    @Test
-    fun `large direct media upload bypasses local media byte reads`() =
+    private fun `large direct media upload bypasses local media byte reads`() =
         runTest {
             val path = "lomo/images/poster.png"
             val bytes = largePayload(seed = 7)
@@ -164,13 +186,12 @@ class S3SyncActionApplierTest {
                     mode = mode,
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
-            assertArrayEquals(bytes, requireNotNull(client.uploadedBytes[path]))
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            requireNotNull(client.uploadedBytes[path]) shouldBe bytes
             coVerify(exactly = 0) { localMediaSyncStore.readBytes(path, layout) }
         }
 
-    @Test
-    fun `large direct media download bypasses local media byte writes`() =
+    private fun `large direct media download bypasses local media byte writes`() =
         runTest {
             val path = "lomo/images/banner.png"
             val bytes = largePayload(seed = 19)
@@ -221,14 +242,13 @@ class S3SyncActionApplierTest {
                     mode = mode,
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
-            assertEquals(bytes.size.toLong(), File(imageRoot, "banner.png").length())
-            assertArrayEquals(bytes, File(imageRoot, "banner.png").readBytes())
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            File(imageRoot, "banner.png").length() shouldBe bytes.size.toLong()
+            File(imageRoot, "banner.png").readBytes() shouldBe bytes
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(path, any(), layout) }
         }
 
-    @Test
-    fun `upload records md5 metadata for non-memo media`() =
+    private fun `upload records md5 metadata for non-memo media`() =
         runTest {
             val path = "lomo/images/pic.png"
             val bytes = byteArrayOf(1, 2, 3, 4, 5)
@@ -264,13 +284,12 @@ class S3SyncActionApplierTest {
                     mode = mode,
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
             val metadata = requireNotNull(client.uploadedMetadata[path])
-            assertEquals(bytes.md5Hex(), metadata["md5"])
+            metadata["md5"] shouldBe bytes.md5Hex()
         }
 
-    @Test
-    fun `download records md5 fingerprint for non-memo media`() =
+    private fun `download records md5 fingerprint for non-memo media`() =
         runTest {
             val path = "lomo/images/banner.png"
             val bytes = byteArrayOf(9, 8, 7, 6, 5)
@@ -319,14 +338,13 @@ class S3SyncActionApplierTest {
                     mode = mode,
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
             val applied = result as S3ActionExecutionState.Applied
-            assertNotNull(applied.syncedContentFingerprint)
-            assertEquals(bytes.md5Hex(), applied.syncedContentFingerprint)
+            applied.syncedContentFingerprint.shouldNotBeNull()
+            applied.syncedContentFingerprint shouldBe bytes.md5Hex()
         }
 
-    @Test
-    fun `upload skips HEAD when path is in observedMissingRemotePaths`() =
+    private fun `upload skips HEAD when path is in observedMissingRemotePaths`() =
         runTest {
             val path = "lomo/images/new.png"
             val bytes = byteArrayOf(1, 2, 3)
@@ -373,15 +391,11 @@ class S3SyncActionApplierTest {
                     observedMissingRemotePaths = setOf(path),
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
-            assertTrue(
-                "expected no HEAD call when path is known-missing from gate; saw ${client.headCalls}",
-                client.headCalls[path] == null,
-            )
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            withClue("expected no HEAD call when path is known-missing from gate; saw ${client.headCalls}") { (client.headCalls[path] == null).shouldBeTrue() }
         }
 
-    @Test
-    fun `delete remote skips HEAD when path is in observedMissingRemotePaths`() =
+    private fun `delete remote skips HEAD when path is in observedMissingRemotePaths`() =
         runTest {
             val path = "lomo/images/gone.png"
             val client = RecordingS3Client()
@@ -417,19 +431,12 @@ class S3SyncActionApplierTest {
                     observedMissingRemotePaths = setOf(path),
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
-            assertTrue(
-                "expected no HEAD call when remote is known-missing; saw ${client.headCalls}",
-                client.headCalls[path] == null,
-            )
-            assertTrue(
-                "delete-remote should not issue a delete when remote is already missing; saw ${client.deletedKeys}",
-                client.deletedKeys.isEmpty(),
-            )
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            withClue("expected no HEAD call when remote is known-missing; saw ${client.headCalls}") { (client.headCalls[path] == null).shouldBeTrue() }
+            withClue("delete-remote should not issue a delete when remote is already missing; saw ${client.deletedKeys}") { (client.deletedKeys.isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `delete local skips HEAD when path is in observedMissingRemotePaths`() =
+    private fun `delete local skips HEAD when path is in observedMissingRemotePaths`() =
         runTest {
             val path = "lomo/images/gone.png"
             val client = RecordingS3Client()
@@ -455,11 +462,8 @@ class S3SyncActionApplierTest {
                     observedMissingRemotePaths = setOf(path),
                 )
 
-            assertTrue(result is S3ActionExecutionState.Applied)
-            assertTrue(
-                "expected no HEAD call when delete-local knows remote is missing; saw ${client.headCalls}",
-                client.headCalls[path] == null,
-            )
+            (result is S3ActionExecutionState.Applied).shouldBeTrue()
+            withClue("expected no HEAD call when delete-local knows remote is missing; saw ${client.headCalls}") { (client.headCalls[path] == null).shouldBeTrue() }
         }
 
     private fun largePayload(seed: Int): ByteArray =

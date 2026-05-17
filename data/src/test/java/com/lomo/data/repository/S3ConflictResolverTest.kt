@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -30,10 +31,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -43,7 +43,28 @@ import org.junit.Test
  * - Red phase: Fails before the fix because conflict resolution still probes the retired manifest path before applying a KEEP_LOCAL or KEEP_REMOTE choice, so targeted resolution cannot succeed without the old private protocol.
  * - Excludes: AWS SDK transport details, planner internals, metadata persistence internals, and UI rendering.
  */
-class S3ConflictResolverTest {
+class S3ConflictResolverTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("resolveConflicts keeps remote using indexed remote path without remote listing") { `resolveConflicts keeps remote using indexed remote path without remote listing`() }
+
+        test("resolveConflicts keeps remote using remote index path when metadata snapshot is missing") { `resolveConflicts keeps remote using remote index path when metadata snapshot is missing`() }
+
+        test("resolveConflicts keeps local using indexed remote path without remote listing") { `resolveConflicts keeps local using indexed remote path without remote listing`() }
+
+        test("resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing") { `resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing`() }
+
+        test("resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails") { `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() }
+
+        test("resolveConflicts maps remote read failure without bucket scan") { `resolveConflicts maps remote read failure without bucket scan`() }
+
+        test("resolveConflicts keeps skipped files pending and returns conflict state") { `resolveConflicts keeps skipped files pending and returns conflict state`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -66,8 +87,7 @@ class S3ConflictResolverTest {
     private lateinit var support: S3SyncRepositorySupport
     private lateinit var fileBridge: S3SyncFileBridge
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -100,15 +120,14 @@ class S3ConflictResolverTest {
         stateHolder = S3SyncStateHolder()
     }
 
-    @Test
-    fun `resolveConflicts keeps remote using indexed remote path without remote listing`() =
+    private fun `resolveConflicts keeps remote using indexed remote path without remote listing`() =
         runTest {
             val path = "lomo/memo/note.md"
             val remotePath = "prefix/opaque-note"
             val client =
                 ConflictProbeS3Client(
                     onGetObject = { key ->
-                        assertEquals(remotePath, key)
+                        key shouldBe remotePath
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-remote",
@@ -145,23 +164,22 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet(path = path),
                 )
 
-            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
-            assertEquals(listOf(remotePath), client.getObjectKeys)
-            assertEquals(0, client.listCalls)
+            result shouldBe S3SyncResult.Success("Conflicts resolved")
+            client.getObjectKeys shouldBe listOf(remotePath)
+            client.listCalls shouldBe 0
             coVerify(exactly = 1) { memoSynchronizer.refreshImportedSync() }
-            assertEquals(remotePath, metadataDao.require(path).remotePath)
-            assertTrue(stateHolder.state.value is S3SyncState.Success)
+            metadataDao.require(path).remotePath shouldBe remotePath
+            (stateHolder.state.value is S3SyncState.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts keeps remote using remote index path when metadata snapshot is missing`() =
+    private fun `resolveConflicts keeps remote using remote index path when metadata snapshot is missing`() =
         runTest {
             val path = "lomo/memo/note.md"
             val remotePath = "prefix/opaque-note"
             val client =
                 ConflictProbeS3Client(
                     onGetObject = { key ->
-                        assertEquals(remotePath, key)
+                        key shouldBe remotePath
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-remote",
@@ -214,21 +232,20 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet(path = path),
                 )
 
-            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
-            assertEquals(listOf(remotePath), client.getObjectKeys)
-            assertEquals(0, client.listCalls)
-            assertTrue(stateHolder.state.value is S3SyncState.Success)
+            result shouldBe S3SyncResult.Success("Conflicts resolved")
+            client.getObjectKeys shouldBe listOf(remotePath)
+            client.listCalls shouldBe 0
+            (stateHolder.state.value is S3SyncState.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts keeps local using indexed remote path without remote listing`() =
+    private fun `resolveConflicts keeps local using indexed remote path without remote listing`() =
         runTest {
             val path = "lomo/memo/note.md"
             val remotePath = "prefix/opaque-note"
             val client =
                 ConflictProbeS3Client(
                     onPutObject = { key, _ ->
-                        assertEquals(remotePath, key)
+                        key shouldBe remotePath
                         S3PutObjectResult(eTag = "etag-uploaded")
                     },
                 )
@@ -253,15 +270,14 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet(path = path),
                 )
 
-            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
-            assertEquals(listOf(remotePath), client.putKeys)
-            assertEquals(0, client.listCalls)
+            result shouldBe S3SyncResult.Success("Conflicts resolved")
+            client.putKeys shouldBe listOf(remotePath)
+            client.listCalls shouldBe 0
             coVerify(exactly = 1) { memoSynchronizer.refreshImportedSync() }
-            assertEquals(remotePath, metadataDao.require(path).remotePath)
+            metadataDao.require(path).remotePath shouldBe remotePath
         }
 
-    @Test
-    fun `resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing`() =
+    private fun `resolveConflicts MERGE_TEXT writes merged memo locally and uploads it without remote listing`() =
         runTest {
             val path = "lomo/memo/note.md"
             val remotePath = "prefix/opaque-note"
@@ -269,8 +285,8 @@ class S3ConflictResolverTest {
             val client =
                 ConflictProbeS3Client(
                     onPutObject = { key, bytes ->
-                        assertEquals(remotePath, key)
-                        assertEquals(merged, bytes.toString(Charsets.UTF_8))
+                        key shouldBe remotePath
+                        bytes.toString(Charsets.UTF_8) shouldBe merged
                         S3PutObjectResult(eTag = "etag-merged")
                     },
                 )
@@ -307,9 +323,9 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet,
                 )
 
-            assertEquals(S3SyncResult.Success("Conflicts resolved"), result)
-            assertEquals(listOf(remotePath), client.putKeys)
-            assertEquals(0, client.listCalls)
+            result shouldBe S3SyncResult.Success("Conflicts resolved")
+            client.putKeys shouldBe listOf(remotePath)
+            client.listCalls shouldBe 0
             coVerify(exactly = 1) {
                 markdownStorageDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
@@ -319,12 +335,11 @@ class S3ConflictResolverTest {
                     uri = null,
                 )
             }
-            assertEquals(remotePath, metadataDao.require(path).remotePath)
-            assertTrue(stateHolder.state.value is S3SyncState.Success)
+            metadataDao.require(path).remotePath shouldBe remotePath
+            (stateHolder.state.value is S3SyncState.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() =
+    private fun `resolveConflicts rolls back metadata, remote index, and journal when final protocol commit fails`() =
         runTest {
             val path = "lomo/memo/note.md"
             val metadataDao = ConflictMetadataDao()
@@ -388,21 +403,20 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet(path = path),
                 )
 
-            assertTrue(result is S3SyncResult.Error)
-            assertTrue(metadataDao.getAll().isEmpty())
-            assertTrue(localChangeJournalStore.read().containsKey("MEMO:note.md"))
-            assertTrue(remoteIndexStore.readAllRelativePaths().isEmpty())
+            (result is S3SyncResult.Error).shouldBeTrue()
+            (metadataDao.getAll().isEmpty()).shouldBeTrue()
+            (localChangeJournalStore.read().containsKey("MEMO:note.md")).shouldBeTrue()
+            (remoteIndexStore.readAllRelativePaths().isEmpty()).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts maps remote read failure without bucket scan`() =
+    private fun `resolveConflicts maps remote read failure without bucket scan`() =
         runTest {
             val path = "lomo/memo/note.md"
             val remotePath = "prefix/opaque-note"
             val client =
                 ConflictProbeS3Client(
                     onGetObject = { key ->
-                        assertEquals(remotePath, key)
+                        key shouldBe remotePath
                         throw IllegalStateException("bucket failed")
                     },
                 )
@@ -425,14 +439,13 @@ class S3ConflictResolverTest {
                 )
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.BUCKET_ACCESS_FAILED, error.code)
-            assertEquals("bucket failed", error.message)
-            assertEquals(0, client.listCalls)
-            assertTrue(stateHolder.state.value is S3SyncState.Error)
+            error.code shouldBe S3SyncErrorCode.BUCKET_ACCESS_FAILED
+            error.message shouldBe "bucket failed"
+            client.listCalls shouldBe 0
+            (stateHolder.state.value is S3SyncState.Error).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts keeps skipped files pending and returns conflict state`() =
+    private fun `resolveConflicts keeps skipped files pending and returns conflict state`() =
         runTest {
             val keptPath = "lomo/memo/kept.md"
             val skippedPath = "lomo/memo/skipped.md"
@@ -440,7 +453,7 @@ class S3ConflictResolverTest {
             val client =
                 ConflictProbeS3Client(
                     onPutObject = { key, _ ->
-                        assertEquals(remotePath, key)
+                        key shouldBe remotePath
                         S3PutObjectResult(eTag = "etag-uploaded")
                     },
                 )
@@ -490,25 +503,16 @@ class S3ConflictResolverTest {
                     conflictSet = conflictSet,
                 )
 
-            assertEquals(
-                S3SyncResult.Conflict(
+            result shouldBe S3SyncResult.Conflict(
                     message = "Pending conflicts remain",
                     conflicts =
                         conflictSet.copy(
                             files = listOf(conflictSet.files[1]),
                         ),
-                ),
-                result,
-            )
-            assertEquals(listOf(remotePath), client.putKeys)
-            assertEquals(
-                conflictSet.copy(files = listOf(conflictSet.files[1])),
-                pendingStore.read(SyncBackendType.S3),
-            )
-            assertEquals(
-                S3SyncState.ConflictDetected(conflictSet.copy(files = listOf(conflictSet.files[1]))),
-                stateHolder.state.value,
-            )
+                )
+            client.putKeys shouldBe listOf(remotePath)
+            pendingStore.read(SyncBackendType.S3) shouldBe conflictSet.copy(files = listOf(conflictSet.files[1]))
+            stateHolder.state.value shouldBe S3SyncState.ConflictDetected(conflictSet.copy(files = listOf(conflictSet.files[1])))
         }
 
     private fun createResolver(

@@ -1,13 +1,12 @@
 package com.lomo.ui.component.menu
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.History
 import kotlinx.collections.immutable.toImmutableList
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -17,9 +16,9 @@ import org.junit.Test
  * - Red phase: Updated for the heat-based ranking contract; the helper must still honor a stable preferred-id order without duplicating actions.
  * - Excludes: Compose layout, drag physics, edge animations, and bottom-sheet host wiring.
  */
-class MemoActionSheetActionOrderTest {
-    @Test
-    fun `sortDefaultMemoActionSheetActions applies preferred order and preserves default fallback`() {
+class MemoActionSheetActionOrderTest : UiComponentsFunSpec() {
+    init {
+        test("sortDefaultMemoActionSheetActions applies preferred order and preserves default fallback") {
         val actions =
             listOf(
                 MemoActionSheetAction(
@@ -48,14 +47,12 @@ class MemoActionSheetActionOrderTest {
                 rankedActionOrder = listOf(MemoActionId.HISTORY, MemoActionId.COPY),
             )
 
-        assertEquals(
-            listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.EDIT),
-            sorted.map(MemoActionSheetAction::id),
-        )
+        (sorted.map(MemoActionSheetAction::id)) shouldBe (listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.EDIT))
+        }
     }
 
-    @Test
-    fun `sortDefaultMemoActionSheetActions ignores duplicate ids in the preferred order`() {
+    init {
+        test("sortDefaultMemoActionSheetActions ignores duplicate ids in the preferred order") {
         val actions =
             listOf(
                 MemoActionSheetAction(
@@ -84,14 +81,12 @@ class MemoActionSheetActionOrderTest {
                 rankedActionOrder = listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.HISTORY),
             )
 
-        assertEquals(
-            listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.EDIT),
-            sorted.map(MemoActionSheetAction::id),
-        )
+        (sorted.map(MemoActionSheetAction::id)) shouldBe (listOf(MemoActionId.HISTORY, MemoActionId.COPY, MemoActionId.EDIT))
+        }
     }
 
-    @Test
-    fun `sortDefaultMemoActionSheetActions applies stored order regardless of empty ranked list`() {
+    init {
+        test("sortDefaultMemoActionSheetActions applies stored order regardless of empty ranked list") {
         val actions =
             listOf(
                 MemoActionSheetAction(
@@ -114,20 +109,16 @@ class MemoActionSheetActionOrderTest {
                 rankedActionOrder = emptyList(),
             )
 
-        assertEquals(
-            listOf(MemoActionId.COPY, MemoActionId.HISTORY),
-            sorted.map(MemoActionSheetAction::id),
-        )
+        (sorted.map(MemoActionSheetAction::id)) shouldBe (listOf(MemoActionId.COPY, MemoActionId.HISTORY))
+        }
     }
 
-    @Test
-    fun `defaultPrimaryMemoActionIds omits lan share when the action is unavailable`() {
+    init {
+        test("defaultPrimaryMemoActionIds omits lan share when the action is unavailable") {
         val actionIds = defaultPrimaryMemoActionIds(includeLanShare = false)
 
-        assertEquals(
-            listOf(MemoActionId.COPY, MemoActionId.SHARE_IMAGE, MemoActionId.SHARE_TEXT),
-            actionIds,
-        )
-        assertFalse(actionIds.contains(MemoActionId.LAN_SHARE))
+        (actionIds) shouldBe (listOf(MemoActionId.COPY, MemoActionId.SHARE_IMAGE, MemoActionId.SHARE_TEXT))
+        (actionIds.contains(MemoActionId.LAN_SHARE)) shouldBe false
+        }
     }
 }

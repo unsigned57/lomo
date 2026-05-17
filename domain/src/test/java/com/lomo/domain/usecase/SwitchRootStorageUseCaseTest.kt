@@ -3,6 +3,9 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.StorageLocation
 import com.lomo.domain.repository.DirectorySettingsRepository
 import com.lomo.domain.repository.WorkspaceStateResolver
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -11,9 +14,6 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -39,7 +39,7 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the corrected assertion protects the reported
  *   product behavior that switching workspaces must load the selected directory's full local memo set.
  */
-class SwitchRootStorageUseCaseTest {
+class SwitchRootStorageUseCaseTest : DomainFunSpec() {
     @MockK(relaxed = true)
     private lateinit var directorySettingsRepository: DirectorySettingsRepository
 
@@ -47,48 +47,51 @@ class SwitchRootStorageUseCaseTest {
     private lateinit var workspaceStateResolver: WorkspaceStateResolver
 
     private lateinit var useCase: SwitchRootStorageUseCase
-
-    @Before
-    fun setUp() {
-        MockKAnnotations.init(this)
-        useCase = SwitchRootStorageUseCase(directorySettingsRepository, workspaceStateResolver)
+    init {
+        beforeTest {
+            MockKAnnotations.init(this@SwitchRootStorageUseCaseTest)
+            useCase = SwitchRootStorageUseCase(directorySettingsRepository, workspaceStateResolver)
+        }
     }
+    init {
+        test("updateRootLocation rebuilds current workspace after successful switch") {
+            runTest {
+                        val location = StorageLocation("/tmp/lomo")
+                        coEvery { directorySettingsRepository.applyRootLocation(location) } just runs
+                        coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
 
-    @Test
-    fun `updateRootLocation rebuilds current workspace after successful switch`() =
-        runTest {
-            val location = StorageLocation("/tmp/lomo")
-            coEvery { directorySettingsRepository.applyRootLocation(location) } just runs
-            coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
+                        useCase.updateRootLocation(location)
 
-            useCase.updateRootLocation(location)
-
-            coVerifyOrder {
-                directorySettingsRepository.applyRootLocation(location)
-                workspaceStateResolver.rebuildFromCurrentWorkspace()
-            }
+                        coVerifyOrder {
+                            directorySettingsRepository.applyRootLocation(location)
+                            workspaceStateResolver.rebuildFromCurrentWorkspace()
+                        }
+                    }
         }
+    }
+    init {
+        test("updateRootLocation does not cleanup when switch fails") {
+            runTest {
+                        val location = StorageLocation("content://root")
+                        coEvery { directorySettingsRepository.applyRootLocation(location) } throws IllegalStateException("failed")
 
-    @Test
-    fun `updateRootLocation does not cleanup when switch fails`() =
-        runTest {
-            val location = StorageLocation("content://root")
-            coEvery { directorySettingsRepository.applyRootLocation(location) } throws IllegalStateException("failed")
+                        val error = runCatching { useCase.updateRootLocation(location) }.exceptionOrNull()
 
-            val error = runCatching { useCase.updateRootLocation(location) }.exceptionOrNull()
-
-            assertTrue(error is IllegalStateException)
-            coVerify(exactly = 1) { directorySettingsRepository.applyRootLocation(location) }
-            coVerify(exactly = 0) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
+                        error.shouldBeInstanceOf<IllegalStateException>()
+                        coVerify(exactly = 1) { directorySettingsRepository.applyRootLocation(location) }
+                        coVerify(exactly = 0) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
+                    }
         }
+    }
+    init {
+        test("rebuildCurrentWorkspace delegates to local workspace resolver") {
+            runTest {
+                        coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
 
-    @Test
-    fun `rebuildCurrentWorkspace delegates to local workspace resolver`() =
-        runTest {
-            coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
+                        useCase.rebuildCurrentWorkspace()
 
-            useCase.rebuildCurrentWorkspace()
-
-            coVerify(exactly = 1) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
+                        coVerify(exactly = 1) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
+                    }
         }
+    }
 }

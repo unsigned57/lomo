@@ -3,14 +3,13 @@ package com.lomo.domain.repository
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.UnifiedSyncState
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
+import java.time.Instant
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
-import java.time.Instant
 
 /*
  * Test Contract:
@@ -20,26 +19,29 @@ import java.time.Instant
  * - Red phase: Fails to compile before the cleanup because the old Git memo-history method is still required by GitSyncRepository.
  * - Excludes: sync execution, conflict handling, and any removed Git memo-history capability.
  */
-class GitSyncRepositoryDefaultsTest {
-    @Test
-    fun `observeLastSyncTimeMillis maps zero sentinel to null`() =
-        runTest {
-            val repository = LastSyncOnlyGitSyncRepository(flowOf(null))
+class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
+    init {
+        test("observeLastSyncTimeMillis maps zero sentinel to null") {
+            runTest {
+                        val repository = LastSyncOnlyGitSyncRepository(flowOf(null))
 
-            val lastSync = repository.observeLastSyncTimeMillis().first()
+                        val lastSync = repository.observeLastSyncTimeMillis().first()
 
-            assertNull(lastSync)
+                        lastSync shouldBe null
+                    }
         }
+    }
+    init {
+        test("observeLastSyncInstant maps positive millis to instant") {
+            runTest {
+                        val repository = LastSyncOnlyGitSyncRepository(flowOf(1_700_000_000_000L))
 
-    @Test
-    fun `observeLastSyncInstant maps positive millis to instant`() =
-        runTest {
-            val repository = LastSyncOnlyGitSyncRepository(flowOf(1_700_000_000_000L))
+                        val lastSync = repository.observeLastSyncInstant().first()
 
-            val lastSync = repository.observeLastSyncInstant().first()
-
-            assertEquals(Instant.ofEpochMilli(1_700_000_000_000L), lastSync)
+                        lastSync shouldBe Instant.ofEpochMilli(1_700_000_000_000L)
+                    }
         }
+    }
 
     private class LastSyncOnlyGitSyncRepository(
         private val lastSyncTimeFlow: Flow<Long?>,

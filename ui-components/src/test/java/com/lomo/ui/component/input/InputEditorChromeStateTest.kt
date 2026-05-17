@@ -1,9 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,9 +11,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the editor renders a separate long-form mode bar and still shows placeholder text after expanding an empty draft.
  * - Excludes: Compose layout rendering, animation timing, and memo submission behavior.
  */
-class InputEditorChromeStateTest {
-    @Test
-    fun `compact empty editor uses expand toolbar icon and shows placeholder`() {
+class InputEditorChromeStateTest : UiComponentsFunSpec() {
+    init {
+        test("compact empty editor uses expand toolbar icon and shows placeholder") {
         val state =
             resolveInputEditorChromeState(
                 isExpanded = false,
@@ -24,16 +22,17 @@ class InputEditorChromeStateTest {
                 hintText = "Write something long",
             )
 
-        assertEquals(InputEditorToggleIcon.Expand, state.toggleIcon)
-        assertFalse(state.showsStandaloneModeBar)
-        assertTrue(state.showsPlaceholder)
-        assertFalse(state.showsDisplayModeToggle)
-        assertTrue(state.showsFormattingToolbar)
-        assertFalse(state.showsPreviewContent)
+        (state.toggleIcon) shouldBe (InputEditorToggleIcon.Expand)
+        (state.showsStandaloneModeBar) shouldBe false
+        (state.showsPlaceholder) shouldBe true
+        (state.showsDisplayModeToggle) shouldBe false
+        (state.showsFormattingToolbar) shouldBe true
+        (state.showsPreviewContent) shouldBe false
+        }
     }
 
-    @Test
-    fun `expanded empty editor uses collapse toolbar icon and hides placeholder`() {
+    init {
+        test("expanded empty editor uses collapse toolbar icon and hides placeholder") {
         val state =
             resolveInputEditorChromeState(
                 isExpanded = true,
@@ -42,16 +41,17 @@ class InputEditorChromeStateTest {
                 hintText = "Write something long",
             )
 
-        assertEquals(InputEditorToggleIcon.Collapse, state.toggleIcon)
-        assertFalse(state.showsStandaloneModeBar)
-        assertFalse(state.showsPlaceholder)
-        assertTrue(state.showsDisplayModeToggle)
-        assertTrue(state.showsFormattingToolbar)
-        assertFalse(state.showsPreviewContent)
+        (state.toggleIcon) shouldBe (InputEditorToggleIcon.Collapse)
+        (state.showsStandaloneModeBar) shouldBe false
+        (state.showsPlaceholder) shouldBe false
+        (state.showsDisplayModeToggle) shouldBe true
+        (state.showsFormattingToolbar) shouldBe true
+        (state.showsPreviewContent) shouldBe false
+        }
     }
 
-    @Test
-    fun `expanded preview hides editor placeholder and switches content path`() {
+    init {
+        test("expanded preview hides editor placeholder and switches content path") {
         val state =
             resolveInputEditorChromeState(
                 isExpanded = true,
@@ -60,10 +60,11 @@ class InputEditorChromeStateTest {
                 hintText = "Write something long",
             )
 
-        assertEquals(InputEditorToggleIcon.Collapse, state.toggleIcon)
-        assertFalse(state.showsPlaceholder)
-        assertTrue(state.showsDisplayModeToggle)
-        assertFalse(state.showsFormattingToolbar)
-        assertTrue(state.showsPreviewContent)
+        (state.toggleIcon) shouldBe (InputEditorToggleIcon.Collapse)
+        (state.showsPlaceholder) shouldBe false
+        (state.showsDisplayModeToggle) shouldBe true
+        (state.showsFormattingToolbar) shouldBe false
+        (state.showsPreviewContent) shouldBe true
+        }
     }
 }

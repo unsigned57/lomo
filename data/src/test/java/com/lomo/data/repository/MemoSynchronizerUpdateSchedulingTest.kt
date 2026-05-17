@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.Memo
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -7,10 +8,9 @@ import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
-import org.junit.Before
-import org.junit.Test
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import com.lomo.data.testing.DataFunSpec
 
 /*
  * Test Contract:
@@ -23,20 +23,31 @@ import java.util.concurrent.TimeUnit
  *   which blocks on synchronous file rewrite before the UI-visible edit can complete.
  * - Excludes: outbox drain completion timing, widget refresh, and Room/file persistence internals.
  */
-class MemoSynchronizerUpdateSchedulingTest {
+class MemoSynchronizerUpdateSchedulingTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("updateMemo returns after db-first update is enqueued without waiting for synchronous file rewrite") { `updateMemo returns after db-first update is enqueued without waiting for synchronous file rewrite`() }
+
+        test("deleteMemo returns after db-first trash enqueue without waiting for synchronous file rewrite") { `deleteMemo returns after db-first trash enqueue without waiting for synchronous file rewrite`() }
+
+        test("restoreMemo returns after db-first restore enqueue without waiting for synchronous file rewrite") { `restoreMemo returns after db-first restore enqueue without waiting for synchronous file rewrite`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
 
     @MockK(relaxed = true)
     private lateinit var mutationHandler: MemoMutationHandler
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
     }
 
-    @Test
-    fun `updateMemo returns after db-first update is enqueued without waiting for synchronous file rewrite`() {
+    private fun `updateMemo returns after db-first update is enqueued without waiting for synchronous file rewrite`() {
         runBlocking {
             val memo = testMemo()
             val blockingUpdateGate = CompletableDeferred<Unit>()
@@ -66,8 +77,7 @@ class MemoSynchronizerUpdateSchedulingTest {
         }
     }
 
-    @Test
-    fun `deleteMemo returns after db-first trash enqueue without waiting for synchronous file rewrite`() {
+    private fun `deleteMemo returns after db-first trash enqueue without waiting for synchronous file rewrite`() {
         runBlocking {
             val memo = testMemo()
             val blockingDeleteGate = CompletableDeferred<Unit>()
@@ -97,8 +107,7 @@ class MemoSynchronizerUpdateSchedulingTest {
         }
     }
 
-    @Test
-    fun `restoreMemo returns after db-first restore enqueue without waiting for synchronous file rewrite`() {
+    private fun `restoreMemo returns after db-first restore enqueue without waiting for synchronous file rewrite`() {
         runBlocking {
             val memo = testMemo().copy(isDeleted = true)
             val blockingRestoreGate = CompletableDeferred<Unit>()

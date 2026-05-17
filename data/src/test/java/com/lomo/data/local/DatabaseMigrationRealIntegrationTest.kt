@@ -3,10 +3,11 @@
  * - Unit under test: DatabaseMigrationSupport / DatabaseMigrations
  * - Behavior focus: end-to-end database migration with real file I/O and SQLite transactions.
  * - Observable outcomes: successful schema upgrade, data preservation, migration failure rollback.
- * - Red phase: Not applicable - integration testing for database migration stability.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: specific DAO logic, UI rendering, cloud sync details.
  */
 package com.lomo.data.local
+
 
 import androidx.room3.migration.Migration
 import com.lomo.data.util.SearchTokenizer
@@ -15,25 +16,32 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.Connection
 import java.sql.DriverManager
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
-class DatabaseMigrationRealIntegrationTest {
-    @Test
-    fun `direct and incremental migration from v44 converge on identical final schema and representative data`() {
+class DatabaseMigrationRealIntegrationTest : DataFunSpec() {
+    init {
+        test("direct and incremental migration from v44 converge on identical final schema and representative data") { `direct and incremental migration from v44 converge on identical final schema and representative data`() }
+
+        test("stable baseline direct migration preserves current sqlite column contract on real database") { `stable baseline direct migration preserves current sqlite column contract on real database`() }
+
+        test("stable baseline direct migration leaves external content fts searchable and trigger managed") { `stable baseline direct migration leaves external content fts searchable and trigger managed`() }
+    }
+
+
+    private fun `direct and incremental migration from v44 converge on identical final schema and representative data`() {
         createVersion44Database().use { incremental ->
             createVersion44Database().use { direct ->
                 migrateIncrementally(incremental)
                 migrateDirectlyFrom44(direct)
 
-                assertEquals(schemaObjects(incremental), schemaObjects(direct))
-                assertTrue(
-                    schemaObjects(direct).containsAll(
+                schemaObjects(direct) shouldBe schemaObjects(incremental)
+                (schemaObjects(direct).containsAll(
                         listOf(
                             SchemaObject(type = "table", name = "lomo_fts", tableName = "lomo_fts"),
                             SchemaObject(type = "table", name = "lomo_fts_maintenance", tableName = "lomo_fts_maintenance"),
@@ -41,21 +49,19 @@ class DatabaseMigrationRealIntegrationTest {
                             SchemaObject(type = "trigger", name = "lomo_fts_ad", tableName = MEMO_TABLE),
                             SchemaObject(type = "trigger", name = "lomo_fts_au", tableName = MEMO_TABLE),
                         ),
-                    ),
-                )
-                assertEquals(tableRows(incremental, MEMO_TABLE), tableRows(direct, MEMO_TABLE))
-                assertEquals(tableRows(incremental, TRASH_MEMO_TABLE), tableRows(direct, TRASH_MEMO_TABLE))
-                assertEquals(tableRows(incremental, MEMO_TAG_CROSS_REF_TABLE), tableRows(direct, MEMO_TAG_CROSS_REF_TABLE))
-                assertEquals(tableRows(incremental, MEMO_IMAGE_ATTACHMENT_TABLE), tableRows(direct, MEMO_IMAGE_ATTACHMENT_TABLE))
-                assertEquals(tableRows(incremental, MEMO_FILE_OUTBOX_TABLE), tableRows(direct, MEMO_FILE_OUTBOX_TABLE))
-                assertEquals(tableRows(incremental, WEBDAV_SYNC_METADATA_TABLE), tableRows(direct, WEBDAV_SYNC_METADATA_TABLE))
-                assertEquals(tableRows(incremental, S3_SYNC_METADATA_TABLE), tableRows(direct, S3_SYNC_METADATA_TABLE))
+                    )).shouldBeTrue()
+                tableRows(direct, MEMO_TABLE) shouldBe tableRows(incremental, MEMO_TABLE)
+                tableRows(direct, TRASH_MEMO_TABLE) shouldBe tableRows(incremental, TRASH_MEMO_TABLE)
+                tableRows(direct, MEMO_TAG_CROSS_REF_TABLE) shouldBe tableRows(incremental, MEMO_TAG_CROSS_REF_TABLE)
+                tableRows(direct, MEMO_IMAGE_ATTACHMENT_TABLE) shouldBe tableRows(incremental, MEMO_IMAGE_ATTACHMENT_TABLE)
+                tableRows(direct, MEMO_FILE_OUTBOX_TABLE) shouldBe tableRows(incremental, MEMO_FILE_OUTBOX_TABLE)
+                tableRows(direct, WEBDAV_SYNC_METADATA_TABLE) shouldBe tableRows(incremental, WEBDAV_SYNC_METADATA_TABLE)
+                tableRows(direct, S3_SYNC_METADATA_TABLE) shouldBe tableRows(incremental, S3_SYNC_METADATA_TABLE)
             }
         }
     }
 
-    @Test
-    fun `stable baseline direct migration preserves current sqlite column contract on real database`() {
+    private fun `stable baseline direct migration preserves current sqlite column contract on real database`() {
         createVersion44Database().use { connection ->
             migrateDirectlyFrom44(connection)
 
@@ -94,28 +100,22 @@ class DatabaseMigrationRealIntegrationTest {
                 type = "TEXT",
                 notNull = false,
             )
-            assertTrue(
-                foreignKeys(connection, MEMO_TAG_CROSS_REF_TABLE).any { foreignKey ->
+            (foreignKeys(connection, MEMO_TAG_CROSS_REF_TABLE).any { foreignKey ->
                     foreignKey["from"] == "memoId" &&
                         foreignKey["to"] == "id" &&
                         foreignKey["table"] == MEMO_TABLE &&
                         foreignKey["onDelete"] == "CASCADE"
-                },
-            )
+                }).shouldBeTrue()
         }
     }
 
-    @Test
-    fun `stable baseline direct migration leaves external content fts searchable and trigger managed`() {
+    private fun `stable baseline direct migration leaves external content fts searchable and trigger managed`() {
         createVersion44Database().use { connection ->
             migrateDirectlyFrom44(connection)
 
-            assertEquals(
-                SearchTokenizer.tokenize("苏格拉底 legacy memo"),
-                querySingleString(connection, "SELECT `searchContent` FROM `$MEMO_TABLE` WHERE `id` = 'memo-1'"),
-            )
-            assertEquals(listOf("memo-1"), ftsSearch(connection, "legacy*"))
-            assertEquals(listOf("memo-1"), ftsSearch(connection, "苏格*"))
+            querySingleString(connection, "SELECT `searchContent` FROM `$MEMO_TABLE` WHERE `id` = 'memo-1'") shouldBe SearchTokenizer.tokenize("苏格拉底 legacy memo")
+            ftsSearch(connection, "legacy*") shouldBe listOf("memo-1")
+            ftsSearch(connection, "苏格*") shouldBe listOf("memo-1")
 
             connection.prepareStatement(
                 """
@@ -136,7 +136,7 @@ class DatabaseMigrationRealIntegrationTest {
                 statement.setString(10, null)
                 statement.executeUpdate()
             }
-            assertTrue(ftsSearch(connection, "人工*").contains("memo-new"))
+            (ftsSearch(connection, "人工*").contains("memo-new")).shouldBeTrue()
 
             connection.prepareStatement(
                 """
@@ -152,14 +152,14 @@ class DatabaseMigrationRealIntegrationTest {
                 statement.setString(5, "memo-1")
                 statement.executeUpdate()
             }
-            assertTrue(ftsSearch(connection, "Andr*").contains("memo-1"))
-            assertTrue(ftsSearch(connection, "legacy*").isEmpty())
+            (ftsSearch(connection, "Andr*").contains("memo-1")).shouldBeTrue()
+            (ftsSearch(connection, "legacy*").isEmpty()).shouldBeTrue()
 
             connection.prepareStatement("DELETE FROM `$MEMO_TABLE` WHERE `id` = ?").use { statement ->
                 statement.setString(1, "memo-new")
                 statement.executeUpdate()
             }
-            assertTrue(ftsSearch(connection, "人工*").isEmpty())
+            (ftsSearch(connection, "人工*").isEmpty()).shouldBeTrue()
         }
     }
 
@@ -413,8 +413,8 @@ class DatabaseMigrationRealIntegrationTest {
             tableColumns(connection, table)
                 .firstOrNull { it.name == column }
                 ?: error("Missing column $table.$column")
-        assertEquals(type, actual.type)
-        assertEquals(notNull, actual.notNull)
+        actual.type shouldBe type
+        actual.notNull shouldBe notNull
     }
 
     private fun ftsSearch(

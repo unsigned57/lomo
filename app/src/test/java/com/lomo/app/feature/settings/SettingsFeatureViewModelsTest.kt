@@ -1,127 +1,130 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.GitSyncErrorCode
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
 import com.lomo.domain.model.WebDavProvider
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: non-app-config Settings*FeatureViewModel wrapper classes in SettingsFeatureViewModels.kt
  * - Behavior focus: direct delegate wiring for LAN/Git/WebDAV/S3 feature wrappers.
  * - Observable outcomes: forwarded action invocations, forwarded validation helpers, and coordinator-only resets.
- * - Red phase: Not applicable - refactor-only seam extraction preserving the wrapper delegation contract while removing final-class mocking.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: coordinator/use-case execution, DataStore internals, coroutine dispatch, and UI rendering.
  */
-class SettingsFeatureViewModelsTest {
-    @Test
-    fun `lan-share feature viewmodel forwards actions to delegates`() {
-        val actionCoordinator = FakeSettingsActionCoordinator()
-        val lanShareSupport = FakeLanShareSupport()
+class SettingsFeatureViewModelsTest : AppFunSpec() {
+    init {
+        test("lan-share feature viewmodel forwards actions to delegates") {
+            val actionCoordinator = FakeSettingsActionCoordinator()
+            val lanShareSupport = FakeLanShareSupport()
 
-        val viewModel = SettingsLanShareFeatureViewModel(actionCoordinator, lanShareSupport)
-        viewModel.updateLanShareEnabled(false)
-        viewModel.updateLanShareE2eEnabled(true)
-        viewModel.updateLanSharePairingCode("123456")
-        viewModel.clearLanSharePairingCode()
-        viewModel.clearPairingCodeError()
-        viewModel.updateLanShareDeviceName("Pixel")
+            val viewModel = SettingsLanShareFeatureViewModel(actionCoordinator, lanShareSupport)
+            viewModel.updateLanShareEnabled(false)
+            viewModel.updateLanShareE2eEnabled(true)
+            viewModel.updateLanSharePairingCode("123456")
+            viewModel.clearLanSharePairingCode()
+            viewModel.clearPairingCodeError()
+            viewModel.updateLanShareDeviceName("Pixel")
 
-        assertEquals(false, actionCoordinator.lanShareEnabledArg)
-        assertEquals(true, actionCoordinator.lanShareE2eEnabledArg)
-        assertEquals("123456", actionCoordinator.lanSharePairingCodeArg)
-        assertTrue(actionCoordinator.clearLanSharePairingCodeInvoked)
-        assertEquals("Pixel", actionCoordinator.lanShareDeviceNameArg)
-        assertTrue(lanShareSupport.clearPairingCodeErrorInvoked)
+            (actionCoordinator.lanShareEnabledArg) shouldBe (false)
+            (actionCoordinator.lanShareE2eEnabledArg) shouldBe (true)
+            (actionCoordinator.lanSharePairingCodeArg) shouldBe ("123456")
+            ((actionCoordinator.clearLanSharePairingCodeInvoked)) shouldBe true
+            (actionCoordinator.lanShareDeviceNameArg) shouldBe ("Pixel")
+            ((lanShareSupport.clearPairingCodeErrorInvoked)) shouldBe true
+        }
     }
 
-    @Test
-    fun `git feature viewmodel exposes wired coordinator delegates`() {
-        val actionCoordinator = FakeSettingsActionCoordinator()
-        val gitSupport = FakeGitSupport()
+    init {
+        test("git feature viewmodel exposes wired coordinator delegates") {
+            val actionCoordinator = FakeSettingsActionCoordinator()
+            val gitSupport = FakeGitSupport()
 
-        val viewModel = SettingsGitFeatureViewModel(actionCoordinator, gitSupport)
-        viewModel.updateGitSyncEnabled(true)
-        viewModel.updateGitRemoteUrl("https://example.com/repo.git")
-        viewModel.testGitConnection()
-        viewModel.resetGitRepository()
-        viewModel.resetConnectionTestState()
+            val viewModel = SettingsGitFeatureViewModel(actionCoordinator, gitSupport)
+            viewModel.updateGitSyncEnabled(true)
+            viewModel.updateGitRemoteUrl("https://example.com/repo.git")
+            viewModel.testGitConnection()
+            viewModel.resetGitRepository()
+            viewModel.resetConnectionTestState()
 
-        assertEquals(true, actionCoordinator.gitSyncEnabledArg)
-        assertEquals("https://example.com/repo.git", actionCoordinator.gitRemoteUrlArg)
-        assertTrue(actionCoordinator.testGitConnectionInvoked)
-        assertTrue(actionCoordinator.resetGitRepositoryInvoked)
-        assertEquals(1, gitSupport.resetConnectionTestStateInvocations)
-        assertTrue(viewModel.isValidGitRemoteUrl("https://example.com/repo.git"))
-        assertFalse(viewModel.shouldShowGitConflictDialog(GitSyncErrorCode.UNKNOWN))
+            (actionCoordinator.gitSyncEnabledArg) shouldBe (true)
+            (actionCoordinator.gitRemoteUrlArg) shouldBe ("https://example.com/repo.git")
+            ((actionCoordinator.testGitConnectionInvoked)) shouldBe true
+            ((actionCoordinator.resetGitRepositoryInvoked)) shouldBe true
+            (gitSupport.resetConnectionTestStateInvocations) shouldBe (1)
+            ((viewModel.isValidGitRemoteUrl("https://example.com/repo.git"))) shouldBe true
+            ((viewModel.shouldShowGitConflictDialog(GitSyncErrorCode.UNKNOWN))) shouldBe false
+        }
     }
 
-    @Test
-    fun `webdav feature viewmodel exposes wired coordinator delegates`() {
-        val actionCoordinator = FakeSettingsActionCoordinator()
-        val webDavSupport = FakeWebDavSupport()
+    init {
+        test("webdav feature viewmodel exposes wired coordinator delegates") {
+            val actionCoordinator = FakeSettingsActionCoordinator()
+            val webDavSupport = FakeWebDavSupport()
 
-        val viewModel = SettingsWebDavFeatureViewModel(actionCoordinator, webDavSupport)
-        viewModel.updateWebDavSyncEnabled(true)
-        viewModel.updateProvider(WebDavProvider.NUTSTORE)
-        viewModel.triggerSyncNow()
-        viewModel.testConnection()
-        viewModel.resetConnectionTestState()
+            val viewModel = SettingsWebDavFeatureViewModel(actionCoordinator, webDavSupport)
+            viewModel.updateWebDavSyncEnabled(true)
+            viewModel.updateProvider(WebDavProvider.NUTSTORE)
+            viewModel.triggerSyncNow()
+            viewModel.testConnection()
+            viewModel.resetConnectionTestState()
 
-        assertEquals(true, actionCoordinator.webDavSyncEnabledArg)
-        assertEquals(WebDavProvider.NUTSTORE, actionCoordinator.webDavProviderArg)
-        assertTrue(actionCoordinator.triggerWebDavSyncNowInvoked)
-        assertTrue(actionCoordinator.testWebDavConnectionInvoked)
-        assertEquals(1, webDavSupport.resetConnectionTestStateInvocations)
-        assertTrue(viewModel.isValidUrl("https://dav.example.com"))
-        assertTrue(viewModel.isValidWebDavUrl("https://dav.example.com"))
+            (actionCoordinator.webDavSyncEnabledArg) shouldBe (true)
+            (actionCoordinator.webDavProviderArg) shouldBe (WebDavProvider.NUTSTORE)
+            ((actionCoordinator.triggerWebDavSyncNowInvoked)) shouldBe true
+            ((actionCoordinator.testWebDavConnectionInvoked)) shouldBe true
+            (webDavSupport.resetConnectionTestStateInvocations) shouldBe (1)
+            ((viewModel.isValidUrl("https://dav.example.com"))) shouldBe true
+            ((viewModel.isValidWebDavUrl("https://dav.example.com"))) shouldBe true
+        }
     }
 
-    @Test
-    fun `s3 feature viewmodel exposes wired coordinator delegates`() {
-        val actionCoordinator = FakeSettingsActionCoordinator()
-        val s3Support = FakeS3Support()
+    init {
+        test("s3 feature viewmodel exposes wired coordinator delegates") {
+            val actionCoordinator = FakeSettingsActionCoordinator()
+            val s3Support = FakeS3Support()
 
-        val viewModel = SettingsS3FeatureViewModel(actionCoordinator, s3Support)
-        viewModel.updateS3SyncEnabled(true)
-        viewModel.updateBucket("vault")
-        viewModel.updateLocalSyncDirectory("content://tree/primary%3AObsidian")
-        viewModel.clearLocalSyncDirectory()
-        viewModel.updatePathStyle(S3PathStyle.PATH_STYLE)
-        viewModel.updateEncryptionMode(S3EncryptionMode.RCLONE_CRYPT)
-        viewModel.updateEncryptionPassword2("secret-salt")
-        viewModel.updateRcloneFilenameEncryption(S3RcloneFilenameEncryption.OFF)
-        viewModel.updateRcloneFilenameEncoding(S3RcloneFilenameEncoding.BASE32768)
-        viewModel.updateRcloneDirectoryNameEncryption(false)
-        viewModel.updateRcloneDataEncryptionEnabled(false)
-        viewModel.updateRcloneEncryptedSuffix("none")
-        viewModel.triggerSyncNow()
-        viewModel.testConnection()
-        viewModel.resetConnectionTestState()
+            val viewModel = SettingsS3FeatureViewModel(actionCoordinator, s3Support)
+            viewModel.updateS3SyncEnabled(true)
+            viewModel.updateBucket("vault")
+            viewModel.updateLocalSyncDirectory("content://tree/primary%3AObsidian")
+            viewModel.clearLocalSyncDirectory()
+            viewModel.updatePathStyle(S3PathStyle.PATH_STYLE)
+            viewModel.updateEncryptionMode(S3EncryptionMode.RCLONE_CRYPT)
+            viewModel.updateEncryptionPassword2("secret-salt")
+            viewModel.updateRcloneFilenameEncryption(S3RcloneFilenameEncryption.OFF)
+            viewModel.updateRcloneFilenameEncoding(S3RcloneFilenameEncoding.BASE32768)
+            viewModel.updateRcloneDirectoryNameEncryption(false)
+            viewModel.updateRcloneDataEncryptionEnabled(false)
+            viewModel.updateRcloneEncryptedSuffix("none")
+            viewModel.triggerSyncNow()
+            viewModel.testConnection()
+            viewModel.resetConnectionTestState()
 
-        assertEquals(true, actionCoordinator.s3SyncEnabledArg)
-        assertEquals("vault", actionCoordinator.s3BucketArg)
-        assertEquals("content://tree/primary%3AObsidian", actionCoordinator.s3LocalSyncDirectoryArg)
-        assertEquals(S3PathStyle.PATH_STYLE, actionCoordinator.s3PathStyleArg)
-        assertEquals(S3EncryptionMode.RCLONE_CRYPT, actionCoordinator.s3EncryptionModeArg)
-        assertEquals("secret-salt", actionCoordinator.s3EncryptionPassword2Arg)
-        assertEquals(S3RcloneFilenameEncryption.OFF, actionCoordinator.s3FilenameEncryptionArg)
-        assertEquals(S3RcloneFilenameEncoding.BASE32768, actionCoordinator.s3FilenameEncodingArg)
-        assertEquals(false, actionCoordinator.s3DirectoryNameEncryptionArg)
-        assertEquals(false, actionCoordinator.s3DataEncryptionArg)
-        assertEquals("none", actionCoordinator.s3EncryptedSuffixArg)
-        assertTrue(actionCoordinator.clearS3LocalSyncDirectoryInvoked)
-        assertTrue(actionCoordinator.triggerS3SyncNowInvoked)
-        assertTrue(actionCoordinator.testS3ConnectionInvoked)
-        assertEquals(1, s3Support.resetConnectionTestStateInvocations)
-        assertTrue(viewModel.isValidEndpointUrl("https://s3.example.com"))
+            (actionCoordinator.s3SyncEnabledArg) shouldBe (true)
+            (actionCoordinator.s3BucketArg) shouldBe ("vault")
+            (actionCoordinator.s3LocalSyncDirectoryArg) shouldBe ("content://tree/primary%3AObsidian")
+            (actionCoordinator.s3PathStyleArg) shouldBe (S3PathStyle.PATH_STYLE)
+            (actionCoordinator.s3EncryptionModeArg) shouldBe (S3EncryptionMode.RCLONE_CRYPT)
+            (actionCoordinator.s3EncryptionPassword2Arg) shouldBe ("secret-salt")
+            (actionCoordinator.s3FilenameEncryptionArg) shouldBe (S3RcloneFilenameEncryption.OFF)
+            (actionCoordinator.s3FilenameEncodingArg) shouldBe (S3RcloneFilenameEncoding.BASE32768)
+            (actionCoordinator.s3DirectoryNameEncryptionArg) shouldBe (false)
+            (actionCoordinator.s3DataEncryptionArg) shouldBe (false)
+            (actionCoordinator.s3EncryptedSuffixArg) shouldBe ("none")
+            ((actionCoordinator.clearS3LocalSyncDirectoryInvoked)) shouldBe true
+            ((actionCoordinator.triggerS3SyncNowInvoked)) shouldBe true
+            ((actionCoordinator.testS3ConnectionInvoked)) shouldBe true
+            (s3Support.resetConnectionTestStateInvocations) shouldBe (1)
+            ((viewModel.isValidEndpointUrl("https://s3.example.com"))) shouldBe true
+        }
     }
+
 }
 
 private class FakeSettingsActionCoordinator :

@@ -1,12 +1,10 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import com.lomo.ui.theme.TypographyScales
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -16,7 +14,7 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the modern fragment annotator returns an empty result for a bare autolink fragment, so URL-only memo paragraphs render no visible text item.
  * - Excludes: Compose widget rendering, TextView movement methods, image loading, and top-level block planning.
  */
-class ModernMarkdownAutolinkParagraphTest {
+class ModernMarkdownAutolinkParagraphTest : UiComponentsFunSpec() {
     private val tokenSpec =
         createModernMarkdownTokenSpec(
             typography = Typography(),
@@ -24,8 +22,8 @@ class ModernMarkdownAutolinkParagraphTest {
             scales = TypographyScales(),
         )
 
-    @Test
-    fun `bare url fragment keeps visible text and link annotation`() {
+    init {
+        test("bare url fragment keeps visible text and link annotation") {
         val fragment = "https://example.com/path?q=1"
 
         val annotatedText =
@@ -35,12 +33,13 @@ class ModernMarkdownAutolinkParagraphTest {
                 tokenSpec = tokenSpec,
             )
 
-        assertEquals(fragment, annotatedText.text)
-        assertTrue(annotatedText.getLinkAnnotations(0, annotatedText.length).isNotEmpty())
+        (annotatedText.text) shouldBe (fragment)
+        (annotatedText.getLinkAnnotations(0, annotatedText.length).isNotEmpty()) shouldBe true
+        }
     }
 
-    @Test
-    fun `bare url paragraph emits a visible text item`() {
+    init {
+        test("bare url paragraph emits a visible text item") {
         val content = "https://example.com/path?q=1"
 
         val items =
@@ -51,9 +50,10 @@ class ModernMarkdownAutolinkParagraphTest {
                 textStyle = tokenSpec.paragraphStyle,
             )
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val textItem = items.single() as ModernParagraphItem.Text
-        assertEquals(content, textItem.text.text)
-        assertFalse(textItem.text.getLinkAnnotations(0, textItem.text.length).isEmpty())
+        (textItem.text.text) shouldBe (content)
+        (textItem.text.getLinkAnnotations(0, textItem.text.length).isEmpty()) shouldBe false
+        }
     }
 }

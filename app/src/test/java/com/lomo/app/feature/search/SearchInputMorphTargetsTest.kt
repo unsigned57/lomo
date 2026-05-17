@@ -2,9 +2,9 @@ package com.lomo.app.feature.search
 
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.unit.dp
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -19,37 +19,41 @@ import org.junit.Test
  * - Excludes: Compose runtime focus dispatch, animation frame timing, pixel rendering, keyboard
  *   behavior, and search result rendering.
  */
-class SearchInputMorphTargetsTest {
+class SearchInputMorphTargetsTest : AppFunSpec() {
     private val scheme = lightColorScheme()
 
-    @Test
-    fun `focused targets use high emphasis tone primary icon and large increased corner`() {
-        val targets = SearchInputMorphTargets.fromFocus(isFocused = true, colorScheme = scheme)
+    init {
+        test("focused targets use high emphasis tone primary icon and large increased corner") {
+            val targets = SearchInputMorphTargets.fromFocus(isFocused = true, colorScheme = scheme)
 
-        assertEquals(scheme.surfaceContainerHighest, targets.containerColor)
-        assertEquals(scheme.primary, targets.leadingIconTint)
-        assertEquals(20.dp, targets.cornerRadius)
-        assertEquals(6.dp, targets.tonalElevation)
+            (targets.containerColor) shouldBe (scheme.surfaceContainerHighest)
+            (targets.leadingIconTint) shouldBe (scheme.primary)
+            (targets.cornerRadius) shouldBe (20.dp)
+            (targets.tonalElevation) shouldBe (6.dp)
+        }
     }
 
-    @Test
-    fun `resting targets use floating capsule tone variant icon and extra large increased corner`() {
-        val targets = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
+    init {
+        test("resting targets use floating capsule tone variant icon and extra large increased corner") {
+            val targets = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
 
-        assertEquals(scheme.surfaceContainerHigh, targets.containerColor)
-        assertEquals(scheme.onSurfaceVariant, targets.leadingIconTint)
-        assertEquals(32.dp, targets.cornerRadius)
-        assertEquals(3.dp, targets.tonalElevation)
+            (targets.containerColor) shouldBe (scheme.surfaceContainerHigh)
+            (targets.leadingIconTint) shouldBe (scheme.onSurfaceVariant)
+            (targets.cornerRadius) shouldBe (32.dp)
+            (targets.tonalElevation) shouldBe (3.dp)
+        }
     }
 
-    @Test
-    fun `focused and resting targets differ across every morph field`() {
-        val focused = SearchInputMorphTargets.fromFocus(isFocused = true, colorScheme = scheme)
-        val resting = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
+    init {
+        test("focused and resting targets differ across every morph field") {
+            val focused = SearchInputMorphTargets.fromFocus(isFocused = true, colorScheme = scheme)
+            val resting = SearchInputMorphTargets.fromFocus(isFocused = false, colorScheme = scheme)
 
-        assertNotEquals(resting.containerColor, focused.containerColor)
-        assertNotEquals(resting.leadingIconTint, focused.leadingIconTint)
-        assertNotEquals(resting.cornerRadius, focused.cornerRadius)
-        assertNotEquals(resting.tonalElevation, focused.tonalElevation)
+            (focused.containerColor) shouldNotBe (resting.containerColor)
+            (focused.leadingIconTint) shouldNotBe (resting.leadingIconTint)
+            (focused.cornerRadius) shouldNotBe (resting.cornerRadius)
+            (focused.tonalElevation) shouldNotBe (resting.tonalElevation)
+        }
     }
+
 }

@@ -1,14 +1,13 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -19,27 +18,29 @@ import org.junit.Test
  *   instead of exposing the requested visible underline treatment.
  * - Excludes: actual composable rendering, third-party markdown parsing internals, and image loading behavior.
  */
-class ModernMarkdownRendererTokensTest {
+class ModernMarkdownRendererTokensTest : UiComponentsFunSpec() {
     private val typography = Typography()
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `modern markdown typography keeps memo paragraph rhythm and underlined link styling`() {
+    init {
+        test("modern markdown typography keeps memo paragraph rhythm and underlined link styling") {
         val spec = createModernMarkdownTokenSpec(typography, scales = defaultScales)
 
-        assertEquals(typography.memoBodyTextStyle(defaultScales), spec.paragraphStyle)
-        assertEquals(16.sp, spec.paragraphStyle.lineHeight)
-        assertEquals(0.1.sp, spec.paragraphStyle.letterSpacing)
-        assertTrue(spec.heading1Style.fontWeight != null)
-        assertEquals(TextDecoration.Underline, spec.linkStyle.style?.textDecoration)
+        (spec.paragraphStyle) shouldBe (typography.memoBodyTextStyle(defaultScales))
+        (spec.paragraphStyle.lineHeight) shouldBe (16.sp)
+        (spec.paragraphStyle.letterSpacing) shouldBe (0.1.sp)
+        (spec.heading1Style.fontWeight != null) shouldBe true
+        (spec.linkStyle.style?.textDecoration) shouldBe (TextDecoration.Underline)
+        }
     }
 
-    @Test
-    fun `modern markdown padding keeps memo paragraph block spacing`() {
+    init {
+        test("modern markdown padding keeps memo paragraph block spacing") {
         val spec = createModernMarkdownTokenSpec(typography, scales = defaultScales)
 
-        assertEquals(8.dp, spec.blockSpacing)
-        assertEquals(8.dp, spec.listSpacing)
-        assertEquals(4.dp, spec.listItemSpacing)
+        (spec.blockSpacing) shouldBe (8.dp)
+        (spec.listSpacing) shouldBe (8.dp)
+        (spec.listItemSpacing) shouldBe (4.dp)
+        }
     }
 }

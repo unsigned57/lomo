@@ -1,10 +1,11 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
 import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,11 +15,29 @@ import org.junit.Test
  * - Red phase: Fails before the fix because first-sync overlapping local/remote files are resolved by timestamp instead of surfacing a conflict.
  * - Excludes: WebDAV transport, file I/O, metadata persistence, and UI rendering.
  */
-class WebDavSyncPlannerTest {
+class WebDavSyncPlannerTest : DataFunSpec() {
+    init {
+        test("local only file uploads") { `local only file uploads`() }
+
+        test("remote only file downloads") { `remote only file downloads`() }
+
+        test("first sync overlapping file reports conflict instead of timestamp winner") { `first sync overlapping file reports conflict instead of timestamp winner`() }
+
+        test("both changed reports conflict") { `both changed reports conflict`() }
+
+        test("remote delete removes unchanged local file") { `remote delete removes unchanged local file`() }
+
+        test("remote delete with local modification reports conflict instead of deleting local file") { `remote delete with local modification reports conflict instead of deleting local file`() }
+
+        test("local delete removes unchanged remote file") { `local delete removes unchanged remote file`() }
+
+        test("local delete with remote modification reports conflict instead of downloading remote file") { `local delete with remote modification reports conflict instead of downloading remote file`() }
+    }
+
+
     private val planner = WebDavSyncPlanner(timestampToleranceMs = 0L)
 
-    @Test
-    fun `local only file uploads`() {
+    private fun `local only file uploads`() {
         val plan =
             planner.plan(
                 localFiles = mapOf("memo.md" to LocalWebDavFile("memo.md", 20L)),
@@ -26,12 +45,11 @@ class WebDavSyncPlannerTest {
                 metadata = emptyMap(),
             )
 
-        assertEquals(listOf(WebDavSyncDirection.UPLOAD), plan.actions.map { it.direction })
-        assertEquals(listOf(WebDavSyncReason.LOCAL_ONLY), plan.actions.map { it.reason })
+        plan.actions.map { it.direction } shouldBe listOf(WebDavSyncDirection.UPLOAD)
+        plan.actions.map { it.reason } shouldBe listOf(WebDavSyncReason.LOCAL_ONLY)
     }
 
-    @Test
-    fun `remote only file downloads`() {
+    private fun `remote only file downloads`() {
         val plan =
             planner.plan(
                 localFiles = emptyMap(),
@@ -39,12 +57,11 @@ class WebDavSyncPlannerTest {
                 metadata = emptyMap(),
             )
 
-        assertEquals(listOf(WebDavSyncDirection.DOWNLOAD), plan.actions.map { it.direction })
-        assertEquals(listOf(WebDavSyncReason.REMOTE_ONLY), plan.actions.map { it.reason })
+        plan.actions.map { it.direction } shouldBe listOf(WebDavSyncDirection.DOWNLOAD)
+        plan.actions.map { it.reason } shouldBe listOf(WebDavSyncReason.REMOTE_ONLY)
     }
 
-    @Test
-    fun `first sync overlapping file reports conflict instead of timestamp winner`() {
+    private fun `first sync overlapping file reports conflict instead of timestamp winner`() {
         val plan =
             planner.plan(
                 localFiles = mapOf("memo.md" to LocalWebDavFile("memo.md", 30L)),
@@ -52,12 +69,11 @@ class WebDavSyncPlannerTest {
                 metadata = emptyMap(),
             )
 
-        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe WebDavSyncReason.CONFLICT
     }
 
-    @Test
-    fun `both changed reports conflict`() {
+    private fun `both changed reports conflict`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -77,12 +93,11 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe WebDavSyncReason.CONFLICT
     }
 
-    @Test
-    fun `remote delete removes unchanged local file`() {
+    private fun `remote delete removes unchanged local file`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -102,12 +117,11 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.DELETE_LOCAL, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.REMOTE_DELETED, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.DELETE_LOCAL
+        plan.actions.single().reason shouldBe WebDavSyncReason.REMOTE_DELETED
     }
 
-    @Test
-    fun `remote delete with local modification reports conflict instead of deleting local file`() {
+    private fun `remote delete with local modification reports conflict instead of deleting local file`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -127,12 +141,11 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe WebDavSyncReason.CONFLICT
     }
 
-    @Test
-    fun `local delete removes unchanged remote file`() {
+    private fun `local delete removes unchanged remote file`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -152,12 +165,11 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.DELETE_REMOTE, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.LOCAL_DELETED, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.DELETE_REMOTE
+        plan.actions.single().reason shouldBe WebDavSyncReason.LOCAL_DELETED
     }
 
-    @Test
-    fun `local delete with remote modification reports conflict instead of downloading remote file`() {
+    private fun `local delete with remote modification reports conflict instead of downloading remote file`() {
         val metadata =
             WebDavSyncMetadataEntity(
                 relativePath = "memo.md",
@@ -177,7 +189,7 @@ class WebDavSyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(WebDavSyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(WebDavSyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe WebDavSyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe WebDavSyncReason.CONFLICT
     }
 }

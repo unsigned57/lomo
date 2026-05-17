@@ -1,36 +1,30 @@
 package com.lomo.domain.usecase
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: ResolveMainMemoQueryUseCase
  * - Behavior focus: main-memo query resolution between search text and all-memos fallback.
  * - Observable outcomes: ResolvedQuery variant returned for blank vs non-blank input.
- * - Red phase: Not applicable - test-only coverage alignment for current production contract.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: UI search interactions and repository querying behavior.
  */
-class ResolveMainMemoQueryUseCaseTest {
+class ResolveMainMemoQueryUseCaseTest : DomainFunSpec() {
     private val useCase = ResolveMainMemoQueryUseCase()
+    init {
+        test("search text is used when query is not blank") {
+            val resolved = useCase(query = "memo")
 
-    @Test
-    fun `search text is used when query is not blank`() {
-        val resolved = useCase(query = "memo")
-
-        assertEquals(
-            ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText("memo"),
-            resolved,
-        )
+            resolved shouldBe ResolveMainMemoQueryUseCase.ResolvedQuery.BySearchText("memo")
+        }
     }
+    init {
+        test("all memos is selected when query is blank") {
+            val resolved = useCase(query = " ")
 
-    @Test
-    fun `all memos is selected when query is blank`() {
-        val resolved = useCase(query = " ")
-
-        assertEquals(
-            ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos,
-            resolved,
-        )
+            resolved shouldBe ResolveMainMemoQueryUseCase.ResolvedQuery.AllMemos
+        }
     }
 }

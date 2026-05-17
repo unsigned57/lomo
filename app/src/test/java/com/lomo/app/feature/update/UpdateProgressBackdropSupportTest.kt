@@ -1,9 +1,7 @@
 package com.lomo.app.feature.update
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,53 +11,58 @@ import org.junit.Test
  * - Red phase: Fails before the fix because update-progress backdrop selection is embedded in Compose rendering with no safe fallback contract when shader setup throws.
  * - Excludes: Compose drawing, AGSL correctness, and APK download or installer behavior.
  */
-class UpdateProgressBackdropSupportTest {
-    @Test
-    fun `returns shader mode on android 13 and above when shader probe succeeds`() {
-        var probeCalled = false
+class UpdateProgressBackdropSupportTest : AppFunSpec() {
+    init {
+        test("returns shader mode on android 13 and above when shader probe succeeds") {
+            var probeCalled = false
 
-        val mode =
-            resolveUpdateProgressBackdropMode(sdkInt = 33) {
-                probeCalled = true
-            }
+            val mode =
+                resolveUpdateProgressBackdropMode(sdkInt = 33) {
+                    probeCalled = true
+                }
 
-        assertEquals(UpdateProgressBackdropMode.Shader, mode)
-        assertTrue(probeCalled)
+            (mode) shouldBe (UpdateProgressBackdropMode.Shader)
+            ((probeCalled)) shouldBe true
+        }
     }
 
-    @Test
-    fun `falls back when shader probe throws`() {
-        val mode =
-            resolveUpdateProgressBackdropMode(sdkInt = 33) {
-                error("shader compile failed")
-            }
+    init {
+        test("falls back when shader probe throws") {
+            val mode =
+                resolveUpdateProgressBackdropMode(sdkInt = 33) {
+                    error("shader compile failed")
+                }
 
-        assertEquals(UpdateProgressBackdropMode.Fallback, mode)
+            (mode) shouldBe (UpdateProgressBackdropMode.Fallback)
+        }
     }
 
-    @Test
-    fun `falls back below android 13 without probing shader support`() {
-        var probeCalled = false
+    init {
+        test("falls back below android 13 without probing shader support") {
+            var probeCalled = false
 
-        val mode =
-            resolveUpdateProgressBackdropMode(sdkInt = 32) {
-                probeCalled = true
-            }
+            val mode =
+                resolveUpdateProgressBackdropMode(sdkInt = 32) {
+                    probeCalled = true
+                }
 
-        assertEquals(UpdateProgressBackdropMode.Fallback, mode)
-        assertFalse(probeCalled)
+            (mode) shouldBe (UpdateProgressBackdropMode.Fallback)
+            ((probeCalled)) shouldBe false
+        }
     }
 
-    @Test
-    fun `falls back on sdk 36 without probing shader support`() {
-        var probeCalled = false
+    init {
+        test("falls back on sdk 36 without probing shader support") {
+            var probeCalled = false
 
-        val mode =
-            resolveUpdateProgressBackdropMode(sdkInt = 36) {
-                probeCalled = true
-            }
+            val mode =
+                resolveUpdateProgressBackdropMode(sdkInt = 36) {
+                    probeCalled = true
+                }
 
-        assertEquals(UpdateProgressBackdropMode.Fallback, mode)
-        assertFalse(probeCalled)
+            (mode) shouldBe (UpdateProgressBackdropMode.Fallback)
+            ((probeCalled)) shouldBe false
+        }
     }
+
 }

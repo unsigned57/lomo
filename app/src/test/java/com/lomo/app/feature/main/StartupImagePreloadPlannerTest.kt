@@ -1,10 +1,10 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
+import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -14,37 +14,39 @@ import org.junit.Test
  * - Red phase: Fails before the fix because MemoListContent has no startup-specific preload planner, so app entry waits for a later viewport pass before first-screen memo images start warming.
  * - Excludes: Coil request execution, LazyColumn measurement timing, and image decoding latency.
  */
-class StartupImagePreloadPlannerTest {
-    @Test
-    fun `startup preload includes image urls from the first memo slice in order`() {
-        val candidates =
-            buildStartupImagePreloadCandidates(
-                memos =
-                    listOf(
-                        memoUiModel("memo-1", "cover-1", "cover-2"),
-                        memoUiModel("memo-2"),
-                        memoUiModel("memo-3", "cover-3"),
-                    ).toImmutableList(),
-                startupMemoCount = 3,
-            )
+class StartupImagePreloadPlannerTest : AppFunSpec() {
+    init {
+        test("startup preload includes image urls from the first memo slice in order") {
+            val candidates =
+                buildStartupImagePreloadCandidates(
+                    memos =
+                        listOf(
+                            memoUiModel("memo-1", "cover-1", "cover-2"),
+                            memoUiModel("memo-2"),
+                            memoUiModel("memo-3", "cover-3"),
+                        ).toImmutableList(),
+                    startupMemoCount = 3,
+                )
 
-        assertEquals(listOf("cover-1", "cover-2", "cover-3"), candidates)
+            (candidates) shouldBe (listOf("cover-1", "cover-2", "cover-3"))
+        }
     }
 
-    @Test
-    fun `startup preload respects the configured memo budget`() {
-        val candidates =
-            buildStartupImagePreloadCandidates(
-                memos =
-                    listOf(
-                        memoUiModel("memo-1", "cover-1"),
-                        memoUiModel("memo-2", "cover-2"),
-                        memoUiModel("memo-3", "cover-3"),
-                    ).toImmutableList(),
-                startupMemoCount = 2,
-            )
+    init {
+        test("startup preload respects the configured memo budget") {
+            val candidates =
+                buildStartupImagePreloadCandidates(
+                    memos =
+                        listOf(
+                            memoUiModel("memo-1", "cover-1"),
+                            memoUiModel("memo-2", "cover-2"),
+                            memoUiModel("memo-3", "cover-3"),
+                        ).toImmutableList(),
+                    startupMemoCount = 2,
+                )
 
-        assertEquals(listOf("cover-1", "cover-2"), candidates)
+            (candidates) shouldBe (listOf("cover-1", "cover-2"))
+        }
     }
 
     private fun memoUiModel(

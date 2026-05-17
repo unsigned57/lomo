@@ -1,10 +1,28 @@
+/*
+ * Test Contract:
+ * - Unit under test: ValidateMemoContentUseCaseTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for ValidateMemoContentUseCaseTest.
+ * - Boundary: boundary and edge cases for ValidateMemoContentUseCaseTest.
+ * - Failure: failure and error scenarios for ValidateMemoContentUseCaseTest.
+ * - Must-not-happen: invariants are never violated for ValidateMemoContentUseCaseTest.
+ *
+ * - Behavior focus: test behavioral outcomes of ValidateMemoContentUseCaseTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.MemoConstraints
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 
 /*
  * Test Contract:
@@ -13,61 +31,56 @@ import org.junit.Test
  * - Observable outcomes: validation result type, error message payloads, and thrown exception types.
  * - Excludes: repository interaction, UI rendering, and unrelated memo mutation flows.
  */
-class ValidateMemoContentUseCaseTest {
+class ValidateMemoContentUseCaseTest : DomainFunSpec() {
     private val validator = ValidateMemoContentUseCase()
 
-    @Test
-    fun `validateCreate returns empty-content invalid for blank input`() {
-        val result = validator.validateCreate("   ")
-        assertTrue(result is MemoValidationResult.Invalid.EmptyContentForCreate)
-    }
+    init {
+        test("validateCreate returns empty-content invalid for blank input") {
+            val result = validator.validateCreate("   ")
+            result.shouldBeInstanceOf<MemoValidationResult.Invalid.EmptyContentForCreate>()
+        }
 
-    @Test
-    fun `validateCreate returns content-too-long invalid with details`() {
-        val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
-        val result = validator.validateCreate(content)
+        test("validateCreate returns content-too-long invalid with details") {
+            val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
+            val result = validator.validateCreate(content)
 
-        assertTrue(result is MemoValidationResult.Invalid.ContentTooLong)
-        val invalid = result as MemoValidationResult.Invalid.ContentTooLong
-        assertEquals(MemoConstraints.MAX_MEMO_LENGTH, invalid.maxLength)
-        assertEquals(content.length, invalid.actualLength)
-        assertEquals(ValidateMemoContentUseCase.lengthExceededMessage(), invalid.message)
-    }
+            val invalid = result.shouldBeInstanceOf<MemoValidationResult.Invalid.ContentTooLong>()
+            invalid.maxLength shouldBe MemoConstraints.MAX_MEMO_LENGTH
+            invalid.actualLength shouldBe content.length
+            invalid.message shouldBe ValidateMemoContentUseCase.lengthExceededMessage()
+        }
 
-    @Test
-    fun `requireValidForCreate throws domain validation exception`() {
-        val exception =
-            assertThrows(MemoValidationException::class.java) {
-                validator.requireValidForCreate(" ")
-            }
+        test("requireValidForCreate throws domain validation exception") {
+            val exception =
+                shouldThrow<MemoValidationException> {
+                    validator.requireValidForCreate(" ")
+                }
 
-        assertEquals(ValidateMemoContentUseCase.EMPTY_CONTENT_MESSAGE, exception.message)
-        assertTrue(exception.reason is MemoValidationResult.Invalid.EmptyContentForCreate)
-    }
+            exception.message shouldBe ValidateMemoContentUseCase.EMPTY_CONTENT_MESSAGE
+            exception.reason.shouldBeInstanceOf<MemoValidationResult.Invalid.EmptyContentForCreate>()
+        }
 
-    @Test
-    fun `validateUpdate returns empty-content invalid for blank input`() {
-        val result = validator.validateUpdate(" ")
-        assertTrue(result is MemoValidationResult.Invalid.EmptyContentForUpdate)
-    }
+        test("validateUpdate returns empty-content invalid for blank input") {
+            val result = validator.validateUpdate(" ")
+            result.shouldBeInstanceOf<MemoValidationResult.Invalid.EmptyContentForUpdate>()
+        }
 
-    @Test
-    fun `validateUpdate rejects content above max length`() {
-        val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
-        val result = validator.validateUpdate(content)
+        test("validateUpdate rejects content above max length") {
+            val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
+            val result = validator.validateUpdate(content)
 
-        assertTrue(result is MemoValidationResult.Invalid.ContentTooLong)
-    }
+            result.shouldBeInstanceOf<MemoValidationResult.Invalid.ContentTooLong>()
+        }
 
-    @Test
-    fun `requireValidForUpdate remains exception-compatible`() {
-        val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
+        test("requireValidForUpdate remains exception-compatible") {
+            val content = "a".repeat(MemoConstraints.MAX_MEMO_LENGTH + 1)
 
-        val exception =
-            assertThrows(IllegalArgumentException::class.java) {
-                validator.requireValidForUpdate(content)
-            }
+            val exception =
+                shouldThrow<IllegalArgumentException> {
+                    validator.requireValidForUpdate(content)
+                }
 
-        assertEquals(ValidateMemoContentUseCase.lengthExceededMessage(), exception.message)
+            exception.message shouldBe ValidateMemoContentUseCase.lengthExceededMessage()
+        }
     }
 }

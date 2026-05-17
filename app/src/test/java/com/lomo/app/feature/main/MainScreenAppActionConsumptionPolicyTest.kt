@@ -1,7 +1,7 @@
 package com.lomo.app.feature.main
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -11,44 +11,36 @@ import org.junit.Test
  * - Red phase: Fails before the fix because HandleAppActionEvents consumes FocusMemo immediately even when focusMemoInList returns false.
  * - Excludes: Compose LaunchedEffect scheduling, NavHost back-stack transitions, and LazyListState scroll physics.
  */
-class MainScreenAppActionConsumptionPolicyTest {
-    @Test
-    fun `focus memo is retained when target cannot be focused yet`() {
-        assertEquals(
-            false,
-            shouldConsumeAppActionAfterHandling(
-                action = MainViewModel.AppAction.FocusMemo("memo-42"),
-                handled = false,
-            ),
-        )
+class MainScreenAppActionConsumptionPolicyTest : AppFunSpec() {
+    init {
+        test("focus memo is retained when target cannot be focused yet") {
+            (shouldConsumeAppActionAfterHandling(
+                    action = MainViewModel.AppAction.FocusMemo("memo-42"),
+                    handled = false,
+                )) shouldBe (false)
+        }
     }
 
-    @Test
-    fun `focus memo is consumed after successful focus`() {
-        assertEquals(
-            true,
-            shouldConsumeAppActionAfterHandling(
-                action = MainViewModel.AppAction.FocusMemo("memo-42"),
-                handled = true,
-            ),
-        )
+    init {
+        test("focus memo is consumed after successful focus") {
+            (shouldConsumeAppActionAfterHandling(
+                    action = MainViewModel.AppAction.FocusMemo("memo-42"),
+                    handled = true,
+                )) shouldBe (true)
+        }
     }
 
-    @Test
-    fun `create and open actions are consumed after one handling attempt`() {
-        assertEquals(
-            true,
-            shouldConsumeAppActionAfterHandling(
-                action = MainViewModel.AppAction.CreateMemo,
-                handled = false,
-            ),
-        )
-        assertEquals(
-            true,
-            shouldConsumeAppActionAfterHandling(
-                action = MainViewModel.AppAction.OpenMemo("memo-42"),
-                handled = false,
-            ),
-        )
+    init {
+        test("create and open actions are consumed after one handling attempt") {
+            (shouldConsumeAppActionAfterHandling(
+                    action = MainViewModel.AppAction.CreateMemo,
+                    handled = false,
+                )) shouldBe (true)
+            (shouldConsumeAppActionAfterHandling(
+                    action = MainViewModel.AppAction.OpenMemo("memo-42"),
+                    handled = false,
+                )) shouldBe (true)
+        }
     }
+
 }

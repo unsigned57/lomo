@@ -1,9 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -18,9 +16,9 @@ import org.junit.Test
  *   focus release happens out-of-band.
  * - Excludes: Compose animation timing, Android IME internals, and markdown rendering output.
  */
-class InputSheetPresentationStateTest {
-    @Test
-    fun `expanded edit transitions into preview through dedicated switching state`() {
+class InputSheetPresentationStateTest : UiComponentsFunSpec() {
+    init {
+        test("expanded edit transitions into preview through dedicated switching state") {
         val requested =
             resolveRequestedInputSheetPresentationState(
                 targetExpanded = true,
@@ -28,15 +26,16 @@ class InputSheetPresentationStateTest {
                 currentState = InputSheetPresentationState.ExpandedEdit,
             )
 
-        assertEquals(InputSheetPresentationState.SwitchingToPreview, requested)
-        assertTrue(requested.showsEditorContent())
-        assertTrue(requested.showsPreviewLayer())
-        assertFalse(requested.prefersEditorFocus())
-        assertEquals(InputSheetMotionStage.Expanded, requested.surfaceMotionStage())
+        (requested) shouldBe (InputSheetPresentationState.SwitchingToPreview)
+        (requested.showsEditorContent()) shouldBe true
+        (requested.showsPreviewLayer()) shouldBe true
+        (requested.prefersEditorFocus()) shouldBe false
+        (requested.surfaceMotionStage()) shouldBe (InputSheetMotionStage.Expanded)
+        }
     }
 
-    @Test
-    fun `preview settles as expanded preview and collapse keeps preview stable until compact transition ends`() {
+    init {
+        test("preview settles as expanded preview and collapse keeps preview stable until compact transition ends") {
         val settledPreview =
             resolveSettledInputSheetPresentationState(
                 targetExpanded = true,
@@ -49,16 +48,17 @@ class InputSheetPresentationStateTest {
                 currentState = InputSheetPresentationState.SwitchingToPreview,
             )
 
-        assertEquals(InputSheetPresentationState.ExpandedPreview, settledPreview)
-        assertFalse(settledPreview.prefersEditorFocus())
-        assertEquals(InputSheetPresentationState.CollapsingFromPreview, collapsing)
-        assertFalse(collapsing.showsEditorContent())
-        assertTrue(collapsing.showsPreviewLayer())
-        assertFalse(collapsing.prefersEditorFocus())
+        (settledPreview) shouldBe (InputSheetPresentationState.ExpandedPreview)
+        (settledPreview.prefersEditorFocus()) shouldBe false
+        (collapsing) shouldBe (InputSheetPresentationState.CollapsingFromPreview)
+        (collapsing.showsEditorContent()) shouldBe false
+        (collapsing.showsPreviewLayer()) shouldBe true
+        (collapsing.prefersEditorFocus()) shouldBe false
+        }
     }
 
-    @Test
-    fun `preview returning to edit uses switching state before regaining editor focus`() {
+    init {
+        test("preview returning to edit uses switching state before regaining editor focus") {
         val requested =
             resolveRequestedInputSheetPresentationState(
                 targetExpanded = true,
@@ -71,11 +71,12 @@ class InputSheetPresentationStateTest {
                 targetDisplayMode = InputEditorDisplayMode.Edit,
             )
 
-        assertEquals(InputSheetPresentationState.SwitchingToEdit, requested)
-        assertTrue(requested.showsEditorContent())
-        assertTrue(requested.showsPreviewLayer())
-        assertFalse(requested.prefersEditorFocus())
-        assertEquals(InputSheetPresentationState.ExpandedEdit, settled)
-        assertTrue(settled.prefersEditorFocus())
+        (requested) shouldBe (InputSheetPresentationState.SwitchingToEdit)
+        (requested.showsEditorContent()) shouldBe true
+        (requested.showsPreviewLayer()) shouldBe true
+        (requested.prefersEditorFocus()) shouldBe false
+        (settled) shouldBe (InputSheetPresentationState.ExpandedEdit)
+        (settled.prefersEditorFocus()) shouldBe true
+        }
     }
 }

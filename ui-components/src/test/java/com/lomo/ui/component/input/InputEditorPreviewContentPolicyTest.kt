@@ -1,7 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,26 +13,28 @@ import org.junit.Test
  *   no override path for pre-resolved image markdown content.
  * - Excludes: Compose animation timing, markdown parser behavior, and image loading pipeline.
  */
-class InputEditorPreviewContentPolicyTest {
-    @Test
-    fun `preview content override has priority over raw input text`() {
+class InputEditorPreviewContentPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("preview content override has priority over raw input text") {
         val resolved =
             resolveInputEditorPreviewContent(
                 inputText = "![image](img_001.jpg)",
                 previewContent = "![image](content://images/img_001.jpg)",
             )
 
-        assertEquals("![image](content://images/img_001.jpg)", resolved)
+        (resolved) shouldBe ("![image](content://images/img_001.jpg)")
+        }
     }
 
-    @Test
-    fun `preview content falls back to input text when override is absent`() {
+    init {
+        test("preview content falls back to input text when override is absent") {
         val resolved =
             resolveInputEditorPreviewContent(
                 inputText = "# Title",
                 previewContent = null,
             )
 
-        assertEquals("# Title", resolved)
+        (resolved) shouldBe ("# Title")
+        }
     }
 }

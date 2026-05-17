@@ -8,7 +8,10 @@
  */
 package com.lomo.data.repository
 
+
 import android.net.Uri
+import com.lomo.data.local.dao.ImageLocationCacheDao
+import com.lomo.data.local.entity.ImageLocationCacheEntity
 import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.StorageRootType
 import com.lomo.domain.model.MediaCategory
@@ -25,12 +28,35 @@ import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
-class MediaRepositoryImplTest {
+class MediaRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("refreshImageLocations emits file-backed image map") { `refreshImageLocations emits file-backed image map`() }
+
+        test("refreshImageLocations clears map when image root is missing") { `refreshImageLocations clears map when image root is missing`() }
+
+        test("importImage updates cached image map incrementally") { `importImage updates cached image map incrementally`() }
+
+        test("removeImage removes cached entry incrementally") { `removeImage removes cached entry incrementally`() }
+
+        test("importImage records image upsert in s3 local journal") { `importImage records image upsert in s3 local journal`() }
+
+        test("voice capture lifecycle records s3 journal mutations") { `voice capture lifecycle records s3 journal mutations`() }
+
+        test("ensureCategoryWorkspace returns null when image directory creation fails") { `ensureCategoryWorkspace returns null when image directory creation fails`() }
+
+        test("ensureCategoryWorkspace returns null when voice directory creation fails") { `ensureCategoryWorkspace returns null when voice directory creation fails`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataSource: FileDataSource
 
@@ -40,22 +66,27 @@ class MediaRepositoryImplTest {
     @MockK(relaxed = true)
     private lateinit var webDavLocalChangeRecorder: WebDavLocalChangeRecorder
 
+    @MockK(relaxed = true)
+    private lateinit var imageLocationCacheDao: ImageLocationCacheDao
+
     private lateinit var repository: MediaRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
+        coEvery { imageLocationCacheDao.readAll() } returns emptyList<ImageLocationCacheEntity>()
+        coEvery { imageLocationCacheDao.clearAll() } returns Unit
+        coEvery { imageLocationCacheDao.upsertAll(any()) } returns Unit
         repository =
             MediaRepositoryImpl(
                 workspaceConfigSource = dataSource,
                 mediaStorageDataSource = dataSource,
                 s3LocalChangeRecorder = s3LocalChangeRecorder,
                 webDavLocalChangeRecorder = webDavLocalChangeRecorder,
+                imageLocationCacheDao = imageLocationCacheDao,
             )
     }
 
-    @Test
-    fun `refreshImageLocations emits file-backed image map`() =
+    private fun `refreshImageLocations emits file-backed image map`() =
         runTest {
             coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf("content://images")
             coEvery { dataSource.listImageFiles() } returns
@@ -67,27 +98,22 @@ class MediaRepositoryImplTest {
             repository.refreshImageLocations()
 
             val map = repository.observeImageLocations().first()
-            assertEquals(
-                mapOf(
+            map shouldBe mapOf(
                     MediaEntryId("keep.jpg") to StorageLocation("uri://keep"),
                     MediaEntryId("new.jpg") to StorageLocation("uri://new"),
-                ),
-                map,
-            )
+                )
         }
 
-    @Test
-    fun `refreshImageLocations clears map when image root is missing`() =
+    private fun `refreshImageLocations clears map when image root is missing`() =
         runTest {
             coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf(null)
 
             repository.refreshImageLocations()
 
-            assertEquals(emptyMap<MediaEntryId, StorageLocation>(), repository.observeImageLocations().first())
+            repository.observeImageLocations().first() shouldBe emptyMap<MediaEntryId, StorageLocation>()
         }
 
-    @Test
-    fun `importImage updates cached image map incrementally`() =
+    private fun `importImage updates cached image map incrementally`() =
         runTest {
             val source = StorageLocation("content://source/image")
             val sourceUri = mockk<Uri>()
@@ -99,19 +125,15 @@ class MediaRepositoryImplTest {
 
                 val saved = repository.importImage(source)
 
-                assertEquals(StorageLocation("new.jpg"), saved)
-                assertEquals(
-                    mapOf(MediaEntryId("new.jpg") to StorageLocation("content://images/new.jpg")),
-                    repository.observeImageLocations().first(),
-                )
+                saved shouldBe StorageLocation("new.jpg")
+                repository.observeImageLocations().first() shouldBe mapOf(MediaEntryId("new.jpg") to StorageLocation("content://images/new.jpg"))
                 coVerify(exactly = 0) { dataSource.listImageFiles() }
             } finally {
                 unmockkStatic(Uri::class)
             }
         }
 
-    @Test
-    fun `removeImage removes cached entry incrementally`() =
+    private fun `removeImage removes cached entry incrementally`() =
         runTest {
             coEvery { dataSource.getRootFlow(StorageRootType.IMAGE) } returns flowOf("content://images")
             coEvery { dataSource.listImageFiles() } returns
@@ -123,16 +145,12 @@ class MediaRepositoryImplTest {
 
             repository.removeImage(MediaEntryId("drop.jpg"))
 
-            assertEquals(
-                mapOf(MediaEntryId("keep.jpg") to StorageLocation("content://images/keep.jpg")),
-                repository.observeImageLocations().first(),
-            )
+            repository.observeImageLocations().first() shouldBe mapOf(MediaEntryId("keep.jpg") to StorageLocation("content://images/keep.jpg"))
             coVerify { dataSource.deleteImage("drop.jpg") }
             coVerify(exactly = 1) { dataSource.listImageFiles() }
         }
 
-    @Test
-    fun `importImage records image upsert in s3 local journal`() =
+    private fun `importImage records image upsert in s3 local journal`() =
         runTest {
             val source = StorageLocation("content://source/image")
             val sourceUri = mockk<Uri>()
@@ -150,8 +168,7 @@ class MediaRepositoryImplTest {
             }
         }
 
-    @Test
-    fun `voice capture lifecycle records s3 journal mutations`() =
+    private fun `voice capture lifecycle records s3 journal mutations`() =
         runTest {
             val targetUri = mockk<Uri>()
             every { targetUri.toString() } returns "content://voice/voice_1.m4a"
@@ -160,30 +177,28 @@ class MediaRepositoryImplTest {
             val allocated = repository.allocateVoiceCaptureTarget(MediaEntryId("voice_1.m4a"))
             repository.removeVoiceCapture(MediaEntryId("voice_1.m4a"))
 
-            assertEquals(StorageLocation("content://voice/voice_1.m4a"), allocated)
+            allocated shouldBe StorageLocation("content://voice/voice_1.m4a")
             coVerify(exactly = 1) { s3LocalChangeRecorder.recordVoiceUpsert("voice_1.m4a") }
             coVerify(exactly = 1) { s3LocalChangeRecorder.recordVoiceDelete("voice_1.m4a") }
         }
 
-    @Test
-    fun `ensureCategoryWorkspace returns null when image directory creation fails`() =
+    private fun `ensureCategoryWorkspace returns null when image directory creation fails`() =
         runTest {
             coEvery { dataSource.createDirectory("images") } throws IllegalStateException("boom")
 
             val result = repository.ensureCategoryWorkspace(MediaCategory.IMAGE)
 
-            assertNull(result)
+            result.shouldBeNull()
             coVerify(exactly = 0) { dataSource.setRoot(StorageRootType.IMAGE, any()) }
         }
 
-    @Test
-    fun `ensureCategoryWorkspace returns null when voice directory creation fails`() =
+    private fun `ensureCategoryWorkspace returns null when voice directory creation fails`() =
         runTest {
             coEvery { dataSource.createDirectory("voice") } throws IllegalArgumentException("boom")
 
             val result = repository.ensureCategoryWorkspace(MediaCategory.VOICE)
 
-            assertNull(result)
+            result.shouldBeNull()
             coVerify(exactly = 0) { dataSource.setRoot(StorageRootType.VOICE, any()) }
         }
 }

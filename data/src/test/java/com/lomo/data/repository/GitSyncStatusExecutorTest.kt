@@ -1,4 +1,23 @@
+/*
+ * Test Contract:
+ * - Unit under test: GitSyncStatusExecutorTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for GitSyncStatusExecutorTest.
+ * - Boundary: boundary and edge cases for GitSyncStatusExecutorTest.
+ * - Failure: failure and error scenarios for GitSyncStatusExecutorTest.
+ * - Must-not-happen: invariants are never violated for GitSyncStatusExecutorTest.
+ *
+ * - Behavior focus: test behavioral outcomes of GitSyncStatusExecutorTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.repository
+
 
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
@@ -21,11 +40,10 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -34,7 +52,28 @@ import java.nio.file.Files
  * - Observable outcomes: returned GitSyncStatus/GitSyncResult values and branch-specific collaborator calls.
  * - Excludes: git query engine internals, SAF mirror transport implementation, and UI behavior.
  */
-class GitSyncStatusExecutorTest {
+class GitSyncStatusExecutorTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("getStatus uses direct root repo when direct root exists") { `getStatus uses direct root repo when direct root exists`() }
+
+        test("getStatus uses hashed SAF repo in split-directory layout") { `getStatus uses hashed SAF repo in split-directory layout`() }
+
+        test("getStatus returns empty status when SAF all-same mirror preparation fails") { `getStatus returns empty status when SAF all-same mirror preparation fails`() }
+
+        test("getStatus returns empty status and no query when no root is configured") { `getStatus returns empty status and no query when no root is configured`() }
+
+        test("testConnection returns repository-url-not-configured when remote url is blank") { `testConnection returns repository-url-not-configured when remote url is blank`() }
+
+        test("testConnection returns PAT required when token is missing") { `testConnection returns PAT required when token is missing`() }
+
+        test("testConnection delegates to query coordinator when preconditions are satisfied") { `testConnection delegates to query coordinator when preconditions are satisfied`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -68,8 +107,7 @@ class GitSyncStatusExecutorTest {
     private lateinit var support: GitSyncRepositorySupport
     private lateinit var executor: GitSyncStatusExecutor
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { context.filesDir } returns Files.createTempDirectory("git-status-executor").toFile()
         every { memoSynchronizer.outboxDrainCompleted } returns MutableSharedFlow()
@@ -103,8 +141,7 @@ class GitSyncStatusExecutorTest {
         executor = GitSyncStatusExecutor(runtime, support)
     }
 
-    @Test
-    fun `getStatus uses direct root repo when direct root exists`() =
+    private fun `getStatus uses direct root repo when direct root exists`() =
         runTest {
             val rootDir = Files.createTempDirectory("git-status-direct").toFile()
             stubLayout(
@@ -129,12 +166,11 @@ class GitSyncStatusExecutorTest {
 
             val result = executor.getStatus()
 
-            assertEquals(expected.copy(lastSyncTime = 123L), result)
+            result shouldBe expected.copy(lastSyncTime = 123L)
             verify(exactly = 1) { gitSyncQueryCoordinator.getStatus(rootDir) }
         }
 
-    @Test
-    fun `getStatus uses hashed SAF repo in split-directory layout`() =
+    private fun `getStatus uses hashed SAF repo in split-directory layout`() =
         runTest {
             val safRoot = "saf-root"
             stubLayout(
@@ -158,13 +194,12 @@ class GitSyncStatusExecutorTest {
 
             val result = executor.getStatus()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             verify(exactly = 1) { gitSyncQueryCoordinator.getStatus(safRepoDir) }
             coVerify(exactly = 0) { safGitMirrorBridge.mirrorDirectoryFor(any()) }
         }
 
-    @Test
-    fun `getStatus returns empty status when SAF all-same mirror preparation fails`() =
+    private fun `getStatus returns empty status when SAF all-same mirror preparation fails`() =
         runTest {
             val safRoot = "saf-shared-root"
             stubLayout(
@@ -180,20 +215,16 @@ class GitSyncStatusExecutorTest {
 
             val result = executor.getStatus()
 
-            assertEquals(
-                GitSyncStatus(
+            result shouldBe GitSyncStatus(
                     hasLocalChanges = false,
                     aheadCount = 0,
                     behindCount = 0,
                     lastSyncTime = 777L,
-                ),
-                result,
-            )
+                )
             verify(exactly = 0) { gitSyncQueryCoordinator.getStatus(any()) }
         }
 
-    @Test
-    fun `getStatus returns empty status and no query when no root is configured`() =
+    private fun `getStatus returns empty status and no query when no root is configured`() =
         runTest {
             stubLayout(
                 rootDirectory = null,
@@ -207,43 +238,37 @@ class GitSyncStatusExecutorTest {
 
             val result = executor.getStatus()
 
-            assertEquals(
-                GitSyncStatus(
+            result shouldBe GitSyncStatus(
                     hasLocalChanges = false,
                     aheadCount = 0,
                     behindCount = 0,
                     lastSyncTime = null,
-                ),
-                result,
-            )
+                )
             verify(exactly = 0) { gitSyncQueryCoordinator.getStatus(any()) }
         }
 
-    @Test
-    fun `testConnection returns repository-url-not-configured when remote url is blank`() =
+    private fun `testConnection returns repository-url-not-configured when remote url is blank`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf(" ")
 
             val result = executor.testConnection()
 
-            assertEquals(GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE), result)
+            result shouldBe GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
             verify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
         }
 
-    @Test
-    fun `testConnection returns PAT required when token is missing`() =
+    private fun `testConnection returns PAT required when token is missing`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("https://example.com/lomo.git")
             coEvery { credentialStore.getToken() } returns ""
 
             val result = executor.testConnection()
 
-            assertEquals(GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED), result)
+            result shouldBe GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             verify(exactly = 0) { gitSyncQueryCoordinator.testConnection(any()) }
         }
 
-    @Test
-    fun `testConnection delegates to query coordinator when preconditions are satisfied`() =
+    private fun `testConnection delegates to query coordinator when preconditions are satisfied`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("https://example.com/lomo.git")
             coEvery { credentialStore.getToken() } returns "token"
@@ -252,7 +277,7 @@ class GitSyncStatusExecutorTest {
 
             val result = executor.testConnection()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             verify(exactly = 1) { gitSyncQueryCoordinator.testConnection("https://example.com/lomo.git") }
         }
 

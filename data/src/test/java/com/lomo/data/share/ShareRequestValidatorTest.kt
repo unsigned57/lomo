@@ -1,28 +1,43 @@
 package com.lomo.data.share
 
+
 import com.lomo.data.share.LomoShareServer.AttachmentInfo
 import com.lomo.data.share.LomoShareServer.PrepareRequest
 import com.lomo.data.share.LomoShareServer.TransferMetadata
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
  * - Unit under test: ShareRequestValidator
  * - Behavior focus: prepare/transfer payload validation for open vs E2E mode, attachment-name normalization, and nonce consistency.
  * - Observable outcomes: returned rejection message for invalid requests, or null for accepted requests.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: HTTP transport, cryptographic signature verification, and server/client wiring.
  */
 @OptIn(ExperimentalEncodingApi::class)
-class ShareRequestValidatorTest {
+class ShareRequestValidatorTest : DataFunSpec() {
+    init {
+        test("validatePrepareRequest accepts open request with trimmed attachment names") { `validatePrepareRequest accepts open request with trimmed attachment names`() }
+
+        test("validatePrepareRequest rejects duplicate attachment names after trimming") { `validatePrepareRequest rejects duplicate attachment names after trimming`() }
+
+        test("validatePrepareRequest requires auth fields in open mode") { `validatePrepareRequest requires auth fields in open mode`() }
+
+        test("validateTransferMetadata accepts encrypted metadata with matching attachment nonces") { `validateTransferMetadata accepts encrypted metadata with matching attachment nonces`() }
+
+        test("validateTransferMetadata rejects mismatched attachment nonces in e2e mode") { `validateTransferMetadata rejects mismatched attachment nonces in e2e mode`() }
+
+        test("validateTransferMetadata rejects invalid attachment nonce payload") { `validateTransferMetadata rejects invalid attachment nonce payload`() }
+    }
+
+
     private val validator = ShareRequestValidator()
 
-    @Test
-    fun `validatePrepareRequest accepts open request with trimmed attachment names`() {
+    private fun `validatePrepareRequest accepts open request with trimmed attachment names`() {
         val request =
             prepareRequest(
                 e2eEnabled = false,
@@ -38,11 +53,10 @@ class ShareRequestValidatorTest {
 
         val result = validator.validatePrepareRequest(request)
 
-        assertNull(result)
+        result.shouldBeNull()
     }
 
-    @Test
-    fun `validatePrepareRequest rejects duplicate attachment names after trimming`() {
+    private fun `validatePrepareRequest rejects duplicate attachment names after trimming`() {
         val request =
             prepareRequest(
                 e2eEnabled = false,
@@ -58,11 +72,10 @@ class ShareRequestValidatorTest {
 
         val result = validator.validatePrepareRequest(request)
 
-        assertEquals("Duplicate attachment name", result)
+        result shouldBe "Duplicate attachment name"
     }
 
-    @Test
-    fun `validatePrepareRequest requires auth fields in open mode`() {
+    private fun `validatePrepareRequest requires auth fields in open mode`() {
         val request =
             prepareRequest(
                 e2eEnabled = false,
@@ -73,11 +86,10 @@ class ShareRequestValidatorTest {
 
         val result = validator.validatePrepareRequest(request)
 
-        assertEquals("Invalid auth timestamp", result)
+        result shouldBe "Invalid auth timestamp"
     }
 
-    @Test
-    fun `validateTransferMetadata accepts encrypted metadata with matching attachment nonces`() {
+    private fun `validateTransferMetadata accepts encrypted metadata with matching attachment nonces`() {
         val metadata =
             transferMetadata(
                 e2eEnabled = true,
@@ -91,11 +103,10 @@ class ShareRequestValidatorTest {
 
         val result = validator.validateTransferMetadata(metadata)
 
-        assertNull(result)
+        result.shouldBeNull()
     }
 
-    @Test
-    fun `validateTransferMetadata rejects mismatched attachment nonces in e2e mode`() {
+    private fun `validateTransferMetadata rejects mismatched attachment nonces in e2e mode`() {
         val metadata =
             transferMetadata(
                 e2eEnabled = true,
@@ -105,11 +116,10 @@ class ShareRequestValidatorTest {
 
         val result = validator.validateTransferMetadata(metadata)
 
-        assertEquals("Attachment nonce mismatch", result)
+        result shouldBe "Attachment nonce mismatch"
     }
 
-    @Test
-    fun `validateTransferMetadata rejects invalid attachment nonce payload`() {
+    private fun `validateTransferMetadata rejects invalid attachment nonce payload`() {
         val metadata =
             transferMetadata(
                 e2eEnabled = true,
@@ -119,7 +129,7 @@ class ShareRequestValidatorTest {
 
         val result = validator.validateTransferMetadata(metadata)
 
-        assertEquals("Invalid attachment nonce", result)
+        result shouldBe "Invalid attachment nonce"
     }
 
     private fun prepareRequest(

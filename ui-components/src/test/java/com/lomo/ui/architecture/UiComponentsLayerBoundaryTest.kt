@@ -1,49 +1,64 @@
+/*
+ * Test Contract:
+ * - Unit under test: UiComponentsLayerBoundaryTest
+ * - Owning layer: ui
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for UiComponentsLayerBoundaryTest.
+ * - Boundary: boundary and edge cases for UiComponentsLayerBoundaryTest.
+ * - Failure: failure and error scenarios for UiComponentsLayerBoundaryTest.
+ * - Must-not-happen: invariants are never violated for UiComponentsLayerBoundaryTest.
+ *
+ * - Behavior focus: test behavioral outcomes of UiComponentsLayerBoundaryTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.ui.architecture
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
 import java.io.File
 
-class UiComponentsLayerBoundaryTest {
+class UiComponentsLayerBoundaryTest : UiComponentsFunSpec() {
     private val moduleRoot = resolveModuleRoot("ui-components")
     private val sourceRoot = moduleRoot.resolve("src/main/java")
     private val gradleFile = moduleRoot.resolve("build.gradle.kts")
 
-    @Test
-    fun `ui-components source does not reference data layer package`() {
+    init {
+        test("ui-components source does not reference data layer package") {
         val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        assertTrue("No Kotlin sources found under ui-components/src/main/java", kotlinFiles.isNotEmpty())
+        withClue("No Kotlin sources found under ui-components/src/main/java") { (kotlinFiles.isNotEmpty()) shouldBe true }
 
         val offenders = kotlinFiles.filter(::containsDataLayerReference)
-        assertTrue(
-            "ui-components module must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+        withClue("ui-components module must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+        }
     }
 
-    @Test
-    fun `ui-components module does not apply hilt or ksp plugins`() {
+    init {
+        test("ui-components module does not apply hilt or ksp plugins") {
         val text = gradleFile.readText()
 
-        assertFalse(text.contains("libs.plugins.hilt"))
-        assertFalse(text.contains("libs.plugins.ksp"))
-        assertFalse(text.contains("hilt.android"))
-        assertFalse(text.contains("hilt.compiler"))
+        (text.contains("libs.plugins.hilt")) shouldBe false
+        (text.contains("libs.plugins.ksp")) shouldBe false
+        (text.contains("hilt.android")) shouldBe false
+        (text.contains("hilt.compiler")) shouldBe false
+        }
     }
 
-    @Test
-    fun `ui-components does not keep app ui state shims`() {
+    init {
+        test("ui-components does not keep app ui state shims") {
         val offenders =
             listOf(
                 moduleRoot.resolve("src/main/java/com/lomo/ui/util/UiState.kt"),
                 moduleRoot.resolve("src/main/java/com/lomo/ui/util/ViewModelExtensions.kt"),
             ).filter(File::exists)
 
-        assertTrue(
-            "ui-components must not keep ViewModel/UI-state compatibility shims. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+        withClue("ui-components must not keep ViewModel/UI-state compatibility shims. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+        }
     }
 
     private fun containsDataLayerReference(file: File): Boolean {

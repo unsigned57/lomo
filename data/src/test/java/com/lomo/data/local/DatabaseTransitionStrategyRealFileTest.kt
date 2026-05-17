@@ -3,33 +3,42 @@
  * - Unit under test: DatabaseTransitionStrategy
  * - Behavior focus: file-based database transitions with real file system interactions.
  * - Observable outcomes: successful file moves/copies, backup creation, state consistency.
- * - Red phase: Not applicable - integration testing for file-based transitions.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: SQLite schema logic, Room internals.
  */
 package com.lomo.data.local
+
 
 import android.content.Context
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.nio.file.Files
 import java.sql.DriverManager
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
-class DatabaseTransitionStrategyRealFileTest {
+class DatabaseTransitionStrategyRealFileTest : DataFunSpec() {
+    init {
+        test("prepareBeforeOpen keeps supported real sqlite database file") { `prepareBeforeOpen keeps supported real sqlite database file`() }
+
+        test("prepareBeforeOpen deletes unreachable real sqlite database file") { `prepareBeforeOpen deletes unreachable real sqlite database file`() }
+
+        test("prepareBeforeOpen deletes invalid header database file") { `prepareBeforeOpen deletes invalid header database file`() }
+    }
+
+
     private val migrationEdges = ALL_DATABASE_MIGRATIONS.map { it.startVersion to it.endVersion }
 
-    @Test
-    fun `prepareBeforeOpen keeps supported real sqlite database file`() {
+    private fun `prepareBeforeOpen keeps supported real sqlite database file`() {
         val databaseFile = createSQLiteDatabaseFile("supported.db", userVersion = 44)
         val context = mockContext(databaseFile)
         val inspection = inspectWithJdbc(databaseFile)
 
-        assertEquals(44, inspection.userVersion)
-        assertTrue(inspection.quickCheckPassed)
+        inspection.userVersion shouldBe 44
+        (inspection.quickCheckPassed).shouldBeTrue()
 
         DatabaseTransitionStrategy.prepareBeforeOpen(
             context = context,
@@ -39,12 +48,11 @@ class DatabaseTransitionStrategyRealFileTest {
             inspectDatabase = ::inspectWithJdbc,
         )
 
-        assertTrue(databaseFile.exists())
+        (databaseFile.exists()).shouldBeTrue()
         verify(exactly = 0) { context.deleteDatabase(databaseFile.name) }
     }
 
-    @Test
-    fun `prepareBeforeOpen deletes unreachable real sqlite database file`() {
+    private fun `prepareBeforeOpen deletes unreachable real sqlite database file`() {
         val databaseFile = createSQLiteDatabaseFile("unsupported.db", userVersion = 31)
         val context = mockContext(databaseFile)
 
@@ -56,12 +64,11 @@ class DatabaseTransitionStrategyRealFileTest {
             inspectDatabase = ::inspectWithJdbc,
         )
 
-        assertFalse(databaseFile.exists())
+        (databaseFile.exists()).shouldBeFalse()
         verify(exactly = 1) { context.deleteDatabase(databaseFile.name) }
     }
 
-    @Test
-    fun `prepareBeforeOpen deletes invalid header database file`() {
+    private fun `prepareBeforeOpen deletes invalid header database file`() {
         val databaseFile = Files.createTempFile("invalid-header-", ".db").toFile()
         databaseFile.writeText("not a sqlite database")
         val context = mockContext(databaseFile)
@@ -73,7 +80,7 @@ class DatabaseTransitionStrategyRealFileTest {
             migrationEdges = migrationEdges,
         )
 
-        assertFalse(databaseFile.exists())
+        (databaseFile.exists()).shouldBeFalse()
         verify(exactly = 1) { context.deleteDatabase(databaseFile.name) }
     }
 

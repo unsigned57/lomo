@@ -1,9 +1,9 @@
 package com.lomo.ui.theme
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -26,24 +26,23 @@ import org.junit.Test
  * - This is not changing the test to fit the implementation because the observable behavior and
  *   expected alpha remain identical; only the referenced symbol name changed.
  */
-class TextInteractionColorsTest {
+class TextInteractionColorsTest : UiComponentsFunSpec() {
     private val primary = Color(0xFF1E88E5)
     private val colorScheme = lightColorScheme(primary = primary)
 
-    @Test
-    fun `compose text selection colors use primary handle and lighter background`() {
+    init {
+        test("compose text selection colors use primary handle and lighter background") {
         val selectionColors = memoTextSelectionColors(colorScheme)
 
-        assertEquals(primary, selectionColors.handleColor)
-        assertEquals(primary.copy(alpha = memoTextSelectionBackgroundAlpha), selectionColors.backgroundColor)
+        (selectionColors.handleColor) shouldBe (primary)
+        (selectionColors.backgroundColor) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
+        }
     }
 
-    @Test
-    fun `platform selection colors reuse the same primary family`() {
-        assertEquals(primary, memoPlatformTextHandleColor(colorScheme))
-        assertEquals(
-            primary.copy(alpha = memoTextSelectionBackgroundAlpha),
-            memoPlatformTextSelectionHighlightColor(colorScheme),
-        )
+    init {
+        test("platform selection colors reuse the same primary family") {
+        (memoPlatformTextHandleColor(colorScheme)) shouldBe (primary)
+        (memoPlatformTextSelectionHighlightColor(colorScheme)) shouldBe (primary.copy(alpha = memoTextSelectionBackgroundAlpha))
+        }
     }
 }

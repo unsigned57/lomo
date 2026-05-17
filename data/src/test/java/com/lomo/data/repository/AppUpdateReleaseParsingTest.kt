@@ -1,8 +1,9 @@
 package com.lomo.data.repository
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -12,9 +13,15 @@ import org.junit.Test
  * - Red phase: Fails before the fix because latest-release parsing only keeps tag/url/body and does not expose any APK download asset for the in-app updater.
  * - Excludes: HTTP transport behavior, ViewModel state management, and package-installer integration.
  */
-class AppUpdateReleaseParsingTest {
-    @Test
-    fun `parseLatestReleaseResponse captures first apk asset for in-app download`() {
+class AppUpdateReleaseParsingTest : DataFunSpec() {
+    init {
+        test("parseLatestReleaseResponse captures first apk asset for in-app download") { `parseLatestReleaseResponse captures first apk asset for in-app download`() }
+
+        test("parseLatestReleaseResponse leaves apk fields empty when release has no apk asset") { `parseLatestReleaseResponse leaves apk fields empty when release has no apk asset`() }
+    }
+
+
+    private fun `parseLatestReleaseResponse captures first apk asset for in-app download`() {
         val response =
             """
             {
@@ -38,16 +45,15 @@ class AppUpdateReleaseParsingTest {
 
         val release = parseLatestReleaseResponse(response)
 
-        assertEquals("v1.2.0", release.tagName)
-        assertEquals("https://example.com/releases/1.2.0", release.htmlUrl)
-        assertEquals("Release notes", release.body)
-        assertEquals("https://example.com/assets/lomo-v1.2.0.apk", release.apkDownloadUrl)
-        assertEquals("lomo-v1.2.0.apk", release.apkFileName)
-        assertEquals(4096L, release.apkSizeBytes)
+        release.tagName shouldBe "v1.2.0"
+        release.htmlUrl shouldBe "https://example.com/releases/1.2.0"
+        release.body shouldBe "Release notes"
+        release.apkDownloadUrl shouldBe "https://example.com/assets/lomo-v1.2.0.apk"
+        release.apkFileName shouldBe "lomo-v1.2.0.apk"
+        release.apkSizeBytes shouldBe 4096L
     }
 
-    @Test
-    fun `parseLatestReleaseResponse leaves apk fields empty when release has no apk asset`() {
+    private fun `parseLatestReleaseResponse leaves apk fields empty when release has no apk asset`() {
         val response =
             """
             {
@@ -66,8 +72,8 @@ class AppUpdateReleaseParsingTest {
 
         val release = parseLatestReleaseResponse(response)
 
-        assertNull(release.apkDownloadUrl)
-        assertNull(release.apkFileName)
-        assertNull(release.apkSizeBytes)
+        release.apkDownloadUrl.shouldBeNull()
+        release.apkFileName.shouldBeNull()
+        release.apkSizeBytes.shouldBeNull()
     }
 }

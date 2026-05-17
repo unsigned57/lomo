@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
@@ -16,10 +17,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.time.LocalDate
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -32,7 +32,26 @@ import java.time.LocalDate
  *   the existing stable memo id, which splits version history across different memo ids after refresh.
  * - Excludes: MarkdownParser parsing internals, Room implementation details, and file-storage backend transport behavior.
  */
-class MemoRefreshParserWorkerTest {
+class MemoRefreshParserWorkerTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("parse maps main and trash files into entities metadata and replacement dates") { `parse maps main and trash files into entities metadata and replacement dates`() }
+
+        test("parse skips files whose contents cannot be read") { `parse skips files whose contents cannot be read`() }
+
+        test("parse reuses existing main memo id for refreshed content with the same timestamp") { `parse reuses existing main memo id for refreshed content with the same timestamp`() }
+
+        test("parse prefers same-content id when multiple existing memos share timestamp") { `parse prefers same-content id when multiple existing memos share timestamp`() }
+
+        test("parse filters trash memos that already exist in main db while keeping metadata") { `parse filters trash memos that already exist in main db while keeping metadata`() }
+
+        test("default file parse batch size stays within supported processor bounds") { `default file parse batch size stays within supported processor bounds`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
@@ -44,8 +63,7 @@ class MemoRefreshParserWorkerTest {
 
     private lateinit var worker: MemoRefreshParserWorker
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         worker =
             MemoRefreshParserWorker(
@@ -55,8 +73,7 @@ class MemoRefreshParserWorkerTest {
             )
     }
 
-    @Test
-    fun `parse maps main and trash files into entities metadata and replacement dates`() =
+    private fun `parse maps main and trash files into entities metadata and replacement dates`() =
         runTest {
             val mainMeta = fileMeta("2026_03_01.md", 101L, "main-doc", "content://lomo/main-doc")
             val trashMeta = fileMeta("2026_03_02.md", 202L, "trash-doc", "content://lomo/trash-doc")
@@ -79,16 +96,9 @@ class MemoRefreshParserWorkerTest {
 
             val result = worker.parse(listOf(mainMeta), listOf(trashMeta))
 
-            assertEquals(
-                listOf(MemoEntity.fromDomain(mainDomainMemo).copy(updatedAt = 101L)),
-                result.mainMemos,
-            )
-            assertEquals(
-                listOf(TrashMemoEntity.fromDomain(trashDomainMemo.copy(isDeleted = true)).copy(updatedAt = 202L)),
-                result.trashMemos,
-            )
-            assertEquals(
-                listOf(
+            result.mainMemos shouldBe listOf(MemoEntity.fromDomain(mainDomainMemo).copy(updatedAt = 101L))
+            result.trashMemos shouldBe listOf(TrashMemoEntity.fromDomain(trashDomainMemo.copy(isDeleted = true)).copy(updatedAt = 202L))
+            result.metadataToUpdate shouldBe listOf(
                     LocalFileStateEntity(
                         filename = "2026_03_01.md",
                         isTrash = false,
@@ -101,11 +111,9 @@ class MemoRefreshParserWorkerTest {
                         safUri = null,
                         lastKnownModifiedTime = 202L,
                     ),
-                ),
-                result.metadataToUpdate,
-            )
-            assertEquals(setOf("2026_03_01"), result.mainDatesToReplace)
-            assertEquals(setOf("2026_03_02"), result.trashDatesToReplace)
+                )
+            result.mainDatesToReplace shouldBe setOf("2026_03_01")
+            result.trashDatesToReplace shouldBe setOf("2026_03_02")
             verify(exactly = 1) {
                 parser.parseContent("- 10:00 main content", "2026_03_01", 101L)
             }
@@ -114,8 +122,7 @@ class MemoRefreshParserWorkerTest {
             }
         }
 
-    @Test
-    fun `parse skips files whose contents cannot be read`() =
+    private fun `parse skips files whose contents cannot be read`() =
         runTest {
             val mainMeta = fileMeta("2026_03_03.md", 303L, "main-empty", "content://lomo/main-empty")
             val trashMeta = fileMeta("2026_03_04.md", 404L, "trash-empty", "content://lomo/trash-empty")
@@ -129,17 +136,16 @@ class MemoRefreshParserWorkerTest {
 
             val result = worker.parse(listOf(mainMeta), listOf(trashMeta))
 
-            assertEquals(emptyList<MemoEntity>(), result.mainMemos)
-            assertEquals(emptyList<TrashMemoEntity>(), result.trashMemos)
-            assertEquals(emptyList<LocalFileStateEntity>(), result.metadataToUpdate)
-            assertEquals(emptySet<String>(), result.mainDatesToReplace)
-            assertEquals(emptySet<String>(), result.trashDatesToReplace)
+            result.mainMemos shouldBe emptyList<MemoEntity>()
+            result.trashMemos shouldBe emptyList<TrashMemoEntity>()
+            result.metadataToUpdate shouldBe emptyList<LocalFileStateEntity>()
+            result.mainDatesToReplace shouldBe emptySet<String>()
+            result.trashDatesToReplace shouldBe emptySet<String>()
             verify(exactly = 0) { parser.parseContent(any(), any(), any()) }
             coVerify(exactly = 0) { dao.getMemosByIds(any()) }
         }
 
-    @Test
-    fun `parse reuses existing main memo id for refreshed content with the same timestamp`() =
+    private fun `parse reuses existing main memo id for refreshed content with the same timestamp`() =
         runTest {
             val mainMeta = fileMeta("2026_03_06.md", 606L, "main-stable-id", "content://lomo/main-stable-id")
             val existingMemo = memo(id = "memo_original", dateKey = "2026_03_06", content = "alpha")
@@ -160,16 +166,12 @@ class MemoRefreshParserWorkerTest {
 
             val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
 
-            assertEquals(
-                listOf(MemoEntity.fromDomain(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L)),
-                result.mainMemos,
-            )
+            result.mainMemos shouldBe listOf(MemoEntity.fromDomain(reparsedMemo.copy(id = existingMemo.id)).copy(updatedAt = 606L))
             coVerify(exactly = 1) { dao.getMemosByDates(listOf("2026_03_06")) }
             coVerify(exactly = 0) { dao.getMemosByDate("2026_03_06") }
         }
 
-    @Test
-    fun `parse prefers same-content id when multiple existing memos share timestamp`() =
+    private fun `parse prefers same-content id when multiple existing memos share timestamp`() =
         runTest {
             val mainMeta = fileMeta("2026_03_07.md", 707L, "main-stable-collision", "content://lomo/main-stable-collision")
             val existingAlpha = memo(id = "memo-existing-alpha", dateKey = "2026_03_07", content = "alpha")
@@ -194,13 +196,12 @@ class MemoRefreshParserWorkerTest {
 
             val result = worker.parse(mainFilesToUpdate = listOf(mainMeta), trashFilesToUpdate = emptyList())
 
-            assertEquals(1, result.mainMemos.size)
-            assertEquals("memo-existing-beta", result.mainMemos.single().id)
+            result.mainMemos.size shouldBe 1
+            result.mainMemos.single().id shouldBe "memo-existing-beta"
             coVerify(exactly = 1) { dao.getMemosByDates(listOf("2026_03_07")) }
         }
 
-    @Test
-    fun `parse filters trash memos that already exist in main db while keeping metadata`() =
+    private fun `parse filters trash memos that already exist in main db while keeping metadata`() =
         runTest {
             val trashMeta = fileMeta("2026_03_05.md", 505L, "trash-filter", "content://lomo/trash-filter")
             val activeMemo = memo(id = "memo_active", dateKey = "2026_03_05", content = "active content")
@@ -217,30 +218,23 @@ class MemoRefreshParserWorkerTest {
 
             val result = worker.parse(mainFilesToUpdate = emptyList(), trashFilesToUpdate = listOf(trashMeta))
 
-            assertEquals(emptyList<MemoEntity>(), result.mainMemos)
-            assertEquals(
-                listOf(TrashMemoEntity.fromDomain(archivedMemo.copy(isDeleted = true)).copy(updatedAt = 505L)),
-                result.trashMemos,
-            )
-            assertEquals(
-                listOf(
+            result.mainMemos shouldBe emptyList<MemoEntity>()
+            result.trashMemos shouldBe listOf(TrashMemoEntity.fromDomain(archivedMemo.copy(isDeleted = true)).copy(updatedAt = 505L))
+            result.metadataToUpdate shouldBe listOf(
                     LocalFileStateEntity(
                         filename = "2026_03_05.md",
                         isTrash = true,
                         lastKnownModifiedTime = 505L,
                     ),
-                ),
-                result.metadataToUpdate,
-            )
-            assertEquals(emptySet<String>(), result.mainDatesToReplace)
-            assertEquals(setOf("2026_03_05"), result.trashDatesToReplace)
+                )
+            result.mainDatesToReplace shouldBe emptySet<String>()
+            result.trashDatesToReplace shouldBe setOf("2026_03_05")
         }
 
-    @Test
-    fun `default file parse batch size stays within supported processor bounds`() {
-        assertEquals(2, defaultFileParseBatchSize(1))
-        assertEquals(4, defaultFileParseBatchSize(4))
-        assertEquals(8, defaultFileParseBatchSize(64))
+    private fun `default file parse batch size stays within supported processor bounds`() {
+        defaultFileParseBatchSize(1) shouldBe 2
+        defaultFileParseBatchSize(4) shouldBe 4
+        defaultFileParseBatchSize(64) shouldBe 8
     }
 
     private fun fileMeta(

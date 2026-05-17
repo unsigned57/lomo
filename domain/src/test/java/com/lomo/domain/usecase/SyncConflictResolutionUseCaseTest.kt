@@ -21,15 +21,14 @@ import com.lomo.domain.repository.PreferencesRepository
 import com.lomo.domain.repository.S3SyncRepository
 import com.lomo.domain.repository.SyncInboxRepository
 import com.lomo.domain.repository.WebDavSyncRepository
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -39,7 +38,7 @@ import org.junit.Test
  * - Red phase: Fails before the fix because S3 conflict sets are not dispatched through the new resolver path, so successful resolutions skip refresh and S3 failures are not mapped to domain exceptions.
  * - Excludes: repository implementation internals, network/filesystem behavior, and UI rendering.
  */
-class SyncConflictResolutionUseCaseTest {
+class SyncConflictResolutionUseCaseTest : DomainFunSpec() {
     private val gitSyncRepository: GitSyncRepository = mockk()
     private val webDavSyncRepository: WebDavSyncRepository = mockk()
     private val s3SyncRepository: S3SyncRepository = mockk()
@@ -65,169 +64,178 @@ class SyncConflictResolutionUseCaseTest {
             syncProviderRegistry = syncProviderRegistry,
             memoRepository = memoRepository,
         )
+    init {
+        test("git source resolves conflicts and refreshes memos on success") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.GIT)
+                        val resolution = sampleResolution()
+                        coEvery { gitSyncRepository.resolveConflicts(resolution, conflictSet) } returns GitSyncResult.Success("resolved")
+                        coEvery { memoRepository.refreshMemos() } returns Unit
 
-    @Test
-    fun `git source resolves conflicts and refreshes memos on success`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.GIT)
-            val resolution = sampleResolution()
-            coEvery { gitSyncRepository.resolveConflicts(resolution, conflictSet) } returns GitSyncResult.Success("resolved")
-            coEvery { memoRepository.refreshMemos() } returns Unit
+                        useCase.resolve(conflictSet, resolution)
 
-            useCase.resolve(conflictSet, resolution)
-
-            coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                        coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("git source maps git error to failure exception and skips refresh") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.GIT)
+                        val resolution = sampleResolution()
+                        val cause = IllegalStateException("git failed")
+                        coEvery {
+                            gitSyncRepository.resolveConflicts(resolution, conflictSet)
+                        } returns GitSyncResult.Error(code = GitSyncErrorCode.CONFLICT, message = "conflict", exception = cause)
 
-    @Test
-    fun `git source maps git error to failure exception and skips refresh`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.GIT)
-            val resolution = sampleResolution()
-            val cause = IllegalStateException("git failed")
-            coEvery {
-                gitSyncRepository.resolveConflicts(resolution, conflictSet)
-            } returns GitSyncResult.Error(code = GitSyncErrorCode.CONFLICT, message = "conflict", exception = cause)
+                        val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
 
-            val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
-
-            assertTrue(thrown is GitSyncFailureException)
-            assertEquals(GitSyncErrorCode.CONFLICT, (thrown as GitSyncFailureException).code)
-            assertEquals("conflict", thrown.message)
-            assertSame(cause, thrown.cause)
-            coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                        val failure = thrown.shouldBeInstanceOf<GitSyncFailureException>()
+                        failure.code shouldBe GitSyncErrorCode.CONFLICT
+                        failure.message shouldBe "conflict"
+                        failure.cause shouldBe cause
+                        coVerify(exactly = 1) { gitSyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("webdav source resolves conflicts and refreshes memos on success") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.WEBDAV)
+                        val resolution = sampleResolution()
+                        coEvery {
+                            webDavSyncRepository.resolveConflicts(resolution, conflictSet)
+                        } returns WebDavSyncResult.Success("resolved")
+                        coEvery { memoRepository.refreshMemos() } returns Unit
 
-    @Test
-    fun `webdav source resolves conflicts and refreshes memos on success`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.WEBDAV)
-            val resolution = sampleResolution()
-            coEvery {
-                webDavSyncRepository.resolveConflicts(resolution, conflictSet)
-            } returns WebDavSyncResult.Success("resolved")
-            coEvery { memoRepository.refreshMemos() } returns Unit
+                        useCase.resolve(conflictSet, resolution)
 
-            useCase.resolve(conflictSet, resolution)
-
-            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                        coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("webdav source maps webdav error to failure exception and skips refresh") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.WEBDAV)
+                        val resolution = sampleResolution()
+                        val cause = IllegalArgumentException("webdav failed")
+                        coEvery {
+                            webDavSyncRepository.resolveConflicts(resolution, conflictSet)
+                        } returns WebDavSyncResult.Error(code = WebDavSyncErrorCode.CONNECTION_FAILED, message = "connection failed", exception = cause)
 
-    @Test
-    fun `webdav source maps webdav error to failure exception and skips refresh`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.WEBDAV)
-            val resolution = sampleResolution()
-            val cause = IllegalArgumentException("webdav failed")
-            coEvery {
-                webDavSyncRepository.resolveConflicts(resolution, conflictSet)
-            } returns WebDavSyncResult.Error(code = WebDavSyncErrorCode.CONNECTION_FAILED, message = "connection failed", exception = cause)
+                        val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
 
-            val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
-
-            assertTrue(thrown is WebDavSyncFailureException)
-            assertEquals(WebDavSyncErrorCode.CONNECTION_FAILED, (thrown as WebDavSyncFailureException).code)
-            assertEquals("connection failed", thrown.message)
-            assertSame(cause, thrown.cause)
-            coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                        val failure = thrown.shouldBeInstanceOf<WebDavSyncFailureException>()
+                        failure.code shouldBe WebDavSyncErrorCode.CONNECTION_FAILED
+                        failure.message shouldBe "connection failed"
+                        failure.cause shouldBe cause
+                        coVerify(exactly = 1) { webDavSyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("s3 source resolves conflicts and refreshes memos on success") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.S3)
+                        val resolution = sampleResolution()
+                        coEvery { s3SyncRepository.resolveConflicts(resolution, conflictSet) } returns S3SyncResult.Success("resolved")
+                        coEvery { memoRepository.refreshMemos() } returns Unit
 
-    @Test
-    fun `s3 source resolves conflicts and refreshes memos on success`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.S3)
-            val resolution = sampleResolution()
-            coEvery { s3SyncRepository.resolveConflicts(resolution, conflictSet) } returns S3SyncResult.Success("resolved")
-            coEvery { memoRepository.refreshMemos() } returns Unit
+                        useCase.resolve(conflictSet, resolution)
 
-            useCase.resolve(conflictSet, resolution)
-
-            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                        coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("s3 source returns pending result without refreshing memos") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.S3)
+                        val resolution = sampleResolution()
+                        val pending = conflictSet.copy(files = emptyList())
+                        coEvery {
+                            s3SyncRepository.resolveConflicts(resolution, conflictSet)
+                        } returns S3SyncResult.Conflict(message = "Pending conflicts remain", conflicts = pending)
 
-    @Test
-    fun `s3 source returns pending result without refreshing memos`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.S3)
-            val resolution = sampleResolution()
-            val pending = conflictSet.copy(files = emptyList())
-            coEvery {
-                s3SyncRepository.resolveConflicts(resolution, conflictSet)
-            } returns S3SyncResult.Conflict(message = "Pending conflicts remain", conflicts = pending)
+                        val result = useCase.resolve(conflictSet, resolution)
 
-            val result = useCase.resolve(conflictSet, resolution)
-
-            assertEquals(SyncConflictResolutionResult.Pending(pending), result)
-            coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                        result shouldBe SyncConflictResolutionResult.Pending(pending)
+                        coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("s3 source maps s3 error to failure exception and skips refresh") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.S3)
+                        val resolution = sampleResolution()
+                        val cause = IllegalStateException("s3 failed")
+                        coEvery {
+                            s3SyncRepository.resolveConflicts(resolution, conflictSet)
+                        } returns S3SyncResult.Error(code = S3SyncErrorCode.BUCKET_ACCESS_FAILED, message = "bucket failed", exception = cause)
 
-    @Test
-    fun `s3 source maps s3 error to failure exception and skips refresh`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.S3)
-            val resolution = sampleResolution()
-            val cause = IllegalStateException("s3 failed")
-            coEvery {
-                s3SyncRepository.resolveConflicts(resolution, conflictSet)
-            } returns S3SyncResult.Error(code = S3SyncErrorCode.BUCKET_ACCESS_FAILED, message = "bucket failed", exception = cause)
+                        val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
 
-            val thrown = runCatching { useCase.resolve(conflictSet, resolution) }.exceptionOrNull()
-
-            assertTrue(thrown is S3SyncFailureException)
-            assertEquals(S3SyncErrorCode.BUCKET_ACCESS_FAILED, (thrown as S3SyncFailureException).code)
-            assertEquals("bucket failed", thrown.message)
-            assertSame(cause, thrown.cause)
-            coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                        val failure = thrown.shouldBeInstanceOf<S3SyncFailureException>()
+                        failure.code shouldBe S3SyncErrorCode.BUCKET_ACCESS_FAILED
+                        failure.message shouldBe "bucket failed"
+                        failure.cause shouldBe cause
+                        coVerify(exactly = 1) { s3SyncRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 0) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("none source skips resolver and still refreshes memos") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.NONE)
+                        val resolution = sampleResolution()
+                        coEvery { memoRepository.refreshMemos() } returns Unit
 
-    @Test
-    fun `none source skips resolver and still refreshes memos`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.NONE)
-            val resolution = sampleResolution()
-            coEvery { memoRepository.refreshMemos() } returns Unit
+                        useCase.resolve(conflictSet, resolution)
 
-            useCase.resolve(conflictSet, resolution)
-
-            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                        coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                    }
         }
+    }
+    init {
+        test("inbox source resolves conflicts and refreshes memos on success") {
+            runTest {
+                        val conflictSet = conflictSet(SyncBackendType.INBOX)
+                        val resolution = sampleResolution()
+                        every { preferencesRepository.isSyncInboxEnabled() } returns kotlinx.coroutines.flow.flowOf(true)
+                        coEvery { syncInboxRepository.resolveConflicts(resolution, conflictSet) } returns UnifiedSyncResult.Success(
+                            provider = SyncBackendType.INBOX,
+                            message = "resolved",
+                        )
+                        coEvery { memoRepository.refreshMemos() } returns Unit
 
-    @Test
-    fun `inbox source resolves conflicts and refreshes memos on success`() =
-        runTest {
-            val conflictSet = conflictSet(SyncBackendType.INBOX)
-            val resolution = sampleResolution()
-            every { preferencesRepository.isSyncInboxEnabled() } returns kotlinx.coroutines.flow.flowOf(true)
-            coEvery { syncInboxRepository.resolveConflicts(resolution, conflictSet) } returns UnifiedSyncResult.Success(
-                provider = SyncBackendType.INBOX,
-                message = "resolved",
-            )
-            coEvery { memoRepository.refreshMemos() } returns Unit
+                        useCase.resolve(conflictSet, resolution)
 
-            useCase.resolve(conflictSet, resolution)
-
-            coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
-            coVerify(exactly = 1) { syncInboxRepository.resolveConflicts(resolution, conflictSet) }
-            coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                        coVerify(exactly = 0) { gitSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { webDavSyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 0) { s3SyncRepository.resolveConflicts(any(), any()) }
+                        coVerify(exactly = 1) { syncInboxRepository.resolveConflicts(resolution, conflictSet) }
+                        coVerify(exactly = 1) { memoRepository.refreshMemos() }
+                    }
         }
+    }
 
     private fun conflictSet(source: SyncBackendType): SyncConflictSet =
         SyncConflictSet(

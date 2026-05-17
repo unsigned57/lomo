@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -16,9 +17,8 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -28,7 +28,18 @@ import org.junit.Test
  * - Red phase: Fails before the fix because validateEncryptionSupport rejects every RCLONE_CRYPT config as not implemented.
  * - Excludes: AWS SDK transport behavior, sync planning, file bridge behavior, and UI rendering.
  */
-class S3SyncRepositorySupportTest {
+class S3SyncRepositorySupportTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("withClient accepts rclone crypt config when password is present") { `withClient accepts rclone crypt config when password is present`() }
+
+        test("withClient rejects insecure http endpoint by default") { `withClient rejects insecure http endpoint by default`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -55,8 +66,7 @@ class S3SyncRepositorySupportTest {
 
     private lateinit var support: S3SyncRepositorySupport
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { clientFactory.create(any()) } returns client
         support =
@@ -77,8 +87,7 @@ class S3SyncRepositorySupportTest {
             )
     }
 
-    @Test
-    fun `withClient accepts rclone crypt config when password is present`() =
+    private fun `withClient accepts rclone crypt config when password is present`() =
         runTest {
             val config =
                 S3ResolvedConfig(
@@ -97,13 +106,12 @@ class S3SyncRepositorySupportTest {
 
             val result = support.withClient(config) { "ok" }
 
-            assertEquals("ok", result)
+            result shouldBe "ok"
             verify(exactly = 1) { clientFactory.create(config) }
             verify(exactly = 1) { client.close() }
         }
 
-    @Test
-    fun `withClient rejects insecure http endpoint by default`() =
+    private fun `withClient rejects insecure http endpoint by default`() =
         runTest {
             val config =
                 S3ResolvedConfig(
@@ -124,11 +132,8 @@ class S3SyncRepositorySupportTest {
                     as? S3SyncFailureException
 
             requireNotNull(failure)
-            assertEquals(S3SyncErrorCode.CONNECTION_FAILED, failure.code)
-            assertEquals(
-                "S3 endpoint must use HTTPS unless insecure HTTP is explicitly allowed",
-                failure.message,
-            )
+            failure.code shouldBe S3SyncErrorCode.CONNECTION_FAILED
+            failure.message shouldBe "S3 endpoint must use HTTPS unless insecure HTTP is explicitly allowed"
             verify(exactly = 0) { clientFactory.create(any()) }
         }
 }

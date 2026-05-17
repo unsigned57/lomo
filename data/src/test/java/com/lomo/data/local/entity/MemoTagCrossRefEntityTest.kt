@@ -1,7 +1,8 @@
 package com.lomo.data.local.entity
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,86 +13,80 @@ import org.junit.Test
  *   `["你好"]`, so the sidebar renders the raw JSON string as a tag name.
  * - Excludes: Room DAO behavior, UI rendering, memo domain mapping.
  */
-class MemoTagCrossRefEntityTest {
-    @Test
-    fun `toTagCrossRefs decodes json encoded tag list into separate refs`() {
+class MemoTagCrossRefEntityTest : DataFunSpec() {
+    init {
+        test("toTagCrossRefs decodes json encoded tag list into separate refs") { `toTagCrossRefs decodes json encoded tag list into separate refs`() }
+
+        test("toTagCrossRefs preserves tag value containing comma inside json encoding") { `toTagCrossRefs preserves tag value containing comma inside json encoding`() }
+
+        test("toTagCrossRefs decodes single cjk tag without exposing json brackets") { `toTagCrossRefs decodes single cjk tag without exposing json brackets`() }
+
+        test("toTagCrossRefs keeps reading legacy csv format") { `toTagCrossRefs keeps reading legacy csv format`() }
+
+        test("toTagCrossRefs returns empty list when tags is empty string") { `toTagCrossRefs returns empty list when tags is empty string`() }
+
+        test("toTagCrossRefs deduplicates repeated tag entries") { `toTagCrossRefs deduplicates repeated tag entries`() }
+    }
+
+
+    private fun `toTagCrossRefs decodes json encoded tag list into separate refs`() {
         val entity = sampleEntity(tags = """["work","travel"]""")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(
-            listOf(
+        refs shouldBe listOf(
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "work"),
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "travel"),
-            ),
-            refs,
-        )
+            )
     }
 
-    @Test
-    fun `toTagCrossRefs preserves tag value containing comma inside json encoding`() {
+    private fun `toTagCrossRefs preserves tag value containing comma inside json encoding`() {
         val entity = sampleEntity(tags = """["tag,with,comma","travel"]""")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(
-            listOf(
+        refs shouldBe listOf(
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "tag,with,comma"),
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "travel"),
-            ),
-            refs,
-        )
+            )
     }
 
-    @Test
-    fun `toTagCrossRefs decodes single cjk tag without exposing json brackets`() {
+    private fun `toTagCrossRefs decodes single cjk tag without exposing json brackets`() {
         val entity = sampleEntity(tags = """["你好"]""")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(
-            listOf(MemoTagCrossRefEntity(memoId = "memo-json", tag = "你好")),
-            refs,
-        )
+        refs shouldBe listOf(MemoTagCrossRefEntity(memoId = "memo-json", tag = "你好"))
     }
 
-    @Test
-    fun `toTagCrossRefs keeps reading legacy csv format`() {
+    private fun `toTagCrossRefs keeps reading legacy csv format`() {
         val entity = sampleEntity(tags = "work,travel")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(
-            listOf(
+        refs shouldBe listOf(
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "work"),
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "travel"),
-            ),
-            refs,
-        )
+            )
     }
 
-    @Test
-    fun `toTagCrossRefs returns empty list when tags is empty string`() {
+    private fun `toTagCrossRefs returns empty list when tags is empty string`() {
         val entity = sampleEntity(tags = "")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(emptyList<MemoTagCrossRefEntity>(), refs)
+        refs shouldBe emptyList<MemoTagCrossRefEntity>()
     }
 
-    @Test
-    fun `toTagCrossRefs deduplicates repeated tag entries`() {
+    private fun `toTagCrossRefs deduplicates repeated tag entries`() {
         val entity = sampleEntity(tags = """["work","work","travel"]""")
 
         val refs = entity.toTagCrossRefs()
 
-        assertEquals(
-            listOf(
+        refs shouldBe listOf(
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "work"),
                 MemoTagCrossRefEntity(memoId = "memo-json", tag = "travel"),
-            ),
-            refs,
-        )
+            )
     }
 
     private fun sampleEntity(tags: String): MemoEntity =

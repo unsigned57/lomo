@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.domain.model.S3RemoteVerificationLevel
@@ -8,9 +9,10 @@ import com.lomo.domain.model.S3SyncReason
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -20,7 +22,20 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the executor verification phase is a no-op, leaving stale cached DELETE_REMOTE / UPLOAD actions to be skipped later during apply while the sync result still reports the original destructive outcome.
  * - Excludes: conflict payload downloads, Room persistence, and WorkManager scheduling.
  */
-class S3PreparedActionVerificationGateTest {
+class S3PreparedActionVerificationGateTest : DataFunSpec() {
+    init {
+        test("verify rewrites stale cached delete-remote candidate into download before apply") { `verify rewrites stale cached delete-remote candidate into download before apply`() }
+
+        test("verify does not delete local file on first observed remote miss outside reconcile evidence") { `verify does not delete local file on first observed remote miss outside reconcile evidence`() }
+
+        test("verify preserves delete local after repeated verified missing evidence") { `verify preserves delete local after repeated verified missing evidence`() }
+
+        test("verify skips delete-local head request when missing evidence is already stable") { `verify skips delete-local head request when missing evidence is already stable`() }
+
+        test("verify checks multiple candidates concurrently") { `verify checks multiple candidates concurrently`() }
+    }
+
+
     private val planner = S3SyncPlanner(timestampToleranceMs = 0L)
     private val encodingSupport = S3SyncEncodingSupport()
     private val config =
@@ -37,8 +52,7 @@ class S3PreparedActionVerificationGateTest {
             encryptionPassword = null,
         )
 
-    @Test
-    fun `verify rewrites stale cached delete-remote candidate into download before apply`() =
+    private fun `verify rewrites stale cached delete-remote candidate into download before apply`() =
         runTest {
             val path = "lomo/memo/note.md"
             val metadata =
@@ -83,7 +97,7 @@ class S3PreparedActionVerificationGateTest {
             val client =
                 VerificationProbeS3Client(
                     onHead = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(
                             key = key,
                             eTag = "etag-new",
@@ -96,20 +110,13 @@ class S3PreparedActionVerificationGateTest {
 
             val verified = verifier.verify(prepared = prepared, client = client, config = config)
 
-            assertEquals(
-                listOf(S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_NEWER)),
-                verified.prepared.plan.actions,
-            )
-            assertEquals(
-                S3RemoteVerificationLevel.VERIFIED_REMOTE,
-                verified.prepared.remoteFiles[path]?.verificationLevel,
-            )
-            assertTrue(verified.verifiedMissingRemotePaths.isEmpty())
-            assertEquals(listOf(path), client.headKeys)
+            verified.prepared.plan.actions shouldBe listOf(S3SyncAction(path, S3SyncDirection.DOWNLOAD, S3SyncReason.REMOTE_NEWER))
+            verified.prepared.remoteFiles[path]?.verificationLevel shouldBe S3RemoteVerificationLevel.VERIFIED_REMOTE
+            (verified.verifiedMissingRemotePaths.isEmpty()).shouldBeTrue()
+            client.headKeys shouldBe listOf(path)
         }
 
-    @Test
-    fun `verify does not delete local file on first observed remote miss outside reconcile evidence`() =
+    private fun `verify does not delete local file on first observed remote miss outside reconcile evidence`() =
         runTest {
             val path = "lomo/memo/note.md"
             val metadata =
@@ -150,14 +157,13 @@ class S3PreparedActionVerificationGateTest {
 
             val verified = verifier.verify(prepared = prepared, client = client, config = config)
 
-            assertEquals(emptyList<S3SyncAction>(), verified.prepared.plan.actions)
-            assertTrue(verified.verifiedMissingRemotePaths.isEmpty())
-            assertEquals(setOf(path), verified.prepared.observedMissingRemotePaths)
-            assertEquals(listOf(path), client.headKeys)
+            verified.prepared.plan.actions shouldBe emptyList<S3SyncAction>()
+            (verified.verifiedMissingRemotePaths.isEmpty()).shouldBeTrue()
+            verified.prepared.observedMissingRemotePaths shouldBe setOf(path)
+            client.headKeys shouldBe listOf(path)
         }
 
-    @Test
-    fun `verify preserves delete local after repeated verified missing evidence`() =
+    private fun `verify preserves delete local after repeated verified missing evidence`() =
         runTest {
             val path = "lomo/memo/note.md"
             val metadata =
@@ -211,17 +217,13 @@ class S3PreparedActionVerificationGateTest {
 
             val verified = verifier.verify(prepared = prepared, client = client, config = config)
 
-            assertEquals(
-                listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
-                verified.prepared.plan.actions,
-            )
-            assertEquals(setOf(path), verified.verifiedMissingRemotePaths)
-            assertTrue(verified.prepared.observedMissingRemotePaths.isEmpty())
-            assertTrue(client.headKeys.isEmpty())
+            verified.prepared.plan.actions shouldBe listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED))
+            verified.verifiedMissingRemotePaths shouldBe setOf(path)
+            (verified.prepared.observedMissingRemotePaths.isEmpty()).shouldBeTrue()
+            (client.headKeys.isEmpty()).shouldBeTrue()
         }
 
-    @Test
-    fun `verify skips delete-local head request when missing evidence is already stable`() =
+    private fun `verify skips delete-local head request when missing evidence is already stable`() =
         runTest {
             val path = "lomo/memo/note.md"
             val metadata =
@@ -280,16 +282,12 @@ class S3PreparedActionVerificationGateTest {
 
             val verified = verifier.verify(prepared = prepared, client = client, config = config)
 
-            assertEquals(
-                listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED)),
-                verified.prepared.plan.actions,
-            )
-            assertEquals(setOf(path), verified.verifiedMissingRemotePaths)
-            assertTrue(client.headKeys.isEmpty())
+            verified.prepared.plan.actions shouldBe listOf(S3SyncAction(path, S3SyncDirection.DELETE_LOCAL, S3SyncReason.REMOTE_DELETED))
+            verified.verifiedMissingRemotePaths shouldBe setOf(path)
+            (client.headKeys.isEmpty()).shouldBeTrue()
         }
 
-    @Test
-    fun `verify checks multiple candidates concurrently`() =
+    private fun `verify checks multiple candidates concurrently`() =
         runTest {
             val paths =
                 listOf(
@@ -357,11 +355,8 @@ class S3PreparedActionVerificationGateTest {
             S3PreparedActionVerificationGate(planner = planner, encodingSupport = encodingSupport)
                 .verify(prepared = prepared, client = client, config = config)
 
-            assertEquals(paths, client.headKeys.sorted())
-            assertTrue(
-                "Verification should overlap HeadObject requests for independent paths instead of serializing them one by one.",
-                peakConcurrency.get() > 1,
-            )
+            client.headKeys.sorted() shouldBe paths
+            withClue("Verification should overlap HeadObject requests for independent paths instead of serializing them one by one.") { (peakConcurrency.get() > 1).shouldBeTrue() }
         }
 }
 

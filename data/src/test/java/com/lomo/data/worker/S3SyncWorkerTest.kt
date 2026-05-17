@@ -1,5 +1,6 @@
 package com.lomo.data.worker
 
+
 import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.workDataOf
@@ -12,24 +13,32 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: S3SyncWorker
  * - Behavior focus: periodic S3 auto-sync delegates exactly once to the shared S3 sync repository and maps result types to WorkManager outcomes without opening another sync path.
  * - Observable outcomes: returned ListenableWorker.Result and repository invocation count.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: WorkManager scheduling policy, Android process lifecycle, and S3 transport details.
  */
-class S3SyncWorkerTest {
+class S3SyncWorkerTest : DataFunSpec() {
+    init {
+        test("doWork delegates periodic sync to shared s3 repository") { `doWork delegates periodic sync to shared s3 repository`() }
+
+        test("doWork treats s3 conflict as successful periodic run") { `doWork treats s3 conflict as successful periodic run`() }
+
+        test("doWork honors explicit full reconcile policy input") { `doWork honors explicit full reconcile policy input`() }
+    }
+
+
     private val context: Context = mockk(relaxed = true)
     private val workerParams: WorkerParameters = mockk(relaxed = true)
     private val s3SyncRepository: S3SyncRepository = mockk(relaxed = true)
 
-    @Test
-    fun `doWork delegates periodic sync to shared s3 repository`() =
+    private fun `doWork delegates periodic sync to shared s3 repository`() =
         runTest {
             every { workerParams.inputData } returns workDataOf()
             coEvery { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) } returns
@@ -39,12 +48,11 @@ class S3SyncWorkerTest {
 
             val result = worker.doWork()
 
-            assertEquals(ListenableWorker.Result.success(), result)
+            result shouldBe ListenableWorker.Result.success()
             coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) }
         }
 
-    @Test
-    fun `doWork treats s3 conflict as successful periodic run`() =
+    private fun `doWork treats s3 conflict as successful periodic run`() =
         runTest {
             every { workerParams.inputData } returns workDataOf()
             coEvery {
@@ -55,12 +63,11 @@ class S3SyncWorkerTest {
 
             val result = worker.doWork()
 
-            assertEquals(ListenableWorker.Result.success(), result)
+            result shouldBe ListenableWorker.Result.success()
             coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FAST_ONLY) }
         }
 
-    @Test
-    fun `doWork honors explicit full reconcile policy input`() =
+    private fun `doWork honors explicit full reconcile policy input`() =
         runTest {
             every { workerParams.inputData } returns S3SyncWorker.inputData(S3SyncScanPolicy.FULL_RECONCILE)
             coEvery { s3SyncRepository.sync(S3SyncScanPolicy.FULL_RECONCILE) } returns
@@ -70,7 +77,7 @@ class S3SyncWorkerTest {
 
             val result = worker.doWork()
 
-            assertEquals(ListenableWorker.Result.success(), result)
+            result shouldBe ListenableWorker.Result.success()
             coVerify(exactly = 1) { s3SyncRepository.sync(S3SyncScanPolicy.FULL_RECONCILE) }
         }
 }

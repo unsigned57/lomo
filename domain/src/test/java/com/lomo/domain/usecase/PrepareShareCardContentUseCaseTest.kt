@@ -1,9 +1,8 @@
 package com.lomo.domain.usecase
 
 import com.lomo.domain.model.ShareCardTextInput
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,67 +12,67 @@ import org.junit.Test
  * - Red phase: Fails before the fix when inline emoji tags are ignored and remain in the body text.
  * - Excludes: presentation-layer truncation, typography, and UI rendering details.
  */
-class PrepareShareCardContentUseCaseTest {
+class PrepareShareCardContentUseCaseTest : DomainFunSpec() {
     private val useCase = PrepareShareCardContentUseCase()
+    init {
+        test("invoke keeps long content without truncation") {
+            val longContent = "x".repeat(4500)
 
-    @Test
-    fun `invoke keeps long content without truncation`() {
-        val longContent = "x".repeat(4500)
+            val result =
+                useCase(
+                    ShareCardTextInput(
+                        content = longContent,
+                        sourceTags = emptyList(),
+                    ),
+                )
 
-        val result =
-            useCase(
-                ShareCardTextInput(
-                    content = longContent,
-                    sourceTags = emptyList(),
-                ),
-            )
-
-        assertEquals(longContent, result.bodyText)
-        assertFalse(result.bodyText.endsWith("..."))
+            result.bodyText shouldBe longContent
+            (result.bodyText.endsWith("...")) shouldBe false
+        }
     }
+    init {
+        test("invoke keeps all source tags without display truncation") {
+            val tags =
+                (1..8).map { index ->
+                    "#feature_${"x".repeat(20)}_$index"
+                }
 
-    @Test
-    fun `invoke keeps all source tags without display truncation`() {
-        val tags =
-            (1..8).map { index ->
-                "#feature_${"x".repeat(20)}_$index"
-            }
+            val result =
+                useCase(
+                    ShareCardTextInput(
+                        content = "memo body",
+                        sourceTags = tags,
+                    ),
+                )
 
-        val result =
-            useCase(
-                ShareCardTextInput(
-                    content = "memo body",
-                    sourceTags = tags,
-                ),
-            )
-
-        assertEquals(tags.map { it.removePrefix("#") }, result.tags)
+            result.tags shouldBe tags.map { it.removePrefix("#") }
+        }
     }
+    init {
+        test("invoke keeps original spacing semantics in body text") {
+            val result =
+                useCase(
+                    ShareCardTextInput(
+                        content = "line1  line2\n\n\nline3 #topic",
+                        sourceTags = emptyList(),
+                    ),
+                )
 
-    @Test
-    fun `invoke keeps original spacing semantics in body text`() {
-        val result =
-            useCase(
-                ShareCardTextInput(
-                    content = "line1  line2\n\n\nline3 #topic",
-                    sourceTags = emptyList(),
-                ),
-            )
-
-        assertEquals("line1  line2\n\n\nline3", result.bodyText)
+            result.bodyText shouldBe "line1  line2\n\n\nline3"
+        }
     }
+    init {
+        test("invoke extracts inline emoji tags and removes them from body text") {
+            val result =
+                useCase(
+                    ShareCardTextInput(
+                        content = "计划 #😀工作 和 #🎉",
+                        sourceTags = emptyList(),
+                    ),
+                )
 
-    @Test
-    fun `invoke extracts inline emoji tags and removes them from body text`() {
-        val result =
-            useCase(
-                ShareCardTextInput(
-                    content = "计划 #😀工作 和 #🎉",
-                    sourceTags = emptyList(),
-                ),
-            )
-
-        assertEquals(listOf("😀工作", "🎉"), result.tags)
-        assertEquals("计划 和", result.bodyText)
+            result.tags shouldBe listOf("😀工作", "🎉")
+            result.bodyText shouldBe "计划 和"
+        }
     }
 }

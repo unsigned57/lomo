@@ -1,8 +1,7 @@
 package com.lomo.ui.theme
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,62 +11,54 @@ import org.junit.Test
  * - Red phase: Fails before the fix because LomoTheme always animates color-scheme changes, so a system dark-mode transition still visibly interpolates colors when the app becomes visible again.
  * - Excludes: AppCompatDelegate integration, OEM theme propagation timing, and Compose rendering snapshots.
  */
-class ThemeAnimationPolicyTest {
-    @Test
-    fun `system theme disables animation when dark mode flips`() {
-        assertFalse(
-            shouldAnimateThemeColorTransition(
+class ThemeAnimationPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("system theme disables animation when dark mode flips") {
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.SYSTEM,
                 previousDarkTheme = false,
                 currentDarkTheme = true,
-            ),
-        )
-        assertFalse(
-            shouldAnimateThemeColorTransition(
+            )) shouldBe false
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.SYSTEM,
                 previousDarkTheme = true,
                 currentDarkTheme = false,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
-    @Test
-    fun `system theme keeps animation for steady-state recomposition`() {
-        assertTrue(
-            shouldAnimateThemeColorTransition(
+    init {
+        test("system theme keeps animation for steady-state recomposition") {
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.SYSTEM,
                 previousDarkTheme = true,
                 currentDarkTheme = true,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 
-    @Test
-    fun `explicit themes keep animated transitions`() {
-        assertTrue(
-            shouldAnimateThemeColorTransition(
+    init {
+        test("explicit themes keep animated transitions") {
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.DARK,
                 previousDarkTheme = false,
                 currentDarkTheme = true,
-            ),
-        )
-        assertTrue(
-            shouldAnimateThemeColorTransition(
+            )) shouldBe true
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.LIGHT,
                 previousDarkTheme = true,
                 currentDarkTheme = false,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 
-    @Test
-    fun `initial composition keeps animation enabled`() {
-        assertTrue(
-            shouldAnimateThemeColorTransition(
+    init {
+        test("initial composition keeps animation enabled") {
+        (shouldAnimateThemeColorTransition(
                 themeMode = ThemeMode.SYSTEM,
                 previousDarkTheme = null,
                 currentDarkTheme = true,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 }

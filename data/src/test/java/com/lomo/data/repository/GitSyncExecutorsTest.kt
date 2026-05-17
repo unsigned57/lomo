@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
@@ -27,12 +28,11 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -42,7 +42,50 @@ import java.nio.file.Files
  * - Red phase: Fails before the fix because Git sync still depends on retired pre-sync capture work in the sync path.
  * - Excludes: git engine internal algorithms, transport/JGit behavior, and UI or DI wiring.
  */
-class GitSyncExecutorsTest {
+class GitSyncExecutorsTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("sync returns not configured when git sync is disabled") { `sync returns not configured when git sync is disabled`() }
+
+        test("initOrClone returns not configured when remote url is blank") { `initOrClone returns not configured when remote url is blank`() }
+
+        test("sync returns pat required error when token is missing") { `sync returns pat required error when token is missing`() }
+
+        test("sync returns direct path required when both direct and SAF roots are absent") { `sync returns direct path required when both direct and SAF roots are absent`() }
+
+        test("initOrClone in direct mode mirrors to repo and invokes git init once") { `initOrClone in direct mode mirrors to repo and invokes git init once`() }
+
+        test("initOrClone in SAF all-same mode prepares mirror then pushes back on success") { `initOrClone in SAF all-same mode prepares mirror then pushes back on success`() }
+
+        test("initOrClone maps SAF mirror preparation failure to GitSyncResult error") { `initOrClone maps SAF mirror preparation failure to GitSyncResult error`() }
+
+        test("sync in SAF all-same mode mirrors from repo pushes SAF and refreshes memos") { `sync in SAF all-same mode mirrors from repo pushes SAF and refreshes memos`() }
+
+        test("sync reruns git sync after media reconcile reports repo changes") { `sync reruns git sync after media reconcile reports repo changes`() }
+
+        test("sync in direct split layout mirrors local memos into repo before git sync") { `sync in direct split layout mirrors local memos into repo before git sync`() }
+
+        test("sync returns conflict result without mirror push or refresh") { `sync returns conflict result without mirror push or refresh`() }
+
+        test("resetRepository returns not configured error when no root is available") { `resetRepository returns not configured error when no root is available`() }
+
+        test("resetRepository wraps runtime exception into reset failed result") { `resetRepository wraps runtime exception into reset failed result`() }
+
+        test("resetLocalBranchToRemote returns repository-url error before token lookup") { `resetLocalBranchToRemote returns repository-url error before token lookup`() }
+
+        test("resetLocalBranchToRemote in SAF split mode mirrors from repo on success") { `resetLocalBranchToRemote in SAF split mode mirrors from repo on success`() }
+
+        test("forcePush in direct mode mirrors local memos before git force push") { `forcePush in direct mode mirrors local memos before git force push`() }
+
+        test("forcePush in SAF all-same mode maps push-back failure and marks error") { `forcePush in SAF all-same mode maps push-back failure and marks error`() }
+
+        test("initOrClone in SAF split mode uses internal repo path and does not push SAF") { `initOrClone in SAF split mode uses internal repo path and does not push SAF`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -80,8 +123,7 @@ class GitSyncExecutorsTest {
     private lateinit var initExecutor: GitSyncInitAndSyncExecutor
     private lateinit var maintenanceExecutor: GitSyncMaintenanceExecutor
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         val filesDir = Files.createTempDirectory("lomo-git-sync-executors").toFile()
@@ -144,62 +186,57 @@ class GitSyncExecutorsTest {
             )
     }
 
-    @Test
-    fun `sync returns not configured when git sync is disabled`() =
+    private fun `sync returns not configured when git sync is disabled`() =
         runTest {
             every { dataStore.gitSyncEnabled } returns flowOf(false)
 
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.NotConfigured, result)
+            result shouldBe GitSyncResult.NotConfigured
             verify(exactly = 1) { gitSyncEngine.markNotConfigured() }
             coVerify(exactly = 0) { gitSyncEngine.sync(any(), any()) }
         }
 
-    @Test
-    fun `initOrClone returns not configured when remote url is blank`() =
+    private fun `initOrClone returns not configured when remote url is blank`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf(" ")
 
             val result = initExecutor.initOrClone()
 
-            assertEquals(GitSyncResult.NotConfigured, result)
+            result shouldBe GitSyncResult.NotConfigured
             verify(exactly = 1) { gitSyncEngine.markNotConfigured() }
             coVerify(exactly = 0) { gitSyncEngine.initOrClone(any(), any()) }
         }
 
-    @Test
-    fun `sync returns pat required error when token is missing`() =
+    private fun `sync returns pat required error when token is missing`() =
         runTest {
             coEvery { credentialStore.getToken() } returns null
             configureDirectLayout(createExistingDirectory("direct-root"))
 
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED), result)
+            result shouldBe GitSyncResult.Error(GitSyncErrorMessages.PAT_REQUIRED)
             verify(exactly = 1) { gitSyncEngine.markError(GitSyncErrorMessages.PAT_REQUIRED) }
             coVerify(exactly = 0) { gitSyncEngine.sync(any(), any()) }
         }
 
-    @Test
-    fun `sync returns direct path required when both direct and SAF roots are absent`() =
+    private fun `sync returns direct path required when both direct and SAF roots are absent`() =
         runTest {
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.DirectPathRequired, result)
+            result shouldBe GitSyncResult.DirectPathRequired
             verify(exactly = 1) { gitSyncEngine.markError(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE) }
             coVerify(exactly = 0) { gitSyncEngine.sync(any(), any()) }
         }
 
-    @Test
-    fun `initOrClone in direct mode mirrors to repo and invokes git init once`() =
+    private fun `initOrClone in direct mode mirrors to repo and invokes git init once`() =
         runTest {
             val rootDir = createExistingDirectory("direct-mode-root")
             configureDirectLayout(rootDir)
 
             val result = initExecutor.initOrClone()
 
-            assertEquals(GitSyncResult.Success("init ok"), result)
+            result shouldBe GitSyncResult.Success("init ok")
             coVerifyOrder {
                 memoMirror.mirrorMemoToRepo(rootDir, any())
                 gitSyncEngine.initOrClone(rootDir, REMOTE_URL)
@@ -208,8 +245,7 @@ class GitSyncExecutorsTest {
             coVerify(exactly = 0) { safGitMirrorBridge.pushToSaf(any(), any()) }
         }
 
-    @Test
-    fun `initOrClone in SAF all-same mode prepares mirror then pushes back on success`() =
+    private fun `initOrClone in SAF all-same mode prepares mirror then pushes back on success`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val mirrorDir = createExistingDirectory("saf-allsame-mirror")
@@ -217,7 +253,7 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.initOrClone()
 
-            assertEquals(GitSyncResult.Success("init ok"), result)
+            result shouldBe GitSyncResult.Success("init ok")
             coVerifyOrder {
                 safGitMirrorBridge.mirrorDirectoryFor(SAF_ROOT_URI)
                 safGitMirrorBridge.pullFromSaf(SAF_ROOT_URI, mirrorDir)
@@ -227,8 +263,7 @@ class GitSyncExecutorsTest {
             coVerify(exactly = 0) { memoMirror.mirrorMemoToRepo(any(), any()) }
         }
 
-    @Test
-    fun `initOrClone maps SAF mirror preparation failure to GitSyncResult error`() =
+    private fun `initOrClone maps SAF mirror preparation failure to GitSyncResult error`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val failure = IllegalStateException("mirror broken")
@@ -236,17 +271,16 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.initOrClone()
 
-            assertTrue(result is GitSyncResult.Error)
+            (result is GitSyncResult.Error).shouldBeTrue()
             result as GitSyncResult.Error
-            assertTrue(result.message.contains("mirror broken"))
-            assertTrue(result.exception is IllegalStateException)
-            assertEquals("mirror broken", result.exception?.message)
+            (result.message.contains("mirror broken")).shouldBeTrue()
+            (result.exception is IllegalStateException).shouldBeTrue()
+            result.exception?.message shouldBe "mirror broken"
             verify(exactly = 1) { gitSyncEngine.markError("mirror broken") }
             coVerify(exactly = 0) { gitSyncEngine.initOrClone(any(), any()) }
         }
 
-    @Test
-    fun `sync in SAF all-same mode mirrors from repo pushes SAF and refreshes memos`() =
+    private fun `sync in SAF all-same mode mirrors from repo pushes SAF and refreshes memos`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val mirrorDir = createExistingDirectory("sync-saf-allsame")
@@ -256,7 +290,7 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.Success("sync ok"), result)
+            result shouldBe GitSyncResult.Success("sync ok")
             coVerifyOrder {
                 gitSyncEngine.sync(mirrorDir, REMOTE_URL)
                 memoMirror.mirrorMemoFromRepo(mirrorDir, any())
@@ -265,8 +299,7 @@ class GitSyncExecutorsTest {
             }
         }
 
-    @Test
-    fun `sync reruns git sync after media reconcile reports repo changes`() =
+    private fun `sync reruns git sync after media reconcile reports repo changes`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val mirrorDir = createExistingDirectory("sync-media-reconcile")
@@ -282,15 +315,14 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.Success("sync ok"), result)
+            result shouldBe GitSyncResult.Success("sync ok")
             coVerify(exactly = 2) { gitSyncEngine.sync(mirrorDir, REMOTE_URL) }
             coVerify(exactly = 2) { gitMediaSyncBridge.reconcile(mirrorDir, any()) }
             coVerify(exactly = 1) { memoMirror.mirrorMemoFromRepo(mirrorDir, any()) }
             coVerify(exactly = 1) { memoSynchronizer.refresh() }
         }
 
-    @Test
-    fun `sync in direct split layout mirrors local memos into repo before git sync`() =
+    private fun `sync in direct split layout mirrors local memos into repo before git sync`() =
         runTest {
             val rootDir = createExistingDirectory("sync-direct-split-root")
             val imageDir = createExistingDirectory("sync-direct-split-images")
@@ -305,7 +337,7 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.sync()
 
-            assertEquals(GitSyncResult.Success("sync ok"), result)
+            result shouldBe GitSyncResult.Success("sync ok")
             coVerifyOrder {
                 memoMirror.mirrorMemoToRepo(repoDir, any())
                 gitSyncEngine.sync(repoDir, REMOTE_URL)
@@ -314,8 +346,7 @@ class GitSyncExecutorsTest {
             }
         }
 
-    @Test
-    fun `sync returns conflict result without mirror push or refresh`() =
+    private fun `sync returns conflict result without mirror push or refresh`() =
         runTest {
             configureDirectLayout(createExistingDirectory("sync-conflict-root"))
             val conflict =
@@ -340,23 +371,21 @@ class GitSyncExecutorsTest {
 
             val result = initExecutor.sync()
 
-            assertEquals(conflict, result)
+            result shouldBe conflict
             coVerify(exactly = 0) { memoMirror.mirrorMemoFromRepo(any(), any()) }
             coVerify(exactly = 0) { safGitMirrorBridge.pushToSaf(any(), any()) }
             coVerify(exactly = 0) { memoSynchronizer.refresh() }
         }
 
-    @Test
-    fun `resetRepository returns not configured error when no root is available`() =
+    private fun `resetRepository returns not configured error when no root is available`() =
         runTest {
             val result = maintenanceExecutor.resetRepository()
 
-            assertEquals(GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE), result)
+            result shouldBe GitSyncResult.Error(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE)
             coVerify(exactly = 0) { gitSyncEngine.resetRepository(any()) }
         }
 
-    @Test
-    fun `resetRepository wraps runtime exception into reset failed result`() =
+    private fun `resetRepository wraps runtime exception into reset failed result`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val mirrorDir = createExistingDirectory("reset-repo-mirror")
@@ -366,56 +395,52 @@ class GitSyncExecutorsTest {
 
             val result = maintenanceExecutor.resetRepository()
 
-            assertTrue(result is GitSyncResult.Error)
+            (result is GitSyncResult.Error).shouldBeTrue()
             result as GitSyncResult.Error
-            assertEquals("Reset failed: io fail", result.message)
-            assertTrue(result.exception is IllegalStateException)
-            assertEquals("io fail", result.exception?.message)
+            result.message shouldBe "Reset failed: io fail"
+            (result.exception is IllegalStateException).shouldBeTrue()
+            result.exception?.message shouldBe "io fail"
         }
 
-    @Test
-    fun `resetLocalBranchToRemote returns repository-url error before token lookup`() =
+    private fun `resetLocalBranchToRemote returns repository-url error before token lookup`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("")
 
             val result = maintenanceExecutor.resetLocalBranchToRemote()
 
-            assertEquals(GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE), result)
+            result shouldBe GitSyncResult.Error(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE)
             coVerify(exactly = 1) { credentialStore.getToken() }
             coVerify(exactly = 0) { gitSyncEngine.resetLocalBranchToRemote(any(), any()) }
         }
 
-    @Test
-    fun `resetLocalBranchToRemote in SAF split mode mirrors from repo on success`() =
+    private fun `resetLocalBranchToRemote in SAF split mode mirrors from repo on success`() =
         runTest {
             configureSafLayout(allSameDirectory = false)
 
             val result = maintenanceExecutor.resetLocalBranchToRemote()
 
-            assertEquals(GitSyncResult.Success("reset to remote ok"), result)
+            result shouldBe GitSyncResult.Success("reset to remote ok")
             coVerify(exactly = 1) { gitSyncEngine.resetLocalBranchToRemote(any(), REMOTE_URL) }
             coVerify(exactly = 1) { memoMirror.mirrorMemoFromRepo(any(), any()) }
             coVerify(exactly = 0) { safGitMirrorBridge.pullFromSaf(any(), any()) }
             coVerify(exactly = 0) { safGitMirrorBridge.pushToSaf(any(), any()) }
         }
 
-    @Test
-    fun `forcePush in direct mode mirrors local memos before git force push`() =
+    private fun `forcePush in direct mode mirrors local memos before git force push`() =
         runTest {
             val rootDir = createExistingDirectory("force-push-direct-root")
             configureDirectLayout(rootDir)
 
             val result = maintenanceExecutor.forcePushLocalToRemote()
 
-            assertEquals(GitSyncResult.Success("force push ok"), result)
+            result shouldBe GitSyncResult.Success("force push ok")
             coVerifyOrder {
                 memoMirror.mirrorMemoToRepo(rootDir, any())
                 gitSyncEngine.forcePushLocalToRemote(rootDir, REMOTE_URL)
             }
         }
 
-    @Test
-    fun `forcePush in SAF all-same mode maps push-back failure and marks error`() =
+    private fun `forcePush in SAF all-same mode maps push-back failure and marks error`() =
         runTest {
             configureSafLayout(allSameDirectory = true)
             val mirrorDir = createExistingDirectory("force-push-saf-allsame")
@@ -425,26 +450,25 @@ class GitSyncExecutorsTest {
 
             val result = maintenanceExecutor.forcePushLocalToRemote()
 
-            assertTrue(result is GitSyncResult.Error)
+            (result is GitSyncResult.Error).shouldBeTrue()
             result as GitSyncResult.Error
-            assertTrue(result.message.contains("push failed"))
-            assertTrue(result.exception is IllegalStateException)
-            assertEquals("push failed", result.exception?.message)
+            (result.message.contains("push failed")).shouldBeTrue()
+            (result.exception is IllegalStateException).shouldBeTrue()
+            result.exception?.message shouldBe "push failed"
             verify(exactly = 1) { gitSyncEngine.markError("push failed") }
             coVerify(exactly = 0) { memoMirror.mirrorMemoToRepo(any(), any()) }
         }
 
-    @Test
-    fun `initOrClone in SAF split mode uses internal repo path and does not push SAF`() =
+    private fun `initOrClone in SAF split mode uses internal repo path and does not push SAF`() =
         runTest {
             configureSafLayout(allSameDirectory = false)
             val repoDirSlot = slot<File>()
 
             val result = initExecutor.initOrClone()
 
-            assertEquals(GitSyncResult.Success("init ok"), result)
+            result shouldBe GitSyncResult.Success("init ok")
             coVerify(exactly = 1) { gitSyncEngine.initOrClone(capture(repoDirSlot), REMOTE_URL) }
-            assertTrue(repoDirSlot.captured.absolutePath.contains("git_sync_repo"))
+            (repoDirSlot.captured.absolutePath.contains("git_sync_repo")).shouldBeTrue()
             coVerify(exactly = 0) { safGitMirrorBridge.pullFromSaf(any(), any()) }
             coVerify(exactly = 0) { safGitMirrorBridge.pushToSaf(any(), any()) }
         }

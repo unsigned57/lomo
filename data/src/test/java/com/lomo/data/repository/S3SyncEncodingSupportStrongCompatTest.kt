@@ -1,14 +1,14 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
 import com.lomo.domain.model.S3RcloneCryptConfig
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Test
 import java.nio.charset.StandardCharsets
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -18,46 +18,53 @@ import java.nio.charset.StandardCharsets
  * - Red phase: Fails before the fix because encoding support only understands NONE, OpenSSL, and the old base64/base32 rclone subset.
  * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
  */
-class S3SyncEncodingSupportStrongCompatTest {
+class S3SyncEncodingSupportStrongCompatTest : DataFunSpec() {
+    init {
+        test("remotePathFor uses base32768 filename encoding when configured") { `remotePathFor uses base32768 filename encoding when configured`() }
+
+        test("remotePathFor leaves directory names plaintext when configured") { `remotePathFor leaves directory names plaintext when configured`() }
+
+        test("remotePathFor appends suffix when filename encryption is off") { `remotePathFor appends suffix when filename encryption is off`() }
+
+        test("encodeContent returns plaintext when rclone data encryption is disabled") { `encodeContent returns plaintext when rclone data encryption is disabled`() }
+    }
+
+
     private val support = S3SyncEncodingSupport()
 
-    @Test
-    fun `remotePathFor uses base32768 filename encoding when configured`() {
+    private fun `remotePathFor uses base32768 filename encoding when configured`() {
         val config = config(filenameEncoding = S3RcloneFilenameEncoding.BASE32768)
 
         val remotePath = support.remotePathFor("lomo/memo/note.md", config)
 
-        assertEquals("vault/堜鹛蔃㺓ꊈ袠ᦈ䃢租/ꁪ殁㲯㧢浀龹耵㭴鳟/ꈚ負畇秜豐渷葊粆敟", remotePath)
-        assertEquals("lomo/memo/note.md", support.decodeRelativePath(remotePath, config))
+        remotePath shouldBe "vault/堜鹛蔃㺓ꊈ袠ᦈ䃢租/ꁪ殁㲯㧢浀龹耵㭴鳟/ꈚ負畇秜豐渷葊粆敟"
+        support.decodeRelativePath(remotePath, config) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `remotePathFor leaves directory names plaintext when configured`() {
+    private fun `remotePathFor leaves directory names plaintext when configured`() {
         val config = config(directoryNameEncryption = false)
 
         val remotePath = support.remotePathFor("attachments/screenshots/shot.png", config)
 
-        assertEquals("vault/attachments/screenshots/WYGqdZq0CGWonT5SwE77fw", remotePath)
-        assertEquals("attachments/screenshots/shot.png", support.decodeRelativePath(remotePath, config))
+        remotePath shouldBe "vault/attachments/screenshots/WYGqdZq0CGWonT5SwE77fw"
+        support.decodeRelativePath(remotePath, config) shouldBe "attachments/screenshots/shot.png"
     }
 
-    @Test
-    fun `remotePathFor appends suffix when filename encryption is off`() {
+    private fun `remotePathFor appends suffix when filename encryption is off`() {
         val config = config(filenameEncryption = S3RcloneFilenameEncryption.OFF)
 
         val remotePath = support.remotePathFor("lomo/memo/note.md", config)
 
-        assertEquals("vault/lomo/memo/note.md.bin", remotePath)
-        assertEquals("lomo/memo/note.md", support.decodeRelativePath(remotePath, config))
+        remotePath shouldBe "vault/lomo/memo/note.md.bin"
+        support.decodeRelativePath(remotePath, config) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `encodeContent returns plaintext when rclone data encryption is disabled`() {
+    private fun `encodeContent returns plaintext when rclone data encryption is disabled`() {
         val config = config(dataEncryptionEnabled = false)
         val plaintext = "hello rclone no-data".toByteArray(StandardCharsets.UTF_8)
 
-        assertArrayEquals(plaintext, support.encodeContent(plaintext, config))
-        assertArrayEquals(plaintext, support.decodeContent(plaintext, config))
+        support.encodeContent(plaintext, config) shouldBe plaintext
+        support.decodeContent(plaintext, config) shouldBe plaintext
     }
 
     private fun config(

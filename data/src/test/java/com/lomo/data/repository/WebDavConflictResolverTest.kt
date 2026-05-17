@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.WebDavSyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.MarkdownStorageDataSource
@@ -26,11 +27,10 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.nio.charset.StandardCharsets
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -40,7 +40,32 @@ import java.nio.charset.StandardCharsets
  * - Red phase: Fails before the fix because conflict resolution still depends on retired pre-sync capture work for KEEP_REMOTE memo writes.
  * - Excludes: WebDAV transport internals, planner/metadata persistence internals, and UI rendering.
  */
-class WebDavConflictResolverTest {
+class WebDavConflictResolverTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("resolveConflicts KEEP_LOCAL uploads local content to remote") { `resolveConflicts KEEP_LOCAL uploads local content to remote`() }
+
+        test("resolveConflicts KEEP_REMOTE memo writes markdown content to MAIN directory") { `resolveConflicts KEEP_REMOTE memo writes markdown content to MAIN directory`() }
+
+        test("resolveConflicts KEEP_REMOTE media writes bytes into local media store") { `resolveConflicts KEEP_REMOTE media writes bytes into local media store`() }
+
+        test("resolveConflicts KEEP_REMOTE media reloads raw bytes when conflict payload has no text body") { `resolveConflicts KEEP_REMOTE media reloads raw bytes when conflict payload has no text body`() }
+
+        test("resolveConflicts MERGE_TEXT uploads and writes merged memo content") { `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() }
+
+        test("resolveConflicts returns NotConfigured when config is missing") { `resolveConflicts returns NotConfigured when config is missing`() }
+
+        test("resolveConflicts keeps Success result when refresh fails") { `resolveConflicts keeps Success result when refresh fails`() }
+
+        test("resolveConflicts maps resolver exception to WebDavSyncResult Error") { `resolveConflicts maps resolver exception to WebDavSyncResult Error`() }
+
+        test("resolveConflicts keeps skipped webdav files pending and returns conflict result") { `resolveConflicts keeps skipped webdav files pending and returns conflict result`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -76,8 +101,7 @@ class WebDavConflictResolverTest {
     private lateinit var support: WebDavSyncRepositorySupport
     private lateinit var resolver: WebDavConflictResolver
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.webDavSyncEnabled } returns flowOf(true)
@@ -122,8 +146,7 @@ class WebDavConflictResolverTest {
         resolver = WebDavConflictResolver(runtime, support, fileBridge)
     }
 
-    @Test
-    fun `resolveConflicts KEEP_LOCAL uploads local content to remote`() =
+    private fun `resolveConflicts KEEP_LOCAL uploads local content to remote`() =
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
@@ -131,7 +154,7 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             verify(exactly = 1) {
                 client.put(
                     path = path,
@@ -143,11 +166,10 @@ class WebDavConflictResolverTest {
                 )
             }
             coVerify(exactly = 1) { memoSynchronizer.refresh() }
-            assertTrue(stateHolder.state.value is WebDavSyncState.Success)
+            (stateHolder.state.value is WebDavSyncState.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts KEEP_REMOTE memo writes markdown content to MAIN directory`() =
+    private fun `resolveConflicts KEEP_REMOTE memo writes markdown content to MAIN directory`() =
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
@@ -166,7 +188,7 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             coVerify(exactly = 1) {
                 markdownStorageDataSource.saveFileIn(
                     directory = com.lomo.data.source.MemoDirectoryType.MAIN,
@@ -179,8 +201,7 @@ class WebDavConflictResolverTest {
             coVerify(exactly = 0) { localMediaSyncStore.writeBytes(any(), any(), any()) }
         }
 
-    @Test
-    fun `resolveConflicts KEEP_REMOTE media writes bytes into local media store`() =
+    private fun `resolveConflicts KEEP_REMOTE media writes bytes into local media store`() =
         runTest {
             val path = "lomo/images/a.png"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
@@ -189,7 +210,7 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             coVerify(exactly = 1) {
                 localMediaSyncStore.writeBytes(
                     relativePath = path,
@@ -200,8 +221,7 @@ class WebDavConflictResolverTest {
             coVerify(exactly = 0) { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) }
         }
 
-    @Test
-    fun `resolveConflicts KEEP_REMOTE media reloads raw bytes when conflict payload has no text body`() =
+    private fun `resolveConflicts KEEP_REMOTE media reloads raw bytes when conflict payload has no text body`() =
         runTest {
             val path = "lomo/images/raw.bin"
             val remoteBytes = byteArrayOf(0x00, 0x7f, 0x42, 0xff.toByte())
@@ -218,7 +238,7 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             verify(exactly = 1) { client.get(path) }
             coVerify(exactly = 1) {
                 localMediaSyncStore.writeBytes(
@@ -229,8 +249,7 @@ class WebDavConflictResolverTest {
             }
         }
 
-    @Test
-    fun `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() =
+    private fun `resolveConflicts MERGE_TEXT uploads and writes merged memo content`() =
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val merged = "start\nlocal\nmiddle\nremote\nend"
@@ -255,7 +274,7 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(resolution, conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
             verify(exactly = 1) {
                 client.put(
                     path = path,
@@ -277,21 +296,19 @@ class WebDavConflictResolverTest {
             }
         }
 
-    @Test
-    fun `resolveConflicts returns NotConfigured when config is missing`() =
+    private fun `resolveConflicts returns NotConfigured when config is missing`() =
         runTest {
             every { dataStore.webDavSyncEnabled } returns flowOf(false)
             val file = conflictFile(path = "lomo/memo/2026_03_24.md", local = "L", remote = "R")
 
             val result = resolver.resolveConflicts(SyncConflictResolution(emptyMap()), conflictSet(file))
 
-            assertEquals(WebDavSyncResult.NotConfigured, result)
-            assertEquals(WebDavSyncState.NotConfigured, stateHolder.state.value)
+            result shouldBe WebDavSyncResult.NotConfigured
+            stateHolder.state.value shouldBe WebDavSyncState.NotConfigured
             verify(exactly = 0) { clientFactory.create(any(), any(), any()) }
         }
 
-    @Test
-    fun `resolveConflicts keeps Success result when refresh fails`() =
+    private fun `resolveConflicts keeps Success result when refresh fails`() =
         runTest {
             val path = "lomo/memo/2026_03_24.md"
             val file = conflictFile(path = path, local = "LOCAL", remote = "REMOTE")
@@ -299,27 +316,25 @@ class WebDavConflictResolverTest {
 
             val result = resolver.resolveConflicts(SyncConflictResolution(emptyMap()), conflictSet(file))
 
-            assertEquals(WebDavSyncResult.Success("Conflicts resolved"), result)
-            assertTrue(stateHolder.state.value is WebDavSyncState.Success)
+            result shouldBe WebDavSyncResult.Success("Conflicts resolved")
+            (stateHolder.state.value is WebDavSyncState.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts maps resolver exception to WebDavSyncResult Error`() =
+    private fun `resolveConflicts maps resolver exception to WebDavSyncResult Error`() =
         runTest {
             every { clientFactory.create(any(), any(), any()) } throws IllegalStateException("client init failed")
             val file = conflictFile(path = "lomo/memo/2026_03_24.md", local = "LOCAL", remote = "REMOTE")
 
             val result = resolver.resolveConflicts(SyncConflictResolution(emptyMap()), conflictSet(file))
 
-            assertTrue(result is WebDavSyncResult.Error)
+            (result is WebDavSyncResult.Error).shouldBeTrue()
             result as WebDavSyncResult.Error
-            assertTrue(result.message.contains("client init failed"))
-            assertTrue(result.exception is IllegalStateException)
-            assertTrue(stateHolder.state.value is WebDavSyncState.Error)
+            (result.message.contains("client init failed")).shouldBeTrue()
+            (result.exception is IllegalStateException).shouldBeTrue()
+            (stateHolder.state.value is WebDavSyncState.Error).shouldBeTrue()
         }
 
-    @Test
-    fun `resolveConflicts keeps skipped webdav files pending and returns conflict result`() =
+    private fun `resolveConflicts keeps skipped webdav files pending and returns conflict result`() =
         runTest {
             val keptPath = "lomo/memo/2026_03_24.md"
             val skippedPath = "lomo/memo/2026_03_25.md"
@@ -348,25 +363,19 @@ class WebDavConflictResolverTest {
                         ),
                 )
 
-            assertEquals(
-                WebDavSyncResult.Conflict(
+            result shouldBe WebDavSyncResult.Conflict(
                     "Pending conflicts remain",
                     SyncConflictSet(
                         source = SyncBackendType.WEBDAV,
                         files = listOf(conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT")),
                         timestamp = 1L,
                     ),
-                ),
-                result,
-            )
-            assertEquals(
-                SyncConflictSet(
+                )
+            pendingStore.read(SyncBackendType.WEBDAV) shouldBe SyncConflictSet(
                     source = SyncBackendType.WEBDAV,
                     files = listOf(conflictFile(path = skippedPath, local = "LEFT", remote = "RIGHT")),
                     timestamp = 1L,
-                ),
-                pendingStore.read(SyncBackendType.WEBDAV),
-            )
+                )
         }
 
     private fun conflictSet(file: SyncConflictFile): SyncConflictSet =

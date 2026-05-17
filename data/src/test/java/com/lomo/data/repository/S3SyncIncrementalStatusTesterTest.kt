@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -21,10 +22,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -34,7 +34,20 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Red phase: Fails before the fix because status still depends on manifest probing and cannot answer fast-path status queries from the cached remote index alone.
  * - Excludes: AWS transport behavior, metadata persistence mutations, and UI rendering.
  */
-class S3SyncIncrementalStatusTesterTest {
+class S3SyncIncrementalStatusTesterTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("getStatus answers from fresh cached remote index without remote probes") { `getStatus answers from fresh cached remote index without remote probes`() }
+
+        test("getStatus derives pending journal changes without remote probes when cache is fresh") { `getStatus derives pending journal changes without remote probes when cache is fresh`() }
+
+        test("getStatus reconciles with full remote listing when cached index is stale") { `getStatus reconciles with full remote listing when cached index is stale`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -56,8 +69,7 @@ class S3SyncIncrementalStatusTesterTest {
     private lateinit var protocolStateStore: InMemoryS3SyncProtocolStateStore
     private lateinit var journalStore: InMemoryS3LocalChangeJournalStore
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -91,8 +103,7 @@ class S3SyncIncrementalStatusTesterTest {
         journalStore = InMemoryS3LocalChangeJournalStore()
     }
 
-    @Test
-    fun `getStatus answers from fresh cached remote index without remote probes`() =
+    private fun `getStatus answers from fresh cached remote index without remote probes`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -113,16 +124,12 @@ class S3SyncIncrementalStatusTesterTest {
 
             val status = tester.getStatus()
 
-            assertEquals(
-                S3SyncStatus(remoteFileCount = 3, localFileCount = 2, pendingChanges = 0, lastSyncTime = 123L),
-                status,
-            )
-            assertEquals(0, client.listCalls)
-            assertEquals(0, client.headCalls)
+            status shouldBe S3SyncStatus(remoteFileCount = 3, localFileCount = 2, pendingChanges = 0, lastSyncTime = 123L)
+            client.listCalls shouldBe 0
+            client.headCalls shouldBe 0
         }
 
-    @Test
-    fun `getStatus derives pending journal changes without remote probes when cache is fresh`() =
+    private fun `getStatus derives pending journal changes without remote probes when cache is fresh`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -155,16 +162,12 @@ class S3SyncIncrementalStatusTesterTest {
 
             val status = tester.getStatus()
 
-            assertEquals(
-                S3SyncStatus(remoteFileCount = 0, localFileCount = 1, pendingChanges = 1, lastSyncTime = 123L),
-                status,
-            )
-            assertEquals(0, client.listCalls)
-            assertEquals(0, client.headCalls)
+            status shouldBe S3SyncStatus(remoteFileCount = 0, localFileCount = 1, pendingChanges = 1, lastSyncTime = 123L)
+            client.listCalls shouldBe 0
+            client.headCalls shouldBe 0
         }
 
-    @Test
-    fun `getStatus reconciles with full remote listing when cached index is stale`() =
+    private fun `getStatus reconciles with full remote listing when cached index is stale`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -193,12 +196,9 @@ class S3SyncIncrementalStatusTesterTest {
 
             val status = tester.getStatus()
 
-            assertEquals(
-                S3SyncStatus(remoteFileCount = 1, localFileCount = 0, pendingChanges = 1, lastSyncTime = 123L),
-                status,
-            )
-            assertEquals(3, client.listCalls)
-            assertEquals(0, client.headCalls)
+            status shouldBe S3SyncStatus(remoteFileCount = 1, localFileCount = 0, pendingChanges = 1, lastSyncTime = 123L)
+            client.listCalls shouldBe 3
+            client.headCalls shouldBe 0
         }
 
     private fun createTester(

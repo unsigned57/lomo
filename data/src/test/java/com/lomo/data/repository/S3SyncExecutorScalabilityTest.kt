@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -28,16 +29,16 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.Collections
 import kotlin.math.max
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -47,7 +48,32 @@ import kotlinx.coroutines.flow.flow
  * - Red phase: Fails before the fix because metadata loading waits for local/remote scans, S3 actions run strictly serially, stale metadata cleanup deletes one row at a time, local sync mode is re-resolved for each action, metadata persistence replaces the full table, and legacy direct-root attachment downloads trigger a second full media scan.
  * - Excludes: AWS SDK transport correctness, Room generated DAO code, WorkManager scheduling, and UI rendering.
  */
-class S3SyncExecutorScalabilityTest {
+class S3SyncExecutorScalabilityTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("performSync overlaps independent uploads within one sync pass") { `performSync overlaps independent uploads within one sync pass`() }
+
+        test("performSync overlaps local scan and remote listing during preparation") { `performSync overlaps local scan and remote listing during preparation`() }
+
+        test("performSync overlaps metadata load with local and remote listing during preparation") { `performSync overlaps metadata load with local and remote listing during preparation`() }
+
+        test("performSync overlaps full remote shard listings during manifest-free snapshot build") { `performSync overlaps full remote shard listings during manifest-free snapshot build`() }
+
+        test("performSync persists only changed metadata without clearing existing rows") { `performSync persists only changed metadata without clearing existing rows`() }
+
+        test("performSync batches stale metadata deletions") { `performSync batches stale metadata deletions`() }
+
+        test("performSync does not rescan local files after download updates local state") { `performSync does not rescan local files after download updates local state`() }
+
+        test("performSync does not rescan legacy media store after direct-root attachment download") { `performSync does not rescan legacy media store after direct-root attachment download`() }
+
+        test("performSync reuses resolved legacy sync mode during attachment download") { `performSync reuses resolved legacy sync mode during attachment download`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -63,8 +89,7 @@ class S3SyncExecutorScalabilityTest {
     @MockK(relaxed = true)
     private lateinit var memoSynchronizer: MemoSynchronizer
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -99,8 +124,7 @@ class S3SyncExecutorScalabilityTest {
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
     }
 
-    @Test
-    fun `performSync overlaps independent uploads within one sync pass`() =
+    private fun `performSync overlaps independent uploads within one sync pass`() =
         runBlocking {
             val client = ParallelUploadProbeClient()
             val metadataDao = RecordingMetadataDao()
@@ -115,22 +139,15 @@ class S3SyncExecutorScalabilityTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(
                     S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY,
                     S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY,
-                ),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertTrue(
-                "Expected at least 2 concurrent uploads but saw ${client.maxConcurrentUploads}",
-                client.maxConcurrentUploads >= 2,
-            )
+                )
+            withClue("Expected at least 2 concurrent uploads but saw ${client.maxConcurrentUploads}") { (client.maxConcurrentUploads >= 2).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync overlaps local scan and remote listing during preparation`() =
+    private fun `performSync overlaps local scan and remote listing during preparation`() =
         runBlocking {
             val probe = ConcurrentScanProbe()
             val client = ParallelListingProbeClient(probe)
@@ -144,15 +161,11 @@ class S3SyncExecutorScalabilityTest {
 
             val result = executor.performSync()
 
-            assertTrue(result is S3SyncResult.Conflict)
-            assertTrue(
-                "Expected local scan and remote listing to overlap but saw ${probe.maxConcurrent}",
-                probe.maxConcurrent >= 2,
-            )
+            (result is S3SyncResult.Conflict).shouldBeTrue()
+            withClue("Expected local scan and remote listing to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 2).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync overlaps metadata load with local and remote listing during preparation`() =
+    private fun `performSync overlaps metadata load with local and remote listing during preparation`() =
         runBlocking {
             val probe = ConcurrentScanProbe()
             val client = ParallelListingProbeClient(probe)
@@ -170,15 +183,11 @@ class S3SyncExecutorScalabilityTest {
 
             val result = executor.performSync()
 
-            assertTrue(result is S3SyncResult.Conflict)
-            assertTrue(
-                "Expected local scan, remote listing, and metadata load to overlap but saw ${probe.maxConcurrent}",
-                probe.maxConcurrent >= 3,
-            )
+            (result is S3SyncResult.Conflict).shouldBeTrue()
+            withClue("Expected local scan, remote listing, and metadata load to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 3).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync overlaps full remote shard listings during manifest-free snapshot build`() =
+    private fun `performSync overlaps full remote shard listings during manifest-free snapshot build`() =
         runBlocking {
             val probe = ConcurrentScanProbe()
             val client = ParallelPagedListingProbeClient(probe)
@@ -190,16 +199,12 @@ class S3SyncExecutorScalabilityTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 already up to date", success.message)
-            assertTrue(
-                "Expected full remote shard listing to overlap but saw ${client.maxConcurrentPages}",
-                client.maxConcurrentPages >= 2,
-            )
-            assertEquals(setOf("lomo/memo/", "lomo/images/", "lomo/voice/"), client.listedPrefixes.toSet())
+            success.message shouldBe "S3 already up to date"
+            withClue("Expected full remote shard listing to overlap but saw ${client.maxConcurrentPages}") { (client.maxConcurrentPages >= 2).shouldBeTrue() }
+            client.listedPrefixes.toSet() shouldBe setOf("lomo/memo/", "lomo/images/", "lomo/voice/")
         }
 
-    @Test
-    fun `performSync persists only changed metadata without clearing existing rows`() =
+    private fun `performSync persists only changed metadata without clearing existing rows`() =
         runTest {
             val stablePath = "lomo/memo/stable.md"
             val freshPath = "lomo/memo/fresh.md"
@@ -246,18 +251,14 @@ class S3SyncExecutorScalabilityTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(0, metadataDao.replaceAllCalls)
-            assertEquals(0, metadataDao.clearAllCalls)
-            assertEquals(listOf(freshPath), metadataDao.upsertedPaths())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            metadataDao.replaceAllCalls shouldBe 0
+            metadataDao.clearAllCalls shouldBe 0
+            metadataDao.upsertedPaths() shouldBe listOf(freshPath)
         }
 
-    @Test
-    fun `performSync batches stale metadata deletions`() =
+    private fun `performSync batches stale metadata deletions`() =
         runTest {
             val firstStalePath = "lomo/memo/old-a.md"
             val secondStalePath = "lomo/images/old-b.png"
@@ -277,13 +278,12 @@ class S3SyncExecutorScalabilityTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 already up to date", success.message)
-            assertEquals(listOf(listOf(secondStalePath, firstStalePath)), metadataDao.deletedPathBatches())
-            assertEquals(emptyList<String>(), metadataDao.deletedSinglePaths())
+            success.message shouldBe "S3 already up to date"
+            metadataDao.deletedPathBatches() shouldBe listOf(listOf(secondStalePath, firstStalePath))
+            metadataDao.deletedSinglePaths() shouldBe emptyList<String>()
         }
 
-    @Test
-    fun `performSync does not rescan local files after download updates local state`() =
+    private fun `performSync does not rescan local files after download updates local state`() =
         runTest {
             val memoRemotePath = "lomo/memo/note.md"
             val metadataDao = RecordingMetadataDao()
@@ -332,16 +332,12 @@ class S3SyncExecutorScalabilityTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
             io.mockk.coVerify(exactly = 1) { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
         }
 
-    @Test
-    fun `performSync does not rescan legacy media store after direct-root attachment download`() =
+    private fun `performSync does not rescan legacy media store after direct-root attachment download`() =
         runTest {
             val mediaRoot = Files.createTempDirectory("s3-sync-media-root").toFile()
             val imageRoot = java.io.File(mediaRoot, "images")
@@ -387,19 +383,15 @@ class S3SyncExecutorScalabilityTest {
                 val result = executor.performSync()
 
                 val success = result as S3SyncResult.Success
-                assertEquals("S3 sync completed", success.message)
-                assertEquals(
-                    listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                    success.outcomes.map { it.direction to it.reason },
-                )
+                success.message shouldBe "S3 sync completed"
+                success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
                 coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
             } finally {
                 mediaRoot.deleteRecursively()
             }
         }
 
-    @Test
-    fun `performSync reuses resolved legacy sync mode during attachment download`() =
+    private fun `performSync reuses resolved legacy sync mode during attachment download`() =
         runTest {
             val mediaRoot = Files.createTempDirectory("s3-sync-legacy-mode-root").toFile()
             val imageRoot = java.io.File(mediaRoot, "images")
@@ -460,14 +452,14 @@ class S3SyncExecutorScalabilityTest {
                 val result = executor.performSync()
 
                 val success = result as S3SyncResult.Success
-                assertEquals("S3 sync completed", success.message)
-                assertEquals(1, s3LocalSyncDirectoryCollections.get())
-                assertEquals(2, rootDirectoryCollections.get())
-                assertEquals(2, rootUriCollections.get())
-                assertEquals(2, imageDirectoryCollections.get())
-                assertEquals(2, imageUriCollections.get())
-                assertEquals(2, voiceDirectoryCollections.get())
-                assertEquals(2, voiceUriCollections.get())
+                success.message shouldBe "S3 sync completed"
+                s3LocalSyncDirectoryCollections.get() shouldBe 1
+                rootDirectoryCollections.get() shouldBe 2
+                rootUriCollections.get() shouldBe 2
+                imageDirectoryCollections.get() shouldBe 2
+                imageUriCollections.get() shouldBe 2
+                voiceDirectoryCollections.get() shouldBe 2
+                voiceUriCollections.get() shouldBe 2
             } finally {
                 mediaRoot.deleteRecursively()
             }

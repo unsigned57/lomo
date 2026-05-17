@@ -6,42 +6,37 @@
  * - Red phase: Fails before fix when Trash menu icons are not split evenly.
  * - Excludes: full Compose rendering, drag-to-reorder.
  */
+
 package com.lomo.ui.component.menu
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
-class MemoActionSheetLayoutModeTest {
-    @Test
-    fun `resolveMemoActionRowLayoutMode uses equal width row when horizontal scroll is disabled`() {
-        assertEquals(
-            MemoActionRowLayoutMode.EQUAL_WIDTH_STATIC,
-            resolveMemoActionRowLayoutMode(
+class MemoActionSheetLayoutModeTest : UiComponentsFunSpec() {
+    init {
+        test("resolveMemoActionRowLayoutMode uses equal width row when horizontal scroll is disabled") {
+        (resolveMemoActionRowLayoutMode(
                 equalWidthActions = true,
                 useHorizontalScroll = false,
-            ),
-        )
+            )) shouldBe (MemoActionRowLayoutMode.EQUAL_WIDTH_STATIC)
+        }
     }
 
-    @Test
-    fun `resolveMemoActionRowLayoutMode keeps lazy row when equal width actions are disabled`() {
-        assertEquals(
-            MemoActionRowLayoutMode.LAZY_ROW,
-            resolveMemoActionRowLayoutMode(
+    init {
+        test("resolveMemoActionRowLayoutMode keeps lazy row when equal width actions are disabled") {
+        (resolveMemoActionRowLayoutMode(
                 equalWidthActions = false,
                 useHorizontalScroll = false,
-            ),
-        )
+            )) shouldBe (MemoActionRowLayoutMode.LAZY_ROW)
+        }
     }
 
-    @Test
-    fun `resolveMemoActionRowLayoutMode keeps lazy row when horizontal scroll stays enabled`() {
-        assertEquals(
-            MemoActionRowLayoutMode.LAZY_ROW,
-            resolveMemoActionRowLayoutMode(
+    init {
+        test("resolveMemoActionRowLayoutMode keeps lazy row when horizontal scroll stays enabled") {
+        (resolveMemoActionRowLayoutMode(
                 equalWidthActions = true,
                 useHorizontalScroll = true,
-            ),
-        )
+            )) shouldBe (MemoActionRowLayoutMode.LAZY_ROW)
+        }
     }
 }

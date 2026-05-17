@@ -1,48 +1,60 @@
+/*
+ * Test Contract:
+ * - Unit under test: ExtractShareAttachmentsUseCaseTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for ExtractShareAttachmentsUseCaseTest.
+ * - Boundary: boundary and edge cases for ExtractShareAttachmentsUseCaseTest.
+ * - Failure: failure and error scenarios for ExtractShareAttachmentsUseCaseTest.
+ * - Must-not-happen: invariants are never violated for ExtractShareAttachmentsUseCaseTest.
+ *
+ * - Behavior focus: test behavioral outcomes of ExtractShareAttachmentsUseCaseTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.usecase
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
-class ExtractShareAttachmentsUseCaseTest {
+class ExtractShareAttachmentsUseCaseTest : DomainFunSpec() {
     private val useCase = ExtractShareAttachmentsUseCase()
+    init {
+        test("extracts markdown wiki and audio local attachments while filtering remote") {
+            val content =
+                """
+                ![img](images/a.png)
+                ![[vault/b.jpg|cover]]
+                [voice](voice/recording.m4a)
+                ![remote](https://cdn.example.com/c.png)
+                [remote-audio](http://example.com/d.mp3)
+                """.trimIndent()
 
-    @Test
-    fun `extracts markdown wiki and audio local attachments while filtering remote`() {
-        val content =
-            """
-            ![img](images/a.png)
-            ![[vault/b.jpg|cover]]
-            [voice](voice/recording.m4a)
-            ![remote](https://cdn.example.com/c.png)
-            [remote-audio](http://example.com/d.mp3)
-            """.trimIndent()
+            val result = useCase(content)
 
-        val result = useCase(content)
-
-        assertEquals(
-            listOf("images/a.png", "vault/b.jpg", "voice/recording.m4a"),
-            result.localAttachmentPaths,
-        )
-        assertEquals(
-            mapOf(
-                "images/a.png" to "images/a.png",
-                "vault/b.jpg" to "vault/b.jpg",
-                "voice/recording.m4a" to "voice/recording.m4a",
-            ),
-            result.attachmentUris,
-        )
+            result.localAttachmentPaths shouldBe listOf("images/a.png", "vault/b.jpg", "voice/recording.m4a")
+            result.attachmentUris shouldBe mapOf(
+                    "images/a.png" to "images/a.png",
+                    "vault/b.jpg" to "vault/b.jpg",
+                    "voice/recording.m4a" to "voice/recording.m4a",
+                )
+        }
     }
+    init {
+        test("extracts distinct local paths only") {
+            val content =
+                """
+                ![img]( ./same.png )
+                ![img2](./same.png)
+                """.trimIndent()
 
-    @Test
-    fun `extracts distinct local paths only`() {
-        val content =
-            """
-            ![img]( ./same.png )
-            ![img2](./same.png)
-            """.trimIndent()
+            val result = useCase(content)
 
-        val result = useCase(content)
-
-        assertEquals(listOf("./same.png"), result.localAttachmentPaths)
+            result.localAttachmentPaths shouldBe listOf("./same.png")
+        }
     }
 }

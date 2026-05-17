@@ -1,7 +1,8 @@
 package com.lomo.data.util
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -11,21 +12,27 @@ import org.junit.Test
  * - Red phase: Verified by asserting bad offsets.
  * - Excludes: none.
  */
-class IndexedTextLinesTest {
-    @Test
-    fun `indexed text lines mirrors kotlin lines across newline styles`() {
+class IndexedTextLinesTest : DataFunSpec() {
+    init {
+        test("indexed text lines mirrors kotlin lines across newline styles") { `indexed text lines mirrors kotlin lines across newline styles`() }
+
+        test("indexed text lines preserves empty input contract") { `indexed text lines preserves empty input contract`() }
+
+        test("find destructive memo block works with indexed text lines") { `find destructive memo block works with indexed text lines`() }
+    }
+
+
+    private fun `indexed text lines mirrors kotlin lines across newline styles`() {
         val content = "first\r\nsecond\nthird\rfourth\n"
 
-        assertEquals(content.lines(), IndexedTextLines.of(content))
+        IndexedTextLines.of(content) shouldBe content.lines()
     }
 
-    @Test
-    fun `indexed text lines preserves empty input contract`() {
-        assertEquals(listOf(""), IndexedTextLines.of(""))
+    private fun `indexed text lines preserves empty input contract`() {
+        IndexedTextLines.of("") shouldBe listOf("")
     }
 
-    @Test
-    fun `find destructive memo block works with indexed text lines`() {
+    private fun `find destructive memo block works with indexed text lines`() {
         val content =
             """
             - 09:00 keep
@@ -35,13 +42,10 @@ class IndexedTextLinesTest {
             - 11:00 stay
             """.trimIndent()
 
-        assertEquals(
-            2 to 3,
-            findDestructiveMemoBlock(
+        findDestructiveMemoBlock(
                 lines = IndexedTextLines.of(content),
                 rawContent = "- 10:00 target\ntarget body",
                 memoId = null,
-            ),
-        )
+            ) shouldBe (2 to 3)
     }
 }

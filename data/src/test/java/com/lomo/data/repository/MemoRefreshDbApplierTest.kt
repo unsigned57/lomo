@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.dao.ROOM_MAX_BIND_PARAMETER_COUNT
 import com.lomo.data.local.entity.MemoEntity
@@ -10,9 +11,8 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -23,7 +23,28 @@ import org.junit.Test
  *   the configured transaction runner.
  * - Excludes: Room integration wiring, filesystem refresh parsing, and removed day-file snapshot side effects.
  */
-class MemoRefreshDbApplierTest {
+class MemoRefreshDbApplierTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("apply removes stale main rows when replacing main date") { `apply removes stale main rows when replacing main date`() }
+
+        test("apply deduplicates main memos before inserting rows") { `apply deduplicates main memos before inserting rows`() }
+
+        test("apply relies on trigger managed fts updates for persisted main memos") { `apply relies on trigger managed fts updates for persisted main memos`() }
+
+        test("apply refreshes exact image refs for main and trash memos") { `apply refreshes exact image refs for main and trash memos`() }
+
+        test("apply executes through configured transaction runner") { `apply executes through configured transaction runner`() }
+
+        test("apply chunks stale main memo deletions to stay under sqlite bind limit") { `apply chunks stale main memo deletions to stay under sqlite bind limit`() }
+
+        test("apply forwards explicit import sync origin to memo version journal") { `apply forwards explicit import sync origin to memo version journal`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dao: TestMemoDaoSuite
 
@@ -35,8 +56,7 @@ class MemoRefreshDbApplierTest {
 
     private lateinit var applier: MemoRefreshDbApplier
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         coEvery { dao.getMemosByDate(any()) } returns emptyList()
         coEvery { dao.getTrashMemosByDate(any()) } returns emptyList()
@@ -44,8 +64,7 @@ class MemoRefreshDbApplierTest {
         applier = createApplier()
     }
 
-    @Test
-    fun `apply removes stale main rows when replacing main date`() =
+    private fun `apply removes stale main rows when replacing main date`() =
         runTest {
             val existingMemoIds = listOf("memo_1", "memo_2")
             coEvery { dao.getMemosByDate("2024_01_15") } returns
@@ -74,8 +93,7 @@ class MemoRefreshDbApplierTest {
             coVerify(exactly = 0) { dao.deleteMemosByDate(any()) }
         }
 
-    @Test
-    fun `apply deduplicates main memos before inserting rows`() =
+    private fun `apply deduplicates main memos before inserting rows`() =
         runTest {
             coEvery { dao.getMemosByDate("2024_01_16") } returns emptyList()
 
@@ -114,8 +132,7 @@ class MemoRefreshDbApplierTest {
             }
         }
 
-    @Test
-    fun `apply relies on trigger managed fts updates for persisted main memos`() =
+    private fun `apply relies on trigger managed fts updates for persisted main memos`() =
         runTest {
             coEvery { dao.getMemosByDate("2024_01_21") } returns emptyList()
 
@@ -140,8 +157,7 @@ class MemoRefreshDbApplierTest {
             coVerify(exactly = 0) { dao.rebuildFts() }
         }
 
-    @Test
-    fun `apply refreshes exact image refs for main and trash memos`() =
+    private fun `apply refreshes exact image refs for main and trash memos`() =
         runTest {
             val parseResult =
                 MemoRefreshParseResult(
@@ -190,8 +206,7 @@ class MemoRefreshDbApplierTest {
             }
         }
 
-    @Test
-    fun `apply executes through configured transaction runner`() =
+    private fun `apply executes through configured transaction runner`() =
         runTest {
             var transactionCalls = 0
             val transactionApplier =
@@ -215,7 +230,7 @@ class MemoRefreshDbApplierTest {
                 filesToDeleteInDb = emptySet(),
             )
 
-            assertEquals(1, transactionCalls)
+            transactionCalls shouldBe 1
         }
 
     fun `apply keeps memos present in both db and parse result untouched`() =
@@ -247,8 +262,7 @@ class MemoRefreshDbApplierTest {
             coVerify(exactly = 0) { dao.deleteMemosByDate(any()) }
         }
 
-    @Test
-    fun `apply chunks stale main memo deletions to stay under sqlite bind limit`() =
+    private fun `apply chunks stale main memo deletions to stay under sqlite bind limit`() =
         runTest {
             val date = "2024_02_01"
             val staleMemos =
@@ -292,8 +306,7 @@ class MemoRefreshDbApplierTest {
             }
         }
 
-    @Test
-    fun `apply forwards explicit import sync origin to memo version journal`() =
+    private fun `apply forwards explicit import sync origin to memo version journal`() =
         runTest {
             val parseResult =
                 MemoRefreshParseResult(

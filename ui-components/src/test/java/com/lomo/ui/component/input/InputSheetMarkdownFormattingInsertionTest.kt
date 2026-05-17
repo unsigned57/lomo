@@ -1,9 +1,9 @@
 package com.lomo.ui.component.input
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -13,9 +13,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the input sheet exposes no underline formatting insertion behavior, so selected text cannot be wrapped from the toolbar.
  * - Excludes: Compose toolbar layout, Android EditText focus behavior, and markdown render output.
  */
-class InputSheetMarkdownFormattingInsertionTest {
-    @Test
-    fun `underline insertion wraps the selected text and preserves inner selection`() {
+class InputSheetMarkdownFormattingInsertionTest : UiComponentsFunSpec() {
+    init {
+        test("underline insertion wraps the selected text and preserves inner selection") {
         val result =
             buildWrappedSelectionInsertionValue(
                 inputValue = TextFieldValue("before focus after", TextRange(7, 12)),
@@ -23,12 +23,13 @@ class InputSheetMarkdownFormattingInsertionTest {
                 suffix = "</u>",
             )
 
-        assertEquals("before <u>focus</u> after", result.text)
-        assertEquals(TextRange(10, 15), result.selection)
+        (result.text) shouldBe ("before <u>focus</u> after")
+        (result.selection) shouldBe (TextRange(10, 15))
+        }
     }
 
-    @Test
-    fun `underline insertion at collapsed cursor inserts empty tags and places cursor inside`() {
+    init {
+        test("underline insertion at collapsed cursor inserts empty tags and places cursor inside") {
         val result =
             buildWrappedSelectionInsertionValue(
                 inputValue = TextFieldValue("before after", TextRange(7)),
@@ -36,12 +37,13 @@ class InputSheetMarkdownFormattingInsertionTest {
                 suffix = "</u>",
             )
 
-        assertEquals("before <u></u>after", result.text)
-        assertEquals(TextRange(10), result.selection)
+        (result.text) shouldBe ("before <u></u>after")
+        (result.selection) shouldBe (TextRange(10))
+        }
     }
 
-    @Test
-    fun `underline insertion normalizes reversed selections`() {
+    init {
+        test("underline insertion normalizes reversed selections") {
         val result =
             buildWrappedSelectionInsertionValue(
                 inputValue = TextFieldValue("abcde", TextRange(4, 1)),
@@ -49,7 +51,8 @@ class InputSheetMarkdownFormattingInsertionTest {
                 suffix = "</u>",
             )
 
-        assertEquals("a<u>bcd</u>e", result.text)
-        assertEquals(TextRange(4, 7), result.selection)
+        (result.text) shouldBe ("a<u>bcd</u>e")
+        (result.selection) shouldBe (TextRange(4, 7))
+        }
     }
 }

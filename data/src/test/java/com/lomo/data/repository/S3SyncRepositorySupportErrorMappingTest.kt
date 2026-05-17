@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3ClientFactory
@@ -11,11 +12,10 @@ import aws.smithy.kotlin.runtime.http.HttpStatusCode
 import aws.smithy.kotlin.runtime.http.middleware.HttpResponseException
 import io.mockk.MockKAnnotations
 import io.mockk.impl.annotations.MockK
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -25,7 +25,20 @@ import org.junit.Test
  * - Red phase: Fails before the fix because a generic "S3 sync failed" wrapper stays UNKNOWN and hides the nested timeout detail.
  * - Excludes: AWS SDK transport execution, sync planning, credential persistence, and UI rendering.
  */
-class S3SyncRepositorySupportErrorMappingTest {
+class S3SyncRepositorySupportErrorMappingTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("mapConnectionTestError prefers nested timeout detail over generic wrapper message") { `mapConnectionTestError prefers nested timeout detail over generic wrapper message`() }
+
+        test("mapConnectionTestError surfaces http status metadata when exception message is empty") { `mapConnectionTestError surfaces http status metadata when exception message is empty`() }
+
+        test("mapConnectionTestError falls back to exception type when no detail fields exist") { `mapConnectionTestError falls back to exception type when no detail fields exist`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -49,8 +62,7 @@ class S3SyncRepositorySupportErrorMappingTest {
 
     private lateinit var support: S3SyncRepositorySupport
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         support =
             S3SyncRepositorySupport(
@@ -70,8 +82,7 @@ class S3SyncRepositorySupportErrorMappingTest {
             )
     }
 
-    @Test
-    fun `mapConnectionTestError prefers nested timeout detail over generic wrapper message`() {
+    private fun `mapConnectionTestError prefers nested timeout detail over generic wrapper message`() {
         val result =
             support.mapConnectionTestError(
                 IllegalStateException(
@@ -82,14 +93,13 @@ class S3SyncRepositorySupportErrorMappingTest {
                 ),
             )
 
-        assertEquals(S3SyncErrorCode.CONNECTION_FAILED, result.code)
-        assertTrue(result.message.contains("timed out", ignoreCase = true))
-        assertTrue(result.message.contains("https://s3.example.com"))
-        assertFalse(result.message.equals("S3 sync failed", ignoreCase = true))
+        result.code shouldBe S3SyncErrorCode.CONNECTION_FAILED
+        (result.message.contains("timed out", ignoreCase = true)).shouldBeTrue()
+        (result.message.contains("https://s3.example.com")).shouldBeTrue()
+        (result.message.equals("S3 sync failed", ignoreCase = true)).shouldBeFalse()
     }
 
-    @Test
-    fun `mapConnectionTestError surfaces http status metadata when exception message is empty`() {
+    private fun `mapConnectionTestError surfaces http status metadata when exception message is empty`() {
         val exception =
             HttpResponseException().apply {
                 statusCode = HttpStatusCode(403, "Forbidden")
@@ -97,17 +107,16 @@ class S3SyncRepositorySupportErrorMappingTest {
 
         val result = support.mapConnectionTestError(exception)
 
-        assertEquals(S3SyncErrorCode.AUTH_FAILED, result.code)
-        assertTrue(result.message.contains("403"))
-        assertTrue(result.message.contains("Forbidden"))
-        assertFalse(result.message.equals("S3 connection failed", ignoreCase = true))
+        result.code shouldBe S3SyncErrorCode.AUTH_FAILED
+        (result.message.contains("403")).shouldBeTrue()
+        (result.message.contains("Forbidden")).shouldBeTrue()
+        (result.message.equals("S3 connection failed", ignoreCase = true)).shouldBeFalse()
     }
 
-    @Test
-    fun `mapConnectionTestError falls back to exception type when no detail fields exist`() {
+    private fun `mapConnectionTestError falls back to exception type when no detail fields exist`() {
         val result = support.mapConnectionTestError(HttpResponseException())
 
-        assertTrue(result.message.contains("HttpResponseException"))
-        assertFalse(result.message.equals("S3 connection failed", ignoreCase = true))
+        (result.message.contains("HttpResponseException")).shouldBeTrue()
+        (result.message.equals("S3 connection failed", ignoreCase = true)).shouldBeFalse()
     }
 }

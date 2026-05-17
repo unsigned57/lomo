@@ -1,8 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -18,9 +17,9 @@ import org.junit.Test
  *   instead of recovering smoothly.
  * - Excludes: Compose frame timing, actual alpha interpolation values, and markdown rendering.
  */
-class InputEditorChromeTransitionStateTest {
-    @Test
-    fun `expanded edit keeps mode bar and formatting toolbar visible`() {
+class InputEditorChromeTransitionStateTest : UiComponentsFunSpec() {
+    init {
+        test("expanded edit keeps mode bar and formatting toolbar visible") {
         val state =
             resolveInputEditorChromeState(
                 presentationState = InputSheetPresentationState.ExpandedEdit,
@@ -28,16 +27,17 @@ class InputEditorChromeTransitionStateTest {
                 hintText = "Hint",
             )
 
-        assertTrue(state.displayModeBar.keepsHostMounted)
-        assertTrue(state.displayModeBar.isVisible)
-        assertTrue(state.displayModeBar.isInteractive)
-        assertTrue(state.formattingToolbar.keepsHostMounted)
-        assertTrue(state.formattingToolbar.isVisible)
-        assertTrue(state.formattingToolbar.isInteractive)
+        (state.displayModeBar.keepsHostMounted) shouldBe true
+        (state.displayModeBar.isVisible) shouldBe true
+        (state.displayModeBar.isInteractive) shouldBe true
+        (state.formattingToolbar.keepsHostMounted) shouldBe true
+        (state.formattingToolbar.isVisible) shouldBe true
+        (state.formattingToolbar.isInteractive) shouldBe true
+        }
     }
 
-    @Test
-    fun `switching to preview keeps chrome hosts mounted while hiding formatting toolbar`() {
+    init {
+        test("switching to preview keeps chrome hosts mounted while hiding formatting toolbar") {
         val state =
             resolveInputEditorChromeState(
                 presentationState = InputSheetPresentationState.SwitchingToPreview,
@@ -45,16 +45,17 @@ class InputEditorChromeTransitionStateTest {
                 hintText = "Hint",
             )
 
-        assertTrue(state.displayModeBar.keepsHostMounted)
-        assertTrue(state.displayModeBar.isVisible)
-        assertTrue(state.displayModeBar.isInteractive)
-        assertTrue(state.formattingToolbar.keepsHostMounted)
-        assertFalse(state.formattingToolbar.isVisible)
-        assertFalse(state.formattingToolbar.isInteractive)
+        (state.displayModeBar.keepsHostMounted) shouldBe true
+        (state.displayModeBar.isVisible) shouldBe true
+        (state.displayModeBar.isInteractive) shouldBe true
+        (state.formattingToolbar.keepsHostMounted) shouldBe true
+        (state.formattingToolbar.isVisible) shouldBe false
+        (state.formattingToolbar.isInteractive) shouldBe false
+        }
     }
 
-    @Test
-    fun `expanded preview keeps mode bar host and disables formatting toolbar`() {
+    init {
+        test("expanded preview keeps mode bar host and disables formatting toolbar") {
         val state =
             resolveInputEditorChromeState(
                 presentationState = InputSheetPresentationState.ExpandedPreview,
@@ -62,16 +63,17 @@ class InputEditorChromeTransitionStateTest {
                 hintText = "Hint",
             )
 
-        assertTrue(state.displayModeBar.keepsHostMounted)
-        assertTrue(state.displayModeBar.isVisible)
-        assertTrue(state.displayModeBar.isInteractive)
-        assertTrue(state.formattingToolbar.keepsHostMounted)
-        assertFalse(state.formattingToolbar.isVisible)
-        assertFalse(state.formattingToolbar.isInteractive)
+        (state.displayModeBar.keepsHostMounted) shouldBe true
+        (state.displayModeBar.isVisible) shouldBe true
+        (state.displayModeBar.isInteractive) shouldBe true
+        (state.formattingToolbar.keepsHostMounted) shouldBe true
+        (state.formattingToolbar.isVisible) shouldBe false
+        (state.formattingToolbar.isInteractive) shouldBe false
+        }
     }
 
-    @Test
-    fun `switching to edit starts restoring formatting toolbar without remounting host`() {
+    init {
+        test("switching to edit starts restoring formatting toolbar without remounting host") {
         val state =
             resolveInputEditorChromeState(
                 presentationState = InputSheetPresentationState.SwitchingToEdit,
@@ -79,11 +81,12 @@ class InputEditorChromeTransitionStateTest {
                 hintText = "Hint",
             )
 
-        assertTrue(state.displayModeBar.keepsHostMounted)
-        assertTrue(state.displayModeBar.isVisible)
-        assertTrue(state.displayModeBar.isInteractive)
-        assertTrue(state.formattingToolbar.keepsHostMounted)
-        assertTrue(state.formattingToolbar.isVisible)
-        assertTrue(state.formattingToolbar.isInteractive)
+        (state.displayModeBar.keepsHostMounted) shouldBe true
+        (state.displayModeBar.isVisible) shouldBe true
+        (state.displayModeBar.isInteractive) shouldBe true
+        (state.formattingToolbar.keepsHostMounted) shouldBe true
+        (state.formattingToolbar.isVisible) shouldBe true
+        (state.formattingToolbar.isInteractive) shouldBe true
+        }
     }
 }

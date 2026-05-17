@@ -1,13 +1,12 @@
 package com.lomo.ui.text
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import android.text.Layout
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -32,126 +31,137 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: renderer-path cleanup is now locked
  *   in one dedicated migration-boundary test instead of being duplicated in script tests.
  */
-class ScriptAwareTextTest {
-    @Test
-    fun `normalize display text keeps markdown markers and technical tokens while spacing mixed prose`() {
+class ScriptAwareTextTest : UiComponentsFunSpec() {
+    init {
+        test("normalize display text keeps markdown markers and technical tokens while spacing mixed prose") {
         val input = "- [ ] 今天review C# 版本v1.2 https://a.com"
 
         val result = input.normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals("- [ ] 今天 review C# 版本 v1.2 https://a.com", result)
+        (result) shouldBe ("- [ ] 今天 review C# 版本 v1.2 https://a.com")
+        }
     }
 
-    @Test
-    fun `normalize display text covers slash in chinese prose but preserves urls`() {
+    init {
+        test("normalize display text covers slash in chinese prose but preserves urls") {
         val input = "接口: 输入/输出 https://a.com/a/b"
 
         val result = input.normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals("接口： 输入／输出 https://a.com/a/b", result)
+        (result) shouldBe ("接口： 输入／输出 https://a.com/a/b")
+        }
     }
 
-    @Test
-    fun `normalize display text converts paired quotes parentheses and dash runs in chinese prose`() {
+    init {
+        test("normalize display text converts paired quotes parentheses and dash runs in chinese prose") {
         val input = "她说\"hello\"，然后写下'world'(test)----完成"
 
         val result = input.normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals("她说“hello”，然后写下‘world’（test）————完成", result)
+        (result) shouldBe ("她说“hello”，然后写下‘world’（test）————完成")
+        }
     }
 
-    @Test
-    fun `normalize display text keeps apostrophes and technical parentheses in latin tokens`() {
+    init {
+        test("normalize display text keeps apostrophes and technical parentheses in latin tokens") {
         val input = "今天 review it's foo(bar)"
 
         val result = input.normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals("今天 review it's foo(bar)", result)
+        (result) shouldBe ("今天 review it's foo(bar)")
+        }
     }
 
-    @Test
-    fun `normalize display text collapses repeated ascii quotes around chinese text`() {
+    init {
+        test("normalize display text collapses repeated ascii quotes around chinese text") {
         val input = "她写下\"\"中文\"\"，又写下''中文''"
 
         val result = input.normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals("她写下“中文”，又写下‘中文’", result)
+        (result) shouldBe ("她写下“中文”，又写下‘中文’")
+        }
     }
 
-    @Test
-    fun `script aware alignment no longer forces justify for mixed cjk paragraphs`() {
-        assertEquals(TextAlign.Start, "今天 review".scriptAwareTextAlign())
+    init {
+        test("script aware alignment no longer forces justify for mixed cjk paragraphs") {
+        ("今天 review".scriptAwareTextAlign()) shouldBe (TextAlign.Start)
+        }
     }
 
-    @Test
-    fun `script aware alignment keeps justify for chinese long prose with quotes and colon`() {
+    init {
+        test("script aware alignment keeps justify for chinese long prose with quotes and colon") {
         val normalized =
             "这是一段很长的\"中文引号\"段落内容：应该保持两端对齐。"
                 .normalizeCjkMixedSpacingForDisplay()
 
-        assertEquals(TextAlign.Justify, normalized.scriptAwareTextAlign())
+        (normalized.scriptAwareTextAlign()) shouldBe (TextAlign.Justify)
+        }
     }
 
-    @Test
-    fun `script aware style keeps default paragraph line breaking for mixed cjk paragraphs`() {
+    init {
+        test("script aware style keeps default paragraph line breaking for mixed cjk paragraphs") {
         val style = androidx.compose.ui.text.TextStyle().scriptAwareFor("今天 review 很长的一段 mixed text")
 
-        assertEquals(LineBreak.Paragraph, style.lineBreak)
+        (style.lineBreak) shouldBe (LineBreak.Paragraph)
+        }
     }
 
-    @Test
-    fun `script aware style disables font padding for mixed cjk paragraphs`() {
+    init {
+        test("script aware style disables font padding for mixed cjk paragraphs") {
         val style = androidx.compose.ui.text.TextStyle().scriptAwareFor("今天 review 很长的一段 mixed text")
 
-        assertEquals(PlatformTextStyle(includeFontPadding = false), style.platformStyle)
+        (style.platformStyle) shouldBe (PlatformTextStyle(includeFontPadding = false))
+        }
     }
 
-    @Test
-    fun `script aware style centers mixed cjk line height without trimming paragraph edges`() {
+    init {
+        test("script aware style centers mixed cjk line height without trimming paragraph edges") {
         val style = androidx.compose.ui.text.TextStyle().scriptAwareFor("今天 review 很长的一段 mixed text")
 
-        assertEquals(
-            LineHeightStyle(
+        (style.lineHeightStyle) shouldBe (LineHeightStyle(
                 alignment = LineHeightStyle.Alignment.Center,
                 trim = LineHeightStyle.Trim.None,
-            ),
-            style.lineHeightStyle,
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `script aware style keeps paragraph line breaking for chinese long prose with quotes and colon`() {
+    init {
+        test("script aware style keeps paragraph line breaking for chinese long prose with quotes and colon") {
         val style =
             androidx.compose.ui.text.TextStyle().scriptAwareFor(
                 "这是一段很长的“中文引号”段落内容：应该保持两端对齐。",
             )
 
-        assertEquals(LineBreak.Paragraph, style.lineBreak)
+        (style.lineBreak) shouldBe (LineBreak.Paragraph)
+        }
     }
 
-    @Test
-    fun `script aware style does not enable proportional cjk punctuation compaction for chinese prose with quotes and colon`() {
+    init {
+        test("script aware style does not enable proportional cjk punctuation compaction for chinese prose with quotes and colon") {
         val style =
             androidx.compose.ui.text.TextStyle().scriptAwareFor(
                 "这是一段很长的“中文引号”段落内容：应该保持两端对齐。",
             )
 
-        assertEquals(null, style.fontFeatureSettings)
+        (style.fontFeatureSettings) shouldBe (null)
+        }
     }
 
-    @Test
-    fun `platform cjk justification uses inter-character for the anonymized pure chinese paragraph`() {
+    init {
+        test("platform cjk justification uses inter-character for the anonymized pure chinese paragraph") {
         val text = ANONYMIZED_PURE_CJK_PARAGRAPH
 
-        assertTrue(text.shouldUsePlatformCjkJustification())
-        assertEquals(Layout.JUSTIFICATION_MODE_INTER_CHARACTER, text.platformJustificationMode())
+        (text.shouldUsePlatformCjkJustification()) shouldBe true
+        (text.platformJustificationMode()) shouldBe (Layout.JUSTIFICATION_MODE_INTER_CHARACTER)
+        }
     }
 
-    @Test
-    fun `short pure chinese paragraph keeps platform justification policy available to share cards`() {
+    init {
+        test("short pure chinese paragraph keeps platform justification policy available to share cards") {
         val text = "这是纯中文短段落，用来确认仍然保持原生两端对齐。"
 
-        assertEquals(Layout.JUSTIFICATION_MODE_INTER_CHARACTER, text.platformJustificationMode())
+        (text.platformJustificationMode()) shouldBe (Layout.JUSTIFICATION_MODE_INTER_CHARACTER)
+        }
     }
 
     companion object {

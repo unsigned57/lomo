@@ -1,8 +1,8 @@
 package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.update.AppUpdateDialogState
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,27 +12,29 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the manual-update settings row has no dedicated layout policy to keep its subtitle height stable across state changes.
  * - Excludes: Compose text measurement internals, Material3 ListItem rendering, and network update-check behavior.
  */
-class SettingsManualUpdateLayoutPolicyTest {
-    @Test
-    fun `manual update row keeps the same subtitle line reservation across states`() {
-        val states =
-            listOf(
-                SettingsManualUpdateState.Idle,
-                SettingsManualUpdateState.Checking,
-                SettingsManualUpdateState.UpToDate,
-                SettingsManualUpdateState.UpdateAvailable(
-                    dialogState =
-                        AppUpdateDialogState(
-                            url = "https://example.com/releases/1.0.0",
-                            version = "1.0.0",
-                            releaseNotes = "notes",
-                        ),
-                ),
-                SettingsManualUpdateState.Error("network timeout"),
-            )
+class SettingsManualUpdateLayoutPolicyTest : AppFunSpec() {
+    init {
+        test("manual update row keeps the same subtitle line reservation across states") {
+            val states =
+                listOf(
+                    SettingsManualUpdateState.Idle,
+                    SettingsManualUpdateState.Checking,
+                    SettingsManualUpdateState.UpToDate,
+                    SettingsManualUpdateState.UpdateAvailable(
+                        dialogState =
+                            AppUpdateDialogState(
+                                url = "https://example.com/releases/1.0.0",
+                                version = "1.0.0",
+                                releaseNotes = "notes",
+                            ),
+                    ),
+                    SettingsManualUpdateState.Error("network timeout"),
+                )
 
-        val reservedLines = states.map(::manualUpdateSubtitleMinLines)
+            val reservedLines = states.map(::manualUpdateSubtitleMinLines)
 
-        assertEquals(listOf(2, 2, 2, 2, 2), reservedLines)
+            (reservedLines) shouldBe (listOf(2, 2, 2, 2, 2))
+        }
     }
+
 }

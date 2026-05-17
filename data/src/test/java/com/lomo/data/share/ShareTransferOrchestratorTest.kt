@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.DiscoveredDevice
@@ -13,27 +14,39 @@ import io.mockk.mockk
 import io.mockk.runs
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
  * - Unit under test: ShareTransferOrchestrator
  * - Behavior focus: send state transitions, prepare/transfer failure classification, and pairing gate enforcement.
  * - Observable outcomes: Result success/failure, exposed ShareTransferState, and prepare/transfer collaborator calls.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: HTTP transport internals, attachment URI discovery, and UI rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class ShareTransferOrchestratorTest {
+class ShareTransferOrchestratorTest : DataFunSpec() {
+    init {
+        test("sendMemo stops immediately when pairing is required before send") { `sendMemo stops immediately when pairing is required before send`() }
+
+        test("sendMemo moves to success when prepare and transfer both succeed") { `sendMemo moves to success when prepare and transfer both succeed`() }
+
+        test("sendMemo maps prepare failure to connection error state") { `sendMemo maps prepare failure to connection error state`() }
+
+        test("sendMemo maps rejected prepare session to transfer rejected error") { `sendMemo maps rejected prepare session to transfer rejected error`() }
+
+        test("sendMemo maps false transfer result to transfer failed error") { `sendMemo maps false transfer result to transfer failed error`() }
+    }
+
+
     private val context = mockk<Context>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
     private val pairingConfig = mockk<SharePairingConfig>(relaxed = true)
     private val device = DiscoveredDevice(name = "Pixel", host = "127.0.0.1", port = 8080)
 
-    @Test
-    fun `sendMemo stops immediately when pairing is required before send`() =
+    private fun `sendMemo stops immediately when pairing is required before send`() =
         runTest {
             val client = fakeClient()
             val orchestrator = createOrchestrator(client)
@@ -42,9 +55,8 @@ class ShareTransferOrchestratorTest {
 
             val result = orchestrator.sendMemo(device, "memo", 10L, emptyMap())
 
-            assertTrue(result.isFailure)
-            assertEquals(
-                ShareTransferState.Error(
+            (result.isFailure).shouldBeTrue()
+            orchestrator.transferState.value shouldBe ShareTransferState.Error(
                     error =
                         com.lomo.domain.model.ShareTransferError(
                             code = ShareTransferErrorCode.PAIRING_REQUIRED,
@@ -52,15 +64,12 @@ class ShareTransferOrchestratorTest {
                             deviceName = null,
                             missingAttachmentCount = null,
                         ),
-                ),
-                orchestrator.transferState.value,
-            )
+                )
             coVerify(exactly = 0) { client.prepare(any(), any(), any(), any(), any(), any()) }
             coVerify(exactly = 0) { client.transfer(any(), any(), any(), any(), any(), any(), any()) }
         }
 
-    @Test
-    fun `sendMemo moves to success when prepare and transfer both succeed`() =
+    private fun `sendMemo moves to success when prepare and transfer both succeed`() =
         runTest {
             val client = fakeClient()
             val orchestrator = createOrchestrator(client)
@@ -91,16 +100,15 @@ class ShareTransferOrchestratorTest {
 
             val result = orchestrator.sendMemo(device, "memo", 11L, emptyMap())
 
-            assertTrue(result.isSuccess)
-            assertEquals(ShareTransferState.Success(device.name), orchestrator.transferState.value)
+            (result.isSuccess).shouldBeTrue()
+            orchestrator.transferState.value shouldBe ShareTransferState.Success(device.name)
             coVerify(exactly = 1) { client.prepare(device, "memo", 11L, "Sender", emptyList(), false) }
             coVerify(exactly = 1) {
                 client.transfer(device, "memo", 11L, "approved", emptyMap(), false, null)
             }
         }
 
-    @Test
-    fun `sendMemo maps prepare failure to connection error state`() =
+    private fun `sendMemo maps prepare failure to connection error state`() =
         runTest {
             val client = fakeClient()
             val orchestrator = createOrchestrator(client)
@@ -113,14 +121,13 @@ class ShareTransferOrchestratorTest {
 
             val result = orchestrator.sendMemo(device, "memo", 12L, emptyMap())
 
-            assertTrue(result.isFailure)
+            (result.isFailure).shouldBeTrue()
             val state = orchestrator.transferState.value as ShareTransferState.Error
-            assertEquals(ShareTransferErrorCode.CONNECTION_FAILED, state.error.code)
-            assertEquals("network down", state.error.detail)
+            state.error.code shouldBe ShareTransferErrorCode.CONNECTION_FAILED
+            state.error.detail shouldBe "network down"
         }
 
-    @Test
-    fun `sendMemo maps rejected prepare session to transfer rejected error`() =
+    private fun `sendMemo maps rejected prepare session to transfer rejected error`() =
         runTest {
             val client = fakeClient()
             val orchestrator = createOrchestrator(client)
@@ -133,14 +140,13 @@ class ShareTransferOrchestratorTest {
 
             val result = orchestrator.sendMemo(device, "memo", 13L, emptyMap())
 
-            assertTrue(result.isFailure)
+            (result.isFailure).shouldBeTrue()
             val state = orchestrator.transferState.value as ShareTransferState.Error
-            assertEquals(ShareTransferErrorCode.TRANSFER_REJECTED, state.error.code)
-            assertEquals(device.name, state.error.deviceName)
+            state.error.code shouldBe ShareTransferErrorCode.TRANSFER_REJECTED
+            state.error.deviceName shouldBe device.name
         }
 
-    @Test
-    fun `sendMemo maps false transfer result to transfer failed error`() =
+    private fun `sendMemo maps false transfer result to transfer failed error`() =
         runTest {
             val client = fakeClient()
             val orchestrator = createOrchestrator(client)
@@ -156,9 +162,9 @@ class ShareTransferOrchestratorTest {
 
             val result = orchestrator.sendMemo(device, "memo", 14L, emptyMap())
 
-            assertTrue(result.isFailure)
+            (result.isFailure).shouldBeTrue()
             val state = orchestrator.transferState.value as ShareTransferState.Error
-            assertEquals(ShareTransferErrorCode.TRANSFER_FAILED, state.error.code)
+            state.error.code shouldBe ShareTransferErrorCode.TRANSFER_FAILED
         }
 
     private fun createOrchestrator(client: LomoShareClient): ShareTransferOrchestrator {

@@ -1,14 +1,13 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
+import io.kotest.matchers.shouldBe
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.time.LocalDate
-import java.time.ZoneId
 
 /*
  * Test Contract:
@@ -20,78 +19,11 @@ import java.time.ZoneId
  *   list scroll instead of resolving an immediate-focus request contract.
  * - Excludes: Compose rendering, NavHost back-stack transitions, and LazyListState scroll physics.
  */
-class MainScreenFocusRequestResolverTest {
-    @Test
-    fun `returns immediate focus request when target memo is visible`() {
-        val request =
-            resolveMainScreenFocusRequest(
-                memoId = "memo-2",
-                visibleUiMemos =
-                    listOf(
-                        memoUiModel("memo-1"),
-                        memoUiModel("memo-2"),
-                        memoUiModel("memo-3"),
-                    ).toImmutableList(),
-            )
-
-        assertEquals(MainScreenFocusRequest.Immediate(index = 1), request)
-    }
-
-    @Test
-    fun `returns immediate focus request for the last visible memo`() {
-        val request =
-            resolveMainScreenFocusRequest(
-                memoId = "memo-3",
-                visibleUiMemos =
-                    listOf(
-                        memoUiModel("memo-1"),
-                        memoUiModel("memo-2"),
-                        memoUiModel("memo-3"),
-                    ).toImmutableList(),
-            )
-
-        assertEquals(MainScreenFocusRequest.Immediate(index = 2), request)
-    }
-
-    @Test
-    fun `returns absolute focus index when paging snapshot starts after placeholders`() {
-        val request =
-            resolveMainScreenFocusRequest(
-                memoId = "memo-42",
-                visibleUiMemoStartIndex = 40,
-                visibleUiMemos =
-                    listOf(
-                        memoUiModel("memo-40"),
-                        memoUiModel("memo-41"),
-                        memoUiModel("memo-42"),
-                    ).toImmutableList(),
-            )
-
-        assertEquals(MainScreenFocusRequest.Immediate(index = 42), request)
-    }
-
-    @Test
-    fun `returns not found when target memo is not visible`() {
-        val request =
-            resolveMainScreenFocusRequest(
-                memoId = "missing",
-                visibleUiMemos =
-                    listOf(
-                        memoUiModel("memo-1"),
-                        memoUiModel("memo-2"),
-                    ).toImmutableList(),
-            )
-
-        assertEquals(MainScreenFocusRequest.NotFound, request)
-    }
-
-    @Test
-    fun `focuses matching memo with one direct placement request`() =
-        runTest {
-            val positioner = RecordingFocusPositioner()
-
-            val handled =
-                focusMemoInMainScreen(
+class MainScreenFocusRequestResolverTest : AppFunSpec() {
+    init {
+        test("returns immediate focus request when target memo is visible") {
+            val request =
+                resolveMainScreenFocusRequest(
                     memoId = "memo-2",
                     visibleUiMemos =
                         listOf(
@@ -99,50 +31,127 @@ class MainScreenFocusRequestResolverTest {
                             memoUiModel("memo-2"),
                             memoUiModel("memo-3"),
                         ).toImmutableList(),
-                    positioner = positioner,
                 )
 
-            assertTrue(handled)
-            assertEquals(listOf(1), positioner.indexes)
+            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 1))
         }
+    }
 
-    @Test
-    fun `does not request placement when target memo is absent`() =
-        runTest {
-            val positioner = RecordingFocusPositioner()
+    init {
+        test("returns immediate focus request for the last visible memo") {
+            val request =
+                resolveMainScreenFocusRequest(
+                    memoId = "memo-3",
+                    visibleUiMemos =
+                        listOf(
+                            memoUiModel("memo-1"),
+                            memoUiModel("memo-2"),
+                            memoUiModel("memo-3"),
+                        ).toImmutableList(),
+                )
 
-            val handled =
-                focusMemoInMainScreen(
+            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 2))
+        }
+    }
+
+    init {
+        test("returns absolute focus index when paging snapshot starts after placeholders") {
+            val request =
+                resolveMainScreenFocusRequest(
+                    memoId = "memo-42",
+                    visibleUiMemoStartIndex = 40,
+                    visibleUiMemos =
+                        listOf(
+                            memoUiModel("memo-40"),
+                            memoUiModel("memo-41"),
+                            memoUiModel("memo-42"),
+                        ).toImmutableList(),
+                )
+
+            (request) shouldBe (MainScreenFocusRequest.Immediate(index = 42))
+        }
+    }
+
+    init {
+        test("returns not found when target memo is not visible") {
+            val request =
+                resolveMainScreenFocusRequest(
                     memoId = "missing",
                     visibleUiMemos =
                         listOf(
                             memoUiModel("memo-1"),
                             memoUiModel("memo-2"),
                         ).toImmutableList(),
-                    positioner = positioner,
                 )
 
-            assertEquals(false, handled)
-            assertEquals(emptyList<Int>(), positioner.indexes)
+            (request) shouldBe (MainScreenFocusRequest.NotFound)
         }
+    }
 
-    @Test
-    fun `offscreen focus requests direct placement and keeps request pending until paging exposes the target`() =
-        runTest {
-            val positioner = RecordingFocusPositioner()
+    init {
+        test("focuses matching memo with one direct placement request") {
+            runTest {
+                val positioner = RecordingFocusPositioner()
 
-            val handled =
-                focusMemoInMainScreenWithFallback(
-                    memoId = "memo-42",
-                    visibleUiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
-                    canResolveOffscreenMainListFocus = true,
-                    resolveOffscreenIndex = { memoId -> if (memoId == "memo-42") 42 else null },
-                    positioner = positioner,
-                )
+                val handled =
+                    focusMemoInMainScreen(
+                        memoId = "memo-2",
+                        visibleUiMemos =
+                            listOf(
+                                memoUiModel("memo-1"),
+                                memoUiModel("memo-2"),
+                                memoUiModel("memo-3"),
+                            ).toImmutableList(),
+                        positioner = positioner,
+                    )
 
-            assertEquals(false, handled)
-            assertEquals(listOf(42), positioner.indexes)
+                ((handled)) shouldBe true
+                (positioner.indexes) shouldBe (listOf(1))
+            }
         }
+    }
+
+    init {
+        test("does not request placement when target memo is absent") {
+            runTest {
+                val positioner = RecordingFocusPositioner()
+
+                val handled =
+                    focusMemoInMainScreen(
+                        memoId = "missing",
+                        visibleUiMemos =
+                            listOf(
+                                memoUiModel("memo-1"),
+                                memoUiModel("memo-2"),
+                            ).toImmutableList(),
+                        positioner = positioner,
+                    )
+
+                (handled) shouldBe (false)
+                (positioner.indexes) shouldBe (emptyList<Int>())
+            }
+        }
+    }
+
+    init {
+        test("offscreen focus requests direct placement and keeps request pending until paging exposes the target") {
+            runTest {
+                val positioner = RecordingFocusPositioner()
+
+                val handled =
+                    focusMemoInMainScreenWithFallback(
+                        memoId = "memo-42",
+                        visibleUiMemos = listOf(memoUiModel("memo-1")).toImmutableList(),
+                        canResolveOffscreenMainListFocus = true,
+                        resolveOffscreenIndex = { memoId -> if (memoId == "memo-42") 42 else null },
+                        positioner = positioner,
+                    )
+
+                (handled) shouldBe (false)
+                (positioner.indexes) shouldBe (listOf(42))
+            }
+        }
+    }
 
     private fun memoUiModel(id: String): MemoUiModel =
         MemoUiModel(

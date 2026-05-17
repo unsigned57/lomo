@@ -1,17 +1,18 @@
 package com.lomo.data.parser
 
+
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.usecase.MemoIdentityPolicy
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.ZoneId
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -21,18 +22,53 @@ import java.time.ZoneId
  * - Red phase: Fails before the fix when a non-empty plain Markdown daily note parses as zero memos and disappears after sync refresh.
  * - Excludes: filesystem backend behavior, Room/index persistence, and sync transport orchestration.
  */
-class MarkdownParserTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class MarkdownParserTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setup()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("test parse file with single memo and content on same line") { `test parse file with single memo and content on same line`() }
+
+        test("test parse file with leading blank line") { `test parse file with leading blank line`() }
+
+        test("test parse file with multi-line content") { `test parse file with multi-line content`() }
+
+        test("test parse complex multi-paragraph format") { `test parse complex multi-paragraph format`() }
+
+        test("test short time format HH_mm without seconds") { `test short time format HH_mm without seconds`() }
+
+        test("test multiple memos in one file") { `test multiple memos in one file`() }
+
+        test("test stable ids with hash") { `test stable ids with hash`() }
+
+        test("test collision with identical content and timestamp") { `test collision with identical content and timestamp`() }
+
+        test("test millisecond offsets for identical timestamps") { `test millisecond offsets for identical timestamps`() }
+
+        test("test parse timestamp with dot filename format") { `test parse timestamp with dot filename format`() }
+
+        test("test parse timestamp with month-first filename format") { `test parse timestamp with month-first filename format`() }
+
+        test("test parse timestamp falls back to file metadata date when filename is unknown") { `test parse timestamp falls back to file metadata date when filename is unknown`() }
+
+        test("test parse plain markdown file without timestamp headers as single memo") { `test parse plain markdown file without timestamp headers as single memo`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     private lateinit var parser: MarkdownParser
 
-    @Before
     fun setup() {
         parser = MarkdownParser(MemoTextProcessor(), MemoIdentityPolicy())
     }
 
-    @Test
-    fun `test parse file with single memo and content on same line`() {
+    private fun `test parse file with single memo and content on same line`() {
         // Format: - HH:mm:ss Content
         val file = tempFolder.newFile("2026_01_10.md")
         file.writeText(
@@ -43,14 +79,13 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals("Should parse 1 memo", 1, memos.size)
-        assertEquals("Content should be 'Hello Lomo'", "Hello Lomo", memos[0].content)
+        withClue("Should parse 1 memo") { memos.size shouldBe 1 }
+        withClue("Content should be 'Hello Lomo'") { memos[0].content shouldBe "Hello Lomo" }
         // ID now includes content hash
-        assertTrue("Timestamp should match prefix", memos[0].id.startsWith("2026_01_10_22:02:46_"))
+        withClue("Timestamp should match prefix") { (memos[0].id.startsWith("2026_01_10_22:02:46_")).shouldBeTrue() }
     }
 
-    @Test
-    fun `test parse file with leading blank line`() {
+    private fun `test parse file with leading blank line`() {
         val file = tempFolder.newFile("2026_01_10_blank.md")
         file.writeText(
             """
@@ -61,12 +96,11 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals("Should parse 1 memo even with leading blank", 1, memos.size)
-        assertEquals("Testing leading blank lines", memos[0].content)
+        withClue("Should parse 1 memo even with leading blank") { memos.size shouldBe 1 }
+        memos[0].content shouldBe "Testing leading blank lines"
     }
 
-    @Test
-    fun `test parse file with multi-line content`() {
+    private fun `test parse file with multi-line content`() {
         val file = tempFolder.newFile("2022_05_02.md")
         file.writeText(
             """
@@ -80,13 +114,12 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals("Should parse 1 memo", 1, memos.size)
-        assertTrue("Content should contain first line", memos[0].content.contains("multi-line memo"))
-        assertTrue("Content should contain subsequent lines", memos[0].content.contains("consistent with the original"))
+        withClue("Should parse 1 memo") { memos.size shouldBe 1 }
+        withClue("Content should contain first line") { (memos[0].content.contains("multi-line memo")).shouldBeTrue() }
+        withClue("Content should contain subsequent lines") { (memos[0].content.contains("consistent with the original")).shouldBeTrue() }
     }
 
-    @Test
-    fun `test parse complex multi-paragraph format`() {
+    private fun `test parse complex multi-paragraph format`() {
         val content =
             """- 21:57:35 
   First paragraph of the complex test case.
@@ -100,24 +133,22 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals("Should parse 1 memo", 1, memos.size)
-        assertTrue("Should contain First paragraph", memos[0].content.contains("First paragraph"))
-        assertTrue("Should contain Third paragraph", memos[0].content.contains("Third paragraph"))
+        withClue("Should parse 1 memo") { memos.size shouldBe 1 }
+        withClue("Should contain First paragraph") { (memos[0].content.contains("First paragraph")).shouldBeTrue() }
+        withClue("Should contain Third paragraph") { (memos[0].content.contains("Third paragraph")).shouldBeTrue() }
     }
 
-    @Test
-    fun `test short time format HH_mm without seconds`() {
+    private fun `test short time format HH_mm without seconds`() {
         val file = tempFolder.newFile("2026_01_11.md")
         file.writeText("- 10:30 Good morning")
 
         val memos = parser.parseFile(file)
 
-        assertEquals(1, memos.size)
-        assertEquals("Good morning", memos[0].content)
+        memos.size shouldBe 1
+        memos[0].content shouldBe "Good morning"
     }
 
-    @Test
-    fun `test multiple memos in one file`() {
+    private fun `test multiple memos in one file`() {
         val file = tempFolder.newFile("2026_01_12.md")
         file.writeText(
             """
@@ -129,18 +160,17 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals(3, memos.size)
-        assertEquals("Breakfast", memos[0].content)
+        memos.size shouldBe 3
+        memos[0].content shouldBe "Breakfast"
         // Verify ID contains date and timestamp. We can't predict hash easily in test without calc,
         // but we verify it's NOT just filename_time
-        assertTrue(memos[0].id.startsWith("2026_01_12_08:00_"))
+        (memos[0].id.startsWith("2026_01_12_08:00_")).shouldBeTrue()
 
-        assertEquals("Lunch", memos[1].content)
-        assertEquals("Dinner", memos[2].content)
+        memos[1].content shouldBe "Lunch"
+        memos[2].content shouldBe "Dinner"
     }
 
-    @Test
-    fun `test stable ids with hash`() {
+    private fun `test stable ids with hash`() {
         // Scenario: Two notes with same timestamp.
         // File 1: Note A, Note B
         val content1 =
@@ -163,13 +193,12 @@ class MarkdownParserTest {
         val idBUsage2 = memos2[0].id
 
         // Assert: ID of Note B should be identical in both cases
-        assertEquals("ID of Note B should remain stable after deleting Note A", idBUsage1, idBUsage2)
+        withClue("ID of Note B should remain stable after deleting Note A") { idBUsage2 shouldBe idBUsage1 }
         // Also assert it's NOT the same as A's ID
-        org.junit.Assert.assertNotEquals(idAUsage1, idBUsage2)
+        idAUsage1 shouldNotBe idBUsage2
     }
 
-    @Test
-    fun `test collision with identical content and timestamp`() {
+    private fun `test collision with identical content and timestamp`() {
         // Edge case: Identical content and timestamp
         val content =
             """
@@ -178,18 +207,17 @@ class MarkdownParserTest {
             """.trimIndent()
 
         val memos = parser.parseContent(content, "file1")
-        assertEquals(2, memos.size)
+        memos.size shouldBe 2
         // First one has base hash ID
         // Second one should have suffix _1
         val baseId = memos[0].id
         val collisionId = memos[1].id
 
-        assertTrue("Second ID should start with Base ID", collisionId.startsWith(baseId))
-        assertTrue("Second ID should have suffix", collisionId.endsWith("_1"))
+        withClue("Second ID should start with Base ID") { (collisionId.startsWith(baseId)).shouldBeTrue() }
+        withClue("Second ID should have suffix") { (collisionId.endsWith("_1")).shouldBeTrue() }
     }
 
-    @Test
-    fun `test millisecond offsets for identical timestamps`() {
+    private fun `test millisecond offsets for identical timestamps`() {
         val file = tempFolder.newFile("2026_01_13.md")
         file.writeText(
             """
@@ -201,7 +229,7 @@ class MarkdownParserTest {
 
         val memos = parser.parseFile(file)
 
-        assertEquals(3, memos.size)
+        memos.size shouldBe 3
         // Check that timestamps are sequential
         // Note: Actual timestamp value depends on parseTimestamp + offset
         // We just check that T2 > T1 and T3 > T2
@@ -209,40 +237,37 @@ class MarkdownParserTest {
         val t2 = memos[1].timestamp
         val t3 = memos[2].timestamp
 
-        assertTrue("Item 2 should have later timestamp than Item 1", t2 > t1)
-        assertTrue("Item 3 should have later timestamp than Item 2", t3 > t2)
-        assertEquals("Difference should be 1ms", 1, t2 - t1)
-        assertEquals("Difference should be 1ms", 1, t3 - t2)
+        withClue("Item 2 should have later timestamp than Item 1") { (t2 > t1).shouldBeTrue() }
+        withClue("Item 3 should have later timestamp than Item 2") { (t3 > t2).shouldBeTrue() }
+        withClue("Difference should be 1ms") { t2 - t1 shouldBe 1 }
+        withClue("Difference should be 1ms") { t3 - t2 shouldBe 1 }
     }
 
-    @Test
-    fun `test parse timestamp with dot filename format`() {
+    private fun `test parse timestamp with dot filename format`() {
         val file = tempFolder.newFile("2024.01.31.md")
         file.writeText("- 10:30 Dot format")
 
         val memos = parser.parseFile(file)
 
-        assertEquals(1, memos.size)
+        memos.size shouldBe 1
         val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
-        assertEquals(LocalDate.of(2024, 1, 31), dateTime.toLocalDate())
-        assertEquals(LocalTime.of(10, 30), dateTime.toLocalTime().withSecond(0).withNano(0))
+        dateTime.toLocalDate() shouldBe LocalDate.of(2024, 1, 31)
+        dateTime.toLocalTime().withSecond(0).withNano(0) shouldBe LocalTime.of(10, 30)
     }
 
-    @Test
-    fun `test parse timestamp with month-first filename format`() {
+    private fun `test parse timestamp with month-first filename format`() {
         val file = tempFolder.newFile("01-31-2024.md")
         file.writeText("- 23:59 US date format")
 
         val memos = parser.parseFile(file)
 
-        assertEquals(1, memos.size)
+        memos.size shouldBe 1
         val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
-        assertEquals(LocalDate.of(2024, 1, 31), dateTime.toLocalDate())
-        assertEquals(LocalTime.of(23, 59), dateTime.toLocalTime().withSecond(0).withNano(0))
+        dateTime.toLocalDate() shouldBe LocalDate.of(2024, 1, 31)
+        dateTime.toLocalTime().withSecond(0).withNano(0) shouldBe LocalTime.of(23, 59)
     }
 
-    @Test
-    fun `test parse timestamp falls back to file metadata date when filename is unknown`() {
+    private fun `test parse timestamp falls back to file metadata date when filename is unknown`() {
         val fallbackTime =
             LocalDateTime
                 .of(2020, 2, 3, 14, 0, 0)
@@ -257,14 +282,13 @@ class MarkdownParserTest {
                 fallbackTimestampMillis = fallbackTime,
             )
 
-        assertEquals(1, memos.size)
+        memos.size shouldBe 1
         val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos[0].timestamp), ZoneId.systemDefault())
-        assertEquals(LocalDate.of(2020, 2, 3), dateTime.toLocalDate())
-        assertEquals(LocalTime.of(8, 15), dateTime.toLocalTime().withSecond(0).withNano(0))
+        dateTime.toLocalDate() shouldBe LocalDate.of(2020, 2, 3)
+        dateTime.toLocalTime().withSecond(0).withNano(0) shouldBe LocalTime.of(8, 15)
     }
 
-    @Test
-    fun `test parse plain markdown file without timestamp headers as single memo`() {
+    private fun `test parse plain markdown file without timestamp headers as single memo`() {
         val fallbackTime =
             LocalDateTime
                 .of(2026, 3, 25, 22, 48, 0)
@@ -285,20 +309,17 @@ class MarkdownParserTest {
                 fallbackTimestampMillis = fallbackTime,
             )
 
-        assertEquals(1, memos.size)
-        assertEquals(
-            """
+        memos.size shouldBe 1
+        memos.single().content shouldBe """
             # March 25
 
             Wrote this on my computer.
             It should still show up in Lomo after sync.
-            """.trimIndent(),
-            memos.single().content,
-        )
-        assertEquals("2026_03_25", memos.single().dateKey)
+            """.trimIndent()
+        memos.single().dateKey shouldBe "2026_03_25"
         val dateTime = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(memos.single().timestamp), ZoneId.systemDefault())
-        assertEquals(LocalDate.of(2026, 3, 25), dateTime.toLocalDate())
-        assertEquals(LocalTime.MIDNIGHT, dateTime.toLocalTime().withNano(0))
-        assertTrue(memos.single().id.startsWith("2026_03_25_00:00:00_"))
+        dateTime.toLocalDate() shouldBe LocalDate.of(2026, 3, 25)
+        dateTime.toLocalTime().withNano(0) shouldBe LocalTime.MIDNIGHT
+        (memos.single().id.startsWith("2026_03_25_00:00:00_")).shouldBeTrue()
     }
 }

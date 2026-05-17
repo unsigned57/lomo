@@ -1,13 +1,14 @@
 package com.lomo.ui.component.stats
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.time.LocalDate
 
 /*
@@ -18,9 +19,9 @@ import java.time.LocalDate
  * - Red phase: Fails before the fix because a trailing-week selection uses the full heatmap content X offset, pushing the popup beyond the sidebar anchor.
  * - Excludes: Compose canvas rendering, popup enter/exit animations, and sidebar list wiring.
  */
-class CalendarHeatmapPopupPositionProviderTest {
-    @Test
-    fun `calculatePosition keeps popup within sidebar anchor for trailing visible dates`() {
+class CalendarHeatmapPopupPositionProviderTest : UiComponentsFunSpec() {
+    init {
+        test("calculatePosition keeps popup within sidebar anchor for trailing visible dates") {
         val layout =
             HeatmapLayout(
                 cellSizePx = 10f,
@@ -58,14 +59,12 @@ class CalendarHeatmapPopupPositionProviderTest {
                 popupContentSize = popupSize,
             )
 
-        assertTrue(
-            "Popup should stay inside the sidebar anchor, but x=${position.x} width=${popupSize.width} anchorRight=${anchorBounds.right}",
-            position.x >= anchorBounds.left && position.x + popupSize.width <= anchorBounds.right,
-        )
+        withClue("Popup should stay inside the sidebar anchor, but x=${position.x} width=${popupSize.width} anchorRight=${anchorBounds.right}") { (position.x >= anchorBounds.left && position.x + popupSize.width <= anchorBounds.right) shouldBe true }
+        }
     }
 
-    @Test
-    fun `heatmapPopupOffset subtracts horizontal scroll from content x`() {
+    init {
+        test("heatmapPopupOffset subtracts horizontal scroll from content x") {
         val layout =
             HeatmapLayout(
                 cellSizePx = 10f,
@@ -95,7 +94,8 @@ class CalendarHeatmapPopupPositionProviderTest {
                 horizontalScrollOffsetPx = 416f,
             )
 
-        assertEquals(239f, popupOffset.x, 0.001f)
-        assertEquals(40f, popupOffset.y, 0.001f)
+        (popupOffset.x) shouldBe ((239f) plusOrMinus (0.001f))
+        (popupOffset.y) shouldBe ((40f) plusOrMinus (0.001f))
+        }
     }
 }

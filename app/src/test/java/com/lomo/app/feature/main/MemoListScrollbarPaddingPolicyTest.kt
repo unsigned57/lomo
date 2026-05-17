@@ -1,8 +1,8 @@
 package com.lomo.app.feature.main
 
 import androidx.compose.ui.unit.dp
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,20 +14,23 @@ import org.junit.Test
  *   is enabled, making memo cards visually misaligned.
  * - Excludes: Compose LazyColumn rendering, scrollbar drag behavior, and navigation bar insets.
  */
-class MemoListScrollbarPaddingPolicyTest {
-    @Test
-    fun `memo side padding stays balanced when scrollbar is disabled`() {
-        val padding = resolveMemoListHorizontalContentPadding(scrollbarEnabled = false)
+class MemoListScrollbarPaddingPolicyTest : AppFunSpec() {
+    init {
+        test("memo side padding stays balanced when scrollbar is disabled") {
+            val padding = resolveMemoListHorizontalContentPadding(scrollbarEnabled = false)
 
-        assertEquals(16.dp, padding.start)
-        assertEquals(padding.start, padding.end)
+            (padding.start) shouldBe (16.dp)
+            (padding.end) shouldBe (padding.start)
+        }
     }
 
-    @Test
-    fun `memo side padding stays balanced when scrollbar is enabled`() {
-        val padding = resolveMemoListHorizontalContentPadding(scrollbarEnabled = true)
+    init {
+        test("memo side padding stays balanced when scrollbar is enabled") {
+            val padding = resolveMemoListHorizontalContentPadding(scrollbarEnabled = true)
 
-        assertEquals(16.dp, padding.start)
-        assertEquals(padding.start, padding.end)
+            (padding.start) shouldBe (16.dp)
+            (padding.end) shouldBe (padding.start)
+        }
     }
+
 }

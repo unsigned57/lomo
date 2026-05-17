@@ -1,12 +1,12 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import org.junit.Assert.assertSame
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -18,45 +18,47 @@ import org.junit.Test
  *   forcing all visible revisions to rebuild processedContent.
  * - Excludes: Compose rendering, image decoding, and version-history pagination state.
  */
-class MemoVersionHistoryUiMapperCacheIsolationTest {
+class MemoVersionHistoryUiMapperCacheIsolationTest : AppFunSpec() {
     private val mapper = MemoVersionHistoryUiMapper()
 
-    @Test
-    fun `mapToUiModels keeps cached revision when image map changes outside referenced attachments`() {
-        val referencedUri = mockk<android.net.Uri>()
-        every { referencedUri.toString() } returns "content://images/foo%20bar.png"
-        val unrelatedUri = mockk<android.net.Uri>()
-        every { unrelatedUri.toString() } returns "content://images/unrelated.png"
-        val revisions =
-            listOf(
-                revision(
-                    revisionId = "r1",
-                    content = "![cover](assets/foo%20bar.png)",
-                ),
-            )
-
-        val firstPage =
-            mapper.mapToUiModels(
-                revisions = revisions,
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap = mapOf("foo bar.png" to referencedUri),
-            )
-
-        val secondPage =
-            mapper.mapToUiModels(
-                revisions = revisions,
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap =
-                    mapOf(
-                        "foo bar.png" to referencedUri,
-                        "unrelated.png" to unrelatedUri,
+    init {
+        test("mapToUiModels keeps cached revision when image map changes outside referenced attachments") {
+            val referencedUri = mockk<android.net.Uri>()
+            every { referencedUri.toString() } returns "content://images/foo%20bar.png"
+            val unrelatedUri = mockk<android.net.Uri>()
+            every { unrelatedUri.toString() } returns "content://images/unrelated.png"
+            val revisions =
+                listOf(
+                    revision(
+                        revisionId = "r1",
+                        content = "![cover](assets/foo%20bar.png)",
                     ),
-            )
+                )
 
-        assertSame(firstPage.single(), secondPage.single())
+            val firstPage =
+                mapper.mapToUiModels(
+                    revisions = revisions,
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap = mapOf("foo bar.png" to referencedUri),
+                )
+
+            val secondPage =
+                mapper.mapToUiModels(
+                    revisions = revisions,
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap =
+                        mapOf(
+                            "foo bar.png" to referencedUri,
+                            "unrelated.png" to unrelatedUri,
+                        ),
+                )
+
+            ((secondPage.single()) === (firstPage.single())) shouldBe true
+        }
     }
+
 }
 
 private fun revision(

@@ -1,8 +1,7 @@
 package com.lomo.app.feature.main
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -31,72 +30,69 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the new assertions capture the reported user-visible
  *   stall and flash conditions rather than a private refactor detail.
  */
-class MainScreenNewMemoInsertAnimationPolicyTest {
-    @Test
-    fun `policy does not start blank-space stage before a different first memo is inserted`() {
-        val state =
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = true,
-                previousTopMemoId = "memo-00",
-            )
+class MainScreenNewMemoInsertAnimationPolicyTest : AppFunSpec() {
+    init {
+        test("policy does not start blank-space stage before a different first memo is inserted") {
+            val state =
+                NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = true,
+                    previousTopMemoId = "memo-00",
+                )
 
-        assertFalse(
-            isInsertedTopMemoReadyForSpaceStage(
-                state = state,
-                currentListTopMemoId = "memo-00",
-                isListPinnedAtTop = true,
-            ),
-        )
+            ((isInsertedTopMemoReadyForSpaceStage(
+                    state = state,
+                    currentListTopMemoId = "memo-00",
+                    isListPinnedAtTop = true,
+                ))) shouldBe false
+        }
     }
 
-    @Test
-    fun `policy does not start blank-space stage after the insertion wait has already cleared`() {
-        val state =
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = false,
-                blankSpaceMemoId = "memo-new",
-            )
+    init {
+        test("policy does not start blank-space stage after the insertion wait has already cleared") {
+            val state =
+                NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = false,
+                    blankSpaceMemoId = "memo-new",
+                )
 
-        assertFalse(
-            isInsertedTopMemoReadyForSpaceStage(
-                state = state,
-                currentListTopMemoId = "memo-new",
-                isListPinnedAtTop = true,
-            ),
-        )
+            ((isInsertedTopMemoReadyForSpaceStage(
+                    state = state,
+                    currentListTopMemoId = "memo-new",
+                    isListPinnedAtTop = true,
+                ))) shouldBe false
+        }
     }
 
-    @Test
-    fun `policy starts blank-space stage once inserted memo becomes list top while list is pinned at top`() {
-        val state =
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = true,
-                previousTopMemoId = "memo-00",
-            )
+    init {
+        test("policy starts blank-space stage once inserted memo becomes list top while list is pinned at top") {
+            val state =
+                NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = true,
+                    previousTopMemoId = "memo-00",
+                )
 
-        assertTrue(
-            isInsertedTopMemoReadyForSpaceStage(
-                state = state,
-                currentListTopMemoId = "memo-new",
-                isListPinnedAtTop = true,
-            ),
-        )
+            ((isInsertedTopMemoReadyForSpaceStage(
+                    state = state,
+                    currentListTopMemoId = "memo-new",
+                    isListPinnedAtTop = true,
+                ))) shouldBe true
+        }
     }
 
-    @Test
-    fun `policy does not start blank-space stage while the list is not pinned at absolute top`() {
-        val state =
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = true,
-                previousTopMemoId = "memo-00",
-            )
+    init {
+        test("policy does not start blank-space stage while the list is not pinned at absolute top") {
+            val state =
+                NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = true,
+                    previousTopMemoId = "memo-00",
+                )
 
-        assertFalse(
-            isInsertedTopMemoReadyForSpaceStage(
-                state = state,
-                currentListTopMemoId = "memo-new",
-                isListPinnedAtTop = false,
-            ),
-        )
+            ((isInsertedTopMemoReadyForSpaceStage(
+                    state = state,
+                    currentListTopMemoId = "memo-new",
+                    isListPinnedAtTop = false,
+                ))) shouldBe false
+        }
     }
+
 }

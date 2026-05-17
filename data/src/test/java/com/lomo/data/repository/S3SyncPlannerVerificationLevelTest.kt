@@ -1,11 +1,12 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3RemoteVerificationLevel
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,11 +16,19 @@ import org.junit.Test
  * - Red phase: Fails before the fix because planner treats any missing remote file as authoritative and schedules DELETE_LOCAL even when the remote absence was never verified.
  * - Excludes: S3 transport, metadata DAO I/O, executor-side action verification, and UI rendering.
  */
-class S3SyncPlannerVerificationLevelTest {
+class S3SyncPlannerVerificationLevelTest : DataFunSpec() {
+    init {
+        test("unknown remote absence does not delete unchanged local file") { `unknown remote absence does not delete unchanged local file`() }
+
+        test("unknown remote absence still uploads newer local file") { `unknown remote absence still uploads newer local file`() }
+
+        test("verified remote absence still deletes unchanged local file") { `verified remote absence still deletes unchanged local file`() }
+    }
+
+
     private val planner = S3SyncPlanner(timestampToleranceMs = 0L)
 
-    @Test
-    fun `unknown remote absence does not delete unchanged local file`() {
+    private fun `unknown remote absence does not delete unchanged local file`() {
         val path = "memo.md"
         val plan =
             planner.planPaths(
@@ -30,11 +39,10 @@ class S3SyncPlannerVerificationLevelTest {
                 defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
             )
 
-        assertEquals(emptyList<S3SyncDirection>(), plan.actions.map { it.direction })
+        plan.actions.map { it.direction } shouldBe emptyList<S3SyncDirection>()
     }
 
-    @Test
-    fun `unknown remote absence still uploads newer local file`() {
+    private fun `unknown remote absence still uploads newer local file`() {
         val path = "memo.md"
         val plan =
             planner.planPaths(
@@ -45,12 +53,11 @@ class S3SyncPlannerVerificationLevelTest {
                 defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
             )
 
-        assertEquals(listOf(S3SyncDirection.UPLOAD), plan.actions.map { it.direction })
-        assertEquals(listOf(S3SyncReason.LOCAL_NEWER), plan.actions.map { it.reason })
+        plan.actions.map { it.direction } shouldBe listOf(S3SyncDirection.UPLOAD)
+        plan.actions.map { it.reason } shouldBe listOf(S3SyncReason.LOCAL_NEWER)
     }
 
-    @Test
-    fun `verified remote absence still deletes unchanged local file`() {
+    private fun `verified remote absence still deletes unchanged local file`() {
         val path = "memo.md"
         val plan =
             planner.planPaths(
@@ -62,8 +69,8 @@ class S3SyncPlannerVerificationLevelTest {
                 defaultMissingRemoteVerification = S3RemoteVerificationLevel.UNKNOWN_REMOTE,
             )
 
-        assertEquals(listOf(S3SyncDirection.DELETE_LOCAL), plan.actions.map { it.direction })
-        assertEquals(listOf(S3SyncReason.REMOTE_DELETED), plan.actions.map { it.reason })
+        plan.actions.map { it.direction } shouldBe listOf(S3SyncDirection.DELETE_LOCAL)
+        plan.actions.map { it.reason } shouldBe listOf(S3SyncReason.REMOTE_DELETED)
     }
 
     private fun stableMetadata(

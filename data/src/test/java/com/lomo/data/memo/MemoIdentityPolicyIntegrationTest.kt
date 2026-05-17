@@ -1,22 +1,47 @@
+/*
+ * Test Contract:
+ * - Unit under test: MemoIdentityPolicyIntegrationTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for MemoIdentityPolicyIntegrationTest.
+ * - Boundary: boundary and edge cases for MemoIdentityPolicyIntegrationTest.
+ * - Failure: failure and error scenarios for MemoIdentityPolicyIntegrationTest.
+ * - Must-not-happen: invariants are never violated for MemoIdentityPolicyIntegrationTest.
+ *
+ * - Behavior focus: test behavioral outcomes of MemoIdentityPolicyIntegrationTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.memo
+
 
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.repository.MemoSavePlanFactory
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.usecase.MemoIdentityPolicy
-import org.junit.Assert.assertEquals
-import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
-class MemoIdentityPolicyIntegrationTest {
+class MemoIdentityPolicyIntegrationTest : DataFunSpec() {
+    init {
+        test("save plan and parser share same identity for first occurrence") { `save plan and parser share same identity for first occurrence`() }
+
+        test("save plan and parser share same identity for collision occurrence") { `save plan and parser share same identity for collision occurrence`() }
+    }
+
+
     private val textProcessor = MemoTextProcessor()
     private val memoIdentityPolicy = MemoIdentityPolicy()
     private val parser = MarkdownParser(textProcessor, memoIdentityPolicy)
     private val factory = MemoSavePlanFactory(parser, textProcessor, memoIdentityPolicy)
 
-    @Test
-    fun `save plan and parser share same identity for first occurrence`() {
+    private fun `save plan and parser share same identity for first occurrence`() {
         val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
         val savePlan =
             factory.create(
@@ -37,12 +62,11 @@ class MemoIdentityPolicyIntegrationTest {
                     fallbackTimestampMillis = timestamp,
                 ).single()
 
-        assertEquals(savePlan.memo.id, parsed.id)
-        assertEquals(savePlan.memo.timestamp, parsed.timestamp)
+        parsed.id shouldBe savePlan.memo.id
+        parsed.timestamp shouldBe savePlan.memo.timestamp
     }
 
-    @Test
-    fun `save plan and parser share same identity for collision occurrence`() {
+    private fun `save plan and parser share same identity for collision occurrence`() {
         val timestamp = dateTimeMillis(2026, 2, 1, 10, 0, 0)
         val fileContent =
             """
@@ -67,8 +91,8 @@ class MemoIdentityPolicyIntegrationTest {
                 precomputedCollisionCount = 1,
             )
 
-        assertEquals(parsedSecond.id, savePlanSecond.memo.id)
-        assertEquals(parsedSecond.timestamp, savePlanSecond.memo.timestamp)
+        savePlanSecond.memo.id shouldBe parsedSecond.id
+        savePlanSecond.memo.timestamp shouldBe parsedSecond.timestamp
     }
 
     private fun dateTimeMillis(

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.repository.MemoActionPreferencesRepository
 import io.mockk.coEvery
@@ -9,8 +10,8 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -23,32 +24,34 @@ import org.junit.Test
  *   screen reorders overwrite main-list order instead of writing a scoped payload.
  * - Excludes: App coordinator promotion policy, Compose menus, and DataStore runtime behavior.
  */
-class ScopedMemoActionPreferencesRepositoryTest {
+class ScopedMemoActionPreferencesRepositoryTest : DataFunSpec() {
+    init {
+        test("scoped memo action orders decode independently from legacy main order") { `scoped memo action orders decode independently from legacy main order`() }
+
+        test("updating one scoped order preserves the other scoped orders") { `updating one scoped order preserves the other scoped orders`() }
+    }
+
+
     private val dataStore: LomoDataStore = mockk(relaxed = true)
     private val repository: MemoActionPreferencesRepository = MemoActionPreferencesRepositoryImpl(dataStore)
 
-    @Test
-    fun `scoped memo action orders decode independently from legacy main order`() =
+    private fun `scoped memo action orders decode independently from legacy main order`() =
         runTest {
             every { dataStore.memoActionOrder } returns flowOf("copy|edit")
             every { dataStore.memoActionOrdersByScope } returns
                 flowOf("""{"orders":{"gallery":["jump","copy"],"search":["edit"]}}""")
 
-            assertEquals(listOf("copy", "edit"), repository.getMemoActionOrder().first())
-            assertEquals(listOf("copy", "edit"), repository.getMemoActionOrder("main").first())
-            assertEquals(listOf("jump", "copy"), repository.getMemoActionOrder("gallery").first())
-            assertEquals(
-                mapOf(
+            repository.getMemoActionOrder().first() shouldBe listOf("copy", "edit")
+            repository.getMemoActionOrder("main").first() shouldBe listOf("copy", "edit")
+            repository.getMemoActionOrder("gallery").first() shouldBe listOf("jump", "copy")
+            repository.getMemoActionOrdersByScope().first() shouldBe mapOf(
                     "gallery" to listOf("jump", "copy"),
                     "search" to listOf("edit"),
                     "main" to listOf("copy", "edit"),
-                ),
-                repository.getMemoActionOrdersByScope().first(),
-            )
+                )
         }
 
-    @Test
-    fun `updating one scoped order preserves the other scoped orders`() =
+    private fun `updating one scoped order preserves the other scoped orders`() =
         runTest {
             every { dataStore.memoActionOrdersByScope } returns
                 flowOf("""{"orders":{"gallery":["jump"],"search":["copy"]}}""")

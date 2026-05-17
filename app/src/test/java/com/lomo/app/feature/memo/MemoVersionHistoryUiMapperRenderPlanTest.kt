@@ -1,11 +1,11 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Test
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -18,35 +18,37 @@ import org.junit.Test
  *   work to be recomputed later during sheet rendering.
  * - Excludes: Compose bottom-sheet state, restore execution, and image decoding.
  */
-class MemoVersionHistoryUiMapperRenderPlanTest {
+class MemoVersionHistoryUiMapperRenderPlanTest : AppFunSpec() {
     private val mapper = MemoVersionHistoryUiMapper()
 
-    @Test
-    fun `mapToUiModels precomputes markdown preview render plans for history cards`() {
-        val models =
-            mapper.mapToUiModels(
-                revisions =
-                    listOf(
-                        revision(
-                            revisionId = "r1",
-                            content =
-                                """
-                                # Title
+    init {
+        test("mapToUiModels precomputes markdown preview render plans for history cards") {
+            val models =
+                mapper.mapToUiModels(
+                    revisions =
+                        listOf(
+                            revision(
+                                revisionId = "r1",
+                                content =
+                                    """
+                                    # Title
 
-                                body line
-                                """.trimIndent(),
+                                    body line
+                                    """.trimIndent(),
+                            ),
                         ),
-                    ),
-                rootPath = null,
-                imagePath = null,
-                imageMap = emptyMap(),
-            )
+                    rootPath = null,
+                    imagePath = null,
+                    imageMap = emptyMap(),
+                )
 
-        val renderPlan = models.single().precomputedRenderPlan
-        assertNotNull(renderPlan)
-        assertEquals("# Title\n\nbody line", renderPlan.content)
-        assertEquals(2, renderPlan.totalBlocks)
+            val renderPlan = models.single().precomputedRenderPlan
+            (renderPlan) shouldNotBe null
+            (renderPlan.content) shouldBe ("# Title\n\nbody line")
+            (renderPlan.totalBlocks) shouldBe (2)
+        }
     }
+
 }
 
 private fun revision(

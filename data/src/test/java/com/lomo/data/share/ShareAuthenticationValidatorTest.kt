@@ -1,16 +1,17 @@
 package com.lomo.data.share
 
+
 import com.lomo.data.share.LomoShareServer.AttachmentInfo
 import com.lomo.data.share.LomoShareServer.PrepareRequest
 import com.lomo.data.share.LomoShareServer.TransferMetadata
 import io.ktor.http.HttpStatusCode
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -22,12 +23,24 @@ import org.junit.Test
  * - Excludes: HTTP request parsing, payload decryption, and UI approval flow.
  */
 @OptIn(ExperimentalEncodingApi::class)
-class ShareAuthenticationValidatorTest {
+class ShareAuthenticationValidatorTest : DataFunSpec() {
+    init {
+        test("validatePrepareAuthentication requires pairing key in open mode") { `validatePrepareAuthentication requires pairing key in open mode`() }
+
+        test("validatePrepareAuthentication accepts valid signed open mode request") { `validatePrepareAuthentication accepts valid signed open mode request`() }
+
+        test("validatePrepareAuthentication requires pairing key for e2e requests") { `validatePrepareAuthentication requires pairing key for e2e requests`() }
+
+        test("validatePrepareAuthentication rejects invalid signature") { `validatePrepareAuthentication rejects invalid signature`() }
+
+        test("validateTransferAuthentication rejects replayed nonce on second request") { `validateTransferAuthentication rejects replayed nonce on second request`() }
+    }
+
+
     private val keyMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("654321"))
     private val primaryKeyHex = requireNotNull(resolvePrimaryKeyHex(keyMaterial))
 
-    @Test
-    fun `validatePrepareAuthentication requires pairing key in open mode`() {
+    private fun `validatePrepareAuthentication requires pairing key in open mode`() {
         val validator = ShareAuthenticationValidator()
         val request =
             signedPrepareRequest(
@@ -44,14 +57,13 @@ class ShareAuthenticationValidatorTest {
                 }
             }
 
-        assertFalse(result.ok)
-        assertEquals(HttpStatusCode.PreconditionFailed, result.status)
-        assertEquals("LAN share pairing code is not configured on receiver", result.message)
-        assertNull(result.keyHex)
+        (result.ok).shouldBeFalse()
+        result.status shouldBe HttpStatusCode.PreconditionFailed
+        result.message shouldBe "LAN share pairing code is not configured on receiver"
+        result.keyHex.shouldBeNull()
     }
 
-    @Test
-    fun `validatePrepareAuthentication accepts valid signed open mode request`() {
+    private fun `validatePrepareAuthentication accepts valid signed open mode request`() {
         val validator = ShareAuthenticationValidator()
         val request =
             signedPrepareRequest(
@@ -66,13 +78,12 @@ class ShareAuthenticationValidatorTest {
                 validator.validatePrepareAuthentication(request) { keyMaterial }
             }
 
-        assertTrue(result.ok)
-        assertEquals(HttpStatusCode.OK, result.status)
-        assertNull(result.keyHex)
+        (result.ok).shouldBeTrue()
+        result.status shouldBe HttpStatusCode.OK
+        result.keyHex.shouldBeNull()
     }
 
-    @Test
-    fun `validatePrepareAuthentication requires pairing key for e2e requests`() {
+    private fun `validatePrepareAuthentication requires pairing key for e2e requests`() {
         val validator = ShareAuthenticationValidator()
         val request = signedPrepareRequest(keyHex = primaryKeyHex)
 
@@ -81,13 +92,12 @@ class ShareAuthenticationValidatorTest {
                 validator.validatePrepareAuthentication(request) { null }
             }
 
-        assertFalse(result.ok)
-        assertEquals(HttpStatusCode.PreconditionFailed, result.status)
-        assertEquals("LAN share pairing code is not configured on receiver", result.message)
+        (result.ok).shouldBeFalse()
+        result.status shouldBe HttpStatusCode.PreconditionFailed
+        result.message shouldBe "LAN share pairing code is not configured on receiver"
     }
 
-    @Test
-    fun `validatePrepareAuthentication rejects invalid signature`() {
+    private fun `validatePrepareAuthentication rejects invalid signature`() {
         val validator = ShareAuthenticationValidator()
         val request = signedPrepareRequest(keyHex = primaryKeyHex, signatureHex = INVALID_SIGNATURE_HEX)
 
@@ -96,13 +106,12 @@ class ShareAuthenticationValidatorTest {
                 validator.validatePrepareAuthentication(request) { keyMaterial }
             }
 
-        assertFalse(result.ok)
-        assertEquals(HttpStatusCode.Unauthorized, result.status)
-        assertEquals("Invalid auth signature", result.message)
+        (result.ok).shouldBeFalse()
+        result.status shouldBe HttpStatusCode.Unauthorized
+        result.message shouldBe "Invalid auth signature"
     }
 
-    @Test
-    fun `validateTransferAuthentication rejects replayed nonce on second request`() {
+    private fun `validateTransferAuthentication rejects replayed nonce on second request`() {
         val validator = ShareAuthenticationValidator()
         val metadata = signedTransferMetadata(keyHex = primaryKeyHex, authNonce = "feedface")
 
@@ -115,11 +124,11 @@ class ShareAuthenticationValidatorTest {
                 validator.validateTransferAuthentication(metadata) { keyMaterial }
             }
 
-        assertTrue(firstResult.ok)
-        assertEquals(primaryKeyHex, firstResult.keyHex)
-        assertFalse(secondResult.ok)
-        assertEquals(HttpStatusCode.Forbidden, secondResult.status)
-        assertEquals("Replay detected", secondResult.message)
+        (firstResult.ok).shouldBeTrue()
+        firstResult.keyHex shouldBe primaryKeyHex
+        (secondResult.ok).shouldBeFalse()
+        secondResult.status shouldBe HttpStatusCode.Forbidden
+        secondResult.message shouldBe "Replay detected"
     }
 
     private fun signedPrepareRequest(

@@ -1,9 +1,7 @@
 package com.lomo.app.navigation
 
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,70 +11,75 @@ import org.junit.Test
  * - Red phase: Fails before the feature because GalleryReelPayloadStore and its test clock hooks do not exist.
  * - Excludes: navigation graph rendering, MainViewModel list collection, route serialization.
  */
-class GalleryReelPayloadStoreTest {
+class GalleryReelPayloadStoreTest : AppFunSpec() {
     private var nowMillis = 0L
 
-    @After
-    fun tearDown() {
-        GalleryReelPayloadStore.clearForTest()
+    init {
+        afterTest {
+            GalleryReelPayloadStore.clearForTest()
+        }
     }
 
-    @Test
-    fun `get returns stored gallery snapshot without consuming it`() {
-        GalleryReelPayloadStore.setClockForTest { nowMillis }
-        val payload =
-            GalleryReelPayloadStore.Payload(
-                memoIds = listOf("b", "a", "c"),
-                aspectByMemoId = mapOf("a" to 1.2f, "b" to 0.8f),
-            )
-
-        val key = GalleryReelPayloadStore.put(payload)
-
-        assertEquals(payload, GalleryReelPayloadStore.get(key))
-        assertEquals(payload, GalleryReelPayloadStore.get(key))
-    }
-
-    @Test
-    fun `get prunes expired payloads`() {
-        GalleryReelPayloadStore.setClockForTest { nowMillis }
-        val key =
-            GalleryReelPayloadStore.put(
+    init {
+        test("get returns stored gallery snapshot without consuming it") {
+            GalleryReelPayloadStore.setClockForTest { nowMillis }
+            val payload =
                 GalleryReelPayloadStore.Payload(
-                    memoIds = listOf("memo"),
-                    aspectByMemoId = emptyMap(),
-                ),
-            )
+                    memoIds = listOf("b", "a", "c"),
+                    aspectByMemoId = mapOf("a" to 1.2f, "b" to 0.8f),
+                )
 
-        nowMillis = GalleryReelPayloadStore.ENTRY_TTL_MILLIS_FOR_TEST + 1L
+            val key = GalleryReelPayloadStore.put(payload)
 
-        assertNull(GalleryReelPayloadStore.get(key))
+            (GalleryReelPayloadStore.get(key)) shouldBe (payload)
+            (GalleryReelPayloadStore.get(key)) shouldBe (payload)
+        }
     }
 
-    @Test
-    fun `put evicts least recently used payload when capacity is exceeded`() {
-        GalleryReelPayloadStore.setClockForTest { nowMillis }
-        val keys =
-            (0 until GalleryReelPayloadStore.MAX_ENTRIES_FOR_TEST).map { index ->
+    init {
+        test("get prunes expired payloads") {
+            GalleryReelPayloadStore.setClockForTest { nowMillis }
+            val key =
                 GalleryReelPayloadStore.put(
                     GalleryReelPayloadStore.Payload(
-                        memoIds = listOf("memo-$index"),
-                        aspectByMemoId = mapOf("memo-$index" to 1f),
+                        memoIds = listOf("memo"),
+                        aspectByMemoId = emptyMap(),
                     ),
                 )
-            }
-        assertEquals(listOf("memo-0"), GalleryReelPayloadStore.get(keys.first())?.memoIds)
 
-        val newKey =
-            GalleryReelPayloadStore.put(
-                GalleryReelPayloadStore.Payload(
-                    memoIds = listOf("new"),
-                    aspectByMemoId = emptyMap(),
-                ),
-            )
+            nowMillis = GalleryReelPayloadStore.ENTRY_TTL_MILLIS_FOR_TEST + 1L
 
-        assertEquals(listOf("memo-0"), GalleryReelPayloadStore.get(keys.first())?.memoIds)
-        assertNull(GalleryReelPayloadStore.get(keys[1]))
-        assertEquals(listOf("new"), GalleryReelPayloadStore.get(newKey)?.memoIds)
+            (GalleryReelPayloadStore.get(key)) shouldBe null
+        }
     }
+
+    init {
+        test("put evicts least recently used payload when capacity is exceeded") {
+            GalleryReelPayloadStore.setClockForTest { nowMillis }
+            val keys =
+                (0 until GalleryReelPayloadStore.MAX_ENTRIES_FOR_TEST).map { index ->
+                    GalleryReelPayloadStore.put(
+                        GalleryReelPayloadStore.Payload(
+                            memoIds = listOf("memo-$index"),
+                            aspectByMemoId = mapOf("memo-$index" to 1f),
+                        ),
+                    )
+                }
+            (GalleryReelPayloadStore.get(keys.first())?.memoIds) shouldBe (listOf("memo-0"))
+
+            val newKey =
+                GalleryReelPayloadStore.put(
+                    GalleryReelPayloadStore.Payload(
+                        memoIds = listOf("new"),
+                        aspectByMemoId = emptyMap(),
+                    ),
+                )
+
+            (GalleryReelPayloadStore.get(keys.first())?.memoIds) shouldBe (listOf("memo-0"))
+            (GalleryReelPayloadStore.get(keys[1])) shouldBe null
+            (GalleryReelPayloadStore.get(newKey)?.memoIds) shouldBe (listOf("new"))
+        }
+    }
+
 }
 

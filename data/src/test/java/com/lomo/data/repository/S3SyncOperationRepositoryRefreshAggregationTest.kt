@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.worker.S3RefreshSignal
 import com.lomo.data.worker.S3RefreshSyncPlan
 import com.lomo.domain.model.S3SyncScanPolicy
@@ -13,9 +14,8 @@ import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -25,7 +25,20 @@ import org.junit.Test
  * - Red phase: Fails before the fix because overlapping refresh requests only short-circuit with "already in progress" and never schedule exactly one follow-up refresh or upgrade that follow-up to a strong signal.
  * - Excludes: AWS transport behavior, WorkManager scheduling, and UI refresh indicator rendering.
  */
-class S3SyncOperationRepositoryRefreshAggregationTest {
+class S3SyncOperationRepositoryRefreshAggregationTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("overlapping rapid refresh upgrades single follow-up run to strong foreground signal") { `overlapping rapid refresh upgrades single follow-up run to strong foreground signal`() }
+
+        test("multiple overlapping refresh requests still collapse into one follow-up run") { `multiple overlapping refresh requests still collapse into one follow-up run`() }
+
+        test("overlapping slow refresh keeps follow-up on normal foreground signal") { `overlapping slow refresh keeps follow-up on normal foreground signal`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var syncExecutor: S3SyncExecutor
 
@@ -47,8 +60,7 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
 
     private lateinit var repository: S3SyncOperationRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         stateHolder = S3SyncStateHolder()
         coEvery { pendingConflictStore.read(SyncBackendType.S3) } returns null
@@ -64,8 +76,7 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
             )
     }
 
-    @Test
-    fun `overlapping rapid refresh upgrades single follow-up run to strong foreground signal`() =
+    private fun `overlapping rapid refresh upgrades single follow-up run to strong foreground signal`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
             coEvery { refreshPlanner.planRefreshSync() } returns
@@ -91,9 +102,9 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
 
             val secondCall = repository.syncForRefresh()
 
-            assertEquals(S3SyncResult.Success("S3 refresh sync already in progress"), secondCall)
+            secondCall shouldBe S3SyncResult.Success("S3 refresh sync already in progress")
             gate.complete(Unit)
-            assertEquals(S3SyncResult.Success("initial refresh"), firstCall.await())
+            firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
             coVerifyOrder {
                 refreshPlanner.planRefreshSync()
                 syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY)
@@ -104,8 +115,7 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
             coVerify(exactly = 1) { syncExecutor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE) }
         }
 
-    @Test
-    fun `multiple overlapping refresh requests still collapse into one follow-up run`() =
+    private fun `multiple overlapping refresh requests still collapse into one follow-up run`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
             coEvery { refreshPlanner.planRefreshSync() } returns
@@ -133,13 +143,12 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
             repository.syncForRefresh()
 
             gate.complete(Unit)
-            assertEquals(S3SyncResult.Success("initial refresh"), firstCall.await())
+            firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
             coVerify(exactly = 1) { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) }
             coVerify(exactly = 2) { syncExecutor.performSync(any()) }
         }
 
-    @Test
-    fun `overlapping slow refresh keeps follow-up on normal foreground signal`() =
+    private fun `overlapping slow refresh keeps follow-up on normal foreground signal`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
             coEvery { refreshPlanner.planRefreshSync() } returns
@@ -162,9 +171,9 @@ class S3SyncOperationRepositoryRefreshAggregationTest {
 
             val secondCall = repository.syncForRefresh()
 
-            assertEquals(S3SyncResult.Success("S3 refresh sync already in progress"), secondCall)
+            secondCall shouldBe S3SyncResult.Success("S3 refresh sync already in progress")
             gate.complete(Unit)
-            assertEquals(S3SyncResult.Success("initial refresh"), firstCall.await())
+            firstCall.await() shouldBe S3SyncResult.Success("initial refresh")
             coVerify(exactly = 2) { refreshPlanner.planRefreshSync() }
             coVerify(exactly = 0) { refreshPlanner.planRefreshSync(S3RefreshSignal.STRONG_REMOTE_HINT) }
             coVerify(exactly = 2) { syncExecutor.performSync(S3SyncScanPolicy.FAST_ONLY) }

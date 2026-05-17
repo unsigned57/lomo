@@ -1,54 +1,84 @@
+/*
+ * Test Contract:
+ * - Unit under test: ShareAuthUtilsTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for ShareAuthUtilsTest.
+ * - Boundary: boundary and edge cases for ShareAuthUtilsTest.
+ * - Failure: failure and error scenarios for ShareAuthUtilsTest.
+ * - Must-not-happen: invariants are never violated for ShareAuthUtilsTest.
+ *
+ * - Behavior focus: test behavioral outcomes of ShareAuthUtilsTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.share
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.security.MessageDigest
 
-class ShareAuthUtilsTest {
-    @Test
-    fun `deriveKeyMaterialFromPairingCode returns stable versioned material`() {
+import java.security.MessageDigest
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
+
+class ShareAuthUtilsTest : DataFunSpec() {
+    init {
+        test("deriveKeyMaterialFromPairingCode returns stable versioned material") { `deriveKeyMaterialFromPairingCode returns stable versioned material`() }
+
+        test("deriveKeyMaterialFromPairingCode rejects invalid lengths") { `deriveKeyMaterialFromPairingCode rejects invalid lengths`() }
+
+        test("resolveKeySet supports v2 and legacy formats") { `resolveKeySet supports v2 and legacy formats`() }
+
+        test("verifySignature succeeds for matching payload and fails for tampered payload") { `verifySignature succeeds for matching payload and fails for tampered payload`() }
+
+        test("payload canonicalization ignores attachment order") { `payload canonicalization ignores attachment order`() }
+
+        test("timestamp window check behaves as expected") { `timestamp window check behaves as expected`() }
+    }
+
+
+    private fun `deriveKeyMaterialFromPairingCode returns stable versioned material`() {
         val material1 = ShareAuthUtils.deriveKeyMaterialFromPairingCode("shared-secret-123")
         val material2 = ShareAuthUtils.deriveKeyMaterialFromPairingCode("shared-secret-123")
 
-        assertNotNull(material1)
-        assertEquals(material1, material2)
-        assertTrue(material1!!.startsWith("v2:"))
+        material1.shouldNotBeNull()
+        material2 shouldBe material1
+        (material1.startsWith("v2:")).shouldBeTrue()
 
         val keySet = ShareAuthUtils.resolveKeySet(material1)
-        assertNotNull(keySet)
-        assertTrue(keySet!!.primaryKeyHex.matches(Regex("^[0-9a-f]{64}$")))
-        assertEquals(2, keySet.candidateKeyHexes.size)
-        assertTrue(keySet.candidateKeyHexes.all { it.matches(Regex("^[0-9a-f]{64}$")) })
+        keySet.shouldNotBeNull()
+        (keySet.primaryKeyHex.matches(Regex("^[0-9a-f]{64}$"))).shouldBeTrue()
+        keySet.candidateKeyHexes.size shouldBe 2
+        (keySet.candidateKeyHexes.all { it.matches(Regex("^[0-9a-f]{64}$")) }).shouldBeTrue()
     }
 
-    @Test
-    fun `deriveKeyMaterialFromPairingCode rejects invalid lengths`() {
-        assertNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("short"))
-        assertNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("x".repeat(65)))
+    private fun `deriveKeyMaterialFromPairingCode rejects invalid lengths`() {
+        ShareAuthUtils.deriveKeyMaterialFromPairingCode("short").shouldBeNull()
+        ShareAuthUtils.deriveKeyMaterialFromPairingCode("x".repeat(65)).shouldBeNull()
     }
 
-    @Test
-    fun `resolveKeySet supports v2 and legacy formats`() {
+    private fun `resolveKeySet supports v2 and legacy formats`() {
         val pairingCode = "pairing-code-legacy-compat"
         val material = ShareAuthUtils.deriveKeyMaterialFromPairingCode(pairingCode)
         val set = ShareAuthUtils.resolveKeySet(material)
-        assertNotNull(set)
+        set.shouldNotBeNull()
         val expectedLegacy = legacyKey(pairingCode)
-        assertTrue(set!!.candidateKeyHexes.contains(expectedLegacy))
+        (set.candidateKeyHexes.contains(expectedLegacy)).shouldBeTrue()
 
         val legacyOnly = legacyKey("legacy-only")
         val legacySet = ShareAuthUtils.resolveKeySet(legacyOnly)
-        assertNotNull(legacySet)
-        assertEquals(legacyOnly, legacySet!!.primaryKeyHex)
-        assertEquals(listOf(legacyOnly), legacySet.candidateKeyHexes)
+        legacySet.shouldNotBeNull()
+        legacySet.primaryKeyHex shouldBe legacyOnly
+        legacySet.candidateKeyHexes shouldBe listOf(legacyOnly)
     }
 
-    @Test
-    fun `verifySignature succeeds for matching payload and fails for tampered payload`() {
+    private fun `verifySignature succeeds for matching payload and fails for tampered payload`() {
         val keyHex = ShareAuthUtils.deriveKeyHexFromPairingCode("pairing-code-001")!!
         val payload =
             ShareAuthUtils.buildPreparePayloadToSign(
@@ -62,12 +92,11 @@ class ShareAuthUtilsTest {
             )
         val signature = ShareAuthUtils.signPayloadHex(keyHex, payload)
 
-        assertTrue(ShareAuthUtils.verifySignature(keyHex, payload, signature))
-        assertFalse(ShareAuthUtils.verifySignature(keyHex, "$payload-tampered", signature))
+        (ShareAuthUtils.verifySignature(keyHex, payload, signature)).shouldBeTrue()
+        (ShareAuthUtils.verifySignature(keyHex, "$payload-tampered", signature)).shouldBeFalse()
     }
 
-    @Test
-    fun `payload canonicalization ignores attachment order`() {
+    private fun `payload canonicalization ignores attachment order`() {
         val payloadA =
             ShareAuthUtils.buildTransferPayloadToSign(
                 sessionToken = "token",
@@ -89,13 +118,12 @@ class ShareAuthUtilsTest {
                 authNonce = "1122334455667788",
             )
 
-        assertEquals(payloadA, payloadB)
+        payloadB shouldBe payloadA
     }
 
-    @Test
-    fun `timestamp window check behaves as expected`() {
-        assertTrue(ShareAuthUtils.isTimestampWithinWindow(1_000L, nowMs = 1_500L, windowMs = 1_000L))
-        assertFalse(ShareAuthUtils.isTimestampWithinWindow(1_000L, nowMs = 2_500L, windowMs = 1_000L))
+    private fun `timestamp window check behaves as expected`() {
+        (ShareAuthUtils.isTimestampWithinWindow(1_000L, nowMs = 1_500L, windowMs = 1_000L)).shouldBeTrue()
+        (ShareAuthUtils.isTimestampWithinWindow(1_000L, nowMs = 2_500L, windowMs = 1_000L)).shouldBeFalse()
     }
 
     private fun legacyKey(pairingCode: String): String =

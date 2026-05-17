@@ -1,7 +1,7 @@
 package com.lomo.ui.component.card
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -11,48 +11,39 @@ import org.junit.Test
  * - Red phase: Fails before the fix because collapsed memo cards always choose the summary path whenever summary text exists, so long-form previews diverge from expanded markdown rhythm.
  * - Excludes: Compose card composition, markdown parsing, TextView paragraph rendering, and animation runtime behavior.
  */
-class MemoCardCollapsedSummaryPolicyTest {
-    @Test
-    fun `collapsed long memo preview prefers markdown path when markdown content exists`() {
-        assertEquals(
-            MemoCardCollapsedPreviewMode.MarkdownPreview,
-            resolveMemoCardCollapsedPreviewMode(
+class MemoCardCollapsedSummaryPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("collapsed long memo preview prefers markdown path when markdown content exists") {
+        (resolveMemoCardCollapsedPreviewMode(
                 isCollapsedPreview = true,
                 hasProcessedContent = true,
                 collapsedSummary = "preview body",
-            ),
-        )
+            )) shouldBe (MemoCardCollapsedPreviewMode.MarkdownPreview)
+        }
     }
 
-    @Test
-    fun `summary fallback stays available only when collapsed preview has no markdown content`() {
-        assertEquals(
-            MemoCardCollapsedPreviewMode.Summary,
-            resolveMemoCardCollapsedPreviewMode(
+    init {
+        test("summary fallback stays available only when collapsed preview has no markdown content") {
+        (resolveMemoCardCollapsedPreviewMode(
                 isCollapsedPreview = true,
                 hasProcessedContent = false,
                 collapsedSummary = "preview body",
-            ),
-        )
+            )) shouldBe (MemoCardCollapsedPreviewMode.Summary)
+        }
     }
 
-    @Test
-    fun `expanded preview never stays on a collapsed rendering mode`() {
-        assertEquals(
-            MemoCardCollapsedPreviewMode.FullContent,
-            resolveMemoCardCollapsedPreviewMode(
+    init {
+        test("expanded preview never stays on a collapsed rendering mode") {
+        (resolveMemoCardCollapsedPreviewMode(
                 isCollapsedPreview = false,
                 hasProcessedContent = true,
                 collapsedSummary = "preview body",
-            ),
-        )
-        assertEquals(
-            MemoCardCollapsedPreviewMode.FullContent,
-            resolveMemoCardCollapsedPreviewMode(
+            )) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
+        (resolveMemoCardCollapsedPreviewMode(
                 isCollapsedPreview = true,
                 hasProcessedContent = false,
                 collapsedSummary = "",
-            ),
-        )
+            )) shouldBe (MemoCardCollapsedPreviewMode.FullContent)
+        }
     }
 }

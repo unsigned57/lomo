@@ -1,15 +1,50 @@
+/*
+ * Test Contract:
+ * - Unit under test: DefaultWebDavEndpointResolverTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for DefaultWebDavEndpointResolverTest.
+ * - Boundary: boundary and edge cases for DefaultWebDavEndpointResolverTest.
+ * - Failure: failure and error scenarios for DefaultWebDavEndpointResolverTest.
+ * - Must-not-happen: invariants are never violated for DefaultWebDavEndpointResolverTest.
+ *
+ * - Behavior focus: test behavioral outcomes of DefaultWebDavEndpointResolverTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.webdav
 
-import com.lomo.domain.model.WebDavProvider
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
 
-class DefaultWebDavEndpointResolverTest {
+import com.lomo.domain.model.WebDavProvider
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
+
+class DefaultWebDavEndpointResolverTest : DataFunSpec() {
+    init {
+        test("nutstore falls back to default endpoint") { `nutstore falls back to default endpoint`() }
+
+        test("nutstore ignores stale base url and prefers explicit endpoint or default") { `nutstore ignores stale base url and prefers explicit endpoint or default`() }
+
+        test("nutstore upgrades official root endpoint to app folder") { `nutstore upgrades official root endpoint to app folder`() }
+
+        test("nutstore upgrades bare host to app folder") { `nutstore upgrades bare host to app folder`() }
+
+        test("nextcloud builds user-scoped endpoint") { `nextcloud builds user-scoped endpoint`() }
+
+        test("custom uses explicit endpoint") { `custom uses explicit endpoint`() }
+
+        test("nextcloud requires username") { `nextcloud requires username`() }
+    }
+
+
     private val resolver = DefaultWebDavEndpointResolver()
 
-    @Test
-    fun `nutstore falls back to default endpoint`() {
+    private fun `nutstore falls back to default endpoint`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NUTSTORE,
@@ -18,11 +53,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "user",
             )
 
-        assertEquals("https://dav.jianguoyun.com/dav/Lomo/", endpoint)
+        endpoint shouldBe "https://dav.jianguoyun.com/dav/Lomo/"
     }
 
-    @Test
-    fun `nutstore ignores stale base url and prefers explicit endpoint or default`() {
+    private fun `nutstore ignores stale base url and prefers explicit endpoint or default`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NUTSTORE,
@@ -31,11 +65,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "user",
             )
 
-        assertEquals("https://dav.jianguoyun.com/dav/Lomo/", endpoint)
+        endpoint shouldBe "https://dav.jianguoyun.com/dav/Lomo/"
     }
 
-    @Test
-    fun `nutstore upgrades official root endpoint to app folder`() {
+    private fun `nutstore upgrades official root endpoint to app folder`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NUTSTORE,
@@ -44,11 +77,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "user",
             )
 
-        assertEquals("https://dav.jianguoyun.com/dav/Lomo/", endpoint)
+        endpoint shouldBe "https://dav.jianguoyun.com/dav/Lomo/"
     }
 
-    @Test
-    fun `nutstore upgrades bare host to app folder`() {
+    private fun `nutstore upgrades bare host to app folder`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NUTSTORE,
@@ -57,11 +89,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "user",
             )
 
-        assertEquals("https://dav.jianguoyun.com/dav/Lomo/", endpoint)
+        endpoint shouldBe "https://dav.jianguoyun.com/dav/Lomo/"
     }
 
-    @Test
-    fun `nextcloud builds user-scoped endpoint`() {
+    private fun `nextcloud builds user-scoped endpoint`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NEXTCLOUD,
@@ -70,11 +101,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "alice",
             )
 
-        assertEquals("https://cloud.example.com/remote.php/dav/files/alice/Lomo/", endpoint)
+        endpoint shouldBe "https://cloud.example.com/remote.php/dav/files/alice/Lomo/"
     }
 
-    @Test
-    fun `custom uses explicit endpoint`() {
+    private fun `custom uses explicit endpoint`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.CUSTOM,
@@ -83,11 +113,10 @@ class DefaultWebDavEndpointResolverTest {
                 username = "alice",
             )
 
-        assertEquals("https://dav.example.com/root/", endpoint)
+        endpoint shouldBe "https://dav.example.com/root/"
     }
 
-    @Test
-    fun `nextcloud requires username`() {
+    private fun `nextcloud requires username`() {
         val endpoint =
             resolver.resolve(
                 provider = WebDavProvider.NEXTCLOUD,
@@ -96,6 +125,6 @@ class DefaultWebDavEndpointResolverTest {
                 username = null,
             )
 
-        assertNull(endpoint)
+        endpoint.shouldBeNull()
     }
 }

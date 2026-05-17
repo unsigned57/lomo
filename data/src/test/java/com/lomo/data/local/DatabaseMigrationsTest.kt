@@ -3,15 +3,16 @@
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: SQL schema migration logic and table transformations.
  * - Observable outcomes: table existence, column schema validity, data migration integrity.
- * - Red phase: Not applicable - regression coverage for database schema evolution.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: file system I/O, Room internals, repository logic.
  */
 package com.lomo.data.local
 
+
 import androidx.room3.migration.Migration
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -64,42 +65,87 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the support-window reduction is the product
  *   decision being implemented; keeping the old universal contract would reject the intended simplification.
  */
-class DatabaseMigrationsTest {
-    @Test
-    fun `database version remains 53 for memo file outbox enum persistence`() {
-        assertEquals(53, MEMO_DATABASE_VERSION)
+class DatabaseMigrationsTest : DataFunSpec() {
+    init {
+        test("database version remains 55 for the current target schema") { `database version remains 55 for the current target schema`() }
+
+        test("migration list includes direct 54 to 55 upgrade path") { `migration list includes direct 54 to 55 upgrade path`() }
+
+        test("stable baseline direct migrations only cover retained released source versions") { `stable baseline direct migrations only cover retained released source versions`() }
+
+        test("migration list no longer includes universal direct current migration from unsupported legacy versions") { `migration list no longer includes universal direct current migration from unsupported legacy versions`() }
+
+        test("stable baseline direct migration builds only final external content fts infrastructure") { `stable baseline direct migration builds only final external content fts infrastructure`() }
+
+        test("migration 48 to 49 creates exact memo image attachment index table") { `migration 48 to 49 creates exact memo image attachment index table`() }
+
+        test("migration 49 to 50 rebuilds fts4 with tokenized content while leaving memo content as plaintext") { `migration 49 to 50 rebuilds fts4 with tokenized content while leaving memo content as plaintext`() }
+
+        test("migration 50 to 51 replaces legacy fts4 with simple application managed fts5") { `migration 50 to 51 replaces legacy fts4 with simple application managed fts5`() }
+
+        test("migration 51 to 52 upgrades to trigger managed external content fts") { `migration 51 to 52 upgrades to trigger managed external content fts`() }
+
+        test("migration 52 to 53 rebuilds memo outbox operation column as integer enum") { `migration 52 to 53 rebuilds memo outbox operation column as integer enum`() }
+
+        test("migration 54 to 55 is an explicit no-op release baseline marker") { `migration 54 to 55 is an explicit no-op release baseline marker`() }
+
+        test("local file state schema includes missing confirmation columns") { `local file state schema includes missing confirmation columns`() }
+
+        test("migration 37 to 38 creates s3 incremental protocol and journal tables") { `migration 37 to 38 creates s3 incremental protocol and journal tables`() }
+
+        test("migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index") { `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() }
+
+        test("migration 40 to 41 rebuilds s3 protocol state without manifest column") { `migration 40 to 41 rebuilds s3 protocol state without manifest column`() }
+
+        test("migration 41 to 42 creates s3 remote shard state table") { `migration 41 to 42 creates s3 remote shard state table`() }
+
+        test("migration 42 to 43 adds s3 remote shard telemetry columns") { `migration 42 to 43 adds s3 remote shard telemetry columns`() }
+
+        test("migration 43 to 44 creates pending sync conflict table") { `migration 43 to 44 creates pending sync conflict table`() }
+
+        test("migration 44 to 45 adds persisted s3 metadata size and fingerprint columns") { `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() }
+
+        test("migration 45 to 46 normalizes webdav metadata with local fingerprint column") { `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() }
+
+        test("migration 29 to 30 drops retired workspace history tables") { `migration 29 to 30 drops retired workspace history tables`() }
+
+        test("migration 30 to 31 adds memo revision dedupe indexes") { `migration 30 to 31 adds memo revision dedupe indexes`() }
+
+        test("migration 34 to 35 compacts memo revision rows to previews") { `migration 34 to 35 compacts memo revision rows to previews`() }
+
+        test("migration 35 to 36 creates s3 metadata table") { `migration 35 to 36 creates s3 metadata table`() }
+
+        test("migration 26 to 27 creates webdav metadata table") { `migration 26 to 27 creates webdav metadata table`() }
+
+        test("migration 22 to 23 drops legacy Lomo content index") { `migration 22 to 23 drops legacy Lomo content index`() }
+
+        test("migration 23 to 24 adds and backfills updatedAt") { `migration 23 to 24 adds and backfills updatedAt`() }
+
+        test("migration 24 to 25 adds outbox claim columns") { `migration 24 to 25 adds outbox claim columns`() }
+
+        test("migration 25 to 26 creates memo pin table") { `migration 25 to 26 creates memo pin table`() }
     }
 
-    @Test
-    fun `migration list includes direct 52 to 53 upgrade path`() {
-        assertTrue(
-            ALL_DATABASE_MIGRATIONS.any { it.startVersion == 52 && it.endVersion == 53 },
-        )
+
+    private fun `database version remains 55 for the current target schema`() {
+        MEMO_DATABASE_VERSION shouldBe 55
     }
 
-    @Test
-    fun `stable baseline direct migrations only cover retained released source versions`() {
-        assertEquals(
-            StableDatabaseBaselineCatalog.supportedSourceDatabaseVersions(),
-            STABLE_BASELINE_DIRECT_MIGRATIONS.map(Migration::startVersion),
-        )
-        assertTrue(
-            STABLE_BASELINE_DIRECT_MIGRATIONS.all { it.endVersion == MEMO_DATABASE_VERSION },
-        )
+    private fun `migration list includes direct 54 to 55 upgrade path`() {
+        (ALL_DATABASE_MIGRATIONS.any { it.startVersion == 54 && it.endVersion == 55 }).shouldBeTrue()
     }
 
-    @Test
-    fun `migration list no longer includes universal direct current migration from unsupported legacy versions`() {
-        assertTrue(
-            ALL_DATABASE_MIGRATIONS.none { it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION },
-        )
-        assertTrue(
-            ALL_DATABASE_MIGRATIONS.none { it.startVersion == 43 && it.endVersion == MEMO_DATABASE_VERSION },
-        )
+    private fun `stable baseline direct migrations only cover retained released source versions`() {
+        STABLE_BASELINE_DIRECT_MIGRATIONS.map(Migration::startVersion) shouldBe StableDatabaseBaselineCatalog.supportedSourceDatabaseVersions()
+        (STABLE_BASELINE_DIRECT_MIGRATIONS.all { it.endVersion == MEMO_DATABASE_VERSION }).shouldBeTrue()
     }
 
-    @Test
-    fun `stable baseline direct migration builds only final external content fts infrastructure`() {
+    private fun `migration list no longer includes universal direct current migration from unsupported legacy versions`() {
+        (ALL_DATABASE_MIGRATIONS.none { it.startVersion == 1 && it.endVersion == MEMO_DATABASE_VERSION }).shouldBeTrue()
+        (ALL_DATABASE_MIGRATIONS.none { it.startVersion == 43 && it.endVersion == MEMO_DATABASE_VERSION }).shouldBeTrue()
+    }
+
+    private fun `stable baseline direct migration builds only final external content fts infrastructure`() {
         val db = RecordingSQLiteConnection()
         db.queryHandler = { sql, _ ->
             when {
@@ -118,17 +164,14 @@ class DatabaseMigrationsTest {
                 (sql.contains("USING fts5", ignoreCase = true) &&
                     !sql.contains("content='Lomo'", ignoreCase = true))
         }
-        assertTrue(
-            db.executedStatements.any { statement ->
+        (db.executedStatements.any { statement ->
                 statement.sql.contains("USING fts5", ignoreCase = true) &&
                     statement.sql.contains("content='Lomo'", ignoreCase = true) &&
                     statement.sql.contains("content_rowid='rowid'", ignoreCase = true)
-            },
-        )
+            }).shouldBeTrue()
     }
 
-    @Test
-    fun `migration 48 to 49 creates exact memo image attachment index table`() {
+    private fun `migration 48 to 49 creates exact memo image attachment index table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_48_49.migrateForTest(db)
@@ -155,8 +198,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 49 to 50 rebuilds fts4 with tokenized content while leaving memo content as plaintext`() {
+    private fun `migration 49 to 50 rebuilds fts4 with tokenized content while leaving memo content as plaintext`() {
         val db = RecordingSQLiteConnection()
 
         db.queryHandler = { sql, _ ->
@@ -207,8 +249,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 50 to 51 replaces legacy fts4 with simple application managed fts5`() {
+    private fun `migration 50 to 51 replaces legacy fts4 with simple application managed fts5`() {
         val db = RecordingSQLiteConnection()
         db.queryHandler = { sql, _ ->
             when {
@@ -253,8 +294,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 51 to 52 upgrades to trigger managed external content fts`() {
+    private fun `migration 51 to 52 upgrades to trigger managed external content fts`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_51_52.migrateForTest(db)
@@ -302,8 +342,7 @@ class DatabaseMigrationsTest {
         verify { db.execSQL("INSERT INTO `lomo_fts`(`lomo_fts`) VALUES ('rebuild')") }
     }
 
-    @Test
-    fun `migration 52 to 53 rebuilds memo outbox operation column as integer enum`() {
+    private fun `migration 52 to 53 rebuilds memo outbox operation column as integer enum`() {
         val db = RecordingSQLiteConnection()
         val outboxColumns =
             setOf(
@@ -364,9 +403,16 @@ class DatabaseMigrationsTest {
         }
     }
 
+    private fun `migration 54 to 55 is an explicit no-op release baseline marker`() {
+        val db = RecordingSQLiteConnection()
 
-    @Test
-    fun `local file state schema includes missing confirmation columns`() {
+        MIGRATION_54_55.migrateForTest(db)
+
+        db.executedStatements shouldBe emptyList()
+    }
+
+
+    private fun `local file state schema includes missing confirmation columns`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_36_37.migrateForTest(db)
@@ -383,8 +429,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 37 to 38 creates s3 incremental protocol and journal tables`() {
+    private fun `migration 37 to 38 creates s3 incremental protocol and journal tables`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_37_38.migrateForTest(db)
@@ -400,8 +445,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() {
+    private fun `migration 38 to 39 adds memo revision asset fingerprint column and rebuilt index`() {
         val db = RecordingSQLiteConnection()
         db.queryHandler = { sql, _ ->
             when {
@@ -444,8 +488,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 40 to 41 rebuilds s3 protocol state without manifest column`() {
+    private fun `migration 40 to 41 rebuilds s3 protocol state without manifest column`() {
         val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
@@ -512,8 +555,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 41 to 42 creates s3 remote shard state table`() {
+    private fun `migration 41 to 42 creates s3 remote shard state table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_41_42.migrateForTest(db)
@@ -533,8 +575,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 42 to 43 adds s3 remote shard telemetry columns`() {
+    private fun `migration 42 to 43 adds s3 remote shard telemetry columns`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_42_43.migrateForTest(db)
@@ -560,8 +601,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 43 to 44 creates pending sync conflict table`() {
+    private fun `migration 43 to 44 creates pending sync conflict table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_43_44.migrateForTest(db)
@@ -579,8 +619,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() {
+    private fun `migration 44 to 45 adds persisted s3 metadata size and fingerprint columns`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_44_45.migrateForTest(db)
@@ -596,8 +635,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() {
+    private fun `migration 45 to 46 normalizes webdav metadata with local fingerprint column`() {
         val db = RecordingSQLiteConnection()
         val legacyColumns =
             setOf(
@@ -646,8 +684,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 29 to 30 drops retired workspace history tables`() {
+    private fun `migration 29 to 30 drops retired workspace history tables`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_29_30.migrateForTest(db)
@@ -661,8 +698,7 @@ class DatabaseMigrationsTest {
         verify(exactly = 0) { db.execSQL(match { it.contains("DROP TABLE IF EXISTS `memo_revision_asset`") }) }
     }
 
-    @Test
-    fun `migration 30 to 31 adds memo revision dedupe indexes`() {
+    private fun `migration 30 to 31 adds memo revision dedupe indexes`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_30_31.migrateForTest(db)
@@ -695,8 +731,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 34 to 35 compacts memo revision rows to previews`() {
+    private fun `migration 34 to 35 compacts memo revision rows to previews`() {
         val db = RecordingSQLiteConnection()
 
         val migration =
@@ -717,8 +752,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 35 to 36 creates s3 metadata table`() {
+    private fun `migration 35 to 36 creates s3 metadata table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_35_36.migrateForTest(db)
@@ -728,8 +762,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 26 to 27 creates webdav metadata table`() {
+    private fun `migration 26 to 27 creates webdav metadata table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_26_27.migrateForTest(db)
@@ -739,8 +772,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 22 to 23 drops legacy Lomo content index`() {
+    private fun `migration 22 to 23 drops legacy Lomo content index`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_22_23.migrateForTest(db)
@@ -750,8 +782,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 23 to 24 adds and backfills updatedAt`() {
+    private fun `migration 23 to 24 adds and backfills updatedAt`() {
         val db = RecordingSQLiteConnection()
         db.queryHandler = { sql, _ ->
             when {
@@ -778,8 +809,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 24 to 25 adds outbox claim columns`() {
+    private fun `migration 24 to 25 adds outbox claim columns`() {
         val db = RecordingSQLiteConnection()
         val outboxColumns =
             setOf(
@@ -827,8 +857,7 @@ class DatabaseMigrationsTest {
         }
     }
 
-    @Test
-    fun `migration 25 to 26 creates memo pin table`() {
+    private fun `migration 25 to 26 creates memo pin table`() {
         val db = RecordingSQLiteConnection()
 
         MIGRATION_25_26.migrateForTest(db)

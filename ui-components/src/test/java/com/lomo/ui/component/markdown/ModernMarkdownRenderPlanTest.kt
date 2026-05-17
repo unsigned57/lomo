@@ -1,10 +1,9 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import org.intellij.markdown.MarkdownElementTypes
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -14,9 +13,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the modern backend lacks the extracted planning/interaction logic needed to support todo, known-tag stripping, and collapsed memo block behavior.
  * - Excludes: Compose tree structure, image loading, animation details, and third-party markdown parser internals beyond the exposed AST.
  */
-class ModernMarkdownRenderPlanTest {
-    @Test
-    fun `render plan counts top level blocks while grouping consecutive image paragraphs into one visible gallery`() {
+class ModernMarkdownRenderPlanTest : UiComponentsFunSpec() {
+    init {
+        test("render plan counts top level blocks while grouping consecutive image paragraphs into one visible gallery") {
         val plan =
             createModernMarkdownRenderPlan(
                 content =
@@ -33,16 +32,16 @@ class ModernMarkdownRenderPlanTest {
                 knownTagsToStrip = emptyList(),
             )
 
-        assertEquals(4, plan.totalBlocks)
-        assertEquals(2, plan.items.size)
-        assertTrue(plan.items.first() is ModernMarkdownRenderItem.Block)
-        assertTrue(plan.items[1] is ModernMarkdownRenderItem.Gallery)
-        val gallery = plan.items[1] as ModernMarkdownRenderItem.Gallery
-        assertEquals(listOf("one.png", "two.png"), gallery.images.map { it.destination })
+        (plan.totalBlocks) shouldBe (4)
+        (plan.items.size) shouldBe (2)
+        plan.items.first().shouldBeInstanceOf<ModernMarkdownRenderItem.Block>()
+        val gallery = plan.items[1].shouldBeInstanceOf<ModernMarkdownRenderItem.Gallery>()
+        (gallery.images.map { it.destination }) shouldBe (listOf("one.png", "two.png"))
+        }
     }
 
-    @Test
-    fun `task list presentation derives line based overrides from the modern ast`() {
+    init {
+        test("task list presentation derives line based overrides from the modern ast") {
         val content =
             """
             - [ ] todo one
@@ -65,17 +64,18 @@ class ModernMarkdownRenderPlanTest {
                 todoOverrides = mapOf(1 to false),
             )
 
-        assertTrue(firstPresentation.isTask)
-        assertEquals(0, firstPresentation.sourceLine)
-        assertFalse(firstPresentation.effectiveChecked)
+        (firstPresentation.isTask) shouldBe true
+        (firstPresentation.sourceLine) shouldBe (0)
+        (firstPresentation.effectiveChecked) shouldBe false
 
-        assertTrue(secondPresentation.isTask)
-        assertEquals(1, secondPresentation.sourceLine)
-        assertFalse(secondPresentation.effectiveChecked)
+        (secondPresentation.isTask) shouldBe true
+        (secondPresentation.sourceLine) shouldBe (1)
+        (secondPresentation.effectiveChecked) shouldBe false
+        }
     }
 
-    @Test
-    fun `known tag sanitizing strips plain text tags but preserves headings links and code`() {
+    init {
+        test("known tag sanitizing strips plain text tags but preserves headings links and code") {
         val sanitized =
             sanitizeModernMarkdownKnownTags(
                 content =
@@ -89,19 +89,43 @@ class ModernMarkdownRenderPlanTest {
                     ```
                     
                     plain body #todo line
+                """.trimIndent(),
+                tags = listOf("todo"),
+            )
+
+        (sanitized.content.contains("# Heading #todo")) shouldBe true
+        (sanitized.content.contains("[jump #todo](https://example.com/#todo)")) shouldBe true
+        (sanitized.content.contains("val raw = \"#todo\"")) shouldBe true
+        (sanitized.content.contains("plain body line")) shouldBe true
+        (sanitized.content.contains("plain body #todo line")) shouldBe false
+        (sanitized.reusableRoot) shouldBe (null)
+        }
+    }
+
+    init {
+        test("known tag sanitizing returns reusable ast when content stays unchanged") {
+        val sanitized =
+            sanitizeModernMarkdownKnownTags(
+                content =
+                    """
+                    # Heading #todo
+
+                    [jump #todo](https://example.com/#todo)
                     """.trimIndent(),
                 tags = listOf("todo"),
             )
 
-        assertTrue(sanitized.contains("# Heading #todo"))
-        assertTrue(sanitized.contains("[jump #todo](https://example.com/#todo)"))
-        assertTrue(sanitized.contains("val raw = \"#todo\""))
-        assertTrue(sanitized.contains("plain body line"))
-        assertFalse(sanitized.contains("plain body #todo line"))
+        (sanitized.content) shouldBe ("""
+            # Heading #todo
+
+            [jump #todo](https://example.com/#todo)
+            """.trimIndent())
+        (sanitized.reusableRoot != null) shouldBe true
+        }
     }
 
-    @Test
-    fun `render plan prunes blank paragraph blocks left behind after known tag stripping`() {
+    init {
+        test("render plan prunes blank paragraph blocks left behind after known tag stripping") {
         val plan =
             createModernMarkdownRenderPlan(
                 content =
@@ -113,8 +137,9 @@ class ModernMarkdownRenderPlanTest {
                 knownTagsToStrip = listOf("todo", "work"),
             )
 
-        assertEquals(1, plan.totalBlocks)
-        assertEquals(1, plan.items.size)
-        assertTrue(plan.content.contains("body line"))
+        (plan.totalBlocks) shouldBe (1)
+        (plan.items.size) shouldBe (1)
+        (plan.content.contains("body line")) shouldBe true
+        }
     }
 }

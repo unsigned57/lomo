@@ -1,10 +1,9 @@
 package com.lomo.app.theme
 
 import android.content.res.Configuration
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.ThemeMode
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -22,40 +21,38 @@ import org.junit.Test
  * - Retained/new coverage: the config-change assertions still protect system-theme following, and the new resume assertion protects the no-foreground-flip requirement.
  * - Why this is not changing the test to fit the implementation: the user explicitly rejected the visible resume-time transition, so the observable requirement changed.
  */
-class ThemeResyncPolicyTest {
-    @Test
-    fun `resume does not request resync even when following system theme`() {
-        assertFalse(ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.SYSTEM))
+class ThemeResyncPolicyTest : AppFunSpec() {
+    init {
+        test("resume does not request resync even when following system theme") {
+            ((ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.SYSTEM))) shouldBe false
+        }
     }
 
-    @Test
-    fun `resume does not resync when user explicitly chose a theme`() {
-        assertFalse(ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.LIGHT))
-        assertFalse(ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.DARK))
+    init {
+        test("resume does not resync when user explicitly chose a theme") {
+            ((ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.LIGHT))) shouldBe false
+            ((ThemeResyncPolicy.shouldResyncOnResume(ThemeMode.DARK))) shouldBe false
+        }
     }
 
-    @Test
-    fun `uiMode change requests resync only for real night-mode transitions while following system`() {
-        assertTrue(
-            ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                themeMode = ThemeMode.SYSTEM,
-                previousUiMode = Configuration.UI_MODE_NIGHT_NO,
-                currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-            ),
-        )
-        assertFalse(
-            ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                themeMode = ThemeMode.SYSTEM,
-                previousUiMode = Configuration.UI_MODE_NIGHT_YES,
-                currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-            ),
-        )
-        assertFalse(
-            ThemeResyncPolicy.shouldResyncOnConfigurationChange(
-                themeMode = ThemeMode.DARK,
-                previousUiMode = Configuration.UI_MODE_NIGHT_NO,
-                currentUiMode = Configuration.UI_MODE_NIGHT_YES,
-            ),
-        )
+    init {
+        test("uiMode change requests resync only for real night-mode transitions while following system") {
+            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousUiMode = Configuration.UI_MODE_NIGHT_NO,
+                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                ))) shouldBe true
+            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                    themeMode = ThemeMode.SYSTEM,
+                    previousUiMode = Configuration.UI_MODE_NIGHT_YES,
+                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                ))) shouldBe false
+            ((ThemeResyncPolicy.shouldResyncOnConfigurationChange(
+                    themeMode = ThemeMode.DARK,
+                    previousUiMode = Configuration.UI_MODE_NIGHT_NO,
+                    currentUiMode = Configuration.UI_MODE_NIGHT_YES,
+                ))) shouldBe false
+        }
     }
+
 }

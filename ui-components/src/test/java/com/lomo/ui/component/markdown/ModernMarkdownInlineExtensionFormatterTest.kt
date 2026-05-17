@@ -1,14 +1,12 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextDecoration
 import com.lomo.ui.theme.TypographyScales
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -18,7 +16,7 @@ import org.junit.Test
  * - Red phase: Fails before the fix because modern markdown annotation leaves `==highlight==` and `<u>underline</u>` as plain literal text instead of rendering extension styles.
  * - Excludes: Compose widget rendering, block-level markdown layout, and third-party parser internals beyond observable annotated output.
  */
-class ModernMarkdownInlineExtensionFormatterTest {
+class ModernMarkdownInlineExtensionFormatterTest : UiComponentsFunSpec() {
     private val typography = Typography()
     private val tokenSpec =
         createModernMarkdownTokenSpec(
@@ -28,8 +26,8 @@ class ModernMarkdownInlineExtensionFormatterTest {
         )
     private val paragraphStyle: TextStyle = tokenSpec.paragraphStyle
 
-    @Test
-    fun `highlight extension renders background span and strips marker syntax`() {
+    init {
+        test("highlight extension renders background span and strips marker syntax") {
         val result =
             buildModernMarkdownAnnotatedTextFromFragment(
                 fragment = "Before ==focus== after",
@@ -37,13 +35,14 @@ class ModernMarkdownInlineExtensionFormatterTest {
                 tokenSpec = tokenSpec,
             )
 
-        assertEquals("Before focus after", result.text)
+        (result.text) shouldBe ("Before focus after")
         val highlightRange = result.spanStyles.single { it.item.background != Color.Unspecified }
-        assertEquals("focus", result.text.substring(highlightRange.start, highlightRange.end))
+        (result.text.substring(highlightRange.start, highlightRange.end)) shouldBe ("focus")
+        }
     }
 
-    @Test
-    fun `underline html extension renders underline span and strips tags`() {
+    init {
+        test("underline html extension renders underline span and strips tags") {
         val result =
             buildModernMarkdownAnnotatedTextFromFragment(
                 fragment = "Keep <u>focus</u> visible",
@@ -51,14 +50,15 @@ class ModernMarkdownInlineExtensionFormatterTest {
                 tokenSpec = tokenSpec,
             )
 
-        assertEquals("Keep focus visible", result.text)
+        (result.text) shouldBe ("Keep focus visible")
         val underlineRange =
             result.spanStyles.single { it.item.textDecoration == TextDecoration.Underline }
-        assertEquals("focus", result.text.substring(underlineRange.start, underlineRange.end))
+        (result.text.substring(underlineRange.start, underlineRange.end)) shouldBe ("focus")
+        }
     }
 
-    @Test
-    fun `inline code literals keep extension markers as plain text`() {
+    init {
+        test("inline code literals keep extension markers as plain text") {
         val result =
             buildModernMarkdownAnnotatedTextFromFragment(
                 fragment = "`==code==` and `<u>tag</u>`",
@@ -66,10 +66,11 @@ class ModernMarkdownInlineExtensionFormatterTest {
                 tokenSpec = tokenSpec,
             )
 
-        assertTrue(result.text.contains("==code=="))
-        assertTrue(result.text.contains("tag"))
-        assertTrue(result.spanStyles.any { it.item.fontFamily != null })
-        assertFalse(result.spanStyles.any { it.item.background != Color.Unspecified })
-        assertFalse(result.spanStyles.any { it.item.textDecoration == TextDecoration.Underline })
+        (result.text.contains("==code==")) shouldBe true
+        (result.text.contains("tag")) shouldBe true
+        (result.spanStyles.any { it.item.fontFamily != null }) shouldBe true
+        (result.spanStyles.any { it.item.background != Color.Unspecified }) shouldBe false
+        (result.spanStyles.any { it.item.textDecoration == TextDecoration.Underline }) shouldBe false
+        }
     }
 }

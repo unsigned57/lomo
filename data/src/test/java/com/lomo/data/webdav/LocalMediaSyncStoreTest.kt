@@ -1,5 +1,6 @@
 package com.lomo.data.webdav
 
+
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -7,27 +8,41 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.io.IOException
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
  * - Unit under test: LocalMediaSyncStore
  * - Behavior focus: direct-root media discovery, read or write routing, deletion, and media-path classification.
  * - Observable outcomes: configured category sets, listed relative paths, file byte content, thrown IOException messages, and content-type classification.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: SAF DocumentFile behavior, Android ContentResolver streams, and WebDAV transport.
  */
-class LocalMediaSyncStoreTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class LocalMediaSyncStoreTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("configuredCategories and listFiles include only accepted direct media files") { `configuredCategories and listFiles include only accepted direct media files`() }
+
+        test("direct roots support write read delete and folder-based media classification") { `direct roots support write read delete and folder-based media classification`() }
+
+        test("writeBytes fails closed when no media root is configured for the path") { `writeBytes fails closed when no media root is configured for the path`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     private val context = mockk<Context>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
     private val layout =
@@ -38,8 +53,7 @@ class LocalMediaSyncStoreTest {
             allSameDirectory = false,
         )
 
-    @Test
-    fun `configuredCategories and listFiles include only accepted direct media files`() =
+    private fun `configuredCategories and listFiles include only accepted direct media files`() =
         runTest {
             val imageRoot = tempFolder.newFolder("images-root")
             val voiceRoot = tempFolder.newFolder("voice-root")
@@ -51,13 +65,12 @@ class LocalMediaSyncStoreTest {
 
             val store = LocalMediaSyncStore(context, dataStore)
 
-            assertEquals(linkedSetOf(MediaSyncCategory.IMAGE, MediaSyncCategory.VOICE), store.configuredCategories())
+            store.configuredCategories() shouldBe linkedSetOf(MediaSyncCategory.IMAGE, MediaSyncCategory.VOICE)
             val files = store.listFiles(layout)
-            assertEquals(setOf("images/cover.PNG", "voice/clip.MP3"), files.keys)
+            files.keys shouldBe setOf("images/cover.PNG", "voice/clip.MP3")
         }
 
-    @Test
-    fun `direct roots support write read delete and folder-based media classification`() =
+    private fun `direct roots support write read delete and folder-based media classification`() =
         runTest {
             val imageRoot = tempFolder.newFolder("images-root")
             val voiceRoot = tempFolder.newFolder("voice-root")
@@ -67,22 +80,21 @@ class LocalMediaSyncStoreTest {
 
             store.writeBytes("lomo/images/photo.PNG", bytes, layout)
 
-            assertArrayEquals(bytes, File(imageRoot, "photo.PNG").readBytes())
-            assertArrayEquals(bytes, store.readBytes("images/photo.PNG", layout))
-            assertTrue(store.isMediaPath("lomo/images/photo.PNG", layout))
-            assertTrue(store.isMediaPath("voice/clip.bin", layout))
-            assertFalse(store.isMediaPath("memo/note.md", layout))
-            assertEquals("image/png", store.contentTypeForPath("lomo/images/photo.PNG", layout))
-            assertEquals("audio/mp4", store.contentTypeForPath("voice/clip.bin", layout))
-            assertEquals("application/octet-stream", store.contentTypeForPath("memo/note.md", layout))
+            File(imageRoot, "photo.PNG").readBytes() shouldBe bytes
+            store.readBytes("images/photo.PNG", layout) shouldBe bytes
+            (store.isMediaPath("lomo/images/photo.PNG", layout)).shouldBeTrue()
+            (store.isMediaPath("voice/clip.bin", layout)).shouldBeTrue()
+            (store.isMediaPath("memo/note.md", layout)).shouldBeFalse()
+            store.contentTypeForPath("lomo/images/photo.PNG", layout) shouldBe "image/png"
+            store.contentTypeForPath("voice/clip.bin", layout) shouldBe "audio/mp4"
+            store.contentTypeForPath("memo/note.md", layout) shouldBe "application/octet-stream"
 
             store.delete("lomo/images/photo.PNG", layout)
 
-            assertFalse(File(imageRoot, "photo.PNG").exists())
+            (File(imageRoot, "photo.PNG").exists()).shouldBeFalse()
         }
 
-    @Test
-    fun `writeBytes fails closed when no media root is configured for the path`() =
+    private fun `writeBytes fails closed when no media root is configured for the path`() =
         runTest {
             configureRoots(imageRoot = null, voiceRoot = null)
             val store = LocalMediaSyncStore(context, dataStore)
@@ -94,8 +106,8 @@ class LocalMediaSyncStoreTest {
                 thrown = error
             }
 
-            assertTrue(thrown is IOException)
-            assertEquals("Media root not configured for: images/photo.jpg", thrown?.message)
+            (thrown is IOException).shouldBeTrue()
+            thrown?.message shouldBe "Media root not configured for: images/photo.jpg"
         }
 
     private fun configureRoots(

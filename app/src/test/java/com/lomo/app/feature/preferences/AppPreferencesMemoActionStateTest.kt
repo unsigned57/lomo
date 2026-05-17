@@ -1,16 +1,16 @@
 package com.lomo.app.feature.preferences
 
 import com.lomo.app.feature.common.MemoActionOrderScopes
-import com.lomo.domain.model.ThemeMode
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.PreferenceDefaults
+import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.PreferencesRepository
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -20,38 +20,41 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the aggregated app preference state still depends on the removed quick-send contract.
  * - Excludes: screen-specific menu rendering, DataStore serialization, and unrelated settings groups.
  */
-class AppPreferencesMemoActionStateTest {
-    @Test
-    fun `observeAppPreferences includes memo action ordering preferences`() =
-        runTest {
-            val preferencesRepository = mockk<PreferencesRepository>()
-            every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-            every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
-            every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.DARK)
-            every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(false)
-            every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
-            every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
-            every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
-            every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-            every { preferencesRepository.isScrollbarEnabled() } returns flowOf(true)
-            every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-            every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
-            every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
-            every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
-            every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
-            every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
-            every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
-            every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-            every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
-            every { preferencesRepository.getMemoActionOrdersByScope() } returns
-                flowOf(mapOf(MemoActionOrderScopes.GALLERY to listOf("jump", "copy")))
-            every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(listOf("backfill", "camera"))
+class AppPreferencesMemoActionStateTest : AppFunSpec() {
+    init {
+        test("observeAppPreferences includes memo action ordering preferences") {
+            runTest {
+                val preferencesRepository = mockk<PreferencesRepository>()
+                every { preferencesRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+                every { preferencesRepository.getTimeFormat() } returns flowOf("HH:mm")
+                every { preferencesRepository.getThemeMode() } returns flowOf(ThemeMode.DARK)
+                every { preferencesRepository.isHapticFeedbackEnabled() } returns flowOf(false)
+                every { preferencesRepository.isShowInputHintsEnabled() } returns flowOf(true)
+                every { preferencesRepository.isDoubleTapEditEnabled() } returns flowOf(false)
+                every { preferencesRepository.isFreeTextCopyEnabled() } returns flowOf(true)
+                every { preferencesRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
+                every { preferencesRepository.isScrollbarEnabled() } returns flowOf(true)
+                every { preferencesRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+                every { preferencesRepository.isShareCardShowBrandEnabled() } returns flowOf(false)
+                every { preferencesRepository.getShareCardSignatureText() } returns flowOf("Shared via Lomo")
+                every { preferencesRepository.getFontSizeScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_FONT_SIZE_SCALE)
+                every { preferencesRepository.getLineHeightScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LINE_HEIGHT_SCALE)
+                every { preferencesRepository.getLetterSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_LETTER_SPACING_SCALE)
+                every { preferencesRepository.getParagraphSpacingScale() } returns flowOf(PreferenceDefaults.TYPOGRAPHY_PARAGRAPH_SPACING_SCALE)
+                every { preferencesRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+                every { preferencesRepository.getMemoActionOrder() } returns flowOf(listOf("history", "copy"))
+                every { preferencesRepository.getMemoActionOrdersByScope() } returns
+                    flowOf(mapOf(MemoActionOrderScopes.GALLERY to listOf("jump", "copy")))
+                every { preferencesRepository.getInputToolbarToolOrder() } returns flowOf(listOf("backfill", "camera"))
 
-            val state = preferencesRepository.observeAppPreferences().first()
+                val state = preferencesRepository.observeAppPreferences().first()
 
-            assertEquals(true, state.memoActionAutoReorderEnabled)
-            assertEquals(listOf("history", "copy"), state.memoActionOrder)
-            assertEquals(listOf("jump", "copy"), state.memoActionOrderFor(MemoActionOrderScopes.GALLERY))
-            assertEquals(listOf("backfill", "camera"), state.inputToolbarToolOrder)
+                (state.memoActionAutoReorderEnabled) shouldBe (true)
+                (state.memoActionOrder) shouldBe (listOf("history", "copy"))
+                (state.memoActionOrderFor(MemoActionOrderScopes.GALLERY)) shouldBe (listOf("jump", "copy"))
+                (state.inputToolbarToolOrder) shouldBe (listOf("backfill", "camera"))
+            }
         }
+    }
+
 }

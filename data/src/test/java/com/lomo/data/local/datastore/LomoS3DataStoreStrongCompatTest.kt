@@ -1,16 +1,17 @@
 package com.lomo.data.local.datastore
 
+
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -21,9 +22,13 @@ import java.nio.file.Files
  * - Excludes: Android Context wiring, repository consumers, and keystore-backed credentials.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class LomoS3DataStoreStrongCompatTest {
-    @Test
-    fun `s3 connection store persists rclone crypt advanced settings`() =
+class LomoS3DataStoreStrongCompatTest : DataFunSpec() {
+    init {
+        test("s3 connection store persists rclone crypt advanced settings") { `s3 connection store persists rclone crypt advanced settings`() }
+    }
+
+
+    private fun `s3 connection store persists rclone crypt advanced settings`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val connectionStore = S3ConnectionStoreImpl(dataStore)
@@ -34,11 +39,11 @@ class LomoS3DataStoreStrongCompatTest {
             connectionStore.updateS3RcloneDataEncryptionEnabled(false)
             connectionStore.updateS3RcloneEncryptedSuffix("none")
 
-            assertEquals("obfuscate", connectionStore.s3RcloneFilenameEncryption.first())
-            assertEquals("base32768", connectionStore.s3RcloneFilenameEncoding.first())
-            assertFalse(connectionStore.s3RcloneDirectoryNameEncryption.first())
-            assertFalse(connectionStore.s3RcloneDataEncryptionEnabled.first())
-            assertEquals("none", connectionStore.s3RcloneEncryptedSuffix.first())
+            connectionStore.s3RcloneFilenameEncryption.first() shouldBe "obfuscate"
+            connectionStore.s3RcloneFilenameEncoding.first() shouldBe "base32768"
+            (connectionStore.s3RcloneDirectoryNameEncryption.first()).shouldBeFalse()
+            (connectionStore.s3RcloneDataEncryptionEnabled.first()).shouldBeFalse()
+            connectionStore.s3RcloneEncryptedSuffix.first() shouldBe "none"
         }
 
     private fun newDataStore(scope: CoroutineScope): androidx.datastore.core.DataStore<Preferences> {

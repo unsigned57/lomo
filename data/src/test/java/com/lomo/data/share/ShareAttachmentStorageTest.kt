@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -13,25 +14,44 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
  * - Unit under test: ShareAttachmentStorage
  * - Behavior focus: image/audio attachment save routing, duplicate filename resolution, filename sanitization, blank-name fallback, and failure fallback.
  * - Observable outcomes: returned saved filename or null, bytes copied to the destination stream, resolved audio filename passed to MediaStorageDataSource, and unsupported-type handling.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Document tree traversal, actual media store persistence backends, and LAN transfer orchestration.
  */
-class ShareAttachmentStorageTest {
+class ShareAttachmentStorageTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        afterTest {
+            tearDown()
+        }
+
+        test("saveAttachmentFile delegates image attachments to saveImage") { `saveAttachmentFile delegates image attachments to saveImage`() }
+
+        test("saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes") { `saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes`() }
+
+        test("saveAttachmentFile falls back to generated attachment name when source name is blank") { `saveAttachmentFile falls back to generated attachment name when source name is blank`() }
+
+        test("saveAttachmentFile returns null for unsupported attachment type") { `saveAttachmentFile returns null for unsupported attachment type`() }
+
+        test("saveAttachmentFile returns null when audio output stream cannot be opened") { `saveAttachmentFile returns null when audio output stream cannot be opened`() }
+    }
+
+
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val dataSource = mockk<MediaStorageDataSource>(relaxed = true)
@@ -40,8 +60,7 @@ class ShareAttachmentStorageTest {
 
     private lateinit var storage: ShareAttachmentStorage
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         mockkStatic(Uri::class)
         every { Uri.fromFile(any()) } answers { fileUri(firstArg()) }
         every { context.contentResolver } returns contentResolver
@@ -52,14 +71,12 @@ class ShareAttachmentStorageTest {
         storage = ShareAttachmentStorage(context, dataSource, dataStore)
     }
 
-    @After
-    fun tearDown() {
+    private fun tearDown() {
         unmockkStatic(Uri::class)
         uriCache.clear()
     }
 
-    @Test
-    fun `saveAttachmentFile delegates image attachments to saveImage`() =
+    private fun `saveAttachmentFile delegates image attachments to saveImage`() =
         runBlocking {
             val payloadFile = tempFile("share-image", ".png", "image-bytes")
             val payloadUri = fileUri(payloadFile)
@@ -67,12 +84,11 @@ class ShareAttachmentStorageTest {
 
             val result = storage.saveAttachmentFile("cover.png", "image", payloadFile)
 
-            assertEquals("images/cover.png", result)
+            result shouldBe "images/cover.png"
             coVerify(exactly = 1) { dataSource.saveImage(payloadUri) }
         }
 
-    @Test
-    fun `saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes`() =
+    private fun `saveAttachmentFile sanitizes audio filename resolves duplicates and copies bytes`() =
         runBlocking {
             val voiceDir = Files.createTempDirectory("share-voice").toFile()
             File(voiceDir, "voice_note.m4a").writeText("existing")
@@ -85,12 +101,11 @@ class ShareAttachmentStorageTest {
 
             val result = storage.saveAttachmentFile("../voice note.m4a", "audio", payloadFile)
 
-            assertEquals("voice_note_1.m4a", result)
-            assertEquals("audio-payload", output.toString(Charsets.UTF_8))
+            result shouldBe "voice_note_1.m4a"
+            output.toString(Charsets.UTF_8) shouldBe "audio-payload"
         }
 
-    @Test
-    fun `saveAttachmentFile falls back to generated attachment name when source name is blank`() =
+    private fun `saveAttachmentFile falls back to generated attachment name when source name is blank`() =
         runBlocking {
             val payloadFile = tempFile("share-blank", ".bin", "voice")
             val output = ByteArrayOutputStream()
@@ -100,24 +115,22 @@ class ShareAttachmentStorageTest {
 
             val result = storage.saveAttachmentFile("   ", "audio", payloadFile)
 
-            assertTrue(result != null && result.startsWith("attachment_"))
-            assertEquals("voice", output.toString(Charsets.UTF_8))
+            (result != null && result.startsWith("attachment_")).shouldBeTrue()
+            output.toString(Charsets.UTF_8) shouldBe "voice"
         }
 
-    @Test
-    fun `saveAttachmentFile returns null for unsupported attachment type`() =
+    private fun `saveAttachmentFile returns null for unsupported attachment type`() =
         runBlocking {
             val payloadFile = tempFile("share-note", ".txt", "plain")
 
             val result = storage.saveAttachmentFile("note.txt", "text", payloadFile)
 
-            assertNull(result)
+            result.shouldBeNull()
             coVerify(exactly = 0) { dataSource.saveImage(any()) }
             coVerify(exactly = 0) { dataSource.createVoiceFile(any()) }
         }
 
-    @Test
-    fun `saveAttachmentFile returns null when audio output stream cannot be opened`() =
+    private fun `saveAttachmentFile returns null when audio output stream cannot be opened`() =
         runBlocking {
             val payloadFile = tempFile("share-error", ".m4a", "voice")
             val createdUri = mockk<Uri>(relaxed = true)
@@ -126,7 +139,7 @@ class ShareAttachmentStorageTest {
 
             val result = storage.saveAttachmentFile("voice.m4a", "audio", payloadFile)
 
-            assertNull(result)
+            result.shouldBeNull()
         }
 
     private fun tempFile(

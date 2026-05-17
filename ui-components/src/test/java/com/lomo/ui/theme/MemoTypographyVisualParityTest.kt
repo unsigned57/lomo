@@ -1,9 +1,9 @@
 package com.lomo.ui.theme
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -13,17 +13,18 @@ import org.junit.Test
  * - Red phase: Fails before the fix because memo typography leaves Compose-side platform font padding at the default, making input-panel text metrics drift from memo card rendering.
  * - Excludes: actual TextField layout, OEM font metrics, and card/editor container padding.
  */
-class MemoTypographyVisualParityTest {
+class MemoTypographyVisualParityTest : UiComponentsFunSpec() {
     private val typography = Typography()
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `memo typography tokens disable platform font padding for card and editor parity`() {
+    init {
+        test("memo typography tokens disable platform font padding for card and editor parity") {
         val expectedPlatformStyle = PlatformTextStyle(includeFontPadding = false)
 
-        assertEquals(expectedPlatformStyle, typography.memoBodyTextStyle(defaultScales).platformStyle)
-        assertEquals(expectedPlatformStyle, typography.memoBodyTextStyle(defaultScales).platformStyle) // editor delegates to body
-        assertEquals(expectedPlatformStyle, typography.memoSummaryTextStyle(defaultScales).platformStyle)
-        assertEquals(expectedPlatformStyle, typography.memoHintTextStyle(defaultScales).platformStyle)
+        (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+        (typography.memoBodyTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle) // editor delegates to body
+        (typography.memoSummaryTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+        (typography.memoHintTextStyle(defaultScales).platformStyle) shouldBe (expectedPlatformStyle)
+        }
     }
 }

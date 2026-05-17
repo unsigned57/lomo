@@ -1,9 +1,9 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -15,48 +15,52 @@ import org.junit.Test
  *   resolving relative image paths through image-map/root-path dependencies.
  * - Excludes: Compose rendering tree, Coil decode behavior, and media import/storage side effects.
  */
-class MemoEditorPreviewContentResolverTest {
-    @Test
-    fun `build memo editor preview content resolves relative markdown image through image map`() {
-        val cachedUri = mockk<android.net.Uri>()
-        every { cachedUri.toString() } returns "content://images/foo%20bar.png"
+class MemoEditorPreviewContentResolverTest : AppFunSpec() {
+    init {
+        test("build memo editor preview content resolves relative markdown image through image map") {
+            val cachedUri = mockk<android.net.Uri>()
+            every { cachedUri.toString() } returns "content://images/foo%20bar.png"
 
-        val resolved =
-            buildMemoEditorPreviewContent(
-                content = "![cover](assets/foo%20bar.png)",
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap = mapOf("foo bar.png" to cachedUri),
-            )
+            val resolved =
+                buildMemoEditorPreviewContent(
+                    content = "![cover](assets/foo%20bar.png)",
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap = mapOf("foo bar.png" to cachedUri),
+                )
 
-        assertEquals("![cover](content://images/foo%20bar.png)", resolved)
+            (resolved) shouldBe ("![cover](content://images/foo%20bar.png)")
+        }
     }
 
-    @Test
-    fun `build memo editor preview content keeps plain markdown unchanged`() {
-        val resolved =
-            buildMemoEditorPreviewContent(
-                content = "# Title\nBody",
-                rootPath = "/memo",
-                imagePath = "/images",
-                imageMap = emptyMap(),
-            )
+    init {
+        test("build memo editor preview content keeps plain markdown unchanged") {
+            val resolved =
+                buildMemoEditorPreviewContent(
+                    content = "# Title\nBody",
+                    rootPath = "/memo",
+                    imagePath = "/images",
+                    imageMap = emptyMap(),
+                )
 
-        assertEquals("# Title\nBody", resolved)
+            (resolved) shouldBe ("# Title\nBody")
+        }
     }
 
-    @Test
-    fun `build memo editor preview content linkifies geo uri text`() {
-        val geoUri = "geo:-29.1645,141.5243?z=10"
+    init {
+        test("build memo editor preview content linkifies geo uri text") {
+            val geoUri = "geo:-29.1645,141.5243?z=10"
 
-        val resolved =
-            buildMemoEditorPreviewContent(
-                content = "Meet here\n$geoUri",
-                rootPath = "/memo",
-                imagePath = "/images",
-                imageMap = emptyMap(),
-            )
+            val resolved =
+                buildMemoEditorPreviewContent(
+                    content = "Meet here\n$geoUri",
+                    rootPath = "/memo",
+                    imagePath = "/images",
+                    imageMap = emptyMap(),
+                )
 
-        assertEquals("Meet here\n[$geoUri]($geoUri)", resolved)
+            (resolved) shouldBe ("Meet here\n[$geoUri]($geoUri)")
+        }
     }
+
 }

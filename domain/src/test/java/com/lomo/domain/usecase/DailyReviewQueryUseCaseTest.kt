@@ -2,13 +2,12 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -19,63 +18,68 @@ import org.junit.Test
  * - Excludes: UI pagination behavior, Compose rendering, and repository storage implementation details.
  */
 
-class DailyReviewQueryUseCaseTest {
+class DailyReviewQueryUseCaseTest : DomainFunSpec() {
     private val repository: MemoRepository = mockk()
     private val useCase = DailyReviewQueryUseCase(repository)
-
-    @Test
-    fun `loadMore returns empty when batch size is non-positive`() =
-        runTest {
-            val result = useCase.loadMore(excludeIds = emptySet(), batchSize = 0)
-            assertTrue(result.isEmpty())
+    init {
+        test("loadMore returns empty when batch size is non-positive") {
+            runTest {
+                        val result = useCase.loadMore(excludeIds = emptySet(), batchSize = 0)
+                        (result.isEmpty()) shouldBe true
+                    }
         }
+    }
+    init {
+        test("loadMore returns empty when no memos exist") {
+            runTest {
+                        stubPagedMemos(emptyList())
 
-    @Test
-    fun `loadMore returns empty when no memos exist`() =
-        runTest {
-            stubPagedMemos(emptyList())
+                        val result = useCase.loadMore(excludeIds = emptySet(), batchSize = 10)
 
-            val result = useCase.loadMore(excludeIds = emptySet(), batchSize = 10)
-
-            assertTrue(result.isEmpty())
+                        (result.isEmpty()) shouldBe true
+                    }
         }
+    }
+    init {
+        test("loadMore excludes ids that were already seen") {
+            runTest {
+                        val memos = (0 until 20).map { index -> memo(index) }
+                        stubPagedMemos(memos)
 
-    @Test
-    fun `loadMore excludes ids that were already seen`() =
-        runTest {
-            val memos = (0 until 20).map { index -> memo(index) }
-            stubPagedMemos(memos)
+                        val excludedIds = setOf("memo_1", "memo_3", "memo_5", "memo_7", "memo_9")
+                        val result = useCase.loadMore(excludeIds = excludedIds, batchSize = 8)
 
-            val excludedIds = setOf("memo_1", "memo_3", "memo_5", "memo_7", "memo_9")
-            val result = useCase.loadMore(excludeIds = excludedIds, batchSize = 8)
-
-            assertEquals(8, result.size)
-            assertTrue(result.map { it.id }.none(excludedIds::contains))
-            assertEquals(result.size, result.map { it.id }.distinct().size)
-            verify(exactly = 0) { repository.getAllMemosList() }
+                        result.size shouldBe 8
+                        (result.map { it.id }.none(excludedIds::contains)) shouldBe true
+                        result.map { it.id }.distinct().size shouldBe result.size
+                        verify(exactly = 0) { repository.getAllMemosList() }
+                    }
         }
+    }
+    init {
+        test("loadMore returns remaining unseen memos when batch exceeds unseen pool") {
+            runTest {
+                        val memos = (0 until 3).map { index -> memo(index) }
+                        stubPagedMemos(memos)
 
-    @Test
-    fun `loadMore returns remaining unseen memos when batch exceeds unseen pool`() =
-        runTest {
-            val memos = (0 until 3).map { index -> memo(index) }
-            stubPagedMemos(memos)
+                        val result = useCase.loadMore(excludeIds = setOf("memo_0"), batchSize = 10)
 
-            val result = useCase.loadMore(excludeIds = setOf("memo_0"), batchSize = 10)
-
-            assertEquals(setOf("memo_1", "memo_2"), result.map { it.id }.toSet())
+                        result.map { it.id }.toSet() shouldBe setOf("memo_1", "memo_2")
+                    }
         }
+    }
+    init {
+        test("default invoke keeps the initial random walk batch size") {
+            runTest {
+                        val memos = (0 until 30).map { index -> memo(index) }
+                        stubPagedMemos(memos)
 
-    @Test
-    fun `default invoke keeps the initial random walk batch size`() =
-        runTest {
-            val memos = (0 until 30).map { index -> memo(index) }
-            stubPagedMemos(memos)
+                        val result = useCase()
 
-            val result = useCase()
-
-            assertEquals(DailyReviewQueryUseCase.DEFAULT_DAILY_REVIEW_LIMIT, result.size)
+                        result.size shouldBe DailyReviewQueryUseCase.DEFAULT_DAILY_REVIEW_LIMIT
+                    }
         }
+    }
 
     private fun stubPagedMemos(memos: List<Memo>) {
         coEvery { repository.getMemoCount() } returns memos.size

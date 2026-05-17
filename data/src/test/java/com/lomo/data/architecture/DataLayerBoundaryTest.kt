@@ -1,37 +1,56 @@
+/*
+ * Test Contract:
+ * - Unit under test: DataLayerBoundaryTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for DataLayerBoundaryTest.
+ * - Boundary: boundary and edge cases for DataLayerBoundaryTest.
+ * - Failure: failure and error scenarios for DataLayerBoundaryTest.
+ * - Must-not-happen: invariants are never violated for DataLayerBoundaryTest.
+ *
+ * - Behavior focus: test behavioral outcomes of DataLayerBoundaryTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.architecture
 
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.io.File
 
-class DataLayerBoundaryTest {
+import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.booleans.shouldBeTrue
+
+class DataLayerBoundaryTest : DataFunSpec() {
+    init {
+        test("data layer does not reference app layer package") { `data layer does not reference app layer package`() }
+
+        test("data layer does not reference ui frameworks") { `data layer does not reference ui frameworks`() }
+    }
+
+
     private val moduleRoot = resolveModuleRoot("data")
     private val sourceRoot = moduleRoot.resolve("src/main/java")
 
-    @Test
-    fun `data layer does not reference app layer package`() {
+    private fun `data layer does not reference app layer package`() {
         val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        assertTrue("No Kotlin sources found under data/src/main/java", kotlinFiles.isNotEmpty())
+        withClue("No Kotlin sources found under data/src/main/java") { (kotlinFiles.isNotEmpty()).shouldBeTrue() }
 
         val offenders = kotlinFiles.filter(::containsAppLayerReference)
 
-        assertTrue(
-            "Data layer must not reference app layer package. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+        withClue("Data layer must not reference app layer package. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()).shouldBeTrue() }
     }
 
-    @Test
-    fun `data layer does not reference ui frameworks`() {
+    private fun `data layer does not reference ui frameworks`() {
         val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        assertTrue("No Kotlin sources found under data/src/main/java", kotlinFiles.isNotEmpty())
+        withClue("No Kotlin sources found under data/src/main/java") { (kotlinFiles.isNotEmpty()).shouldBeTrue() }
 
         val offenders = kotlinFiles.filter(::containsUiLayerReference)
 
-        assertTrue(
-            "Data layer must not reference UI packages. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+        withClue("Data layer must not reference UI packages. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()).shouldBeTrue() }
     }
 
     private fun containsAppLayerReference(file: File): Boolean {

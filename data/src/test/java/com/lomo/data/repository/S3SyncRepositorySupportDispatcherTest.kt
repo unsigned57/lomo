@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -15,9 +16,8 @@ import io.mockk.impl.annotations.MockK
 import java.util.concurrent.Executors
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertFalse
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -27,7 +27,16 @@ import org.junit.Test
  * - Red phase: Fails before the fix because withClient executes the client block on the caller thread, allowing NetworkOnMainThreadException from settings-triggered S3 checks.
  * - Excludes: AWS SDK transport behavior, sync planning, error mapping, and UI rendering.
  */
-class S3SyncRepositorySupportDispatcherTest {
+class S3SyncRepositorySupportDispatcherTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("withClient runs remote work off the caller thread") { `withClient runs remote work off the caller thread`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -54,8 +63,7 @@ class S3SyncRepositorySupportDispatcherTest {
 
     private lateinit var support: S3SyncRepositorySupport
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { clientFactory.create(any()) } returns client
         every { client.close() } returns Unit
@@ -77,8 +85,7 @@ class S3SyncRepositorySupportDispatcherTest {
             )
     }
 
-    @Test
-    fun `withClient runs remote work off the caller thread`() {
+    private fun `withClient runs remote work off the caller thread`() {
         val config =
             S3ResolvedConfig(
                 endpointUrl = "https://s3.example.com",
@@ -103,7 +110,7 @@ class S3SyncRepositorySupportDispatcherTest {
                     }
                 }
 
-            assertFalse(executingThreadName.contains("ui-thread"))
+            (executingThreadName.contains("ui-thread")).shouldBeFalse()
         } finally {
             callerDispatcher.close()
             callerExecutor.shutdownNow()

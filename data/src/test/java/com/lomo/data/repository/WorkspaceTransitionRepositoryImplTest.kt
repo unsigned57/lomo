@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -8,9 +9,8 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -20,7 +20,18 @@ import org.junit.Test
  * - Red phase: Verified by stripping transition safeguards.
  * - Excludes: IO level exceptions.
  */
-class WorkspaceTransitionRepositoryImplTest {
+class WorkspaceTransitionRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("clearMemoStateAfterWorkspaceTransition clears memo dependent tables in expected order") { `clearMemoStateAfterWorkspaceTransition clears memo dependent tables in expected order`() }
+
+        test("clearMemoStateAfterWorkspaceTransition wraps cleanup in provided transaction runner") { `clearMemoStateAfterWorkspaceTransition wraps cleanup in provided transaction runner`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var memoDao: TestMemoDaoSuite
 
@@ -29,8 +40,7 @@ class WorkspaceTransitionRepositoryImplTest {
 
     private lateinit var repository: WorkspaceTransitionRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         repository =
             WorkspaceTransitionRepositoryImpl(
@@ -44,8 +54,7 @@ class WorkspaceTransitionRepositoryImplTest {
             )
     }
 
-    @Test
-    fun `clearMemoStateAfterWorkspaceTransition clears memo dependent tables in expected order`() =
+    private fun `clearMemoStateAfterWorkspaceTransition clears memo dependent tables in expected order`() =
         runTest {
             coEvery { memoDao.clearMemoFileOutbox() } just runs
             coEvery { localFileStateDao.clearAll() } just runs
@@ -66,8 +75,7 @@ class WorkspaceTransitionRepositoryImplTest {
             }
         }
 
-    @Test
-    fun `clearMemoStateAfterWorkspaceTransition wraps cleanup in provided transaction runner`() =
+    private fun `clearMemoStateAfterWorkspaceTransition wraps cleanup in provided transaction runner`() =
         runTest {
             val callTrace = mutableListOf<String>()
             val transactionalRepository =
@@ -93,8 +101,7 @@ class WorkspaceTransitionRepositoryImplTest {
 
             transactionalRepository.clearMemoStateAfterWorkspaceTransition()
 
-            assertEquals(
-                listOf(
+            callTrace shouldBe listOf(
                     "tx-start",
                     "outbox",
                     "local-state",
@@ -103,8 +110,6 @@ class WorkspaceTransitionRepositoryImplTest {
                     "memos",
                     "trash",
                     "tx-end",
-                ),
-                callTrace,
-            )
+                )
         }
 }

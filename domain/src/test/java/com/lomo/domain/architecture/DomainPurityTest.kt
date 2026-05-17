@@ -1,115 +1,113 @@
+/*
+ * Test Contract:
+ * - Unit under test: DomainPurityTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for DomainPurityTest.
+ * - Boundary: boundary and edge cases for DomainPurityTest.
+ * - Failure: failure and error scenarios for DomainPurityTest.
+ * - Must-not-happen: invariants are never violated for DomainPurityTest.
+ *
+ * - Behavior focus: test behavioral outcomes of DomainPurityTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.architecture
 
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.assertions.withClue
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 import java.io.File
 
-class DomainPurityTest {
+class DomainPurityTest : DomainFunSpec() {
     private val moduleRoot = resolveModuleRoot("domain")
+    init {
+        test("domain does not depend on inject annotations") {
+            val sourceRoot = moduleRoot.resolve("src/main/java")
+            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            val offenders =
+                kotlinFiles.filter { file ->
+                    val text = file.readText()
+                    text.contains("@Inject") || text.contains("javax.inject.Inject")
+                }
 
-    @Test
-    fun `domain does not depend on inject annotations`() {
-        val sourceRoot = moduleRoot.resolve("src/main/java")
-        val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val offenders =
-            kotlinFiles.filter { file ->
-                val text = file.readText()
-                text.contains("@Inject") || text.contains("javax.inject.Inject")
-            }
-
-        assertTrue(
-            "Domain layer must stay framework-agnostic. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+            withClue("Domain layer must stay framework-agnostic. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
+        }
     }
+    init {
+        test("domain source only uses model repository and usecase categories") {
+            val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
+            val allowedTopLevel = setOf("model", "repository", "usecase")
+            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            val offenders =
+                kotlinFiles.filter { file ->
+                    val relative = file.relativeTo(sourceRoot).invariantSeparatorsPath
+                    val topLevel = relative.substringBefore('/')
+                    topLevel !in allowedTopLevel
+                }
 
-    @Test
-    fun `domain source only uses model repository and usecase categories`() {
-        val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
-        val allowedTopLevel = setOf("model", "repository", "usecase")
-        val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val offenders =
-            kotlinFiles.filter { file ->
-                val relative = file.relativeTo(sourceRoot).invariantSeparatorsPath
-                val topLevel = relative.substringBefore('/')
-                topLevel !in allowedTopLevel
-            }
-
-        assertTrue(
-            "Domain source categories must be model/repository/usecase. Offenders: " +
-                offenders.joinToString { it.path },
-            offenders.isEmpty(),
-        )
+            withClue("Domain source categories must be model/repository/usecase. Offenders: " +
+                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+        }
     }
+    init {
+        test("domain repository package only declares interfaces") {
+            val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain/repository")
+            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            val offenders =
+                kotlinFiles.filter { file ->
+                    val declarations =
+                        file
+                            .readLines()
+                            .filter { line -> line.trimStart().matches(TOP_LEVEL_DECLARATION_PATTERN) }
+                    declarations.any { line -> !line.contains("interface ") }
+                }
 
-    @Test
-    fun `domain repository package only declares interfaces`() {
-        val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain/repository")
-        val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val offenders =
-            kotlinFiles.filter { file ->
-                val declarations =
+            withClue("Domain repository contracts must be interfaces only. Offenders: " +
+                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+        }
+    }
+    init {
+        test("domain source does not keep compatibility typealias") {
+            val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
+            val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+            val offenders =
+                kotlinFiles.filter { file ->
                     file
                         .readLines()
-                        .filter { line -> line.trimStart().matches(TOP_LEVEL_DECLARATION_PATTERN) }
-                declarations.any { line -> !line.contains("interface ") }
-            }
+                        .any { line -> line.trimStart().startsWith("typealias ") }
+                }
 
-        assertTrue(
-            "Domain repository contracts must be interfaces only. Offenders: " +
-                offenders.joinToString { it.path },
-            offenders.isEmpty(),
-        )
+            withClue("Domain source must not declare typealias compatibility shims. Offenders: " +
+                    offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
+        }
     }
+    init {
+        test("domain module does not use android gradle plugin") {
+            val buildFile = moduleRoot.resolve("build.gradle.kts")
+            val text = buildFile.readText()
 
-    @Test
-    fun `domain source does not keep compatibility typealias`() {
-        val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
-        val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
-        val offenders =
-            kotlinFiles.filter { file ->
-                file
-                    .readLines()
-                    .any { line -> line.trimStart().startsWith("typealias ") }
-            }
-
-        assertTrue(
-            "Domain source must not declare typealias compatibility shims. Offenders: " +
-                offenders.joinToString { it.path },
-            offenders.isEmpty(),
-        )
+            withClue("Domain module must not apply Android Gradle plugins.") { (!text.contains("androidLibrary") && !text.contains("com.android.library")) shouldBe true }
+        }
     }
+    init {
+        test("domain module does not keep android manifest") {
+            val manifestFile = moduleRoot.resolve("src/main/AndroidManifest.xml")
 
-    @Test
-    fun `domain module does not use android gradle plugin`() {
-        val buildFile = moduleRoot.resolve("build.gradle.kts")
-        val text = buildFile.readText()
-
-        assertTrue(
-            "Domain module must not apply Android Gradle plugins.",
-            !text.contains("androidLibrary") && !text.contains("com.android.library"),
-        )
+            withClue("Domain module must not keep AndroidManifest.xml.") { (!manifestFile.exists()) shouldBe true }
+        }
     }
+    init {
+        test("domain module does not depend on inject library") {
+            val buildFile = moduleRoot.resolve("build.gradle.kts")
+            val text = buildFile.readText()
 
-    @Test
-    fun `domain module does not keep android manifest`() {
-        val manifestFile = moduleRoot.resolve("src/main/AndroidManifest.xml")
-
-        assertTrue(
-            "Domain module must not keep AndroidManifest.xml.",
-            !manifestFile.exists(),
-        )
-    }
-
-    @Test
-    fun `domain module does not depend on inject library`() {
-        val buildFile = moduleRoot.resolve("build.gradle.kts")
-        val text = buildFile.readText()
-
-        assertTrue(
-            "Domain module must not depend on inject libraries.",
-            !text.contains("javax.inject") && !text.contains("jakarta.inject") && !text.contains("libs.javax.inject"),
-        )
+            withClue("Domain module must not depend on inject libraries.") { (!text.contains("javax.inject") && !text.contains("jakarta.inject") && !text.contains("libs.javax.inject")) shouldBe true }
+        }
     }
 
     private fun resolveModuleRoot(moduleName: String): File {

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -19,12 +20,10 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -34,9 +33,32 @@ import java.io.File
  * - Red phase: Fails before the fix because S3 sync still assumes the legacy three-directory lomo/ model instead of recursive vault-root content syncing.
  * - Excludes: S3 transport implementation details, metadata DAO persistence, planner conflict rules, and UI rendering.
  */
-class S3SyncFileBridgeTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class S3SyncFileBridgeTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setUp()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("localFiles recursively collects content files under inferred vault root") { `localFiles recursively collects content files under inferred vault root`() }
+
+        test("localFiles falls back to legacy lomo layout when roots share only filesystem root") { `localFiles falls back to legacy lomo layout when roots share only filesystem root`() }
+
+        test("localFiles prefer s3 specific sync directory over legacy mode") { `localFiles prefer s3 specific sync directory over legacy mode`() }
+
+        test("remoteFiles keep configured vault relative folders when explicit sync directory is set") { `remoteFiles keep configured vault relative folders when explicit sync directory is set`() }
+
+        test("remoteFiles keeps nested content files and ignores hidden or unsupported objects") { `remoteFiles keeps nested content files and ignores hidden or unsupported objects`() }
+
+        test("remoteFiles ignore legacy lomo folders for explicit sync directory") { `remoteFiles ignore legacy lomo folders for explicit sync directory`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -63,7 +85,6 @@ class S3SyncFileBridgeTest {
 
     private lateinit var bridge: S3SyncFileBridge
 
-    @Before
     fun setUp() {
         MockKAnnotations.init(this)
         val runtime =
@@ -83,8 +104,7 @@ class S3SyncFileBridgeTest {
         bridge = S3SyncFileBridge(runtime, S3SyncEncodingSupport())
     }
 
-    @Test
-    fun `localFiles recursively collects content files under inferred vault root`() =
+    private fun `localFiles recursively collects content files under inferred vault root`() =
         runTest {
             val vaultRoot = tempFolder.newFolder("vault-root")
             val memoDir = File(vaultRoot, "memo").also(File::mkdirs)
@@ -118,19 +138,15 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.localFiles(com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore))
 
-            assertEquals(
-                setOf(
+            files.keys shouldBe setOf(
                     "memo/today.md",
                     "Projects/project.md",
                     "attachments/images/cover.png",
                     "attachments/voice/clip.m4a",
-                ),
-                files.keys,
-            )
+                )
         }
 
-    @Test
-    fun `localFiles falls back to legacy lomo layout when roots share only filesystem root`() =
+    private fun `localFiles falls back to legacy lomo layout when roots share only filesystem root`() =
         runTest {
             configureRoots(
                 memoRoot = File("/memo"),
@@ -147,18 +163,14 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.localFiles(com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore))
 
-            assertEquals(
-                setOf(
+            files.keys shouldBe setOf(
                     "lomo/memo/legacy.md",
                     "lomo/images/cover.png",
                     "lomo/voice/clip.m4a",
-                ),
-                files.keys,
-            )
+                )
         }
 
-    @Test
-    fun `localFiles prefer s3 specific sync directory over legacy mode`() =
+    private fun `localFiles prefer s3 specific sync directory over legacy mode`() =
         runTest {
             val vaultRoot = tempFolder.newFolder("obsidian-vault")
             File(vaultRoot, "Daily/today.md").apply {
@@ -183,17 +195,13 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.localFiles(com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore))
 
-            assertEquals(
-                setOf(
+            files.keys shouldBe setOf(
                     "Daily/today.md",
                     "assets/image.png",
-                ),
-                files.keys,
-            )
+                )
         }
 
-    @Test
-    fun `remoteFiles keep configured vault relative folders when explicit sync directory is set`() =
+    private fun `remoteFiles keep configured vault relative folders when explicit sync directory is set`() =
         runTest {
             val vaultRoot = tempFolder.newFolder("obsidian-vault-explicit")
             every { dataStore.s3LocalSyncDirectory } returns flowOf(vaultRoot.absolutePath)
@@ -212,19 +220,15 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
-            assertEquals(
-                setOf(
+            files.keys shouldBe setOf(
                     "journal/today.md",
                     "asset/cover.png",
                     "pages.kanban/board.md",
                     "archives/2024.md",
-                ),
-                files.keys,
-            )
+                )
         }
 
-    @Test
-    fun `remoteFiles keeps nested content files and ignores hidden or unsupported objects`() =
+    private fun `remoteFiles keeps nested content files and ignores hidden or unsupported objects`() =
         runTest {
             configureRoots(
                 memoRoot = tempFolder.newFolder("memo-root"),
@@ -242,18 +246,14 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
-            assertEquals(
-                setOf(
+            files.keys shouldBe setOf(
                     "Projects/project.md",
                     "attachments/images/cover.png",
                     "attachments/voice/clip.m4a",
-                ),
-                files.keys,
-            )
+                )
         }
 
-    @Test
-    fun `remoteFiles ignore legacy lomo folders for explicit sync directory`() =
+    private fun `remoteFiles ignore legacy lomo folders for explicit sync directory`() =
         runTest {
             every { dataStore.s3LocalSyncDirectory } returns flowOf("content://tree/primary%3AObsidian")
             every { dataStore.rootDirectory } returns flowOf("/memo")
@@ -270,7 +270,7 @@ class S3SyncFileBridgeTest {
 
             val files = bridge.remoteFiles(client, com.lomo.data.sync.SyncDirectoryLayout.resolve(dataStore), config())
 
-            assertEquals(emptySet<String>(), files.keys)
+            files.keys shouldBe emptySet<String>()
         }
 
     private fun configureRoots(

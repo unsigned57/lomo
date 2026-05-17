@@ -1,8 +1,7 @@
 package com.lomo.app.feature.settings
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,22 +14,25 @@ import org.junit.Test
  *   contract to keep the entry point interactive.
  * - Excludes: Compose animations, picker launching, and repository persistence.
  */
-class SettingsSyncInboxSectionPolicyTest {
-    @Test
-    fun `collapsed section stays interactive when sync inbox is disabled`() {
-        val policy = SyncInboxSectionPolicies.resolve(enabled = false)
+class SettingsSyncInboxSectionPolicyTest : AppFunSpec() {
+    init {
+        test("collapsed section stays interactive when sync inbox is disabled") {
+            val policy = SyncInboxSectionPolicies.resolve(enabled = false)
 
-        assertTrue(policy.showSectionHeader)
-        assertTrue(policy.headerInteractive)
-        assertFalse(policy.showDirectoryPreference)
+            ((policy.showSectionHeader)) shouldBe true
+            ((policy.headerInteractive)) shouldBe true
+            ((policy.showDirectoryPreference)) shouldBe false
+        }
     }
 
-    @Test
-    fun `expanded section shows directory preference when sync inbox is enabled`() {
-        val policy = SyncInboxSectionPolicies.resolve(enabled = true)
+    init {
+        test("expanded section shows directory preference when sync inbox is enabled") {
+            val policy = SyncInboxSectionPolicies.resolve(enabled = true)
 
-        assertTrue(policy.showSectionHeader)
-        assertTrue(policy.headerInteractive)
-        assertTrue(policy.showDirectoryPreference)
+            ((policy.showSectionHeader)) shouldBe true
+            ((policy.headerInteractive)) shouldBe true
+            ((policy.showDirectoryPreference)) shouldBe true
+        }
     }
+
 }

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.Memo
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
@@ -13,10 +14,9 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -30,7 +30,36 @@ import org.junit.Test
  *   mutation APIs.
  * - Excludes: Room SQL execution details, FTS engine internals, and UI rendering.
  */
-class MemoRepositoryImplTest {
+class MemoRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("saveMemo delegates to synchronizer") { `saveMemo delegates to synchronizer`() }
+
+        test("saveMemo propagates synchronizer exception") { `saveMemo propagates synchronizer exception`() }
+
+        test("updateMemo delegates blank content to synchronizer update path") { `updateMemo delegates blank content to synchronizer update path`() }
+
+        test("getMemoById maps pinned memo without loading whole list") { `getMemoById maps pinned memo without loading whole list`() }
+
+        test("searchMemosList CJK phrase uses space separated bigram match query") { `searchMemosList CJK phrase uses space separated bigram match query`() }
+
+        test("searchMemosList single CJK char keeps unigram query") { `searchMemosList single CJK char keeps unigram query`() }
+
+        test("searchMemosList two char CJK prefix keeps exact bigram query") { `searchMemosList two char CJK prefix keeps exact bigram query`() }
+
+        test("searchMemosList latin query uses FTS match query") { `searchMemosList latin query uses FTS match query`() }
+
+        test("searchMemosList returns empty when query has no searchable tokens") { `searchMemosList returns empty when query has no searchable tokens`() }
+
+        test("setMemoPinned true inserts pin row") { `setMemoPinned true inserts pin row`() }
+
+        test("setMemoPinned false deletes pin row") { `setMemoPinned false deletes pin row`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dao: TestMemoDaoSuite
 
@@ -39,8 +68,7 @@ class MemoRepositoryImplTest {
 
     private lateinit var repository: MemoRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         repository =
             MemoRepositoryImpl(
@@ -72,16 +100,14 @@ class MemoRepositoryImplTest {
         coEvery { dao.getPinnedMemoIds() } returns emptyList()
     }
 
-    @Test
-    fun `saveMemo delegates to synchronizer`() =
+    private fun `saveMemo delegates to synchronizer`() =
         runTest {
             coEvery { synchronizer.saveMemo(any(), any()) } just runs
             repository.saveMemo("content", timestamp = 123L)
             coVerify(exactly = 1) { synchronizer.saveMemo("content", 123L) }
         }
 
-    @Test
-    fun `saveMemo propagates synchronizer exception`() =
+    private fun `saveMemo propagates synchronizer exception`() =
         runTest {
             coEvery {
                 synchronizer.saveMemo(any(), any())
@@ -91,11 +117,10 @@ class MemoRepositoryImplTest {
                 runCatching {
                     repository.saveMemo("content", timestamp = 456L)
                 }.exceptionOrNull()
-            assertTrue(thrown is IllegalStateException)
+            (thrown is IllegalStateException).shouldBeTrue()
         }
 
-    @Test
-    fun `updateMemo delegates blank content to synchronizer update path`() =
+    private fun `updateMemo delegates blank content to synchronizer update path`() =
         runTest {
             val memo =
                 Memo(
@@ -112,8 +137,7 @@ class MemoRepositoryImplTest {
             coVerify(exactly = 0) { synchronizer.deleteMemo(any()) }
         }
 
-    @Test
-    fun `getMemoById maps pinned memo without loading whole list`() =
+    private fun `getMemoById maps pinned memo without loading whole list`() =
         runTest {
             coEvery {
                 dao.getMemo("memo-1")
@@ -132,13 +156,12 @@ class MemoRepositoryImplTest {
 
             val memo = repository.getMemoById("memo-1")
 
-            assertEquals("memo-1", memo?.id)
-            assertTrue(memo?.isPinned == true)
+            memo?.id shouldBe "memo-1"
+            (memo?.isPinned == true).shouldBeTrue()
             verify(exactly = 0) { dao.getAllMemosFlow() }
         }
 
-    @Test
-    fun `searchMemosList CJK phrase uses space separated bigram match query`() =
+    private fun `searchMemosList CJK phrase uses space separated bigram match query`() =
         runTest {
             val captured = slot<String>()
             every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
@@ -146,25 +169,23 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("苏格拉底").first()
 
-            assertEquals("\"苏格\"* \"格拉\"* \"拉底\"*", captured.captured)
+            captured.captured shouldBe "\"苏格\"* \"格拉\"* \"拉底\"*"
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList single CJK char keeps unigram query`() =
+    private fun `searchMemosList single CJK char keeps unigram query`() =
         runTest {
             val captured = slot<String>()
             every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
 
             repository.searchMemosList("苏").first()
 
-            assertEquals("苏*", captured.captured)
+            captured.captured shouldBe "苏*"
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList two char CJK prefix keeps exact bigram query`() =
+    private fun `searchMemosList two char CJK prefix keeps exact bigram query`() =
         runTest {
             val captured = slot<String>()
             every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
@@ -172,13 +193,12 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("苏格").first()
 
-            assertEquals("\"苏格\"*", captured.captured)
+            captured.captured shouldBe "\"苏格\"*"
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList latin query uses FTS match query`() =
+    private fun `searchMemosList latin query uses FTS match query`() =
         runTest {
             val captured = slot<String>()
             every { dao.searchMemosByFtsFlow(capture(captured)) } returns flowOf(emptyList())
@@ -186,13 +206,12 @@ class MemoRepositoryImplTest {
 
             repository.searchMemosList("Socrates 123").first()
 
-            assertEquals("\"Socrates\"* \"123\"*", captured.captured)
+            captured.captured shouldBe "\"Socrates\"* \"123\"*"
             verify(exactly = 1) { dao.searchMemosByFtsFlow(any()) }
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList returns empty when query has no searchable tokens`() =
+    private fun `searchMemosList returns empty when query has no searchable tokens`() =
         runTest {
             every { dao.searchMemosByFtsFlow(any()) } returns flowOf(emptyList())
 
@@ -202,8 +221,7 @@ class MemoRepositoryImplTest {
             verify(exactly = 0) { dao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `setMemoPinned true inserts pin row`() =
+    private fun `setMemoPinned true inserts pin row`() =
         runTest {
             repository.setMemoPinned("memo-1", pinned = true)
 
@@ -211,8 +229,7 @@ class MemoRepositoryImplTest {
             coVerify(exactly = 0) { dao.deleteMemoPin(any()) }
         }
 
-    @Test
-    fun `setMemoPinned false deletes pin row`() =
+    private fun `setMemoPinned false deletes pin row`() =
         runTest {
             repository.setMemoPinned("memo-1", pinned = false)
 

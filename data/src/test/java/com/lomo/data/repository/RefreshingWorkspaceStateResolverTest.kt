@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
 import io.mockk.MockKAnnotations
@@ -9,8 +10,7 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.just
 import io.mockk.runs
 import kotlinx.coroutines.test.runTest
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
 
 /*
  * Test Contract:
@@ -22,7 +22,16 @@ import org.junit.Test
  *   leaves the image location cache stale after revision restore.
  * - Excludes: refresh planner internals, Room SQL details, media backend enumeration, and UI behavior.
  */
-class RefreshingWorkspaceStateResolverTest {
+class RefreshingWorkspaceStateResolverTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("rebuildFromCurrentWorkspace clears memo state refreshes markdown and then refreshes image locations") { `rebuildFromCurrentWorkspace clears memo state refreshes markdown and then refreshes image locations`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var cleanupRepository: WorkspaceTransitionRepository
 
@@ -34,8 +43,7 @@ class RefreshingWorkspaceStateResolverTest {
 
     private lateinit var resolver: RefreshingWorkspaceStateResolver
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         resolver =
             RefreshingWorkspaceStateResolver(
@@ -45,8 +53,7 @@ class RefreshingWorkspaceStateResolverTest {
             )
     }
 
-    @Test
-    fun `rebuildFromCurrentWorkspace clears memo state refreshes markdown and then refreshes image locations`() =
+    private fun `rebuildFromCurrentWorkspace clears memo state refreshes markdown and then refreshes image locations`() =
         runTest {
             coEvery { cleanupRepository.clearMemoStateAfterWorkspaceTransition() } just runs
             coEvery { refreshEngine.refresh() } just runs

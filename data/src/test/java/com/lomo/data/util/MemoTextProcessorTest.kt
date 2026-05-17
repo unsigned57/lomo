@@ -1,11 +1,11 @@
 package com.lomo.data.util
 
+
 import com.lomo.data.memo.MemoContentHashPolicy
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -15,17 +15,54 @@ import org.junit.Test
  * - Red phase: Fails before the fix when replacing a memo with empty content leaves a trailing space after the timestamp header.
  * - Excludes: markdown parser internals, file-system behavior, and UI rendering.
  */
-class MemoTextProcessorTest {
+class MemoTextProcessorTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setup()
+        }
+
+        test("findMemoBlock should identify block with HH_mm_ss format") { `findMemoBlock should identify block with HH_mm_ss format`() }
+
+        test("findMemoBlock should identify block with HH_mm format") { `findMemoBlock should identify block with HH_mm format`() }
+
+        test("replaceMemoBlock should use provided timestampStr") { `replaceMemoBlock should use provided timestampStr`() }
+
+        test("replaceMemoBlock should keep timestamp only when new content is empty") { `replaceMemoBlock should keep timestamp only when new content is empty`() }
+
+        test("replaceMemoBlock should return false when target block is missing") { `replaceMemoBlock should return false when target block is missing`() }
+
+        test("findMemoBlock should locate collision entry by memoId") { `findMemoBlock should locate collision entry by memoId`() }
+
+        test("removeMemoBlock should remove collision entry by memoId") { `removeMemoBlock should remove collision entry by memoId`() }
+
+        test("findMemoBlock should fall back to raw content when memoId is invalid") { `findMemoBlock should fall back to raw content when memoId is invalid`() }
+
+        test("toggleCheckbox should replace unchecked item when marking complete") { `toggleCheckbox should replace unchecked item when marking complete`() }
+
+        test("toggleCheckbox should return original content when line index is out of bounds") { `toggleCheckbox should return original content when line index is out of bounds`() }
+
+        test("toggleCheckbox should return original content when expected pattern is missing") { `toggleCheckbox should return original content when expected pattern is missing`() }
+
+        test("extractTags should trim trailing slash and deduplicate tags") { `extractTags should trim trailing slash and deduplicate tags`() }
+
+        test("extractTags should keep emoji tags intact") { `extractTags should keep emoji tags intact`() }
+
+        test("extractTags should stop at commas instead of merging adjacent text") { `extractTags should stop at commas instead of merging adjacent text`() }
+
+        test("extractAudioLinks should include markdown audio links") { `extractAudioLinks should include markdown audio links`() }
+
+        test("extractLocalAttachmentPaths should merge image and audio and skip remote urls") { `extractLocalAttachmentPaths should merge image and audio and skip remote urls`() }
+    }
+
+
     private lateinit var processor: MemoTextProcessor
     private val timestamp = 1705234800000L // Example timestamp
 
-    @Before
-    fun setup() {
+    private fun setup() {
         processor = MemoTextProcessor()
     }
 
-    @Test
-    fun `findMemoBlock should identify block with HH_mm_ss format`() {
+    private fun `findMemoBlock should identify block with HH_mm_ss format`() {
         val lines =
             listOf(
                 "- 09:40:00 Old Content",
@@ -41,13 +78,12 @@ class MemoTextProcessorTest {
         // Expect index 0 to 1 (empty line usually end or next block start?)
         // Regex MEMO_BLOCK_END matches next block start "- 12:00:00"
 
-        assertEquals(0, start)
+        start shouldBe 0
         // The loop breaks at line 2 ("- 12:00:00"), so end should be 1.
-        assertEquals(1, end)
+        end shouldBe 1
     }
 
-    @Test
-    fun `findMemoBlock should identify block with HH_mm format`() {
+    private fun `findMemoBlock should identify block with HH_mm format`() {
         // Test permissive regex
         val lines =
             listOf(
@@ -59,12 +95,11 @@ class MemoTextProcessorTest {
 
         val (start, end) = processor.findMemoBlock(lines, rawContent, timestamp)
 
-        assertEquals(0, start)
-        assertEquals(1, end)
+        start shouldBe 0
+        end shouldBe 1
     }
 
-    @Test
-    fun `replaceMemoBlock should use provided timestampStr`() {
+    private fun `replaceMemoBlock should use provided timestampStr`() {
         val lines = mutableListOf("- 09:00:00 Old")
         val result =
             processor.replaceMemoBlock(
@@ -75,12 +110,11 @@ class MemoTextProcessorTest {
                 "10:00", // Custom short format
             )
 
-        assertTrue(result)
-        assertEquals("- 10:00 New Content", lines[0])
+        (result).shouldBeTrue()
+        lines[0] shouldBe "- 10:00 New Content"
     }
 
-    @Test
-    fun `replaceMemoBlock should keep timestamp only when new content is empty`() {
+    private fun `replaceMemoBlock should keep timestamp only when new content is empty`() {
         val lines =
             mutableListOf(
                 "- 09:00:00 Old",
@@ -96,12 +130,11 @@ class MemoTextProcessorTest {
                 timestampStr = "10:00",
             )
 
-        assertTrue(replaced)
-        assertEquals(listOf("- 10:00"), lines)
+        (replaced).shouldBeTrue()
+        lines shouldBe listOf("- 10:00")
     }
 
-    @Test
-    fun `replaceMemoBlock should return false when target block is missing`() {
+    private fun `replaceMemoBlock should return false when target block is missing`() {
         val lines = mutableListOf("- 09:00 Existing")
 
         val replaced =
@@ -113,12 +146,11 @@ class MemoTextProcessorTest {
                 timestampStr = "10:30",
             )
 
-        assertFalse(replaced)
-        assertEquals(listOf("- 09:00 Existing"), lines)
+        (replaced).shouldBeFalse()
+        lines shouldBe listOf("- 09:00 Existing")
     }
 
-    @Test
-    fun `findMemoBlock should locate collision entry by memoId`() {
+    private fun `findMemoBlock should locate collision entry by memoId`() {
         val lines =
             listOf(
                 "- 12:30 Duplicate",
@@ -136,12 +168,11 @@ class MemoTextProcessorTest {
                 memoId = secondId,
             )
 
-        assertEquals(1, start)
-        assertEquals(1, end)
+        start shouldBe 1
+        end shouldBe 1
     }
 
-    @Test
-    fun `removeMemoBlock should remove collision entry by memoId`() {
+    private fun `removeMemoBlock should remove collision entry by memoId`() {
         val lines =
             mutableListOf(
                 "- 12:30 Duplicate",
@@ -159,12 +190,11 @@ class MemoTextProcessorTest {
                 memoId = secondId,
             )
 
-        assertTrue(removed)
-        assertEquals(1, lines.size)
+        (removed).shouldBeTrue()
+        lines.size shouldBe 1
     }
 
-    @Test
-    fun `findMemoBlock should fall back to raw content when memoId is invalid`() {
+    private fun `findMemoBlock should fall back to raw content when memoId is invalid`() {
         val lines =
             listOf(
                 "- 09:40 First line",
@@ -180,12 +210,11 @@ class MemoTextProcessorTest {
                 memoId = "not_a_valid_id",
             )
 
-        assertEquals(0, start)
-        assertEquals(1, end)
+        start shouldBe 0
+        end shouldBe 1
     }
 
-    @Test
-    fun `toggleCheckbox should replace unchecked item when marking complete`() {
+    private fun `toggleCheckbox should replace unchecked item when marking complete`() {
         val content =
             """
             title
@@ -194,26 +223,21 @@ class MemoTextProcessorTest {
 
         val toggled = processor.toggleCheckbox(content = content, lineIndex = 1, checked = true)
 
-        assertEquals(
-            """
+        toggled shouldBe """
             title
             - [x] buy milk
-            """.trimIndent(),
-            toggled,
-        )
+            """.trimIndent()
     }
 
-    @Test
-    fun `toggleCheckbox should return original content when line index is out of bounds`() {
+    private fun `toggleCheckbox should return original content when line index is out of bounds`() {
         val content = "- [ ] buy milk"
 
         val toggled = processor.toggleCheckbox(content = content, lineIndex = 3, checked = true)
 
-        assertEquals(content, toggled)
+        toggled shouldBe content
     }
 
-    @Test
-    fun `toggleCheckbox should return original content when expected pattern is missing`() {
+    private fun `toggleCheckbox should return original content when expected pattern is missing`() {
         val content =
             """
             title
@@ -222,47 +246,42 @@ class MemoTextProcessorTest {
 
         val toggled = processor.toggleCheckbox(content = content, lineIndex = 1, checked = true)
 
-        assertEquals(content, toggled)
+        toggled shouldBe content
     }
 
-    @Test
-    fun `extractTags should trim trailing slash and deduplicate tags`() {
+    private fun `extractTags should trim trailing slash and deduplicate tags`() {
         val content = "#travel/ revisit #travel #苏格拉底/ #苏格拉底"
 
         val tags = processor.extractTags(content)
 
-        assertEquals(listOf("travel", "苏格拉底"), tags)
+        tags shouldBe listOf("travel", "苏格拉底")
     }
 
-    @Test
-    fun `extractTags should keep emoji tags intact`() {
+    private fun `extractTags should keep emoji tags intact`() {
         val content = "#😀工作 update #🎉/ #😀工作"
 
         val tags = processor.extractTags(content)
 
-        assertEquals(listOf("😀工作", "🎉"), tags)
+        tags shouldBe listOf("😀工作", "🎉")
     }
 
-    @Test
-    fun `extractTags should stop at commas instead of merging adjacent text`() {
+    private fun `extractTags should stop at commas instead of merging adjacent text`() {
         val content = "#work,next #travel,plan"
 
         val tags = processor.extractTags(content)
 
-        assertEquals(listOf("work", "travel"), tags)
+        tags shouldBe listOf("work", "travel")
     }
 
-    @Test
-    fun `extractAudioLinks should include markdown audio links`() {
+    private fun `extractAudioLinks should include markdown audio links`() {
         val content = "[audio](voice_001.m4a)\n[text](doc.txt)\n[clip](music.MP3)"
 
         val links = processor.extractAudioLinks(content)
 
-        assertEquals(listOf("voice_001.m4a", "music.MP3"), links)
+        links shouldBe listOf("voice_001.m4a", "music.MP3")
     }
 
-    @Test
-    fun `extractLocalAttachmentPaths should merge image and audio and skip remote urls`() {
+    private fun `extractLocalAttachmentPaths should merge image and audio and skip remote urls`() {
         val content =
             """
             ![img](img_1.jpg)
@@ -274,6 +293,6 @@ class MemoTextProcessorTest {
 
         val attachments = processor.extractLocalAttachmentPaths(content)
 
-        assertEquals(listOf("img_1.jpg", "img_2.png", "voice_001.m4a"), attachments)
+        attachments shouldBe listOf("img_1.jpg", "img_2.png", "voice_001.m4a")
     }
 }

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -18,12 +19,12 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.max
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -33,7 +34,18 @@ import kotlin.math.max
  * - Red phase: Fails before the fix because getStatus performs metadata loading after local and remote discovery instead of overlapping the three preparation steps.
  * - Excludes: AWS transport correctness, planner conflict semantics, metadata persistence mutations, and UI rendering.
  */
-class S3SyncStatusTesterPerformanceTest {
+class S3SyncStatusTesterPerformanceTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("getStatus overlaps local scan and remote listing") { `getStatus overlaps local scan and remote listing`() }
+
+        test("getStatus overlaps metadata load with local and remote discovery") { `getStatus overlaps metadata load with local and remote discovery`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -52,8 +64,7 @@ class S3SyncStatusTesterPerformanceTest {
     @MockK(relaxed = true)
     private lateinit var memoSynchronizer: MemoSynchronizer
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -85,8 +96,7 @@ class S3SyncStatusTesterPerformanceTest {
         coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
     }
 
-    @Test
-    fun `getStatus overlaps local scan and remote listing`() =
+    private fun `getStatus overlaps local scan and remote listing`() =
         runBlocking {
             val probe = StatusScanProbe()
             val client =
@@ -152,15 +162,11 @@ class S3SyncStatusTesterPerformanceTest {
 
             val status = tester.getStatus()
 
-            assertEquals(S3SyncStatus(remoteFileCount = 1, localFileCount = 1, pendingChanges = 1, lastSyncTime = null), status)
-            assertTrue(
-                "Expected status local/remote scans to overlap but saw ${probe.maxConcurrent}",
-                probe.maxConcurrent >= 2,
-            )
+            status shouldBe S3SyncStatus(remoteFileCount = 1, localFileCount = 1, pendingChanges = 1, lastSyncTime = null)
+            withClue("Expected status local/remote scans to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 2).shouldBeTrue() }
         }
 
-    @Test
-    fun `getStatus overlaps metadata load with local and remote discovery`() =
+    private fun `getStatus overlaps metadata load with local and remote discovery`() =
         runBlocking {
             val probe = StatusScanProbe()
             val client =
@@ -230,11 +236,8 @@ class S3SyncStatusTesterPerformanceTest {
 
             val status = tester.getStatus()
 
-            assertEquals(S3SyncStatus(remoteFileCount = 1, localFileCount = 1, pendingChanges = 1, lastSyncTime = null), status)
-            assertTrue(
-                "Expected status local, remote, and metadata discovery to overlap but saw ${probe.maxConcurrent}",
-                probe.maxConcurrent >= 3,
-            )
+            status shouldBe S3SyncStatus(remoteFileCount = 1, localFileCount = 1, pendingChanges = 1, lastSyncTime = null)
+            withClue("Expected status local, remote, and metadata discovery to overlap but saw ${probe.maxConcurrent}") { (probe.maxConcurrent >= 3).shouldBeTrue() }
         }
 }
 

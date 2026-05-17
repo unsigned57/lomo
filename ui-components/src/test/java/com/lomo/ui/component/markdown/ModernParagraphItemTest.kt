@@ -1,12 +1,11 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import com.lomo.ui.theme.TypographyScales
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.ast.ASTNode
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -16,89 +15,96 @@ import org.junit.Test
  * - Red phase: Fails before the fix because leaf text nodes in the modern paragraph path produce empty annotated strings, and `.ogg` attachments are not recognized as voice memos.
  * - Excludes: Compose widget rendering, TextView layout, image loading, and top-level block planning.
  */
-class ModernParagraphItemTest {
+class ModernParagraphItemTest : UiComponentsFunSpec() {
     private val tokenSpec = createModernMarkdownTokenSpec(Typography(), scales = TypographyScales())
 
-    @Test
-    fun `plain text paragraph emits a visible text item`() {
+    init {
+        test("plain text paragraph emits a visible text item") {
         val content = "plain memo body"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val textItem = items.single() as ModernParagraphItem.Text
-        assertEquals("plain memo body", textItem.text.text)
+        (textItem.text.text) shouldBe ("plain memo body")
+        }
     }
 
-    @Test
-    fun `rich inline paragraph keeps visible text`() {
+    init {
+        test("rich inline paragraph keeps visible text") {
         val content = "今天 **bold** memo"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val textItem = items.single() as ModernParagraphItem.Text
-        assertTrue(textItem.text.text.contains("今天"))
-        assertTrue(textItem.text.text.contains("bold"))
-        assertTrue(textItem.text.text.contains("memo"))
+        (textItem.text.text.contains("今天")) shouldBe true
+        (textItem.text.text.contains("bold")) shouldBe true
+        (textItem.text.text.contains("memo")) shouldBe true
+        }
     }
 
-    @Test
-    fun `single newline inside a paragraph stays as a visible line break`() {
+    init {
+        test("single newline inside a paragraph stays as a visible line break") {
         val content = "第一行\n第二行"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val textItem = items.single() as ModernParagraphItem.Text
-        assertEquals("第一行\n第二行", textItem.text.text)
+        (textItem.text.text) shouldBe ("第一行\n第二行")
+        }
     }
 
-    @Test
-    fun `single newline keeps rich inline formatting while preserving the line break`() {
+    init {
+        test("single newline keeps rich inline formatting while preserving the line break") {
         val content = "第一行 **bold**\n第二行"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val textItem = items.single() as ModernParagraphItem.Text
-        assertEquals("第一行 bold\n第二行", textItem.text.text)
-        assertTrue(textItem.text.spanStyles.any { it.item.fontWeight != null })
+        (textItem.text.text) shouldBe ("第一行 bold\n第二行")
+        (textItem.text.spanStyles.any { it.item.fontWeight != null }) shouldBe true
+        }
     }
 
-    @Test
-    fun `paragraph with leading text and trailing image keeps both text and image items`() {
+    init {
+        test("paragraph with leading text and trailing image keeps both text and image items") {
         val content = "lead text ![cover](cover.png)"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(2, items.size)
+        (items.size) shouldBe (2)
         val textItem = items.first() as ModernParagraphItem.Text
         val imageItem = items[1] as ModernParagraphItem.Image
-        assertEquals("lead text ", textItem.text.text)
-        assertEquals("cover.png", imageItem.image.destination)
+        (textItem.text.text) shouldBe ("lead text ")
+        (imageItem.image.destination) shouldBe ("cover.png")
+        }
     }
 
-    @Test
-    fun `image only paragraph still emits a dedicated image item`() {
+    init {
+        test("image only paragraph still emits a dedicated image item") {
         val content = "![cover](cover.png)"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val imageItem = items.single() as ModernParagraphItem.Image
-        assertEquals("cover.png", imageItem.image.destination)
+        (imageItem.image.destination) shouldBe ("cover.png")
+        }
     }
 
-    @Test
-    fun `voice memo paragraph emits a dedicated voice memo item for ogg attachments`() {
+    init {
+        test("voice memo paragraph emits a dedicated voice memo item for ogg attachments") {
         val content = "![voice](recordings/memo.ogg)"
 
         val items = buildModernParagraphItemsFor(content)
 
-        assertEquals(1, items.size)
+        (items.size) shouldBe (1)
         val voiceMemoItem = items.single() as ModernParagraphItem.VoiceMemo
-        assertEquals("recordings/memo.ogg", voiceMemoItem.url)
+        (voiceMemoItem.url) shouldBe ("recordings/memo.ogg")
+        }
     }
 
     private fun buildModernParagraphItemsFor(content: String): List<ModernParagraphItem> =

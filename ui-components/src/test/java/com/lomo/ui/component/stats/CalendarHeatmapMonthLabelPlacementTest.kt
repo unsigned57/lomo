@@ -1,7 +1,7 @@
 package com.lomo.ui.component.stats
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,9 +13,9 @@ import org.junit.Test
  *   so a wide first label overlaps the next month text.
  * - Excludes: Paint font metrics, Canvas drawing, and horizontal scroll state.
  */
-class CalendarHeatmapMonthLabelPlacementTest {
-    @Test
-    fun `later month labels shift right to avoid overlapping a wide first label`() {
+class CalendarHeatmapMonthLabelPlacementTest : UiComponentsFunSpec() {
+    init {
+        test("later month labels shift right to avoid overlapping a wide first label") {
         val placements =
             resolveMonthLabelPlacements(
                 labels =
@@ -37,18 +37,16 @@ class CalendarHeatmapMonthLabelPlacementTest {
                 },
             )
 
-        assertEquals(
-            listOf(
+        (placements) shouldBe (listOf(
                 ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
                 ResolvedMonthLabelPlacement(text = "Jun", drawX = 66f, widthPx = 18f),
                 ResolvedMonthLabelPlacement(text = "Jul", drawX = 104f, widthPx = 18f),
-            ),
-            placements,
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `labels that no longer fit after shifting are skipped`() {
+    init {
+        test("labels that no longer fit after shifting are skipped") {
         val placements =
             resolveMonthLabelPlacements(
                 labels =
@@ -68,11 +66,9 @@ class CalendarHeatmapMonthLabelPlacementTest {
                 },
             )
 
-        assertEquals(
-            listOf(
+        (placements) shouldBe (listOf(
                 ResolvedMonthLabelPlacement(text = "2025 May", drawX = 0f, widthPx = 60f),
-            ),
-            placements,
-        )
+            ))
+        }
     }
 }

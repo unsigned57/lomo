@@ -1,17 +1,18 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.util.MemoTextProcessor
 import com.lomo.domain.model.StorageFilenameFormats
 import com.lomo.domain.model.StorageTimestampFormats
 import com.lomo.domain.usecase.MemoIdentityPolicy
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -21,7 +22,22 @@ import java.time.ZoneId
  * - Red phase: "create collects audio link paths in imageUrls alongside image attachments" fails before the fix because extractImages only matches `![...](..)` and `![[...]]`, dropping audio links like `[v](voice_x.m4a)`.
  * - Excludes: file I/O, repository orchestration, and UI state.
  */
-class MemoSavePlanFactoryTest {
+class MemoSavePlanFactoryTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("create uses precomputed counts to derive deterministic timestamp and collision suffix") { `create uses precomputed counts to derive deterministic timestamp and collision suffix`() }
+
+        test("create scans existing file to offset duplicate timestamps and append next collision suffix") { `create scans existing file to offset duplicate timestamps and append next collision suffix`() }
+
+        test("create keeps base timestamp and id when existing file is blank") { `create keeps base timestamp and id when existing file is blank`() }
+
+        test("create collects audio link paths in imageUrls alongside image attachments") { `create collects audio link paths in imageUrls alongside image attachments`() }
+    }
+
+
     private lateinit var parser: MarkdownParser
     private lateinit var textProcessor: MemoTextProcessor
     private lateinit var memoIdentityPolicy: MemoIdentityPolicy
@@ -34,16 +50,14 @@ class MemoSavePlanFactoryTest {
             .toInstant()
             .toEpochMilli()
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         textProcessor = MemoTextProcessor()
         memoIdentityPolicy = MemoIdentityPolicy()
         parser = MarkdownParser(textProcessor, memoIdentityPolicy)
         factory = MemoSavePlanFactory(parser, textProcessor, memoIdentityPolicy)
     }
 
-    @Test
-    fun `create uses precomputed counts to derive deterministic timestamp and collision suffix`() {
+    private fun `create uses precomputed counts to derive deterministic timestamp and collision suffix`() {
         val content = "Review #release ![cover](img.png)"
         val dateKey = expectedDateKey()
         val timeString = expectedTimeString()
@@ -61,17 +75,16 @@ class MemoSavePlanFactoryTest {
                 precomputedCollisionCount = 3,
             )
 
-        assertEquals("$dateKey.md", plan.filename)
-        assertEquals(dateKey, plan.dateKey)
-        assertEquals(baseTimestamp + 2, plan.timestamp)
-        assertEquals("- $timeString $content", plan.rawContent)
-        assertEquals("${baseId}_3", plan.memo.id)
-        assertEquals(listOf("release"), plan.memo.tags)
-        assertEquals(listOf("img.png"), plan.memo.imageUrls)
+        plan.filename shouldBe "$dateKey.md"
+        plan.dateKey shouldBe dateKey
+        plan.timestamp shouldBe baseTimestamp + 2
+        plan.rawContent shouldBe "- $timeString $content"
+        plan.memo.id shouldBe "${baseId}_3"
+        plan.memo.tags shouldBe listOf("release")
+        plan.memo.imageUrls shouldBe listOf("img.png")
     }
 
-    @Test
-    fun `create scans existing file to offset duplicate timestamps and append next collision suffix`() {
+    private fun `create scans existing file to offset duplicate timestamps and append next collision suffix`() {
         val content = "Repeated #tag ![a](a.png)"
         val dateKey = expectedDateKey()
         val timeString = expectedTimeString()
@@ -93,13 +106,12 @@ class MemoSavePlanFactoryTest {
                 existingFileContent = existingFileContent,
             )
 
-        assertEquals(baseTimestamp + 3, plan.timestamp)
-        assertEquals("${baseId}_2", plan.memo.id)
-        assertTrue(plan.memo.rawContent.startsWith("- $timeString "))
+        plan.timestamp shouldBe baseTimestamp + 3
+        plan.memo.id shouldBe "${baseId}_2"
+        (plan.memo.rawContent.startsWith("- $timeString ")).shouldBeTrue()
     }
 
-    @Test
-    fun `create keeps base timestamp and id when existing file is blank`() {
+    private fun `create keeps base timestamp and id when existing file is blank`() {
         val content = "Fresh memo"
         val dateKey = expectedDateKey()
         val timeString = expectedTimeString()
@@ -115,13 +127,12 @@ class MemoSavePlanFactoryTest {
                 existingFileContent = "",
             )
 
-        assertEquals(baseTimestamp, plan.timestamp)
-        assertEquals(baseId, plan.memo.id)
-        assertEquals("- $timeString $content", plan.rawContent)
+        plan.timestamp shouldBe baseTimestamp
+        plan.memo.id shouldBe baseId
+        plan.rawContent shouldBe "- $timeString $content"
     }
 
-    @Test
-    fun `create collects audio link paths in imageUrls alongside image attachments`() {
+    private fun `create collects audio link paths in imageUrls alongside image attachments`() {
         val content = "Visit ![cover](img.png) and play [voice](voice_1234.m4a)"
 
         val plan =
@@ -133,14 +144,8 @@ class MemoSavePlanFactoryTest {
                 existingFileContent = "",
             )
 
-        assertTrue(
-            "imageUrls should retain image attachments: ${plan.memo.imageUrls}",
-            plan.memo.imageUrls.contains("img.png"),
-        )
-        assertTrue(
-            "imageUrls should include audio link targets so downstream cleanup can reach them: ${plan.memo.imageUrls}",
-            plan.memo.imageUrls.contains("voice_1234.m4a"),
-        )
+        withClue("imageUrls should retain image attachments: ${plan.memo.imageUrls}") { (plan.memo.imageUrls.contains("img.png")).shouldBeTrue() }
+        withClue("imageUrls should include audio link targets so downstream cleanup can reach them: ${plan.memo.imageUrls}") { (plan.memo.imageUrls.contains("voice_1234.m4a")).shouldBeTrue() }
     }
 
     private fun expectedDateKey(): String =

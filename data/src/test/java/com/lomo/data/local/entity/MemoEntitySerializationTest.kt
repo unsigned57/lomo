@@ -1,8 +1,9 @@
 package com.lomo.data.local.entity
 
+
 import com.lomo.domain.model.Memo
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,9 +15,19 @@ import org.junit.Test
  *   the main memo table instead of preserving the original plaintext body.
  * - Excludes: FTS table writes, Room query execution, and stale-content recovery from older persisted rows.
  */
-class MemoEntitySerializationTest {
-    @Test
-    fun `fromDomain stores plaintext content plus tag and attachment lists as json text`() {
+class MemoEntitySerializationTest : DataFunSpec() {
+    init {
+        test("fromDomain stores plaintext content plus tag and attachment lists as json text") { `fromDomain stores plaintext content plus tag and attachment lists as json text`() }
+
+        test("toDomain reads json encoded tag and attachment lists") { `toDomain reads json encoded tag and attachment lists`() }
+
+        test("toDomain keeps reading legacy csv text") { `toDomain keeps reading legacy csv text`() }
+
+        test("trash memo entity uses the same list serialization strategy") { `trash memo entity uses the same list serialization strategy`() }
+    }
+
+
+    private fun `fromDomain stores plaintext content plus tag and attachment lists as json text`() {
         val memo =
             Memo(
                 id = "memo-json",
@@ -31,13 +42,12 @@ class MemoEntitySerializationTest {
 
         val entity = MemoEntity.fromDomain(memo)
 
-        assertEquals("""["tag,with,comma","travel"]""", entity.tags)
-        assertEquals("""["folder,part/image.png","voice_001.m4a"]""", entity.imageUrls)
-        assertEquals(memo.content, entity.content)
+        entity.tags shouldBe """["tag,with,comma","travel"]"""
+        entity.imageUrls shouldBe """["folder,part/image.png","voice_001.m4a"]"""
+        entity.content shouldBe memo.content
     }
 
-    @Test
-    fun `toDomain reads json encoded tag and attachment lists`() {
+    private fun `toDomain reads json encoded tag and attachment lists`() {
         val entity =
             MemoEntity(
                 id = "memo-json",
@@ -52,12 +62,11 @@ class MemoEntitySerializationTest {
 
         val memo = entity.toDomain()
 
-        assertEquals(listOf("tag,with,comma", "travel"), memo.tags)
-        assertEquals(listOf("folder,part/image.png", "voice_001.m4a"), memo.imageUrls)
+        memo.tags shouldBe listOf("tag,with,comma", "travel")
+        memo.imageUrls shouldBe listOf("folder,part/image.png", "voice_001.m4a")
     }
 
-    @Test
-    fun `toDomain keeps reading legacy csv text`() {
+    private fun `toDomain keeps reading legacy csv text`() {
         val entity =
             MemoEntity(
                 id = "memo-csv",
@@ -72,12 +81,11 @@ class MemoEntitySerializationTest {
 
         val memo = entity.toDomain()
 
-        assertEquals(listOf("work", "travel"), memo.tags)
-        assertEquals(listOf("first.png", "second.png"), memo.imageUrls)
+        memo.tags shouldBe listOf("work", "travel")
+        memo.imageUrls shouldBe listOf("first.png", "second.png")
     }
 
-    @Test
-    fun `trash memo entity uses the same list serialization strategy`() {
+    private fun `trash memo entity uses the same list serialization strategy`() {
         val memo =
             Memo(
                 id = "trash-json",
@@ -94,9 +102,9 @@ class MemoEntitySerializationTest {
         val entity = TrashMemoEntity.fromDomain(memo)
         val restored = entity.toDomain()
 
-        assertEquals("""["tag,with,comma"]""", entity.tags)
-        assertEquals("""["folder,part/image.png"]""", entity.imageUrls)
-        assertEquals(listOf("tag,with,comma"), restored.tags)
-        assertEquals(listOf("folder,part/image.png"), restored.imageUrls)
+        entity.tags shouldBe """["tag,with,comma"]"""
+        entity.imageUrls shouldBe """["folder,part/image.png"]"""
+        restored.tags shouldBe listOf("tag,with,comma")
+        restored.imageUrls shouldBe listOf("folder,part/image.png")
     }
 }

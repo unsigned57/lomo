@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.DateCountRow
 import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoSearchDao
@@ -12,8 +13,8 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -26,7 +27,38 @@ import org.junit.Test
  *   by the persisted index and break Latin or CJK prefix search behavior.
  * - Excludes: Room SQL execution correctness, SearchTokenizer internals, and dispatcher/threading behavior.
  */
-class MemoSearchRepositoryImplTest {
+class MemoSearchRepositoryImplTest : DataFunSpec() {
+    init {
+        test("searchMemosList uses FTS for tokenizable query and truncates to five tokens") { `searchMemosList uses FTS for tokenizable query and truncates to five tokens`() }
+
+        test("searchMemosList returns empty when query has no searchable tokens") { `searchMemosList returns empty when query has no searchable tokens`() }
+
+        test("searchMemosList lowercases reserved words before building two-term match query") { `searchMemosList lowercases reserved words before building two-term match query`() }
+
+        test("searchMemosList builds CJK bigram match query on the indexed search path") { `searchMemosList builds CJK bigram match query on the indexed search path`() }
+
+        test("getMemosByTagList passes tag and prefix while merging pinned ids") { `getMemosByTagList passes tag and prefix while merging pinned ids`() }
+
+        test("getMemoCountByDateFlow maps rows to date keyed map") { `getMemoCountByDateFlow maps rows to date keyed map`() }
+
+        test("getTagCountsFlow maps dao rows to domain tag counts") { `getTagCountsFlow maps dao rows to domain tag counts`() }
+
+        test("count timestamps and active day flows pass through dao outputs") { `count timestamps and active day flows pass through dao outputs`() }
+
+        test("searchMemosList routes single CJK character query to FTS with unigram wildcard") { `searchMemosList routes single CJK character query to FTS with unigram wildcard`() }
+
+        test("searchMemosList lowercases uppercase reserved operator words before issuing FTS query") { `searchMemosList lowercases uppercase reserved operator words before issuing FTS query`() }
+
+        test("escapeLikeQuery escapes percent sign so it is treated as literal") { `escapeLikeQuery escapes percent sign so it is treated as literal`() }
+
+        test("escapeLikeQuery escapes underscore so it is treated as literal") { `escapeLikeQuery escapes underscore so it is treated as literal`() }
+
+        test("escapeLikeQuery escapes backslash before percent and underscore") { `escapeLikeQuery escapes backslash before percent and underscore`() }
+
+        test("escapeLikeQuery leaves ordinary characters unchanged") { `escapeLikeQuery leaves ordinary characters unchanged`() }
+    }
+
+
     private val memoSearchDao: MemoSearchDao = mockk()
     private val memoPinDao: MemoPinDao = mockk()
 
@@ -36,8 +68,7 @@ class MemoSearchRepositoryImplTest {
             memoPinDao = memoPinDao,
         )
 
-    @Test
-    fun `searchMemosList uses FTS for tokenizable query and truncates to five tokens`() =
+    private fun `searchMemosList uses FTS for tokenizable query and truncates to five tokens`() =
         runTest {
             val entities =
                 listOf(
@@ -52,28 +83,26 @@ class MemoSearchRepositoryImplTest {
                     .searchMemosList("  alpha beta gamma delta epsilon zeta  ")
                     .first()
 
-            assertEquals(listOf("memo-1", "memo-2"), result.map { it.id })
-            assertEquals(listOf(false, true), result.map { it.isPinned })
+            result.map { it.id } shouldBe listOf("memo-1", "memo-2")
+            result.map { it.isPinned } shouldBe listOf(false, true)
             verify(exactly = 1) {
                 memoSearchDao.searchMemosByFtsFlow("\"alpha\"* \"beta\"* \"gamma\"* \"delta\"* \"epsilon\"*")
             }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList returns empty when query has no searchable tokens`() =
+    private fun `searchMemosList returns empty when query has no searchable tokens`() =
         runTest {
             every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(emptyList())
 
             val result = repository.searchMemosList("  !!!  ").first()
 
-            assertEquals(emptyList<String>(), result.map { it.id })
+            result.map { it.id } shouldBe emptyList<String>()
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
             verify(exactly = 0) { memoSearchDao.searchMemosByFtsFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList lowercases reserved words before building two-term match query`() =
+    private fun `searchMemosList lowercases reserved words before building two-term match query`() =
         runTest {
             val entities =
                 listOf(
@@ -84,26 +113,24 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.searchMemosList("OR AND").first()
 
-            assertEquals(listOf("memo-4"), result.map { it.id })
+            result.map { it.id } shouldBe listOf("memo-4")
             verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("or* and*") }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList builds CJK bigram match query on the indexed search path`() =
+    private fun `searchMemosList builds CJK bigram match query on the indexed search path`() =
         runTest {
             every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(emptyList())
             every { memoSearchDao.searchMemosByFtsFlow("\"苏格\"* \"格拉\"* \"拉底\"*") } returns flowOf(emptyList())
 
             val result = repository.searchMemosList("苏格拉底").first()
 
-            assertEquals(emptyList<String>(), result.map { it.id })
+            result.map { it.id } shouldBe emptyList<String>()
             verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("\"苏格\"* \"格拉\"* \"拉底\"*") }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `getMemosByTagList passes tag and prefix while merging pinned ids`() =
+    private fun `getMemosByTagList passes tag and prefix while merging pinned ids`() =
         runTest {
             val entities =
                 listOf(
@@ -115,13 +142,12 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.getMemosByTagList("project").first()
 
-            assertEquals(listOf("memo-10", "memo-11"), result.map { it.id })
-            assertEquals(listOf(true, false), result.map { it.isPinned })
+            result.map { it.id } shouldBe listOf("memo-10", "memo-11")
+            result.map { it.isPinned } shouldBe listOf(true, false)
             verify(exactly = 1) { memoSearchDao.getMemosByTagFlow("project", "project/%") }
         }
 
-    @Test
-    fun `getMemoCountByDateFlow maps rows to date keyed map`() =
+    private fun `getMemoCountByDateFlow maps rows to date keyed map`() =
         runTest {
             every { memoSearchDao.getMemoCountByDateFlow() } returns
                 flowOf(
@@ -133,11 +159,10 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.getMemoCountByDateFlow().first()
 
-            assertEquals(mapOf("2026_03_27" to 2, "2026_03_28" to 1), result)
+            result shouldBe mapOf("2026_03_27" to 2, "2026_03_28" to 1)
         }
 
-    @Test
-    fun `getTagCountsFlow maps dao rows to domain tag counts`() =
+    private fun `getTagCountsFlow maps dao rows to domain tag counts`() =
         runTest {
             every { memoSearchDao.getTagCountsFlow() } returns
                 flowOf(
@@ -149,29 +174,24 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.getTagCountsFlow().first()
 
-            assertEquals(
-                listOf(
+            result shouldBe listOf(
                     MemoTagCount(name = "work", count = 3),
                     MemoTagCount(name = "life", count = 1),
-                ),
-                result,
-            )
+                )
         }
 
-    @Test
-    fun `count timestamps and active day flows pass through dao outputs`() =
+    private fun `count timestamps and active day flows pass through dao outputs`() =
         runTest {
             every { memoSearchDao.getMemoCount() } returns flowOf(7)
             every { memoSearchDao.getAllTimestamps() } returns flowOf(listOf(30L, 20L, 10L))
             every { memoSearchDao.getActiveDayCount() } returns flowOf(2)
 
-            assertEquals(7, repository.getMemoCountFlow().first())
-            assertEquals(listOf(30L, 20L, 10L), repository.getMemoTimestampsFlow().first())
-            assertEquals(2, repository.getActiveDayCount().first())
+            repository.getMemoCountFlow().first() shouldBe 7
+            repository.getMemoTimestampsFlow().first() shouldBe listOf(30L, 20L, 10L)
+            repository.getActiveDayCount().first() shouldBe 2
         }
 
-    @Test
-    fun `searchMemosList routes single CJK character query to FTS with unigram wildcard`() =
+    private fun `searchMemosList routes single CJK character query to FTS with unigram wildcard`() =
         runTest {
             // A single CJK char is a valid unigram token; the tokenizer returns it as-is so the
             // repository must send "苏*" to the FTS DAO rather than falling back to plain search.
@@ -184,13 +204,12 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.searchMemosList("苏").first()
 
-            assertEquals(listOf("memo-cjk-1"), result.map { it.id })
+            result.map { it.id } shouldBe listOf("memo-cjk-1")
             verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("苏*") }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `searchMemosList lowercases uppercase reserved operator words before issuing FTS query`() =
+    private fun `searchMemosList lowercases uppercase reserved operator words before issuing FTS query`() =
         runTest {
             val entities =
                 listOf(
@@ -201,30 +220,26 @@ class MemoSearchRepositoryImplTest {
 
             val result = repository.searchMemosList("OR AND NOT").first()
 
-            assertEquals(listOf("memo-or"), result.map { it.id })
+            result.map { it.id } shouldBe listOf("memo-or")
             verify(exactly = 1) { memoSearchDao.searchMemosByFtsFlow("or* and* not*") }
             verify(exactly = 0) { memoSearchDao.searchMemosFlow(any()) }
         }
 
-    @Test
-    fun `escapeLikeQuery escapes percent sign so it is treated as literal`() {
-        assertEquals("\\%", repository.escapeLikeQuery("%"))
+    private fun `escapeLikeQuery escapes percent sign so it is treated as literal`() {
+        repository.escapeLikeQuery("%") shouldBe "\\%"
     }
 
-    @Test
-    fun `escapeLikeQuery escapes underscore so it is treated as literal`() {
-        assertEquals("\\_", repository.escapeLikeQuery("_"))
+    private fun `escapeLikeQuery escapes underscore so it is treated as literal`() {
+        repository.escapeLikeQuery("_") shouldBe "\\_"
     }
 
-    @Test
-    fun `escapeLikeQuery escapes backslash before percent and underscore`() {
-        assertEquals("50\\%", repository.escapeLikeQuery("50%"))
-        assertEquals("file\\_name", repository.escapeLikeQuery("file_name"))
+    private fun `escapeLikeQuery escapes backslash before percent and underscore`() {
+        repository.escapeLikeQuery("50%") shouldBe "50\\%"
+        repository.escapeLikeQuery("file_name") shouldBe "file\\_name"
     }
 
-    @Test
-    fun `escapeLikeQuery leaves ordinary characters unchanged`() {
-        assertEquals("hello world", repository.escapeLikeQuery("hello world"))
+    private fun `escapeLikeQuery leaves ordinary characters unchanged`() {
+        repository.escapeLikeQuery("hello world") shouldBe "hello world"
     }
 
     private fun memoEntity(

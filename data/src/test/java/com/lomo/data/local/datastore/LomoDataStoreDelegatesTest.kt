@@ -1,5 +1,6 @@
 package com.lomo.data.local.datastore
 
+
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.lomo.domain.model.StorageFilenameFormats
@@ -8,26 +9,36 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
  * - Unit under test: LomoDataStore delegate stores
  * - Behavior focus: persisted settings contracts, uri-directory exclusivity, blank-value removal, and storage format normalization.
  * - Observable outcomes: DataStore-backed flow values and one-shot reads after update operations.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Android Context wiring, DataStore internal corruption handling, and repository consumers.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class LomoDataStoreDelegatesTest {
-    @Test
-    fun `root and media stores prefer uris over old directory values`() =
+class LomoDataStoreDelegatesTest : DataFunSpec() {
+    init {
+        test("root and media stores prefer uris over old directory values") { `root and media stores prefer uris over old directory values`() }
+
+        test("storage display and interaction stores persist normalized values") { `storage display and interaction stores persist normalized values`() }
+
+        test("lan share and app version stores remove blank values and persist toggles") { `lan share and app version stores remove blank values and persist toggles`() }
+
+        test("git webdav and draft stores persist configuration and clear empty draft") { `git webdav and draft stores persist configuration and clear empty draft`() }
+    }
+
+
+    private fun `root and media stores prefer uris over old directory values`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val rootStore = RootLocationStoreImpl(dataStore)
@@ -37,26 +48,25 @@ class LomoDataStoreDelegatesTest {
             mediaStore.updateImageDirectory("/vault/images")
             mediaStore.updateVoiceDirectory("/vault/voice")
 
-            assertEquals("/vault/root", rootStore.rootDirectory.first())
-            assertEquals("/vault/root", rootStore.getRootDirectoryOnce())
-            assertEquals("/vault/images", mediaStore.imageDirectory.first())
-            assertEquals("/vault/voice", mediaStore.voiceDirectory.first())
+            rootStore.rootDirectory.first() shouldBe "/vault/root"
+            rootStore.getRootDirectoryOnce() shouldBe "/vault/root"
+            mediaStore.imageDirectory.first() shouldBe "/vault/images"
+            mediaStore.voiceDirectory.first() shouldBe "/vault/voice"
 
             rootStore.updateRootUri("content://tree/root")
             mediaStore.updateImageUri("content://tree/images")
             mediaStore.updateVoiceUri("content://tree/voice")
 
-            assertEquals("content://tree/root", rootStore.rootUri.first())
-            assertNull(rootStore.rootDirectory.first())
-            assertEquals("content://tree/root", rootStore.getRootDirectoryOnce())
-            assertEquals("content://tree/images", mediaStore.imageUri.first())
-            assertNull(mediaStore.imageDirectory.first())
-            assertEquals("content://tree/voice", mediaStore.voiceUri.first())
-            assertNull(mediaStore.voiceDirectory.first())
+            rootStore.rootUri.first() shouldBe "content://tree/root"
+            rootStore.rootDirectory.first().shouldBeNull()
+            rootStore.getRootDirectoryOnce() shouldBe "content://tree/root"
+            mediaStore.imageUri.first() shouldBe "content://tree/images"
+            mediaStore.imageDirectory.first().shouldBeNull()
+            mediaStore.voiceUri.first() shouldBe "content://tree/voice"
+            mediaStore.voiceDirectory.first().shouldBeNull()
         }
 
-    @Test
-    fun `storage display and interaction stores persist normalized values`() =
+    private fun `storage display and interaction stores persist normalized values`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val storageStore = StorageFormatStoreImpl(dataStore)
@@ -74,20 +84,19 @@ class LomoDataStoreDelegatesTest {
             interactionStore.updateFreeTextCopyEnabled(enabled = true)
             interactionStore.updateQuickSaveOnBackEnabled(enabled = false)
 
-            assertEquals(StorageFilenameFormats.DEFAULT_PATTERN, storageStore.storageFilenameFormat.first())
-            assertEquals(StorageTimestampFormats.DEFAULT_PATTERN, storageStore.storageTimestampFormat.first())
-            assertEquals("MM/dd/yyyy", displayStore.dateFormat.first())
-            assertEquals("hh:mm a", displayStore.timeFormat.first())
-            assertEquals("dark", displayStore.themeMode.first())
-            assertFalse(interactionStore.hapticFeedbackEnabled.first())
-            assertFalse(interactionStore.showInputHints.first())
-            assertFalse(interactionStore.doubleTapEditEnabled.first())
-            assertTrue(interactionStore.freeTextCopyEnabled.first())
-            assertFalse(interactionStore.quickSaveOnBackEnabled.first())
+            storageStore.storageFilenameFormat.first() shouldBe StorageFilenameFormats.DEFAULT_PATTERN
+            storageStore.storageTimestampFormat.first() shouldBe StorageTimestampFormats.DEFAULT_PATTERN
+            displayStore.dateFormat.first() shouldBe "MM/dd/yyyy"
+            displayStore.timeFormat.first() shouldBe "hh:mm a"
+            displayStore.themeMode.first() shouldBe "dark"
+            (interactionStore.hapticFeedbackEnabled.first()).shouldBeFalse()
+            (interactionStore.showInputHints.first()).shouldBeFalse()
+            (interactionStore.doubleTapEditEnabled.first()).shouldBeFalse()
+            (interactionStore.freeTextCopyEnabled.first()).shouldBeTrue()
+            (interactionStore.quickSaveOnBackEnabled.first()).shouldBeFalse()
         }
 
-    @Test
-    fun `lan share and app version stores remove blank values and persist toggles`() =
+    private fun `lan share and app version stores remove blank values and persist toggles`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val lanShareStore = LanSharePreferencesStoreImpl(dataStore)
@@ -100,24 +109,23 @@ class LomoDataStoreDelegatesTest {
             lanShareStore.updateShareCardShowBrand(false)
             appVersionStore.updateLastAppVersion("0.9.1")
 
-            assertEquals("A1B2", lanShareStore.lanSharePairingKeyHex.first())
-            assertFalse(lanShareStore.lanShareE2eEnabled.first())
-            assertEquals("Pixel", lanShareStore.lanShareDeviceName.first())
-            assertFalse(lanShareStore.shareCardShowTime.first())
-            assertFalse(lanShareStore.shareCardShowBrand.first())
-            assertEquals("0.9.1", appVersionStore.getLastAppVersionOnce())
+            lanShareStore.lanSharePairingKeyHex.first() shouldBe "A1B2"
+            (lanShareStore.lanShareE2eEnabled.first()).shouldBeFalse()
+            lanShareStore.lanShareDeviceName.first() shouldBe "Pixel"
+            (lanShareStore.shareCardShowTime.first()).shouldBeFalse()
+            (lanShareStore.shareCardShowBrand.first()).shouldBeFalse()
+            appVersionStore.getLastAppVersionOnce() shouldBe "0.9.1"
 
             lanShareStore.updateLanSharePairingKeyHex(" ")
             lanShareStore.updateLanShareDeviceName("")
             appVersionStore.updateLastAppVersion("")
 
-            assertNull(lanShareStore.lanSharePairingKeyHex.first())
-            assertNull(lanShareStore.lanShareDeviceName.first())
-            assertNull(appVersionStore.getLastAppVersionOnce())
+            lanShareStore.lanSharePairingKeyHex.first().shouldBeNull()
+            lanShareStore.lanShareDeviceName.first().shouldBeNull()
+            appVersionStore.getLastAppVersionOnce().shouldBeNull()
         }
 
-    @Test
-    fun `git webdav and draft stores persist configuration and clear empty draft`() =
+    private fun `git webdav and draft stores persist configuration and clear empty draft`() =
         runTest {
             val dataStore = newDataStore(backgroundScope)
             val gitBehaviorStore = GitSyncBehaviorStoreImpl(dataStore)
@@ -157,33 +165,33 @@ class LomoDataStoreDelegatesTest {
             s3ScheduleStore.updateS3SyncOnRefresh(true)
             draftStore.updateDraftText("draft body")
 
-            assertTrue(gitBehaviorStore.gitSyncEnabled.first())
-            assertTrue(gitBehaviorStore.gitAutoSyncEnabled.first())
-            assertEquals("30m", gitBehaviorStore.gitAutoSyncInterval.first())
-            assertTrue(gitBehaviorStore.gitSyncOnRefresh.first())
-            assertEquals("git", gitBehaviorStore.syncBackendType.first())
-            assertEquals("https://example.com/repo.git", gitIdentityStore.gitRemoteUrl.first())
-            assertEquals("Lomo", gitIdentityStore.gitAuthorName.first())
-            assertEquals("lomo@example.com", gitIdentityStore.gitAuthorEmail.first())
-            assertEquals(1234L, gitStatusStore.gitLastSyncTime.first())
-            assertTrue(webDavConnectionStore.webDavSyncEnabled.first())
-            assertEquals("custom", webDavConnectionStore.webDavProvider.first())
-            assertEquals("https://dav.example.com", webDavConnectionStore.webDavBaseUrl.first())
-            assertEquals("https://dav.example.com/notes", webDavConnectionStore.webDavEndpointUrl.first())
-            assertEquals("alice", webDavConnectionStore.webDavUsername.first())
-            assertTrue(webDavScheduleStore.webDavAutoSyncEnabled.first())
-            assertEquals("2h", webDavScheduleStore.webDavAutoSyncInterval.first())
-            assertEquals(5678L, webDavScheduleStore.webDavLastSyncTime.first())
-            assertTrue(webDavScheduleStore.webDavSyncOnRefresh.first())
-            assertTrue(s3ConnectionStore.s3SyncEnabled.first())
-            assertEquals("https://s3.example.com", s3ConnectionStore.s3EndpointUrl.first())
-            assertEquals("vault", s3ConnectionStore.s3Bucket.first())
-            assertEquals("content://tree/primary%3AObsidian", s3ConnectionStore.s3LocalSyncDirectory.first())
-            assertTrue(s3ScheduleStore.s3AutoSyncEnabled.first())
-            assertEquals("6h", s3ScheduleStore.s3AutoSyncInterval.first())
-            assertEquals(6789L, s3ScheduleStore.s3LastSyncTime.first())
-            assertTrue(s3ScheduleStore.s3SyncOnRefresh.first())
-            assertEquals("draft body", draftStore.draftText.first())
+            (gitBehaviorStore.gitSyncEnabled.first()).shouldBeTrue()
+            (gitBehaviorStore.gitAutoSyncEnabled.first()).shouldBeTrue()
+            gitBehaviorStore.gitAutoSyncInterval.first() shouldBe "30m"
+            (gitBehaviorStore.gitSyncOnRefresh.first()).shouldBeTrue()
+            gitBehaviorStore.syncBackendType.first() shouldBe "git"
+            gitIdentityStore.gitRemoteUrl.first() shouldBe "https://example.com/repo.git"
+            gitIdentityStore.gitAuthorName.first() shouldBe "Lomo"
+            gitIdentityStore.gitAuthorEmail.first() shouldBe "lomo@example.com"
+            gitStatusStore.gitLastSyncTime.first() shouldBe 1234L
+            (webDavConnectionStore.webDavSyncEnabled.first()).shouldBeTrue()
+            webDavConnectionStore.webDavProvider.first() shouldBe "custom"
+            webDavConnectionStore.webDavBaseUrl.first() shouldBe "https://dav.example.com"
+            webDavConnectionStore.webDavEndpointUrl.first() shouldBe "https://dav.example.com/notes"
+            webDavConnectionStore.webDavUsername.first() shouldBe "alice"
+            (webDavScheduleStore.webDavAutoSyncEnabled.first()).shouldBeTrue()
+            webDavScheduleStore.webDavAutoSyncInterval.first() shouldBe "2h"
+            webDavScheduleStore.webDavLastSyncTime.first() shouldBe 5678L
+            (webDavScheduleStore.webDavSyncOnRefresh.first()).shouldBeTrue()
+            (s3ConnectionStore.s3SyncEnabled.first()).shouldBeTrue()
+            s3ConnectionStore.s3EndpointUrl.first() shouldBe "https://s3.example.com"
+            s3ConnectionStore.s3Bucket.first() shouldBe "vault"
+            s3ConnectionStore.s3LocalSyncDirectory.first() shouldBe "content://tree/primary%3AObsidian"
+            (s3ScheduleStore.s3AutoSyncEnabled.first()).shouldBeTrue()
+            s3ScheduleStore.s3AutoSyncInterval.first() shouldBe "6h"
+            s3ScheduleStore.s3LastSyncTime.first() shouldBe 6789L
+            (s3ScheduleStore.s3SyncOnRefresh.first()).shouldBeTrue()
+            draftStore.draftText.first() shouldBe "draft body"
 
             gitIdentityStore.updateGitRemoteUrl(" ")
             webDavConnectionStore.updateWebDavBaseUrl(" ")
@@ -192,12 +200,12 @@ class LomoDataStoreDelegatesTest {
             s3ConnectionStore.updateS3LocalSyncDirectory(" ")
             draftStore.updateDraftText("")
 
-            assertNull(gitIdentityStore.gitRemoteUrl.first())
-            assertNull(webDavConnectionStore.webDavBaseUrl.first())
-            assertNull(webDavConnectionStore.webDavEndpointUrl.first())
-            assertNull(webDavConnectionStore.webDavUsername.first())
-            assertNull(s3ConnectionStore.s3LocalSyncDirectory.first())
-            assertEquals("", draftStore.draftText.first())
+            gitIdentityStore.gitRemoteUrl.first().shouldBeNull()
+            webDavConnectionStore.webDavBaseUrl.first().shouldBeNull()
+            webDavConnectionStore.webDavEndpointUrl.first().shouldBeNull()
+            webDavConnectionStore.webDavUsername.first().shouldBeNull()
+            s3ConnectionStore.s3LocalSyncDirectory.first().shouldBeNull()
+            draftStore.draftText.first() shouldBe ""
         }
 
     private fun newDataStore(scope: CoroutineScope): androidx.datastore.core.DataStore<Preferences> {

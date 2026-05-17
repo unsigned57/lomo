@@ -1,22 +1,36 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
 import com.lomo.data.util.MemoLocalDateResolver
 import com.lomo.domain.model.Memo
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
  * - Unit under test: MemoMutationOutboxBuilders
  * - Behavior focus: memo-to-outbox mapping for update, delete, restore operations and outbox-to-source-memo reconstruction.
  * - Observable outcomes: operation type, mapped identifiers/date or timestamp/raw content fields, new-content handling, and reconstructed memo localDate/content values.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: outbox DAO persistence behavior, mutation scheduling, and file-system side effects.
  */
-class MemoMutationOutboxBuildersTest {
+class MemoMutationOutboxBuildersTest : DataFunSpec() {
+    init {
+        test("buildUpdateOutbox maps update operation and new content fields") { `buildUpdateOutbox maps update operation and new content fields`() }
+
+        test("buildDeleteOutbox maps delete operation with empty new content") { `buildDeleteOutbox maps delete operation with empty new content`() }
+
+        test("buildRestoreOutbox maps restore operation with source memo content") { `buildRestoreOutbox maps restore operation with source memo content`() }
+
+        test("outboxSourceMemo reconstructs source-facing memo fields") { `outboxSourceMemo reconstructs source-facing memo fields`() }
+
+        test("outboxSourceMemo defaults content to empty when outbox new content is null") { `outboxSourceMemo defaults content to empty when outbox new content is null`() }
+    }
+
+
     private val sourceMemo =
         Memo(
             id = "memo_1",
@@ -27,47 +41,43 @@ class MemoMutationOutboxBuildersTest {
             dateKey = "2026_03_27",
         )
 
-    @Test
-    fun `buildUpdateOutbox maps update operation and new content fields`() {
+    private fun `buildUpdateOutbox maps update operation and new content fields`() {
         val result = buildUpdateOutbox(sourceMemo = sourceMemo, newContent = "updated content")
 
-        assertEquals(MemoFileOutboxOp.UPDATE, result.operation)
-        assertEquals(sourceMemo.id, result.memoId)
-        assertEquals(sourceMemo.dateKey, result.memoDate)
-        assertEquals(sourceMemo.timestamp, result.memoTimestamp)
-        assertEquals(sourceMemo.rawContent, result.memoRawContent)
-        assertEquals("updated content", result.newContent)
-        assertNull(result.createRawContent)
+        result.operation shouldBe MemoFileOutboxOp.UPDATE
+        result.memoId shouldBe sourceMemo.id
+        result.memoDate shouldBe sourceMemo.dateKey
+        result.memoTimestamp shouldBe sourceMemo.timestamp
+        result.memoRawContent shouldBe sourceMemo.rawContent
+        result.newContent shouldBe "updated content"
+        result.createRawContent.shouldBeNull()
     }
 
-    @Test
-    fun `buildDeleteOutbox maps delete operation with empty new content`() {
+    private fun `buildDeleteOutbox maps delete operation with empty new content`() {
         val result = buildDeleteOutbox(sourceMemo = sourceMemo)
 
-        assertEquals(MemoFileOutboxOp.DELETE, result.operation)
-        assertEquals(sourceMemo.id, result.memoId)
-        assertEquals(sourceMemo.dateKey, result.memoDate)
-        assertEquals(sourceMemo.timestamp, result.memoTimestamp)
-        assertEquals(sourceMemo.rawContent, result.memoRawContent)
-        assertNull(result.newContent)
-        assertNull(result.createRawContent)
+        result.operation shouldBe MemoFileOutboxOp.DELETE
+        result.memoId shouldBe sourceMemo.id
+        result.memoDate shouldBe sourceMemo.dateKey
+        result.memoTimestamp shouldBe sourceMemo.timestamp
+        result.memoRawContent shouldBe sourceMemo.rawContent
+        result.newContent.shouldBeNull()
+        result.createRawContent.shouldBeNull()
     }
 
-    @Test
-    fun `buildRestoreOutbox maps restore operation with source memo content`() {
+    private fun `buildRestoreOutbox maps restore operation with source memo content`() {
         val result = buildRestoreOutbox(sourceMemo = sourceMemo)
 
-        assertEquals(MemoFileOutboxOp.RESTORE, result.operation)
-        assertEquals(sourceMemo.id, result.memoId)
-        assertEquals(sourceMemo.dateKey, result.memoDate)
-        assertEquals(sourceMemo.timestamp, result.memoTimestamp)
-        assertEquals(sourceMemo.rawContent, result.memoRawContent)
-        assertEquals(sourceMemo.content, result.newContent)
-        assertNull(result.createRawContent)
+        result.operation shouldBe MemoFileOutboxOp.RESTORE
+        result.memoId shouldBe sourceMemo.id
+        result.memoDate shouldBe sourceMemo.dateKey
+        result.memoTimestamp shouldBe sourceMemo.timestamp
+        result.memoRawContent shouldBe sourceMemo.rawContent
+        result.newContent shouldBe sourceMemo.content
+        result.createRawContent.shouldBeNull()
     }
 
-    @Test
-    fun `outboxSourceMemo reconstructs source-facing memo fields`() {
+    private fun `outboxSourceMemo reconstructs source-facing memo fields`() {
         val outbox =
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.UPDATE,
@@ -81,16 +91,15 @@ class MemoMutationOutboxBuildersTest {
 
         val memo = outboxSourceMemo(outbox)
 
-        assertEquals("memo_2", memo.id)
-        assertEquals(1_711_600_000_000L, memo.timestamp)
-        assertEquals("rebuilt", memo.content)
-        assertEquals("- 10:30 rebuilt", memo.rawContent)
-        assertEquals("2026_03_28", memo.dateKey)
-        assertEquals(MemoLocalDateResolver.resolve("2026_03_28"), memo.localDate)
+        memo.id shouldBe "memo_2"
+        memo.timestamp shouldBe 1_711_600_000_000L
+        memo.content shouldBe "rebuilt"
+        memo.rawContent shouldBe "- 10:30 rebuilt"
+        memo.dateKey shouldBe "2026_03_28"
+        memo.localDate shouldBe MemoLocalDateResolver.resolve("2026_03_28")
     }
 
-    @Test
-    fun `outboxSourceMemo defaults content to empty when outbox new content is null`() {
+    private fun `outboxSourceMemo defaults content to empty when outbox new content is null`() {
         val outbox =
             MemoFileOutboxEntity(
                 operation = MemoFileOutboxOp.DELETE,
@@ -104,7 +113,7 @@ class MemoMutationOutboxBuildersTest {
 
         val memo = outboxSourceMemo(outbox)
 
-        assertEquals("", memo.content)
-        assertEquals("- 11:00 deleted", memo.rawContent)
+        memo.content shouldBe ""
+        memo.rawContent shouldBe "- 11:00 deleted"
     }
 }

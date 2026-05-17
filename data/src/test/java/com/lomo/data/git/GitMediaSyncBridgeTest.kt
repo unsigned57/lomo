@@ -1,4 +1,23 @@
+/*
+ * Test Contract:
+ * - Unit under test: GitMediaSyncBridgeTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for GitMediaSyncBridgeTest.
+ * - Boundary: boundary and edge cases for GitMediaSyncBridgeTest.
+ * - Failure: failure and error scenarios for GitMediaSyncBridgeTest.
+ * - Must-not-happen: invariants are never violated for GitMediaSyncBridgeTest.
+ *
+ * - Behavior focus: test behavioral outcomes of GitMediaSyncBridgeTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.git
+
 
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
@@ -8,14 +27,25 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
-class GitMediaSyncBridgeTest {
+class GitMediaSyncBridgeTest : DataFunSpec() {
+    init {
+        test("reconcile copies local independent image into repo images folder") { `reconcile copies local independent image into repo images folder`() }
+
+        test("reconcile copies repo voice file into local independent voice root") { `reconcile copies repo voice file into local independent voice root`() }
+
+        test("reconcile deletes repo image when local file was removed after prior sync") { `reconcile deletes repo image when local file was removed after prior sync`() }
+
+        test("reconcile deletes local voice when repo file was removed after prior sync") { `reconcile deletes local voice when repo file was removed after prior sync`() }
+    }
+
+
     private val context = mockk<Context>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
 
@@ -27,8 +57,7 @@ class GitMediaSyncBridgeTest {
             allSameDirectory = false,
         )
 
-    @Test
-    fun `reconcile copies local independent image into repo images folder`() =
+    private fun `reconcile copies local independent image into repo images folder`() =
         runTest {
             val mediaRoot = Files.createTempDirectory("lomo-media-local").toFile()
             val repoRoot = Files.createTempDirectory("lomo-media-repo").toFile()
@@ -43,14 +72,13 @@ class GitMediaSyncBridgeTest {
             val result = bridge.reconcile(repoRoot, defaultLayout)
 
             val repoFile = File(repoRoot, "images/img_1.jpg")
-            assertTrue(repoFile.exists())
-            assertEquals("local-image", repoFile.readText())
-            assertTrue(result.repoChanged)
-            assertTrue(stateStore.read().containsKey("images/img_1.jpg"))
+            (repoFile.exists()).shouldBeTrue()
+            repoFile.readText() shouldBe "local-image"
+            (result.repoChanged).shouldBeTrue()
+            (stateStore.read().containsKey("images/img_1.jpg")).shouldBeTrue()
         }
 
-    @Test
-    fun `reconcile copies repo voice file into local independent voice root`() =
+    private fun `reconcile copies repo voice file into local independent voice root`() =
         runTest {
             val voiceRoot = Files.createTempDirectory("lomo-voice-local").toFile()
             val repoRoot = Files.createTempDirectory("lomo-voice-repo").toFile()
@@ -66,15 +94,14 @@ class GitMediaSyncBridgeTest {
             val result = bridge.reconcile(repoRoot, defaultLayout)
 
             val localFile = File(voiceRoot, "voice_1.m4a")
-            assertTrue(localFile.exists())
-            assertEquals("remote-audio", localFile.readText())
-            assertFalse(result.repoChanged)
-            assertTrue(result.localChanged)
-            assertTrue(stateStore.read().containsKey("voice/voice_1.m4a"))
+            (localFile.exists()).shouldBeTrue()
+            localFile.readText() shouldBe "remote-audio"
+            (result.repoChanged).shouldBeFalse()
+            (result.localChanged).shouldBeTrue()
+            (stateStore.read().containsKey("voice/voice_1.m4a")).shouldBeTrue()
         }
 
-    @Test
-    fun `reconcile deletes repo image when local file was removed after prior sync`() =
+    private fun `reconcile deletes repo image when local file was removed after prior sync`() =
         runTest {
             val mediaRoot = Files.createTempDirectory("lomo-media-local").toFile()
             val repoRoot = Files.createTempDirectory("lomo-media-repo").toFile()
@@ -101,14 +128,13 @@ class GitMediaSyncBridgeTest {
 
             val result = bridge.reconcile(repoRoot, defaultLayout)
 
-            assertTrue(result.repoChanged)
-            assertFalse(result.localChanged)
-            assertFalse(repoFile.exists())
-            assertTrue(stateStore.read().isEmpty())
+            (result.repoChanged).shouldBeTrue()
+            (result.localChanged).shouldBeFalse()
+            (repoFile.exists()).shouldBeFalse()
+            (stateStore.read().isEmpty()).shouldBeTrue()
         }
 
-    @Test
-    fun `reconcile deletes local voice when repo file was removed after prior sync`() =
+    private fun `reconcile deletes local voice when repo file was removed after prior sync`() =
         runTest {
             val voiceRoot = Files.createTempDirectory("lomo-voice-local").toFile()
             val localFile = File(voiceRoot, "voice_1.m4a")
@@ -134,10 +160,10 @@ class GitMediaSyncBridgeTest {
 
             val result = bridge.reconcile(repoRoot, defaultLayout)
 
-            assertFalse(result.repoChanged)
-            assertTrue(result.localChanged)
-            assertFalse(localFile.exists())
-            assertTrue(stateStore.read().isEmpty())
+            (result.repoChanged).shouldBeFalse()
+            (result.localChanged).shouldBeTrue()
+            (localFile.exists()).shouldBeFalse()
+            (stateStore.read().isEmpty()).shouldBeTrue()
         }
 
     private fun createBridge(stateStore: GitMediaSyncStateStore): GitMediaSyncBridge =

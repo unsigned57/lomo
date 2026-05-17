@@ -1,7 +1,7 @@
 package com.lomo.app.feature.settings
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -17,34 +17,41 @@ import org.junit.Test
  * - Excludes: Slider composable wiring, FilledTonalIconButton enabled-state, Card layout,
  *   datastore behavior.
  */
-class SettingsTypographyClampTest {
-    @Test
-    fun `value below minimum coerces to minimum`() {
-        assertEquals(0.5f, clampTypographyScale(0.4f))
+class SettingsTypographyClampTest : AppFunSpec() {
+    init {
+        test("value below minimum coerces to minimum") {
+            (clampTypographyScale(0.4f)) shouldBe (0.5f)
+        }
     }
 
-    @Test
-    fun `value at minimum returns minimum`() {
-        assertEquals(0.5f, clampTypographyScale(0.5f))
+    init {
+        test("value at minimum returns minimum") {
+            (clampTypographyScale(0.5f)) shouldBe (0.5f)
+        }
     }
 
-    @Test
-    fun `value above maximum coerces to maximum`() {
-        assertEquals(3.0f, clampTypographyScale(3.5f))
+    init {
+        test("value above maximum coerces to maximum") {
+            (clampTypographyScale(3.5f)) shouldBe (3.0f)
+        }
     }
 
-    @Test
-    fun `value at maximum returns maximum`() {
-        assertEquals(3.0f, clampTypographyScale(3.0f))
+    init {
+        test("value at maximum returns maximum") {
+            (clampTypographyScale(3.0f)) shouldBe (3.0f)
+        }
     }
 
-    @Test
-    fun `value within range is preserved without rounding`() {
-        assertEquals(1.234f, clampTypographyScale(1.234f))
+    init {
+        test("value within range is preserved without rounding") {
+            (clampTypographyScale(1.234f)) shouldBe (1.234f)
+        }
     }
 
-    @Test
-    fun `value just below minimum due to float drift coerces to minimum`() {
-        assertEquals(0.5f, clampTypographyScale(0.49999997f))
+    init {
+        test("value just below minimum due to float drift coerces to minimum") {
+            (clampTypographyScale(0.49999997f)) shouldBe (0.5f)
+        }
     }
+
 }

@@ -1,12 +1,13 @@
 package com.lomo.data.worker
 
+
 import com.lomo.data.repository.S3RemoteShardState
 import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.domain.model.S3SyncScanPolicy
 import java.time.Duration
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -16,9 +17,17 @@ import org.junit.Test
  * - Red phase: Fails before the fix because refresh planning ignores repeated-refresh signal strength and always keeps the same foreground policy for normal and strong refresh requests.
  * - Excludes: WorkManager request wiring, repository execution, and UI gesture handling.
  */
-class S3RefreshSignalPolicyTest {
-    @Test
-    fun `strong refresh signal upgrades otherwise fast foreground sync to fast then reconcile`() {
+class S3RefreshSignalPolicyTest : DataFunSpec() {
+    init {
+        test("strong refresh signal upgrades otherwise fast foreground sync to fast then reconcile") { `strong refresh signal upgrades otherwise fast foreground sync to fast then reconcile`() }
+
+        test("strong refresh signal preserves existing full reconcile escalation") { `strong refresh signal preserves existing full reconcile escalation`() }
+
+        test("strong refresh signal keeps catch-up scheduling while upgrading foreground sync") { `strong refresh signal keeps catch-up scheduling while upgrading foreground sync`() }
+    }
+
+
+    private fun `strong refresh signal upgrades otherwise fast foreground sync to fast then reconcile`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState =
@@ -32,12 +41,11 @@ class S3RefreshSignalPolicyTest {
                 signal = S3RefreshSignal.STRONG_REMOTE_HINT,
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, plan.foregroundPolicy)
-        assertNull(plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
+        plan.catchUpPolicy.shouldBeNull()
     }
 
-    @Test
-    fun `strong refresh signal preserves existing full reconcile escalation`() {
+    private fun `strong refresh signal preserves existing full reconcile escalation`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState =
@@ -66,12 +74,11 @@ class S3RefreshSignalPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, plan.foregroundPolicy)
-        assertNull(plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FULL_RECONCILE
+        plan.catchUpPolicy.shouldBeNull()
     }
 
-    @Test
-    fun `strong refresh signal keeps catch-up scheduling while upgrading foreground sync`() {
+    private fun `strong refresh signal keeps catch-up scheduling while upgrading foreground sync`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState =
@@ -96,7 +103,7 @@ class S3RefreshSignalPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, plan.foregroundPolicy)
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
+        plan.catchUpPolicy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
     }
 }

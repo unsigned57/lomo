@@ -1,10 +1,11 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,11 +15,21 @@ import org.junit.Test
  * - Red phase: Fails before the fix because S3 sync planning does not exist, so real S3 sync cannot safely reconcile local and remote changes.
  * - Excludes: S3 transport, encryption codec internals, metadata DAO I/O, and UI rendering.
  */
-class S3SyncPlannerTest {
+class S3SyncPlannerTest : DataFunSpec() {
+    init {
+        test("local only file uploads") { `local only file uploads`() }
+
+        test("first sync overlapping file reports conflict") { `first sync overlapping file reports conflict`() }
+
+        test("both changed reports conflict") { `both changed reports conflict`() }
+
+        test("remote delete removes unchanged local file") { `remote delete removes unchanged local file`() }
+    }
+
+
     private val planner = S3SyncPlanner(timestampToleranceMs = 0L)
 
-    @Test
-    fun `local only file uploads`() {
+    private fun `local only file uploads`() {
         val plan =
             planner.plan(
                 localFiles = mapOf("memo.md" to LocalS3File("memo.md", 20L)),
@@ -26,12 +37,11 @@ class S3SyncPlannerTest {
                 metadata = emptyMap(),
             )
 
-        assertEquals(listOf(S3SyncDirection.UPLOAD), plan.actions.map { it.direction })
-        assertEquals(listOf(S3SyncReason.LOCAL_ONLY), plan.actions.map { it.reason })
+        plan.actions.map { it.direction } shouldBe listOf(S3SyncDirection.UPLOAD)
+        plan.actions.map { it.reason } shouldBe listOf(S3SyncReason.LOCAL_ONLY)
     }
 
-    @Test
-    fun `first sync overlapping file reports conflict`() {
+    private fun `first sync overlapping file reports conflict`() {
         val plan =
             planner.plan(
                 localFiles = mapOf("memo.md" to LocalS3File("memo.md", 30L)),
@@ -39,12 +49,11 @@ class S3SyncPlannerTest {
                 metadata = emptyMap(),
             )
 
-        assertEquals(S3SyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(S3SyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe S3SyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe S3SyncReason.CONFLICT
     }
 
-    @Test
-    fun `both changed reports conflict`() {
+    private fun `both changed reports conflict`() {
         val metadata =
             S3SyncMetadataEntity(
                 relativePath = "memo.md",
@@ -64,12 +73,11 @@ class S3SyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(S3SyncDirection.CONFLICT, plan.actions.single().direction)
-        assertEquals(S3SyncReason.CONFLICT, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe S3SyncDirection.CONFLICT
+        plan.actions.single().reason shouldBe S3SyncReason.CONFLICT
     }
 
-    @Test
-    fun `remote delete removes unchanged local file`() {
+    private fun `remote delete removes unchanged local file`() {
         val metadata =
             S3SyncMetadataEntity(
                 relativePath = "memo.md",
@@ -89,7 +97,7 @@ class S3SyncPlannerTest {
                 metadata = mapOf("memo.md" to metadata),
             )
 
-        assertEquals(S3SyncDirection.DELETE_LOCAL, plan.actions.single().direction)
-        assertEquals(S3SyncReason.REMOTE_DELETED, plan.actions.single().reason)
+        plan.actions.single().direction shouldBe S3SyncDirection.DELETE_LOCAL
+        plan.actions.single().reason shouldBe S3SyncReason.REMOTE_DELETED
     }
 }

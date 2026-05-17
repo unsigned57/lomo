@@ -5,37 +5,55 @@ import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictFileReviewState.BLOCKED
+import com.lomo.domain.model.SyncConflictFileReviewState.READY_TO_IMPORT
+import com.lomo.domain.model.SyncConflictResolution
+import com.lomo.domain.model.SyncConflictResolutionChoice.KEEP_REMOTE
+import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.repository.PreferencesRepository
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldMatch
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.OutputStream
+import java.nio.file.Files
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
-import java.io.File
-import java.nio.file.Files
 
 /*
  * Test Contract:
  * - Unit under test: SyncInboxRepositoryImpl
- * - Behavior focus: ensuring the required sync-inbox directory structure, importing memo markdown from the
- *   dedicated memo subdirectory, keeping the batch running when one file is missing an attachment, and
- *   reusing stable imported attachment filenames across memos to avoid duplicate cache growth.
- * - Observable outcomes: created memo/images/voice directories, sync result shape, imported memo save calls,
- *   stable imported attachment names, and removal/preservation of inbox source files.
- * - Red phase: Fails before the fix because selecting a sync inbox does not create the required subdirectories,
- *   missing attachments abort the whole batch as an error, and imported attachment names include the markdown path.
- * - Excludes: SAF tree creation mechanics, media attachment import rules already covered elsewhere, and conflict-resolution heuristics.
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: sync previews inbox markdown from root and memo directories and rewrites attachment references for review.
+ * - Boundary: bare attachment filenames resolve through images, voice, and recording fallbacks without importing files during preview.
+ * - Failure: missing attachments surface blocked review entries while later inbox files remain reviewable.
+ * - Must-not-happen: resolving reviewed imports must preserve rewritten attachment references, stream attachment bytes, and reuse stable filenames for shared sources.
+ *
+ * Observable outcomes:
+ * - created inbox directories, returned review conflicts, rewritten remote content, blocked review messages, streamed media bytes, saved memo content, and source cleanup.
+ *
+ * Red phase:
+ * - Fails before behavior changes or migration are applied.
+ *
+ * Excludes:
+ * - SAF tree mechanics, UI rendering, and content-difference review behavior covered by SyncInboxRepositoryImplTest.
  */
-class SyncInboxRepositoryStructureTest {
+class SyncInboxRepositoryStructureTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -49,22 +67,75 @@ class SyncInboxRepositoryStructureTest {
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
-    private lateinit var workspaceMediaAccess: WorkspaceMediaAccess
-
-    @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
 
     @MockK(relaxed = true)
     private lateinit var mutationHandler: MemoMutationHandler
 
+    private val savedFiles = linkedMapOf<String, String>()
+    private lateinit var workspaceMediaAccess: RecordingWorkspaceMediaAccess
+    private lateinit var pendingConflictStore: PendingSyncConflictStore
     private lateinit var repository: SyncInboxRepositoryImpl
 
-    @Before
-    fun setUp() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("ensureDirectoryStructure creates memo images and voice directories in a direct root") {
+            runTest { verifyDirectoryStructureCreation() }
+        }
+
+        test("sync returns review entries for markdown files from the memo subdirectory") {
+            runTest { verifyMemoSubdirectoryReview() }
+        }
+
+        test("sync rewrites inbox attachment references in review content without importing files") {
+            runTest { verifyAttachmentPreviewRewrite() }
+        }
+
+        test("sync rewrites bare image filename references from the images directory") {
+            runTest { verifyBareImagePreviewRewrite() }
+        }
+
+        test("sync rewrites bare voice filename references from the voice directory") {
+            runTest { verifyBareVoicePreviewRewrite() }
+        }
+
+        test("sync rewrites bare voice filename references from the recording directory") {
+            runTest { verifyRecordingPreviewRewrite() }
+        }
+
+        test("sync returns a blocked review and preserves source files when a referenced attachment is missing") {
+            runTest { verifyMissingAttachmentReview() }
+        }
+
+        test("sync keeps later review files when one file is missing an attachment") {
+            runTest { verifyBatchReviewWhenOneAttachmentIsMissing() }
+        }
+
+        test("resolveConflicts reuses one imported attachment filename across memos sharing the same source path") {
+            runTest { verifyStableAttachmentFilenameReuse() }
+        }
+
+        test("resolveConflicts streams attachment copies through workspace media access") {
+            runTest { verifyAttachmentStreaming() }
+        }
+    }
+
+    private fun setUp() {
         MockKAnnotations.init(this)
+        savedFiles.clear()
+        workspaceMediaAccess = RecordingWorkspaceMediaAccess()
+        pendingConflictStore = InMemoryPendingSyncConflictStore()
         every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
         coEvery { mutationHandler.nextMemoFileOutbox() } returns null
         coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
+        coEvery { markdownStorageDataSource.getFileMetadataIn(any(), any()) } returns null
+        coEvery { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) } answers {
+            savedFiles[secondArg<String>()] = thirdArg<String>()
+            null
+        }
 
         repository =
             SyncInboxRepositoryImpl(
@@ -79,354 +150,266 @@ class SyncInboxRepositoryStructureTest {
                         mutationHandler = mutationHandler,
                         startOutboxCoordinator = false,
                     ),
-                pendingConflictStore = InMemoryPendingSyncConflictStore(),
+                pendingConflictStore = pendingConflictStore,
             )
     }
 
-    @Test
-    fun `ensureDirectoryStructure creates memo images and voice directories in a direct root`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-structure").toFile()
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+    private suspend fun verifyDirectoryStructureCreation() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-structure").toFile()
+        configureInboxRoot(inboxRoot)
 
-            repository.ensureDirectoryStructure()
+        repository.ensureDirectoryStructure()
 
-            assertTrue(File(inboxRoot, "memo").isDirectory)
-            assertTrue(File(inboxRoot, "images").isDirectory)
-            assertTrue(File(inboxRoot, "voice").isDirectory)
-        }
+        File(inboxRoot, "memo").isDirectory.shouldBeTrue()
+        File(inboxRoot, "images").isDirectory.shouldBeTrue()
+        File(inboxRoot, "voice").isDirectory.shouldBeTrue()
+    }
 
-    @Test
-    fun `sync imports markdown files from the memo subdirectory`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-memo-dir").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(inboxRoot, "images").mkdirs()
-            File(inboxRoot, "voice").mkdirs()
-            val inboxFile = File(memoDirectory, "2026_04_16.md").apply { writeText("memo from sync inbox") }
+    private suspend fun verifyMemoSubdirectoryReview() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-memo-dir").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val inboxFile = File(memoDirectory, "2026_04_16.md").apply { writeText("memo from sync inbox") }
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_16.md") } returns null
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_16.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        result.message shouldBe "Sync inbox review required"
+        result.conflicts.sessionKind shouldBe SyncConflictSessionKind.SYNC_INBOX_REVIEW
+        result.conflicts.files shouldBe
+            listOf(
+                SyncConflictFile(
+                    relativePath = "inbox/memo/2026_04_16.md",
+                    localContent = null,
+                    remoteContent = "memo from sync inbox",
+                    isBinary = false,
+                    remoteLastModified = inboxFile.lastModified(),
+                    reviewState = READY_TO_IMPORT,
                 ),
-                result,
             )
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_16.md",
-                    content = "memo from sync inbox",
-                    append = false,
-                    uri = null,
-                )
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        savedFiles shouldBe emptyMap()
+        workspaceMediaAccess.writes.size shouldBe 0
+        inboxFile.exists().shouldBeTrue()
+    }
+
+    private suspend fun verifyAttachmentPreviewRewrite() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-attachments").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+        val inboxFile =
+            File(memoDirectory, "2026_04_18.md").apply {
+                writeText("memo with image ![cover](images/cover.png)")
             }
-            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
-            assertTrue(!inboxFile.exists())
-        }
+        File(imagesDirectory, "cover.png").writeBytes("cover".toByteArray())
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_18.md") } returns null
 
-    @Test
-    fun `sync imports inbox attachments once while rewriting memo references`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-attachments").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
-            File(inboxRoot, "voice").mkdirs()
-            val imageBytes = "cover".toByteArray()
-            File(imagesDirectory, "cover.png").writeBytes(imageBytes)
-            val inboxFile =
-                File(memoDirectory, "2026_04_18.md").apply {
-                    writeText("memo with image ![cover](images/cover.png)")
-                }
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val conflictFile = result.conflicts.files.single()
+        conflictFile.reviewState shouldBe READY_TO_IMPORT
+        conflictFile.remoteContent shouldMatch Regex("""memo with image !\[cover]\(cover_[0-9a-f]{10}\.png\)""")
+        conflictFile.reviewMessage.shouldBeNull()
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+        inboxFile.exists().shouldBeTrue()
+        File(imagesDirectory, "cover.png").exists().shouldBeTrue()
+    }
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_18.md") } returns null
+    private suspend fun verifyBareImagePreviewRewrite() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-image-bare").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+        File(imagesDirectory, "poster.png").writeBytes("poster".toByteArray())
+        File(memoDirectory, "2026_04_22.md").writeText("memo with image ![poster](poster.png)")
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_22.md") } returns null
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        result.conflicts.files.single().remoteContent shouldMatch
+            Regex("""memo with image !\[poster]\(poster_[0-9a-f]{10}\.png\)""")
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+    }
 
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
+    private suspend fun verifyBareVoicePreviewRewrite() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-voice-bare").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val voiceDirectory = File(inboxRoot, "voice").apply { mkdirs() }
+        File(voiceDirectory, "voice_20260416.m4a").writeBytes("voice".toByteArray())
+        File(memoDirectory, "2026_04_19.md").writeText("memo with voice ![voice](voice_20260416.m4a)")
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_19.md") } returns null
+
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        result.conflicts.files.single().remoteContent shouldMatch
+            Regex("""memo with voice !\[voice]\(voice_20260416_[0-9a-f]{10}\.m4a\)""")
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+    }
+
+    private suspend fun verifyRecordingPreviewRewrite() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-recording-bare").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val recordingDirectory = File(inboxRoot, "recording").apply { mkdirs() }
+        File(recordingDirectory, "voice_20260420.m4a").writeBytes("recording".toByteArray())
+        File(memoDirectory, "2026_04_20.md").writeText("memo with voice ![voice](voice_20260420.m4a)")
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_20.md") } returns null
+
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        result.conflicts.files.single().remoteContent shouldMatch
+            Regex("""memo with voice !\[voice]\(voice_20260420_[0-9a-f]{10}\.m4a\)""")
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+    }
+
+    private suspend fun verifyMissingAttachmentReview() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-missing-attachment").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val inboxFile =
+            File(memoDirectory, "2026_04_21.md").apply {
+                writeText("memo with missing image ![cover](cover.png)")
+            }
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_21.md") } returns null
+
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val conflictFile = result.conflicts.files.single()
+
+        conflictFile.relativePath shouldBe "inbox/memo/2026_04_21.md"
+        conflictFile.reviewState shouldBe BLOCKED
+        conflictFile.reviewMessage shouldBe "Missing attachments: cover.png"
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+        inboxFile.exists().shouldBeTrue()
+    }
+
+    private suspend fun verifyBatchReviewWhenOneAttachmentIsMissing() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-missing-attachment-batch").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val brokenInboxFile =
+            File(memoDirectory, "2026_04_23.md").apply {
+                writeText("memo with missing image ![missing](images/missing.png)")
+            }
+        val validInboxFile =
+            File(memoDirectory, "2026_04_24.md").apply {
+                writeText("valid memo after broken attachment")
+            }
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_23.md") } returns null
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_24.md") } returns null
+
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+
+        result.conflicts.files.map { it.relativePath to it.reviewState } shouldBe
+            listOf(
+                "inbox/memo/2026_04_23.md" to BLOCKED,
+                "inbox/memo/2026_04_24.md" to READY_TO_IMPORT,
             )
-            coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFileFromStream(
-                    category = WorkspaceMediaCategory.IMAGE,
-                    filename = match { it.startsWith("cover_") && it.endsWith(".png") },
-                    source = any(),
-                )
-            }
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_18.md",
-                    content = match { it.contains("![cover](cover_") && it.endsWith(".png)") },
-                    append = false,
-                    uri = null,
-                )
-            }
-            assertTrue(!inboxFile.exists())
-            assertTrue(!File(imagesDirectory, "cover.png").exists())
-        }
+        result.conflicts.files.last().remoteContent shouldBe "valid memo after broken attachment"
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        workspaceMediaAccess.writes.size shouldBe 0
+        savedFiles shouldBe emptyMap()
+        brokenInboxFile.exists().shouldBeTrue()
+        validInboxFile.exists().shouldBeTrue()
+    }
 
-    @Test
-    fun `sync imports bare image filename references from the images directory`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-image-bare").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
-            File(inboxRoot, "voice").mkdirs()
-            val imageBytes = "poster".toByteArray()
-            File(imagesDirectory, "poster.png").writeBytes(imageBytes)
-            val inboxFile =
-                File(memoDirectory, "2026_04_22.md").apply {
-                    writeText("memo with image ![poster](poster.png)")
-                }
+    private suspend fun verifyStableAttachmentFilenameReuse() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-stable-attachments").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+        val imageBytes = "shared-cover".toByteArray()
+        val sharedImage = File(imagesDirectory, "cover.png").apply { writeBytes(imageBytes) }
+        val firstInboxFile = File(memoDirectory, "2026_04_25.md").apply { writeText("first ![cover](images/cover.png)") }
+        val secondInboxFile = File(memoDirectory, "2026_04_26.md").apply { writeText("second ![cover](images/cover.png)") }
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_22.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
+        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val resolution =
+            SyncConflictResolution(
+                perFileChoices = review.conflicts.files.associate { it.relativePath to KEEP_REMOTE },
             )
-            coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFileFromStream(
-                    category = WorkspaceMediaCategory.IMAGE,
-                    filename = match { it.startsWith("poster_") && it.endsWith(".png") },
-                    source = any(),
-                )
-            }
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_22.md",
-                    content = match { it.contains("![poster](poster_") && it.endsWith(".png)") },
-                    append = false,
-                    uri = null,
-                )
-            }
-            assertTrue(!inboxFile.exists())
-            assertTrue(!File(imagesDirectory, "poster.png").exists())
-        }
 
-    @Test
-    fun `sync imports bare voice filename references from the voice directory`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-voice-bare").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(inboxRoot, "images").mkdirs()
-            val voiceDirectory = File(inboxRoot, "voice").apply { mkdirs() }
-            val voiceBytes = "voice".toByteArray()
-            File(voiceDirectory, "voice_20260416.m4a").writeBytes(voiceBytes)
-            val inboxFile =
-                File(memoDirectory, "2026_04_19.md").apply {
-                    writeText("memo with voice ![voice](voice_20260416.m4a)")
-                }
+        val result = repository.resolveConflicts(resolution, review.conflicts)
+        val importedFilenames = workspaceMediaAccess.writes.map { it.filename }
+        val importedFilename = importedFilenames.first()
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_19.md") } returns null
+        result shouldBe UnifiedSyncResult.Success(SyncBackendType.INBOX, "Sync inbox conflicts resolved")
+        importedFilenames.size shouldBe 2
+        importedFilenames.toSet().size shouldBe 1
+        savedFiles["2026_04_25.md"] shouldBe "first ![cover]($importedFilename)"
+        savedFiles["2026_04_26.md"] shouldBe "second ![cover]($importedFilename)"
+        coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
+        sharedImage.exists() shouldBe false
+        firstInboxFile.exists() shouldBe false
+        secondInboxFile.exists() shouldBe false
+        pendingConflictStore.read(SyncBackendType.INBOX).shouldBeNull()
+    }
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+    private suspend fun verifyAttachmentStreaming() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-streamed-attachment").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
+        val imageBytes = "cover".toByteArray()
+        File(imagesDirectory, "cover.png").writeBytes(imageBytes)
+        File(memoDirectory, "2026_05_01.md").writeText("memo ![cover](images/cover.png)")
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_05_01.md") } returns null
 
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
+        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val resolution =
+            SyncConflictResolution(
+                perFileChoices = review.conflicts.files.associate { it.relativePath to KEEP_REMOTE },
             )
-            coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFileFromStream(
-                    category = WorkspaceMediaCategory.VOICE,
-                    filename = match { it.startsWith("voice_20260416_") && it.endsWith(".m4a") },
-                    source = any(),
-                )
-            }
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_19.md",
-                    content = match { it.contains("![voice](voice_20260416_") && it.endsWith(".m4a)") },
-                    append = false,
-                    uri = null,
-                )
-            }
-            assertTrue(!inboxFile.exists())
-            assertTrue(!File(voiceDirectory, "voice_20260416.m4a").exists())
+
+        repository.resolveConflicts(resolution, review.conflicts)
+
+        val write = workspaceMediaAccess.writes.single()
+        write.category shouldBe WorkspaceMediaCategory.IMAGE
+        write.bytes.contentEquals(imageBytes) shouldBe true
+        savedFiles["2026_05_01.md"] shouldBe "memo ![cover](${write.filename})"
+    }
+
+    private fun configureInboxRoot(inboxRoot: File) {
+        every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+    }
+
+    private data class RecordedMediaWrite(
+        val category: WorkspaceMediaCategory,
+        val filename: String,
+        val bytes: ByteArray,
+    )
+
+    private class RecordingWorkspaceMediaAccess : WorkspaceMediaAccess {
+        val writes = mutableListOf<RecordedMediaWrite>()
+
+        override suspend fun listFiles(category: WorkspaceMediaCategory): List<WorkspaceMediaFile> = emptyList()
+
+        override suspend fun listFilenames(category: WorkspaceMediaCategory): List<String> = emptyList()
+
+        override suspend fun writeFile(
+            category: WorkspaceMediaCategory,
+            filename: String,
+            bytes: ByteArray,
+        ) {
+            writes += RecordedMediaWrite(category = category, filename = filename, bytes = bytes)
         }
 
-    @Test
-    fun `sync imports bare voice filename references from the recording directory`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-recording-bare").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(inboxRoot, "images").mkdirs()
-            File(inboxRoot, "voice").mkdirs()
-            val recordingDirectory = File(inboxRoot, "recording").apply { mkdirs() }
-            val voiceBytes = "recording".toByteArray()
-            File(recordingDirectory, "voice_20260420.m4a").writeBytes(voiceBytes)
-            File(memoDirectory, "2026_04_20.md").writeText("memo with voice ![voice](voice_20260420.m4a)")
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_20.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
-            )
-            coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFileFromStream(
-                    category = WorkspaceMediaCategory.VOICE,
-                    filename = match { it.startsWith("voice_20260420_") && it.endsWith(".m4a") },
-                    source = any(),
-                )
-            }
-            assertTrue(!File(recordingDirectory, "voice_20260420.m4a").exists())
+        override suspend fun writeFileFromStream(
+            category: WorkspaceMediaCategory,
+            filename: String,
+            source: suspend (OutputStream) -> Unit,
+        ) {
+            val output = ByteArrayOutputStream()
+            source(output)
+            writes += RecordedMediaWrite(category = category, filename = filename, bytes = output.toByteArray())
         }
 
-    @Test
-    fun `sync returns an error and preserves source files when a referenced attachment is missing`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-missing-attachment").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(inboxRoot, "images").mkdirs()
-            File(inboxRoot, "voice").mkdirs()
-            val inboxFile =
-                File(memoDirectory, "2026_04_21.md").apply {
-                    writeText("memo with missing image ![cover](cover.png)")
-                }
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_21.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertTrue(result is UnifiedSyncResult.Conflict)
-            assertEquals(
-                listOf("inbox/memo/2026_04_21.md"),
-                (result as UnifiedSyncResult.Conflict).conflicts.files.map { it.relativePath },
-            )
-            coVerify(exactly = 0) {
-                markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any())
-            }
-            coVerify(exactly = 0) { workspaceMediaAccess.writeFileFromStream(any(), any(), any()) }
-            assertTrue(inboxFile.exists())
-        }
-
-    @Test
-    fun `sync keeps importing later markdown files when one file is missing an attachment`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-missing-attachment-batch").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(inboxRoot, "images").mkdirs()
-            File(inboxRoot, "voice").mkdirs()
-            val brokenInboxFile =
-                File(memoDirectory, "2026_04_23.md").apply {
-                    writeText("memo with missing image ![missing](images/missing.png)")
-                }
-            val validInboxFile =
-                File(memoDirectory, "2026_04_24.md").apply {
-                    writeText("valid memo after broken attachment")
-                }
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_23.md") } returns null
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_24.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertTrue(result is UnifiedSyncResult.Conflict)
-            assertEquals(
-                listOf("inbox/memo/2026_04_23.md"),
-                (result as UnifiedSyncResult.Conflict).conflicts.files.map { it.relativePath },
-            )
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_24.md",
-                    content = "valid memo after broken attachment",
-                    append = false,
-                    uri = null,
-                )
-            }
-            assertTrue(brokenInboxFile.exists())
-            assertTrue(!validInboxFile.exists())
-        }
-
-    @Test
-    fun `sync reuses one imported attachment filename across memos sharing the same source path`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-stable-attachments").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
-            File(inboxRoot, "voice").mkdirs()
-            val imageBytes = "shared-cover".toByteArray()
-            File(imagesDirectory, "cover.png").writeBytes(imageBytes)
-            File(memoDirectory, "2026_04_25.md").writeText("first ![cover](images/cover.png)")
-            File(memoDirectory, "2026_04_26.md").writeText("second ![cover](images/cover.png)")
-            val capturedFilenames = mutableListOf<String>()
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
-            coEvery {
-                workspaceMediaAccess.writeFileFromStream(any(), any(), any())
-            } answers {
-                capturedFilenames += secondArg<String>()
-                Unit
-            }
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
-            )
-            assertEquals(2, capturedFilenames.size)
-            assertEquals(capturedFilenames.first(), capturedFilenames.last())
-        }
-
-    @Test
-    fun `sync streams attachment copies through workspace media access`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-streamed-attachment").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            val imagesDirectory = File(inboxRoot, "images").apply { mkdirs() }
-            File(inboxRoot, "voice").mkdirs()
-            File(imagesDirectory, "cover.png").writeBytes("cover".toByteArray())
-            File(memoDirectory, "2026_05_01.md").writeText("memo ![cover](images/cover.png)")
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_05_01.md") } returns null
-
-            repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            coVerify(exactly = 1) {
-                workspaceMediaAccess.writeFileFromStream(
-                    category = WorkspaceMediaCategory.IMAGE,
-                    filename = match { it.startsWith("cover_") && it.endsWith(".png") },
-                    source = any(),
-                )
-            }
-        }
+        override suspend fun deleteFile(
+            category: WorkspaceMediaCategory,
+            filename: String,
+        ) = Unit
+    }
 }

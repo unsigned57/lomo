@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -21,24 +22,52 @@ import io.mockk.slot
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
  * - Unit under test: MemoMutationFileOps top-level helpers and MemoTrashMutationHandler safety branch.
  * - Behavior focus: cached-uri vs fallback reads, safe block rewrite persistence, append/upsert state behavior, persisted-uri filtering, and weak-match rejection safety.
  * - Observable outcomes: returned file content/result booleans, saved file payloads, LocalFileState upsert contents, and parsed-uri acceptance/rejection by scheme.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: parser internals, Room persistence details, and UI rendering.
  */
-class MemoMutationFileOpsSafetyTest {
+class MemoMutationFileOpsSafetyTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        afterTest {
+            tearDown()
+        }
+
+        test("buildUpdatedFileContent returns null when only timestamp matches a different memo block") { `buildUpdatedFileContent returns null when only timestamp matches a different memo block`() }
+
+        test("readCurrentMainFileContent prefers cached uri and falls back to main file when uri read misses") { `readCurrentMainFileContent prefers cached uri and falls back to main file when uri read misses`() }
+
+        test("readCurrentMainFileContent ignores non persisted uri and reads main file directly") { `readCurrentMainFileContent ignores non persisted uri and reads main file directly`() }
+
+        test("flushMainMemoUpdateToFile returns false when current file is unavailable") { `flushMainMemoUpdateToFile returns false when current file is unavailable`() }
+
+        test("flushMainMemoUpdateToFile persists updated body and local state when block matches safely") { `flushMainMemoUpdateToFile persists updated body and local state when block matches safely`() }
+
+        test("persistUpdatedMainFile reuses direct save path metadata without extra lookup") { `persistUpdatedMainFile reuses direct save path metadata without extra lookup`() }
+
+        test("appendMainMemoContentAndUpdateState keeps existing saf uri when save returns null") { `appendMainMemoContentAndUpdateState keeps existing saf uri when save returns null`() }
+
+        test("appendMainMemoContentAndUpdateState reuses direct save path metadata without extra lookup") { `appendMainMemoContentAndUpdateState reuses direct save path metadata without extra lookup`() }
+
+        test("toPersistedUriOrNull accepts content and file schemes only") { `toPersistedUriOrNull accepts content and file schemes only`() }
+
+        test("moveToTrashFileOnly returns false when only timestamp matches a different memo block") { `moveToTrashFileOnly returns false when only timestamp matches a different memo block`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var fileDataSource: FileDataSource
 
@@ -58,13 +87,11 @@ class MemoMutationFileOpsSafetyTest {
     private lateinit var storageFormatProvider: MemoStorageFormatProvider
     private lateinit var trashMutationHandler: MemoTrashMutationHandler
 
-    @After
-    fun tearDown() {
+    private fun tearDown() {
         unmockkStatic(android.net.Uri::class)
     }
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         val textProcessor = MemoTextProcessor()
         val memoIdentityPolicy = MemoIdentityPolicy()
@@ -103,8 +130,7 @@ class MemoMutationFileOpsSafetyTest {
         trashMutationHandler = runtime.trashMutationHandler
     }
 
-    @Test
-    fun `buildUpdatedFileContent returns null when only timestamp matches a different memo block`() =
+    private fun `buildUpdatedFileContent returns null when only timestamp matches a different memo block`() =
         runTest {
             val memo =
                 Memo(
@@ -124,11 +150,10 @@ class MemoMutationFileOpsSafetyTest {
                     newContent = "after",
                 )
 
-            assertNull(result)
+            result.shouldBeNull()
         }
 
-    @Test
-    fun `readCurrentMainFileContent prefers cached uri and falls back to main file when uri read misses`() =
+    private fun `readCurrentMainFileContent prefers cached uri and falls back to main file when uri read misses`() =
         runTest {
             val filename = "2026_03_26.md"
             val parsedUri = mockk<android.net.Uri>(relaxed = true)
@@ -146,13 +171,12 @@ class MemoMutationFileOpsSafetyTest {
 
             val result = readCurrentMainFileContent(runtime, filename)
 
-            assertEquals("fallback-body", result)
+            result shouldBe "fallback-body"
             coVerify(exactly = 1) { fileDataSource.readFile(parsedUri) }
             coVerify(exactly = 1) { fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename) }
         }
 
-    @Test
-    fun `readCurrentMainFileContent ignores non persisted uri and reads main file directly`() =
+    private fun `readCurrentMainFileContent ignores non persisted uri and reads main file directly`() =
         runTest {
             val filename = "2026_03_26.md"
             coEvery { localFileStateDao.getByFilename(filename, false) } returns
@@ -166,13 +190,12 @@ class MemoMutationFileOpsSafetyTest {
 
             val result = readCurrentMainFileContent(runtime, filename)
 
-            assertEquals("direct-body", result)
+            result shouldBe "direct-body"
             coVerify(exactly = 0) { fileDataSource.readFile(any<android.net.Uri>()) }
             coVerify(exactly = 1) { fileDataSource.readFileIn(MemoDirectoryType.MAIN, filename) }
         }
 
-    @Test
-    fun `flushMainMemoUpdateToFile returns false when current file is unavailable`() =
+    private fun `flushMainMemoUpdateToFile returns false when current file is unavailable`() =
         runTest {
             val memo =
                 Memo(
@@ -194,7 +217,7 @@ class MemoMutationFileOpsSafetyTest {
                     newContent = "after",
                 )
 
-            assertEquals(false, result)
+            result shouldBe false
             coVerify(exactly = 0) {
                 fileDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
@@ -205,8 +228,7 @@ class MemoMutationFileOpsSafetyTest {
             }
         }
 
-    @Test
-    fun `flushMainMemoUpdateToFile persists updated body and local state when block matches safely`() =
+    private fun `flushMainMemoUpdateToFile persists updated body and local state when block matches safely`() =
         runTest {
             val memo =
                 Memo(
@@ -243,16 +265,15 @@ class MemoMutationFileOpsSafetyTest {
                     newContent = "after",
                 )
 
-            assertEquals(true, result)
+            result shouldBe true
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
-            assertEquals(filename, captured.captured.filename)
-            assertEquals(456_789L, captured.captured.lastKnownModifiedTime)
-            assertEquals("content://saved/memo", captured.captured.safUri)
+            captured.captured.filename shouldBe filename
+            captured.captured.lastKnownModifiedTime shouldBe 456_789L
+            captured.captured.safUri shouldBe "content://saved/memo"
         }
 
-    @Test
-    fun `persistUpdatedMainFile reuses direct save path metadata without extra lookup`() =
+    private fun `persistUpdatedMainFile reuses direct save path metadata without extra lookup`() =
         runTest {
             val filename = "2026_03_28.md"
             val savedFile =
@@ -280,12 +301,11 @@ class MemoMutationFileOpsSafetyTest {
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
             coVerify(exactly = 0) { fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename) }
-            assertEquals(savedFile.absolutePath, captured.captured.safUri)
-            assertEquals(456_789L, captured.captured.lastKnownModifiedTime)
+            captured.captured.safUri shouldBe savedFile.absolutePath
+            captured.captured.lastKnownModifiedTime shouldBe 456_789L
         }
 
-    @Test
-    fun `appendMainMemoContentAndUpdateState keeps existing saf uri when save returns null`() =
+    private fun `appendMainMemoContentAndUpdateState keeps existing saf uri when save returns null`() =
         runTest {
             val filename = "2026_03_27.md"
             val existing =
@@ -319,12 +339,11 @@ class MemoMutationFileOpsSafetyTest {
 
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
-            assertEquals("content://memo/existing", captured.captured.safUri)
-            assertEquals(999L, captured.captured.lastKnownModifiedTime)
+            captured.captured.safUri shouldBe "content://memo/existing"
+            captured.captured.lastKnownModifiedTime shouldBe 999L
         }
 
-    @Test
-    fun `appendMainMemoContentAndUpdateState reuses direct save path metadata without extra lookup`() =
+    private fun `appendMainMemoContentAndUpdateState reuses direct save path metadata without extra lookup`() =
         runTest {
             val filename = "2026_03_29.md"
             val savedFile =
@@ -353,27 +372,25 @@ class MemoMutationFileOpsSafetyTest {
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) { localFileStateDao.upsert(capture(captured)) }
             coVerify(exactly = 0) { fileDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, filename) }
-            assertEquals(savedFile.absolutePath, captured.captured.safUri)
-            assertEquals(654_321L, captured.captured.lastKnownModifiedTime)
+            captured.captured.safUri shouldBe savedFile.absolutePath
+            captured.captured.lastKnownModifiedTime shouldBe 654_321L
         }
 
-    @Test
-    fun `toPersistedUriOrNull accepts content and file schemes only`() {
+    private fun `toPersistedUriOrNull accepts content and file schemes only`() {
         val contentUri = mockk<android.net.Uri>(relaxed = true)
         val fileUri = mockk<android.net.Uri>(relaxed = true)
         mockkStatic(android.net.Uri::class)
         every { android.net.Uri.parse("content://memo/1") } returns contentUri
         every { android.net.Uri.parse("file:///tmp/memo.md") } returns fileUri
 
-        assertSame(contentUri, "content://memo/1".toPersistedUriOrNull())
-        assertSame(fileUri, "file:///tmp/memo.md".toPersistedUriOrNull())
-        assertNull("https://example.com/memo".toPersistedUriOrNull())
-        assertNull((null as String?).toPersistedUriOrNull())
-        assertTrue(" ".toPersistedUriOrNull() == null)
+        ("content://memo/1".toPersistedUriOrNull() === contentUri).shouldBeTrue()
+        ("file:///tmp/memo.md".toPersistedUriOrNull() === fileUri).shouldBeTrue()
+        "https://example.com/memo".toPersistedUriOrNull().shouldBeNull()
+        (null as String?).toPersistedUriOrNull().shouldBeNull()
+        (" ".toPersistedUriOrNull() == null).shouldBeTrue()
     }
 
-    @Test
-    fun `moveToTrashFileOnly returns false when only timestamp matches a different memo block`() =
+    private fun `moveToTrashFileOnly returns false when only timestamp matches a different memo block`() =
         runTest {
             val memo =
                 Memo(
@@ -389,6 +406,6 @@ class MemoMutationFileOpsSafetyTest {
 
             val result = trashMutationHandler.moveToTrashFileOnly(memo)
 
-            assertEquals(false, result)
+            result shouldBe false
         }
 }

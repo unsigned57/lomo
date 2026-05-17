@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -24,11 +25,11 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -38,7 +39,34 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Red phase: "updateMemo deletes unreferenced voice attachment removed by edit" fails before the fix because UpdateMemoMutationDelegate never ran orphan cleanup on the removed attachment set.
  * - Excludes: Room transaction internals, UI rendering, and retired legacy-capture storage mechanics.
  */
-class MemoMutationHandlerTest {
+class MemoMutationHandlerTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("flushSavedMemoToFile stores file metadata modified time in local file state") { `flushSavedMemoToFile stores file metadata modified time in local file state`() }
+
+        test("flushMemoFileOutbox create stores metadata modified time in local file state") { `flushMemoFileOutbox create stores metadata modified time in local file state`() }
+
+        test("flushSavedMemoToFile records memo upsert for s3 incremental journal") { `flushSavedMemoToFile records memo upsert for s3 incremental journal`() }
+
+        test("flushDeleteMemoToFile records memo delete when main file disappears") { `flushDeleteMemoToFile records memo delete when main file disappears`() }
+
+        test("updateMemoInDb refreshes updatedAt") { `updateMemoInDb refreshes updatedAt`() }
+
+        test("updateMemoInDb relies on trigger managed fts and avoids direct fts writes") { `updateMemoInDb relies on trigger managed fts and avoids direct fts writes`() }
+
+        test("updateMemo throws when safe rewrite cannot locate target memo block") { shouldThrow<UnsafeWorkspaceMutationException> { `updateMemo throws when safe rewrite cannot locate target memo block`() } }
+
+        test("updateMemo deletes unreferenced voice attachment removed by edit") { `updateMemo deletes unreferenced voice attachment removed by edit`() }
+
+        test("updateMemo keeps voice attachment that is still referenced by another memo") { `updateMemo keeps voice attachment that is still referenced by another memo`() }
+
+        test("saveMemoInDb reuses cached storage formats across saves") { `saveMemoInDb reuses cached storage formats across saves`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var fileDataSource: FileDataSource
 
@@ -68,8 +96,7 @@ class MemoMutationHandlerTest {
 
     private lateinit var handler: MemoMutationHandler
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { dataStore.storageFilenameFormat } returns flowOf("yyyy_MM_dd")
         every { dataStore.storageTimestampFormat } returns flowOf("HH:mm:ss")
@@ -91,8 +118,7 @@ class MemoMutationHandlerTest {
             )
     }
 
-    @Test
-    fun `flushSavedMemoToFile stores file metadata modified time in local file state`() =
+    private fun `flushSavedMemoToFile stores file metadata modified time in local file state`() =
         runTest {
             val filename = "2024_01_15.md"
             val savePlan =
@@ -130,11 +156,10 @@ class MemoMutationHandlerTest {
             coVerify(exactly = 1) {
                 localFileStateDao.upsert(capture(captured))
             }
-            assertEquals(456_789L, captured.captured.lastKnownModifiedTime)
+            captured.captured.lastKnownModifiedTime shouldBe 456_789L
         }
 
-    @Test
-    fun `flushMemoFileOutbox create stores metadata modified time in local file state`() =
+    private fun `flushMemoFileOutbox create stores metadata modified time in local file state`() =
         runTest {
             val filename = "2024_01_16.md"
             val outbox =
@@ -164,17 +189,16 @@ class MemoMutationHandlerTest {
 
             val result = handler.flushMemoFileOutbox(outbox)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             val captured = slot<LocalFileStateEntity>()
             coVerify(exactly = 1) {
                 localFileStateDao.upsert(capture(captured))
             }
-            assertEquals(987_654L, captured.captured.lastKnownModifiedTime)
-            assertEquals("content://saved/memo_2", captured.captured.safUri)
+            captured.captured.lastKnownModifiedTime shouldBe 987_654L
+            captured.captured.safUri shouldBe "content://saved/memo_2"
         }
 
-    @Test
-    fun `flushSavedMemoToFile records memo upsert for s3 incremental journal`() =
+    private fun `flushSavedMemoToFile records memo upsert for s3 incremental journal`() =
         runTest {
             val filename = "2024_01_15.md"
             val savePlan =
@@ -211,8 +235,7 @@ class MemoMutationHandlerTest {
             coVerify(exactly = 1) { s3LocalChangeRecorder.recordMemoUpsert(filename) }
         }
 
-    @Test
-    fun `flushDeleteMemoToFile records memo delete when main file disappears`() =
+    private fun `flushDeleteMemoToFile records memo delete when main file disappears`() =
         runTest {
             val memo =
                 Memo(
@@ -227,12 +250,11 @@ class MemoMutationHandlerTest {
 
             val result = handler.flushDeleteMemoToFile(memo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 1) { s3LocalChangeRecorder.recordMemoDelete("${memo.dateKey}.md") }
         }
 
-    @Test
-    fun `updateMemoInDb refreshes updatedAt`() =
+    private fun `updateMemoInDb refreshes updatedAt`() =
         runTest {
             val sourceMemo =
                 Memo(
@@ -257,8 +279,8 @@ class MemoMutationHandlerTest {
 
             val outboxId = handler.updateMemoInDb(sourceMemo, "after")
 
-            assertEquals(1L, outboxId)
-            assertTrue(persistedMemo.captured.updatedAt > sourceMemo.updatedAt)
+            outboxId shouldBe 1L
+            (persistedMemo.captured.updatedAt > sourceMemo.updatedAt).shouldBeTrue()
             coVerify(exactly = 1) {
                 dao.replaceImageRefsForMemo(
                     match { it.id == sourceMemo.id && it.content == "after" },
@@ -266,8 +288,7 @@ class MemoMutationHandlerTest {
             }
         }
 
-    @Test
-    fun `updateMemoInDb relies on trigger managed fts and avoids direct fts writes`() =
+    private fun `updateMemoInDb relies on trigger managed fts and avoids direct fts writes`() =
         runTest {
             val sourceMemo =
                 Memo(
@@ -289,7 +310,6 @@ class MemoMutationHandlerTest {
             coVerify(exactly = 0) { dao.rebuildFts() }
         }
 
-    @Test(expected = UnsafeWorkspaceMutationException::class)
     fun `updateMemo throws when safe rewrite cannot locate target memo block`() =
         runTest {
             val sourceMemo =
@@ -308,8 +328,7 @@ class MemoMutationHandlerTest {
             handler.updateMemo(sourceMemo, "after")
         }
 
-    @Test
-    fun `updateMemo deletes unreferenced voice attachment removed by edit`() =
+    private fun `updateMemo deletes unreferenced voice attachment removed by edit`() =
         runTest {
             val filename = "2026_03_26.md"
             val voicePath = "voice_1711418400000.m4a"
@@ -347,8 +366,7 @@ class MemoMutationHandlerTest {
             coVerify(exactly = 1) { fileDataSource.deleteVoiceFile(voicePath) }
         }
 
-    @Test
-    fun `updateMemo keeps voice attachment that is still referenced by another memo`() =
+    private fun `updateMemo keeps voice attachment that is still referenced by another memo`() =
         runTest {
             val filename = "2026_03_26.md"
             val voicePath = "voice_shared.m4a"
@@ -387,8 +405,7 @@ class MemoMutationHandlerTest {
             coVerify(exactly = 0) { fileDataSource.deleteImage(any()) }
         }
 
-    @Test
-    fun `saveMemoInDb reuses cached storage formats across saves`() =
+    private fun `saveMemoInDb reuses cached storage formats across saves`() =
         runTest {
             val filenameCollections = AtomicInteger(0)
             val timestampCollections = AtomicInteger(0)
@@ -460,7 +477,7 @@ class MemoMutationHandlerTest {
             localHandler.saveMemoInDb("first", 1_700_000_000_000L)
             localHandler.saveMemoInDb("second", 1_700_000_100_000L)
 
-            assertEquals(1, filenameCollections.get())
-            assertEquals(1, timestampCollections.get())
+            filenameCollections.get() shouldBe 1
+            timestampCollections.get() shouldBe 1
         }
 }

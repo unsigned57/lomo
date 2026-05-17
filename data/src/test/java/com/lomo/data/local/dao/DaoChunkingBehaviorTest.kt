@@ -1,14 +1,15 @@
 package com.lomo.data.local.dao
 
+
 import com.lomo.data.local.entity.MemoEntity
 import com.lomo.data.local.entity.MemoImageAttachmentEntity
 import com.lomo.data.local.entity.MemoTagCrossRefEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -19,57 +20,58 @@ import org.junit.Test
  * - Red phase: Fails before the fix because large id lists are issued as a single IN-clause call and can exceed SQLite limits.
  * - Excludes: Room SQL generation/runtime integration and randomness distribution quality.
  */
-class DaoChunkingBehaviorTest {
-    @Test
-    fun `replaceImageRefsForMemos chunks delete ids under sqlite bind limit`() =
+class DaoChunkingBehaviorTest : DataFunSpec() {
+    init {
+        test("replaceImageRefsForMemos chunks delete ids under sqlite bind limit") { `replaceImageRefsForMemos chunks delete ids under sqlite bind limit`() }
+
+        test("replaceTagRefsForMemos chunks delete ids under sqlite bind limit") { `replaceTagRefsForMemos chunks delete ids under sqlite bind limit`() }
+
+        test("getRandomMemos delegates to direct RANDOM query with given limit") { `getRandomMemos delegates to direct RANDOM query with given limit`() }
+
+        test("getRandomMemos returns empty when limit is non-positive without direct query") { `getRandomMemos returns empty when limit is non-positive without direct query`() }
+    }
+
+
+    private fun `replaceImageRefsForMemos chunks delete ids under sqlite bind limit`() =
         runTest {
             val dao = RecordingMemoImageDao()
             val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoEntity("memo-image-$index") }
 
             dao.replaceImageRefsForMemos(memos)
 
-            assertEquals(
-                listOf(ROOM_MAX_BIND_PARAMETER_COUNT, 1),
-                dao.deletedIdChunks.map { chunk -> chunk.size },
-            )
-            assertTrue(dao.deletedIdChunks.all { chunk -> chunk.size <= ROOM_MAX_BIND_PARAMETER_COUNT })
+            dao.deletedIdChunks.map { chunk -> chunk.size } shouldBe listOf(ROOM_MAX_BIND_PARAMETER_COUNT, 1)
+            (dao.deletedIdChunks.all { chunk -> chunk.size <= ROOM_MAX_BIND_PARAMETER_COUNT }).shouldBeTrue()
         }
 
-    @Test
-    fun `replaceTagRefsForMemos chunks delete ids under sqlite bind limit`() =
+    private fun `replaceTagRefsForMemos chunks delete ids under sqlite bind limit`() =
         runTest {
             val dao = RecordingMemoTagDao()
             val memos = (1..(ROOM_MAX_BIND_PARAMETER_COUNT + 1)).map { index -> memoEntity("memo-tag-$index") }
 
             dao.replaceTagRefsForMemos(memos)
 
-            assertEquals(
-                listOf(ROOM_MAX_BIND_PARAMETER_COUNT, 1),
-                dao.deletedIdChunks.map { chunk -> chunk.size },
-            )
-            assertTrue(dao.deletedIdChunks.all { chunk -> chunk.size <= ROOM_MAX_BIND_PARAMETER_COUNT })
+            dao.deletedIdChunks.map { chunk -> chunk.size } shouldBe listOf(ROOM_MAX_BIND_PARAMETER_COUNT, 1)
+            (dao.deletedIdChunks.all { chunk -> chunk.size <= ROOM_MAX_BIND_PARAMETER_COUNT }).shouldBeTrue()
         }
 
-    @Test
-    fun `getRandomMemos delegates to direct RANDOM query with given limit`() =
+    private fun `getRandomMemos delegates to direct RANDOM query with given limit`() =
         runTest {
             val dao = RecordingMemoDao()
 
             val result = dao.getRandomMemos(limit = 3)
 
-            assertEquals(listOf("direct-0", "direct-1", "direct-2"), result.map { it.id })
-            assertEquals(listOf(3), dao.directQueryLimits)
+            result.map { it.id } shouldBe listOf("direct-0", "direct-1", "direct-2")
+            dao.directQueryLimits shouldBe listOf(3)
         }
 
-    @Test
-    fun `getRandomMemos returns empty when limit is non-positive without direct query`() =
+    private fun `getRandomMemos returns empty when limit is non-positive without direct query`() =
         runTest {
             val dao = RecordingMemoDao()
 
             val result = dao.getRandomMemos(limit = 0)
 
-            assertEquals(emptyList<MemoEntity>(), result)
-            assertEquals(emptyList<Int>(), dao.directQueryLimits)
+            result shouldBe emptyList<MemoEntity>()
+            dao.directQueryLimits shouldBe emptyList<Int>()
         }
 
     private class RecordingMemoImageDao : MemoImageDao {

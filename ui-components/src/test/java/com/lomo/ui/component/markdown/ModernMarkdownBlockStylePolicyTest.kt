@@ -1,13 +1,13 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lomo.ui.theme.TypographyScales
 import org.intellij.markdown.MarkdownElementTypes
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -17,9 +17,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the block-quote renderer never passes quoteStyle into nested paragraph rendering.
  * - Excludes: bitmap rendering, image loading, and parser internals beyond the visible AST node type.
  */
-class ModernMarkdownBlockStylePolicyTest {
-    @Test
-    fun `quote blocks use quote text style for nested paragraph content`() {
+class ModernMarkdownBlockStylePolicyTest : UiComponentsFunSpec() {
+    init {
+        test("quote blocks use quote text style for nested paragraph content") {
         val tokenSpec =
             createModernMarkdownTokenSpec(
                 Typography(),
@@ -43,18 +43,20 @@ class ModernMarkdownBlockStylePolicyTest {
                 baseParagraphStyle = tokenSpec.paragraphStyle,
             )
 
-        assertEquals(tokenSpec.quoteStyle, resolvedQuoteStyle)
-        assertEquals(tokenSpec.paragraphStyle, resolvedParagraphStyle)
+        (resolvedQuoteStyle) shouldBe (tokenSpec.quoteStyle)
+        (resolvedParagraphStyle) shouldBe (tokenSpec.paragraphStyle)
+        }
     }
 
-    @Test
-    fun `quote indicator keeps rounded bar shape and uses material theme color`() {
+    init {
+        test("quote indicator keeps rounded bar shape and uses material theme color") {
         val colorScheme = lightColorScheme(primary = Color(0xFF6750A4))
 
         val indicatorStyle = resolveModernMarkdownQuoteIndicatorStyle(colorScheme)
 
-        assertEquals(4.dp, indicatorStyle.thickness)
-        assertEquals(2.dp, indicatorStyle.cornerRadius)
-        assertEquals(colorScheme.primary, indicatorStyle.color)
+        (indicatorStyle.thickness) shouldBe (4.dp)
+        (indicatorStyle.cornerRadius) shouldBe (2.dp)
+        (indicatorStyle.color) shouldBe (colorScheme.primary)
+        }
     }
 }

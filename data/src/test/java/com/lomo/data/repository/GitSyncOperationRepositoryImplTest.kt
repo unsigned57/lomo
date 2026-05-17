@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
@@ -20,11 +21,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -33,7 +33,28 @@ import java.nio.file.Files
  * - Observable outcomes: returned GitSyncResult/GitSyncStatus values and collaborator invocation counts.
  * - Excludes: git engine internals, SAF mirror behavior, and repository wiring outside this operation facade.
  */
-class GitSyncOperationRepositoryImplTest {
+class GitSyncOperationRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("initOrClone delegates to executor result") { `initOrClone delegates to executor result`() }
+
+        test("sync propagates not-configured result from executor") { `sync propagates not-configured result from executor`() }
+
+        test("sync short-circuits when another sync is in progress") { `sync short-circuits when another sync is in progress`() }
+
+        test("sync releases guard after failure so a later sync can run") { `sync releases guard after failure so a later sync can run`() }
+
+        test("getStatus delegates to status executor") { `getStatus delegates to status executor`() }
+
+        test("testConnection delegates to status executor") { `testConnection delegates to status executor`() }
+
+        test("maintenance operations delegate to maintenance executor") { `maintenance operations delegate to maintenance executor`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -80,8 +101,7 @@ class GitSyncOperationRepositoryImplTest {
     private lateinit var runtime: GitSyncRepositoryContext
     private lateinit var repository: GitSyncOperationRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { context.filesDir } returns Files.createTempDirectory("git-sync-operation").toFile()
         every { dataStore.gitSyncEnabled } returns flowOf(false)
@@ -114,31 +134,28 @@ class GitSyncOperationRepositoryImplTest {
             )
     }
 
-    @Test
-    fun `initOrClone delegates to executor result`() =
+    private fun `initOrClone delegates to executor result`() =
         runTest {
             val expected = GitSyncResult.Success("initialized")
             coEvery { initAndSyncExecutor.initOrClone() } returns expected
 
             val result = repository.initOrClone()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             coVerify(exactly = 1) { initAndSyncExecutor.initOrClone() }
         }
 
-    @Test
-    fun `sync propagates not-configured result from executor`() =
+    private fun `sync propagates not-configured result from executor`() =
         runTest {
             coEvery { initAndSyncExecutor.sync() } returns GitSyncResult.NotConfigured
 
             val result = repository.sync()
 
-            assertEquals(GitSyncResult.NotConfigured, result)
+            result shouldBe GitSyncResult.NotConfigured
             coVerify(exactly = 1) { initAndSyncExecutor.sync() }
         }
 
-    @Test
-    fun `sync short-circuits when another sync is in progress`() =
+    private fun `sync short-circuits when another sync is in progress`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
             coEvery { initAndSyncExecutor.sync() } coAnswers {
@@ -150,15 +167,14 @@ class GitSyncOperationRepositoryImplTest {
             kotlinx.coroutines.yield()
             val secondCall = repository.sync()
 
-            assertEquals(GitSyncResult.Success("Sync already in progress"), secondCall)
+            secondCall shouldBe GitSyncResult.Success("Sync already in progress")
 
             gate.complete(Unit)
-            assertEquals(GitSyncResult.Success("sync done"), firstCall.await())
+            firstCall.await() shouldBe GitSyncResult.Success("sync done")
             coVerify(exactly = 1) { initAndSyncExecutor.sync() }
         }
 
-    @Test
-    fun `sync releases guard after failure so a later sync can run`() =
+    private fun `sync releases guard after failure so a later sync can run`() =
         runTest {
             coEvery { initAndSyncExecutor.sync() } throws IllegalStateException("sync failed") andThen GitSyncResult.Success("recovered")
 
@@ -168,14 +184,13 @@ class GitSyncOperationRepositoryImplTest {
                 }.exceptionOrNull()
             val secondResult = repository.sync()
 
-            assertTrue(firstFailure is IllegalStateException)
-            assertEquals("sync failed", firstFailure?.message)
-            assertEquals(GitSyncResult.Success("recovered"), secondResult)
+            (firstFailure is IllegalStateException).shouldBeTrue()
+            firstFailure?.message shouldBe "sync failed"
+            secondResult shouldBe GitSyncResult.Success("recovered")
             coVerify(exactly = 2) { initAndSyncExecutor.sync() }
         }
 
-    @Test
-    fun `getStatus delegates to status executor`() =
+    private fun `getStatus delegates to status executor`() =
         runTest {
             val expected =
                 GitSyncStatus(
@@ -188,32 +203,30 @@ class GitSyncOperationRepositoryImplTest {
 
             val result = repository.getStatus()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             coVerify(exactly = 1) { statusExecutor.getStatus() }
         }
 
-    @Test
-    fun `testConnection delegates to status executor`() =
+    private fun `testConnection delegates to status executor`() =
         runTest {
             val expected = GitSyncResult.Error("network down")
             coEvery { statusExecutor.testConnection() } returns expected
 
             val result = repository.testConnection()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             coVerify(exactly = 1) { statusExecutor.testConnection() }
         }
 
-    @Test
-    fun `maintenance operations delegate to maintenance executor`() =
+    private fun `maintenance operations delegate to maintenance executor`() =
         runTest {
             coEvery { maintenanceExecutor.resetRepository() } returns GitSyncResult.Success("reset")
             coEvery { maintenanceExecutor.resetLocalBranchToRemote() } returns GitSyncResult.Success("hard reset")
             coEvery { maintenanceExecutor.forcePushLocalToRemote() } returns GitSyncResult.Success("force push")
 
-            assertEquals(GitSyncResult.Success("reset"), repository.resetRepository())
-            assertEquals(GitSyncResult.Success("hard reset"), repository.resetLocalBranchToRemote())
-            assertEquals(GitSyncResult.Success("force push"), repository.forcePushLocalToRemote())
+            repository.resetRepository() shouldBe GitSyncResult.Success("reset")
+            repository.resetLocalBranchToRemote() shouldBe GitSyncResult.Success("hard reset")
+            repository.forcePushLocalToRemote() shouldBe GitSyncResult.Success("force push")
 
             coVerify(exactly = 1) { maintenanceExecutor.resetRepository() }
             coVerify(exactly = 1) { maintenanceExecutor.resetLocalBranchToRemote() }

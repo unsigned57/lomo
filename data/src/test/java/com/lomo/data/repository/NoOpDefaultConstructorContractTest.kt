@@ -8,24 +8,27 @@
  */
 package com.lomo.data.repository
 
-import org.junit.Assert.assertFalse
-import org.junit.Test
 
-class NoOpDefaultConstructorContractTest {
-    @Test
-    fun `incremental sync critical constructors do not expose default argument overloads`() {
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.booleans.shouldBeFalse
+
+class NoOpDefaultConstructorContractTest : DataFunSpec() {
+    init {
+        test("incremental sync critical constructors do not expose default argument overloads") { `incremental sync critical constructors do not expose default argument overloads`() }
+    }
+
+
+    private fun `incremental sync critical constructors do not expose default argument overloads`() {
         listOf(
             MediaRepositoryImpl::class.java,
             S3SyncExecutor::class.java,
             S3SyncRepositoryContext::class.java,
             MemoMutationRuntime::class.java,
         ).forEach { targetClass ->
-            assertFalse(
-                "${targetClass.simpleName} should require explicit collaborators",
-                targetClass.declaredConstructors.any { constructor ->
+            withClue("${targetClass.simpleName} should require explicit collaborators") { (targetClass.declaredConstructors.any { constructor ->
                     constructor.parameterTypes.lastOrNull()?.name == "kotlin.jvm.internal.DefaultConstructorMarker"
-                },
-            )
+                }).shouldBeFalse() }
         }
     }
 }

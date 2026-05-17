@@ -1,8 +1,7 @@
 package com.lomo.ui.component.markdown
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,9 +11,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because common Markdown semantics are split across render-only code and share-card regex cleanup, with no shared parser for quote/table/reference image/strikethrough behavior.
  * - Excludes: Compose tree rendering, bitmap pixel output, third-party parser internals, and unsupported extensions such as math or Mermaid.
  */
-class MarkdownSemanticDocumentTest {
-    @Test
-    fun `common markdown document exposes stable semantic blocks and inline styles`() {
+class MarkdownSemanticDocumentTest : UiComponentsFunSpec() {
+    init {
+        test("common markdown document exposes stable semantic blocks and inline styles") {
         val document =
             parseMarkdownSemanticDocument(
                 """
@@ -37,29 +36,30 @@ class MarkdownSemanticDocumentTest {
             )
 
         val heading = document.blocks[0] as MarkdownSemanticBlock.Heading
-        assertEquals(1, heading.level)
-        assertEquals("Title", heading.plainText)
+        (heading.level) shouldBe (1)
+        (heading.plainText) shouldBe ("Title")
 
         val quote = document.blocks[1] as MarkdownSemanticBlock.BlockQuote
         val quoteParagraph = quote.blocks.single() as MarkdownSemanticBlock.Paragraph
-        assertEquals("quoted bold and link", quoteParagraph.plainText)
-        assertTrue(quoteParagraph.inlines.any { it is MarkdownSemanticInline.Strong })
-        assertTrue(quoteParagraph.inlines.any { it is MarkdownSemanticInline.Link })
+        (quoteParagraph.plainText) shouldBe ("quoted bold and link")
+        (quoteParagraph.inlines.any { it is MarkdownSemanticInline.Strong }) shouldBe true
+        (quoteParagraph.inlines.any { it is MarkdownSemanticInline.Link }) shouldBe true
 
         val list = document.blocks[2] as MarkdownSemanticBlock.ListBlock
-        assertEquals(false, list.ordered)
-        assertEquals(true, list.items[0].checked)
-        assertEquals("done", list.items[0].plainText)
-        assertEquals(null, list.items[1].checked)
+        (list.ordered) shouldBe (false)
+        (list.items[0].checked) shouldBe (true)
+        (list.items[0].plainText) shouldBe ("done")
+        (list.items[1].checked) shouldBe (null)
 
         val table = document.blocks[3] as MarkdownSemanticBlock.Table
-        assertEquals(listOf("Name", "Status"), table.header.map { it.plainText })
-        assertEquals("Lomo", table.rows.single()[0].plainText)
-        assertTrue(table.rows.single()[1].inlines.any { it is MarkdownSemanticInline.Strikethrough })
+        (table.header.map { it.plainText }) shouldBe (listOf("Name", "Status"))
+        (table.rows.single()[0].plainText) shouldBe ("Lomo")
+        (table.rows.single()[1].inlines.any { it is MarkdownSemanticInline.Strikethrough }) shouldBe true
 
         val imageParagraph = document.blocks[4] as MarkdownSemanticBlock.Paragraph
         val image = imageParagraph.inlines.single() as MarkdownSemanticInline.Image
-        assertEquals("cover", image.altText)
-        assertEquals("images/cover.png", image.destination)
+        (image.altText) shouldBe ("cover")
+        (image.destination) shouldBe ("images/cover.png")
+        }
     }
 }

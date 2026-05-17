@@ -1,9 +1,10 @@
 package com.lomo.data.share
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+
 import java.net.InetAddress
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -16,9 +17,19 @@ import java.net.InetAddress
  *   and has no IPv6-safe endpoint mapping contract.
  * - Excludes: live mDNS traffic, Android NsdManager callback delivery, and Ktor transfer calls.
  */
-class NsdResolvedDeviceMapperTest {
-    @Test
-    fun `resolved ipv4 peer maps to discovered device`() {
+class NsdResolvedDeviceMapperTest : DataFunSpec() {
+    init {
+        test("resolved ipv4 peer maps to discovered device") { `resolved ipv4 peer maps to discovered device`() }
+
+        test("resolved ipv6 peer maps to bracketed http host when ipv4 is absent") { `resolved ipv6 peer maps to bracketed http host when ipv4 is absent`() }
+
+        test("resolved peer prefers ipv4 when both address families are present") { `resolved peer prefers ipv4 when both address families are present`() }
+
+        test("resolved self and incomplete endpoints are ignored") { `resolved self and incomplete endpoints are ignored`() }
+    }
+
+
+    private fun `resolved ipv4 peer maps to discovered device`() {
         val device =
             mapResolvedLanShareDevice(
                 serviceName = "Lomo-Pixel",
@@ -28,13 +39,12 @@ class NsdResolvedDeviceMapperTest {
                 localUuid = "local-uuid",
             )
 
-        assertEquals("Pixel", device?.name)
-        assertEquals("192.168.1.25", device?.host)
-        assertEquals(1080, device?.port)
+        device?.name shouldBe "Pixel"
+        device?.host shouldBe "192.168.1.25"
+        device?.port shouldBe 1080
     }
 
-    @Test
-    fun `resolved ipv6 peer maps to bracketed http host when ipv4 is absent`() {
+    private fun `resolved ipv6 peer maps to bracketed http host when ipv4 is absent`() {
         val device =
             mapResolvedLanShareDevice(
                 serviceName = "Lomo-Tablet",
@@ -44,13 +54,12 @@ class NsdResolvedDeviceMapperTest {
                 localUuid = "local-uuid",
             )
 
-        assertEquals("Tablet", device?.name)
-        assertEquals("[fd00:0:0:0:0:0:0:24]", device?.host)
-        assertEquals(1081, device?.port)
+        device?.name shouldBe "Tablet"
+        device?.host shouldBe "[fd00:0:0:0:0:0:0:24]"
+        device?.port shouldBe 1081
     }
 
-    @Test
-    fun `resolved peer prefers ipv4 when both address families are present`() {
+    private fun `resolved peer prefers ipv4 when both address families are present`() {
         val device =
             mapResolvedLanShareDevice(
                 serviceName = "Lomo-Phone",
@@ -64,37 +73,30 @@ class NsdResolvedDeviceMapperTest {
                 localUuid = "local-uuid",
             )
 
-        assertEquals("192.168.1.26", device?.host)
+        device?.host shouldBe "192.168.1.26"
     }
 
-    @Test
-    fun `resolved self and incomplete endpoints are ignored`() {
-        assertNull(
-            mapResolvedLanShareDevice(
+    private fun `resolved self and incomplete endpoints are ignored`() {
+        mapResolvedLanShareDevice(
                 serviceName = "Lomo-Local",
                 hostAddresses = listOf(InetAddress.getByName("192.168.1.27")),
                 port = 1083,
                 attributes = mapOf("uuid" to "local-uuid".toByteArray(Charsets.UTF_8)),
                 localUuid = "local-uuid",
-            ),
-        )
-        assertNull(
-            mapResolvedLanShareDevice(
+            ).shouldBeNull()
+        mapResolvedLanShareDevice(
                 serviceName = "Lomo-NoHost",
                 hostAddresses = emptyList(),
                 port = 1084,
                 attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
                 localUuid = "local-uuid",
-            ),
-        )
-        assertNull(
-            mapResolvedLanShareDevice(
+            ).shouldBeNull()
+        mapResolvedLanShareDevice(
                 serviceName = "Lomo-NoPort",
                 hostAddresses = listOf(InetAddress.getByName("192.168.1.28")),
                 port = 0,
                 attributes = mapOf("uuid" to "remote-uuid".toByteArray(Charsets.UTF_8)),
                 localUuid = "local-uuid",
-            ),
-        )
+            ).shouldBeNull()
     }
 }

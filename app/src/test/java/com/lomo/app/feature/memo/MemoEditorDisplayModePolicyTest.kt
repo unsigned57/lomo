@@ -1,8 +1,8 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.ui.component.input.InputEditorDisplayMode
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,34 +12,36 @@ import org.junit.Test
  * - Red phase: Fails before the fix because MemoEditorController has no preview display-mode state, cannot switch between edit and preview, and cannot reset preview mode when the long-form session collapses or closes.
  * - Excludes: Compose sheet rendering, keyboard controller internals, and markdown renderer output.
  */
-class MemoEditorDisplayModePolicyTest {
-    @Test
-    fun `preview transitions keep editor session consistent and reset on collapse or close`() {
-        val controller = MemoEditorController()
+class MemoEditorDisplayModePolicyTest : AppFunSpec() {
+    init {
+        test("preview transitions keep editor session consistent and reset on collapse or close") {
+            val controller = MemoEditorController()
 
-        controller.openForCreate("draft")
-        val initialFocusRequestToken = controller.focusRequestToken
+            controller.openForCreate("draft")
+            val initialFocusRequestToken = controller.focusRequestToken
 
-        assertEquals(InputEditorDisplayMode.Edit, controller.displayMode)
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
 
-        controller.setExpanded(true)
-        controller.updateDisplayMode(InputEditorDisplayMode.Preview)
+            controller.setExpanded(true)
+            controller.updateDisplayMode(InputEditorDisplayMode.Preview)
 
-        assertEquals(InputEditorDisplayMode.Preview, controller.displayMode)
-        assertEquals(initialFocusRequestToken, controller.focusRequestToken)
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Preview)
+            (controller.focusRequestToken) shouldBe (initialFocusRequestToken)
 
-        controller.updateDisplayMode(InputEditorDisplayMode.Edit)
+            controller.updateDisplayMode(InputEditorDisplayMode.Edit)
 
-        assertEquals(InputEditorDisplayMode.Edit, controller.displayMode)
-        assertEquals(initialFocusRequestToken + 1L, controller.focusRequestToken)
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
+            (controller.focusRequestToken) shouldBe (initialFocusRequestToken + 1L)
 
-        controller.updateDisplayMode(InputEditorDisplayMode.Preview)
-        controller.setExpanded(false)
-        assertEquals(InputEditorDisplayMode.Edit, controller.displayMode)
+            controller.updateDisplayMode(InputEditorDisplayMode.Preview)
+            controller.setExpanded(false)
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
 
-        controller.setExpanded(true)
-        controller.updateDisplayMode(InputEditorDisplayMode.Preview)
-        controller.close()
-        assertEquals(InputEditorDisplayMode.Edit, controller.displayMode)
+            controller.setExpanded(true)
+            controller.updateDisplayMode(InputEditorDisplayMode.Preview)
+            controller.close()
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
+        }
     }
+
 }

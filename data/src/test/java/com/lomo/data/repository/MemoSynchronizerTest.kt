@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.parser.MarkdownParser
@@ -15,25 +16,45 @@ import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import io.mockk.slot
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.time.LocalDateTime
 import java.time.ZoneId
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: MemoSynchronizer
  * - Behavior focus: file-to-db refresh, save path selection, and timestamp persistence rules.
  * - Observable outcomes: DAO writes, file data source interactions, and canonicalized stored content.
- * - Red phase: Not applicable - test-only metadata alignment; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Room integration, filesystem implementation details, and UI-facing rendering.
  */
 /**
  * Unit tests for MemoSynchronizer. These tests verify the synchronization logic between file system
  * and database.
  */
-class MemoSynchronizerTest {
+class MemoSynchronizerTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setup()
+        }
+
+        test("refresh syncs new memos from files to database") { `refresh syncs new memos from files to database`() }
+
+        test("refresh handles empty file list") { `refresh handles empty file list`() }
+
+        test("refresh with target filename uses listFiles path") { `refresh with target filename uses listFiles path`() }
+
+        test("refresh does not clear when files exist but unchanged") { `refresh does not clear when files exist but unchanged`() }
+
+        test("saveMemo creates new memo file entry") { `saveMemo creates new memo file entry`() }
+
+        test("saveMemo appends to existing file") { `saveMemo appends to existing file`() }
+
+        test("saveMemo stores canonical timestamp for HH_mm format") { `saveMemo stores canonical timestamp for HH_mm format`() }
+    }
+
+
     @MockK private lateinit var fileDataSource: FileDataSource
 
     @MockK private lateinit var memoDao: TestMemoDaoSuite
@@ -102,8 +123,7 @@ class MemoSynchronizerTest {
         )
     }
 
-    @Before
-    fun setup() {
+    private fun setup() {
         MockKAnnotations.init(this, relaxed = true)
         processor = MemoTextProcessor()
         memoIdentityPolicy = MemoIdentityPolicy()
@@ -117,8 +137,7 @@ class MemoSynchronizerTest {
         synchronizer = createSynchronizer()
     }
 
-    @Test
-    fun `refresh syncs new memos from files to database`() =
+    private fun `refresh syncs new memos from files to database`() =
         runTest {
             // MemoSynchronizer.refresh() uses incremental sync with metadata + document ID
             val metadata =
@@ -142,8 +161,7 @@ class MemoSynchronizerTest {
             coVerify { memoDao.insertMemos(any()) }
         }
 
-    @Test
-    fun `refresh handles empty file list`() =
+    private fun `refresh handles empty file list`() =
         runTest {
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.MAIN) } returns emptyList()
             coEvery { fileDataSource.listMetadataWithIdsIn(MemoDirectoryType.TRASH) } returns emptyList()
@@ -154,8 +172,7 @@ class MemoSynchronizerTest {
             synchronizer.refresh()
         }
 
-    @Test
-    fun `refresh with target filename uses listFiles path`() =
+    private fun `refresh with target filename uses listFiles path`() =
         runTest {
             // When targetFilename is specified, refresh reads just that file via metadata + readFileIn.
             val content = "- 10:30:00 Test memo content"
@@ -175,8 +192,7 @@ class MemoSynchronizerTest {
             coVerify { memoDao.insertMemos(any()) }
         }
 
-    @Test
-    fun `refresh does not clear when files exist but unchanged`() =
+    private fun `refresh does not clear when files exist but unchanged`() =
         runTest {
             // When files exist but are unchanged (in sync metadata), nothing should be deleted
             val metadata =
@@ -203,8 +219,7 @@ class MemoSynchronizerTest {
             coVerify(exactly = 0) { memoDao.clearAll() }
         }
 
-    @Test
-    fun `saveMemo creates new memo file entry`() =
+    private fun `saveMemo creates new memo file entry`() =
         runTest {
             val timestamp = System.currentTimeMillis()
             val content = "New memo content"
@@ -234,8 +249,7 @@ class MemoSynchronizerTest {
             } // append = true
         }
 
-    @Test
-    fun `saveMemo appends to existing file`() =
+    private fun `saveMemo appends to existing file`() =
         runTest {
             val timestamp = System.currentTimeMillis()
             val content = "Another memo"
@@ -266,8 +280,7 @@ class MemoSynchronizerTest {
             }
         }
 
-    @Test
-    fun `saveMemo stores canonical timestamp for HH_mm format`() =
+    private fun `saveMemo stores canonical timestamp for HH_mm format`() =
         runTest {
             val zone = ZoneId.systemDefault()
             val inputTimestamp =
@@ -310,6 +323,6 @@ class MemoSynchronizerTest {
 
             synchronizer.saveMemo("canonical time", inputTimestamp)
 
-            assertEquals(expectedTimestamp, memoEntitySlot.captured.timestamp)
+            memoEntitySlot.captured.timestamp shouldBe expectedTimestamp
         }
 }

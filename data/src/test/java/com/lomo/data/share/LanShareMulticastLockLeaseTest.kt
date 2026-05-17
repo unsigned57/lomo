@@ -1,7 +1,8 @@
 package com.lomo.data.share
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,21 +14,28 @@ import org.junit.Test
  *   discovery-only sessions can run without multicast support.
  * - Excludes: Android WifiManager implementation, live NSD traffic, and HTTP transfer behavior.
  */
-class LanShareMulticastLockLeaseTest {
-    @Test
-    fun `discovery alone acquires and releases multicast lock`() {
+class LanShareMulticastLockLeaseTest : DataFunSpec() {
+    init {
+        test("discovery alone acquires and releases multicast lock") { `discovery alone acquires and releases multicast lock`() }
+
+        test("service and discovery keep multicast lock until both release") { `service and discovery keep multicast lock until both release`() }
+
+        test("duplicate acquire or release for same owner is idempotent") { `duplicate acquire or release for same owner is idempotent`() }
+    }
+
+
+    private fun `discovery alone acquires and releases multicast lock`() {
         val counts = LeaseCallbackCounts()
         val lease = counts.createLease()
 
         lease.acquire(LanShareMulticastLockOwner.Discovery)
         lease.release(LanShareMulticastLockOwner.Discovery)
 
-        assertEquals(1, counts.acquireCount)
-        assertEquals(1, counts.releaseCount)
+        counts.acquireCount shouldBe 1
+        counts.releaseCount shouldBe 1
     }
 
-    @Test
-    fun `service and discovery keep multicast lock until both release`() {
+    private fun `service and discovery keep multicast lock until both release`() {
         val counts = LeaseCallbackCounts()
         val lease = counts.createLease()
 
@@ -36,12 +44,11 @@ class LanShareMulticastLockLeaseTest {
         lease.release(LanShareMulticastLockOwner.Discovery)
         lease.release(LanShareMulticastLockOwner.Service)
 
-        assertEquals(1, counts.acquireCount)
-        assertEquals(1, counts.releaseCount)
+        counts.acquireCount shouldBe 1
+        counts.releaseCount shouldBe 1
     }
 
-    @Test
-    fun `duplicate acquire or release for same owner is idempotent`() {
+    private fun `duplicate acquire or release for same owner is idempotent`() {
         val counts = LeaseCallbackCounts()
         val lease = counts.createLease()
 
@@ -50,8 +57,8 @@ class LanShareMulticastLockLeaseTest {
         lease.release(LanShareMulticastLockOwner.Discovery)
         lease.release(LanShareMulticastLockOwner.Discovery)
 
-        assertEquals(1, counts.acquireCount)
-        assertEquals(1, counts.releaseCount)
+        counts.acquireCount shouldBe 1
+        counts.releaseCount shouldBe 1
     }
 
     private class LeaseCallbackCounts {

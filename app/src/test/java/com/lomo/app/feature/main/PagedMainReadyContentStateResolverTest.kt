@@ -1,8 +1,8 @@
 package com.lomo.app.feature.main
 
 import androidx.paging.LoadState
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -27,48 +27,41 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: this locks the user-visible contract
  *   that only real refresh loading should block the root's memo surface.
  */
-class PagedMainReadyContentStateResolverTest {
-    @Test
-    fun `resolves list shell while initial paging refresh is in progress`() {
-        assertEquals(
-            MainReadyContentState.List,
-            resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.Loading,
-            ),
-        )
+class PagedMainReadyContentStateResolverTest : AppFunSpec() {
+    init {
+        test("resolves list shell while initial paging refresh is in progress") {
+            (resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.Loading,
+                )) shouldBe (MainReadyContentState.List)
+        }
     }
 
-    @Test
-    fun `resolves empty when refresh completed without any items`() {
-        assertEquals(
-            MainReadyContentState.Empty,
-            resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = true),
-            ),
-        )
+    init {
+        test("resolves empty when refresh completed without any items") {
+            (resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = true),
+                )) shouldBe (MainReadyContentState.Empty)
+        }
     }
 
-    @Test
-    fun `resolves list shell for unloaded not-loading refresh that has not reached pagination end`() {
-        assertEquals(
-            MainReadyContentState.List,
-            resolvePagedMainReadyContentState(
-                itemCount = 0,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = false),
-            ),
-        )
+    init {
+        test("resolves list shell for unloaded not-loading refresh that has not reached pagination end") {
+            (resolvePagedMainReadyContentState(
+                    itemCount = 0,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                )) shouldBe (MainReadyContentState.List)
+        }
     }
 
-    @Test
-    fun `resolves list when at least one item is loaded`() {
-        assertEquals(
-            MainReadyContentState.List,
-            resolvePagedMainReadyContentState(
-                itemCount = 1,
-                refreshState = LoadState.NotLoading(endOfPaginationReached = false),
-            ),
-        )
+    init {
+        test("resolves list when at least one item is loaded") {
+            (resolvePagedMainReadyContentState(
+                    itemCount = 1,
+                    refreshState = LoadState.NotLoading(endOfPaginationReached = false),
+                )) shouldBe (MainReadyContentState.List)
+        }
     }
+
 }
