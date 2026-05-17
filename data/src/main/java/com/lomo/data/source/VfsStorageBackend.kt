@@ -12,8 +12,7 @@ internal class VfsStorageBackend private constructor(
     constructor(
         context: Context,
         rootVfs: WorkspaceVfs,
-        secureWipeBeforeDeleteEnabled: suspend () -> Boolean = { false },
-    ) : this(createVfsStorageDelegateBundle(context, rootVfs, secureWipeBeforeDeleteEnabled))
+    ) : this(createVfsStorageDelegateBundle(context, rootVfs))
 
     private constructor(
         bundle: VfsStorageDelegateBundle,
@@ -33,12 +32,11 @@ private data class VfsStorageDelegateBundle(
 private fun createVfsStorageDelegateBundle(
     context: Context,
     rootVfs: WorkspaceVfs,
-    secureWipeBeforeDeleteEnabled: suspend () -> Boolean,
 ): VfsStorageDelegateBundle =
     when (rootVfs) {
         is WorkspaceVfs.Direct ->
             VfsStorageDelegateBundle(
-                markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir, secureWipeBeforeDeleteEnabled),
+                markdownDelegate = DirectMarkdownStorageBackendDelegate(rootVfs.rootDir),
                 workspaceDelegate = DirectWorkspaceConfigBackendDelegate(rootVfs.rootDir),
                 mediaDelegate = DirectMediaStorageBackendDelegate(rootVfs.rootDir),
             )
