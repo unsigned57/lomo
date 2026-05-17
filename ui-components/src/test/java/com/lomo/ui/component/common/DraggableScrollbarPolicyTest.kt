@@ -1,9 +1,8 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -23,19 +22,21 @@ import org.junit.Test
  *   the user had just flung the list to its rendered bottom.
  * - Excludes: Compose pointer input wiring, animation timing, and platform EditText scrollbars.
  */
-class DraggableScrollbarPolicyTest {
-    @Test
-    fun `shows scrollbar for scrollable content at rest`() {
-        assertTrue(shouldShowDraggableScrollbar(canScroll = true))
+class DraggableScrollbarPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("shows scrollbar for scrollable content at rest") {
+        (shouldShowDraggableScrollbar(canScroll = true)) shouldBe true
+        }
     }
 
-    @Test
-    fun `hides scrollbar when content cannot scroll`() {
-        assertFalse(shouldShowDraggableScrollbar(canScroll = false))
+    init {
+        test("hides scrollbar when content cannot scroll") {
+        (shouldShowDraggableScrollbar(canScroll = false)) shouldBe false
+        }
     }
 
-    @Test
-    fun `fixed thumb size does not depend on content length`() {
+    init {
+        test("fixed thumb size does not depend on content length") {
         val shortContent =
             resolveScrollbarThumbMetrics(
                 trackExtentPx = 240f,
@@ -49,50 +50,43 @@ class DraggableScrollbarPolicyTest {
                 scrollFraction = 0.4f,
             )
 
-        assertEquals(40f, shortContent.thumbExtentPx, 0.001f)
-        assertEquals(shortContent.thumbExtentPx, longContent.thumbExtentPx, 0.001f)
-        assertEquals(80f, shortContent.thumbOffsetPx, 0.001f)
+        (shortContent.thumbExtentPx) shouldBe ((40f) plusOrMinus (0.001f))
+        (longContent.thumbExtentPx) shouldBe ((shortContent.thumbExtentPx) plusOrMinus (0.001f))
+        (shortContent.thumbOffsetPx) shouldBe ((80f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `drag fraction maps directly to scroll state offset`() {
-        assertEquals(
-            360,
-            mapThumbFractionToScrollOffset(
+    init {
+        test("drag fraction maps directly to scroll state offset") {
+        (mapThumbFractionToScrollOffset(
                 thumbFraction = 0.3f,
                 maxScrollOffset = 1200,
-            ),
-        )
+            )) shouldBe (360)
+        }
     }
 
-    @Test
-    fun `drag uses accumulated thumb offset instead of moving pointer frame`() {
-        assertEquals(
-            0.5f,
-            mapDraggedThumbOffsetToFraction(
+    init {
+        test("drag uses accumulated thumb offset instead of moving pointer frame") {
+        (mapDraggedThumbOffsetToFraction(
                 draggedThumbOffsetPx = 100f,
                 trackExtentPx = 240f,
                 thumbExtentPx = 40f,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((0.5f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `drag mapping clamps when dragged beyond track end`() {
-        assertEquals(
-            1f,
-            mapDraggedThumbOffsetToFraction(
+    init {
+        test("drag mapping clamps when dragged beyond track end") {
+        (mapDraggedThumbOffsetToFraction(
                 draggedThumbOffsetPx = 280f,
                 trackExtentPx = 240f,
                 thumbExtentPx = 40f,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((1f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `pixel-based thumb fraction is zero at list top`() {
+    init {
+        test("pixel-based thumb fraction is zero at list top") {
         val fractionAtTop =
             resolveLazyListThumbFractionByPixels(
                 firstVisibleItemIndex = 0,
@@ -102,11 +96,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 30,
             )
 
-        assertEquals(0f, fractionAtTop, 0.001f)
+        (fractionAtTop) shouldBe ((0f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `pixel-based thumb fraction reaches one at list bottom`() {
+    init {
+        test("pixel-based thumb fraction reaches one at list bottom") {
         // 30 items × 120px = 3600px content, viewport 800px → maxScroll = 2800px.
         // First-visible at item 23 with 40px past = scrolled 23*120 + 40 = 2800px.
         val fractionAtBottom =
@@ -118,11 +113,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 30,
             )
 
-        assertEquals(1f, fractionAtBottom, 0.001f)
+        (fractionAtBottom) shouldBe ((1f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `pixel-based thumb fraction stays at zero when content fits viewport`() {
+    init {
+        test("pixel-based thumb fraction stays at zero when content fits viewport") {
         val fraction =
             resolveLazyListThumbFractionByPixels(
                 firstVisibleItemIndex = 0,
@@ -132,11 +128,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 5,
             )
 
-        assertEquals(0f, fraction, 0.001f)
+        (fraction) shouldBe ((0f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `pixel-based thumb fraction advances smoothly within the same first item`() {
+    init {
+        test("pixel-based thumb fraction advances smoothly within the same first item") {
         val earlier =
             resolveLazyListThumbFractionByPixels(
                 firstVisibleItemIndex = 10,
@@ -154,11 +151,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 100,
             )
 
-        assertTrue(later > earlier)
+        (later > earlier) shouldBe true
+        }
     }
 
-    @Test
-    fun `pixel-based thumb fraction is monotonic across later first visible indices`() {
+    init {
+        test("pixel-based thumb fraction is monotonic across later first visible indices") {
         val earlier =
             resolveLazyListThumbFractionByPixels(
                 firstVisibleItemIndex = 3,
@@ -176,11 +174,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 100,
             )
 
-        assertTrue(later > earlier)
+        (later > earlier) shouldBe true
+        }
     }
 
-    @Test
-    fun `inverse mapping at fraction one lands at end of scrollable span`() {
+    init {
+        test("inverse mapping at fraction one lands at end of scrollable span") {
         val target =
             mapThumbFractionToLazyListPositionByPixels(
                 fraction = 1f,
@@ -190,12 +189,13 @@ class DraggableScrollbarPolicyTest {
             )
 
         // maxScroll = 30*120 - 800 = 2800. targetIndex = 2800/120 = 23. intra = 2800 - 23*120 = 40.
-        assertEquals(23, target.index)
-        assertEquals(40, target.scrollOffsetPx)
+        (target.index) shouldBe (23)
+        (target.scrollOffsetPx) shouldBe (40)
+        }
     }
 
-    @Test
-    fun `inverse mapping at fraction zero lands at item zero with no offset`() {
+    init {
+        test("inverse mapping at fraction zero lands at item zero with no offset") {
         val target =
             mapThumbFractionToLazyListPositionByPixels(
                 fraction = 0f,
@@ -204,12 +204,13 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 30,
             )
 
-        assertEquals(0, target.index)
-        assertEquals(0, target.scrollOffsetPx)
+        (target.index) shouldBe (0)
+        (target.scrollOffsetPx) shouldBe (0)
+        }
     }
 
-    @Test
-    fun `forward and inverse mapping round-trip at the bottom`() {
+    init {
+        test("forward and inverse mapping round-trip at the bottom") {
         val avg = 120f
         val viewport = 800
         val total = 30
@@ -229,11 +230,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = total,
             )
 
-        assertEquals(1f, recoveredFraction, 0.001f)
+        (recoveredFraction) shouldBe ((1f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `forward and inverse mapping round-trip at the midpoint`() {
+    init {
+        test("forward and inverse mapping round-trip at the midpoint") {
         val avg = 120f
         val viewport = 800
         val total = 50
@@ -253,11 +255,12 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = total,
             )
 
-        assertEquals(0.5f, recoveredFraction, 0.005f)
+        (recoveredFraction) shouldBe ((0.5f) plusOrMinus (0.005f))
+        }
     }
 
-    @Test
-    fun `inverse mapping rejects degenerate avg item size`() {
+    init {
+        test("inverse mapping rejects degenerate avg item size") {
         val target =
             mapThumbFractionToLazyListPositionByPixels(
                 fraction = 0.5f,
@@ -266,46 +269,38 @@ class DraggableScrollbarPolicyTest {
                 totalItemsCount = 30,
             )
 
-        assertEquals(0, target.index)
-        assertEquals(0, target.scrollOffsetPx)
+        (target.index) shouldBe (0)
+        (target.scrollOffsetPx) shouldBe (0)
+        }
     }
 
-    @Test
-    fun `boundary clamp pins fraction to one when forward scrolling is blocked`() {
-        assertEquals(
-            1f,
-            resolveLazyListThumbFractionAtBoundaries(
+    init {
+        test("boundary clamp pins fraction to one when forward scrolling is blocked") {
+        (resolveLazyListThumbFractionAtBoundaries(
                 rawFraction = 0.66f,
                 canScrollBackward = true,
                 canScrollForward = false,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((1f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `boundary clamp pins fraction to zero when backward scrolling is blocked`() {
-        assertEquals(
-            0f,
-            resolveLazyListThumbFractionAtBoundaries(
+    init {
+        test("boundary clamp pins fraction to zero when backward scrolling is blocked") {
+        (resolveLazyListThumbFractionAtBoundaries(
                 rawFraction = 0.4f,
                 canScrollBackward = false,
                 canScrollForward = true,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((0f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `boundary clamp keeps raw fraction when scrolling is unrestricted in both directions`() {
-        assertEquals(
-            0.42f,
-            resolveLazyListThumbFractionAtBoundaries(
+    init {
+        test("boundary clamp keeps raw fraction when scrolling is unrestricted in both directions") {
+        (resolveLazyListThumbFractionAtBoundaries(
                 rawFraction = 0.42f,
                 canScrollBackward = true,
                 canScrollForward = true,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((0.42f) plusOrMinus (0.001f))
+        }
     }
 }

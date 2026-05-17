@@ -1,9 +1,10 @@
 package com.lomo.data.repository
 
+
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -13,9 +14,15 @@ import org.junit.Test
  * - Red phase: Fails before the fix because recent activity only exists as ad hoc promotion on successful outcomes, leaving failed/manual/conflict paths outside the dedicated recent-activity source described by the manifest-free sync plan.
  * - Excludes: planner action derivation, Room SQL generation, and UI refresh behavior.
  */
-class S3RemoteRecentActivityTrackerTest {
-    @Test
-    fun `recordForegroundCandidates promotes known paths as recent dirty candidates`() =
+class S3RemoteRecentActivityTrackerTest : DataFunSpec() {
+    init {
+        test("recordForegroundCandidates promotes known paths as recent dirty candidates") { `recordForegroundCandidates promotes known paths as recent dirty candidates`() }
+
+        test("recordRetryCandidates keeps failed and conflict paths hot for targeted follow-up") { `recordRetryCandidates keeps failed and conflict paths hot for targeted follow-up`() }
+    }
+
+
+    private fun `recordForegroundCandidates promotes known paths as recent dirty candidates`() =
         runTest {
             val path = "lomo/memo/manual.md"
             val store =
@@ -49,14 +56,13 @@ class S3RemoteRecentActivityTrackerTest {
             )
 
             val updated = requireNotNull(store.readByRelativePaths(listOf(path)).singleOrNull())
-            assertTrue(updated.dirtySuspect)
-            assertTrue(updated.scanPriority > 100)
-            assertEquals(400L, updated.lastSeenAt)
-            assertEquals(9L, updated.scanEpoch)
+            (updated.dirtySuspect).shouldBeTrue()
+            (updated.scanPriority > 100).shouldBeTrue()
+            updated.lastSeenAt shouldBe 400L
+            updated.scanEpoch shouldBe 9L
         }
 
-    @Test
-    fun `recordRetryCandidates keeps failed and conflict paths hot for targeted follow-up`() =
+    private fun `recordRetryCandidates keeps failed and conflict paths hot for targeted follow-up`() =
         runTest {
             val failedPath = "lomo/memo/failed.md"
             val conflictPath = "lomo/memo/conflict.md"
@@ -79,12 +85,12 @@ class S3RemoteRecentActivityTrackerTest {
             )
 
             val updatedByPath = store.readByRelativePaths(listOf(failedPath, conflictPath)).associateBy(S3RemoteIndexEntry::relativePath)
-            assertTrue(requireNotNull(updatedByPath[failedPath]).scanPriority > 120)
-            assertTrue(requireNotNull(updatedByPath[conflictPath]).scanPriority > 110)
-            assertTrue(requireNotNull(updatedByPath[failedPath]).dirtySuspect)
-            assertTrue(requireNotNull(updatedByPath[conflictPath]).dirtySuspect)
-            assertEquals(900L, requireNotNull(updatedByPath[failedPath]).lastSeenAt)
-            assertEquals(11L, requireNotNull(updatedByPath[conflictPath]).scanEpoch)
+            (requireNotNull(updatedByPath[failedPath]).scanPriority > 120).shouldBeTrue()
+            (requireNotNull(updatedByPath[conflictPath]).scanPriority > 110).shouldBeTrue()
+            (requireNotNull(updatedByPath[failedPath]).dirtySuspect).shouldBeTrue()
+            (requireNotNull(updatedByPath[conflictPath]).dirtySuspect).shouldBeTrue()
+            requireNotNull(updatedByPath[failedPath]).lastSeenAt shouldBe 900L
+            requireNotNull(updatedByPath[conflictPath]).scanEpoch shouldBe 11L
         }
 
     private fun existingRecentActivityEntry(

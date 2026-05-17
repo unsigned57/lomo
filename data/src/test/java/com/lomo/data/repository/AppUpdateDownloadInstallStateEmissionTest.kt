@@ -1,13 +1,14 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.AppUpdateInstallState
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -17,9 +18,15 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the updater starts Preparing and download work before checking whether this app is allowed to install APKs.
  * - Excludes: APK network transport, Android package-manager APIs, and actual installer UI.
  */
-class AppUpdateDownloadInstallStateEmissionTest {
-    @Test
-    fun `gateInstallPermissionBeforeDownload emits install-permission recovery state before any download work`() =
+class AppUpdateDownloadInstallStateEmissionTest : DataFunSpec() {
+    init {
+        test("gateInstallPermissionBeforeDownload emits install-permission recovery state before any download work") { `gateInstallPermissionBeforeDownload emits install-permission recovery state before any download work`() }
+
+        test("gateInstallPermissionBeforeDownload allows download work when install permission is already granted") { `gateInstallPermissionBeforeDownload allows download work when install permission is already granted`() }
+    }
+
+
+    private fun `gateInstallPermissionBeforeDownload emits install-permission recovery state before any download work`() =
         runTest {
             var downloadStarted = false
 
@@ -33,19 +40,15 @@ class AppUpdateDownloadInstallStateEmissionTest {
                     }
                 }.toList()
 
-            assertEquals(
-                listOf(
+            states shouldBe listOf(
                     AppUpdateInstallState.RequiresInstallPermission(
                         message = "Allow installs from this app to continue.",
                     ),
-                ),
-                states,
-            )
-            assertFalse(downloadStarted)
+                )
+            (downloadStarted).shouldBeFalse()
         }
 
-    @Test
-    fun `gateInstallPermissionBeforeDownload allows download work when install permission is already granted`() =
+    private fun `gateInstallPermissionBeforeDownload allows download work when install permission is already granted`() =
         runTest {
             var downloadStarts = 0
 
@@ -61,14 +64,11 @@ class AppUpdateDownloadInstallStateEmissionTest {
                     }
                 }.toList()
 
-            assertEquals(
-                listOf(
+            states shouldBe listOf(
                     AppUpdateInstallState.Preparing,
                     AppUpdateInstallState.Downloading(progress = 1),
-                ),
-                states,
-            )
-            assertEquals(1, downloadStarts)
-            assertTrue(downloadStarts > 0)
+                )
+            downloadStarts shouldBe 1
+            (downloadStarts > 0).shouldBeTrue()
         }
 }

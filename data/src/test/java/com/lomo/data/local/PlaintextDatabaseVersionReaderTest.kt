@@ -3,10 +3,11 @@
  * - Unit under test: PlaintextDatabaseVersionReader
  * - Behavior focus: extraction of database version from SQL files/streams.
  * - Observable outcomes: correct version identification, error handling for malformed input.
- * - Red phase: Not applicable - unit tests for database version parsing.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: SQLite execution, Room internals.
  */
 package com.lomo.data.local
+
 
 import androidx.sqlite.SQLiteConnection
 import androidx.sqlite.SQLiteDriver
@@ -14,10 +15,10 @@ import androidx.sqlite.SQLiteStatement
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verifySequence
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -29,9 +30,15 @@ import java.io.File
  *   android.database.sqlite.SQLiteDatabase instead of the bundled driver.
  * - Excludes: real filesystem I/O, bundled native library loading, and migration policy decisions.
  */
-class PlaintextDatabaseVersionReaderTest {
-    @Test
-    fun `readUserVersion queries pragma through sqlite driver connection`() {
+class PlaintextDatabaseVersionReaderTest : DataFunSpec() {
+    init {
+        test("readUserVersion queries pragma through sqlite driver connection") { `readUserVersion queries pragma through sqlite driver connection`() }
+
+        test("inspect queries user version and quick check through sqlite driver connection") { `inspect queries user version and quick check through sqlite driver connection`() }
+    }
+
+
+    private fun `readUserVersion queries pragma through sqlite driver connection`() {
         val driver = mockk<SQLiteDriver>()
         val connection = mockk<SQLiteConnection>()
         val userVersionStatement = mockk<SQLiteStatement>()
@@ -51,7 +58,7 @@ class PlaintextDatabaseVersionReaderTest {
 
         val result = PlaintextDatabaseVersionReader.readUserVersion(databaseFile, driver)
 
-        assertEquals(51, result)
+        result shouldBe 51
         verifySequence {
             driver.open(databaseFile.path)
             connection.prepare("PRAGMA user_version")
@@ -66,8 +73,7 @@ class PlaintextDatabaseVersionReaderTest {
         }
     }
 
-    @Test
-    fun `inspect queries user version and quick check through sqlite driver connection`() {
+    private fun `inspect queries user version and quick check through sqlite driver connection`() {
         val driver = mockk<SQLiteDriver>()
         val connection = mockk<SQLiteConnection>()
         val userVersionStatement = mockk<SQLiteStatement>()
@@ -87,8 +93,8 @@ class PlaintextDatabaseVersionReaderTest {
 
         val result = PlaintextDatabaseVersionReader.inspect(databaseFile, driver)
 
-        assertEquals(51, result.userVersion)
-        assertTrue(result.quickCheckPassed)
+        result.userVersion shouldBe 51
+        (result.quickCheckPassed).shouldBeTrue()
         verifySequence {
             driver.open(databaseFile.path)
             connection.prepare("PRAGMA user_version")

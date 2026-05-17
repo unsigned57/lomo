@@ -1,16 +1,44 @@
+/*
+ * Test Contract:
+ * - Unit under test: ShareCryptoUtilsTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for ShareCryptoUtilsTest.
+ * - Boundary: boundary and edge cases for ShareCryptoUtilsTest.
+ * - Failure: failure and error scenarios for ShareCryptoUtilsTest.
+ * - Must-not-happen: invariants are never violated for ShareCryptoUtilsTest.
+ *
+ * - Behavior focus: test behavioral outcomes of ShareCryptoUtilsTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.share
 
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Test
+
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
 
-class ShareCryptoUtilsTest {
-    @Test
-    fun `encryptText decryptText roundtrip succeeds`() {
+class ShareCryptoUtilsTest : DataFunSpec() {
+    init {
+        test("encryptText decryptText roundtrip succeeds") { `encryptText decryptText roundtrip succeeds`() }
+
+        test("decryptText fails with wrong key or aad") { `decryptText fails with wrong key or aad`() }
+
+        test("decryptBytes fails when ciphertext is tampered") { `decryptBytes fails when ciphertext is tampered`() }
+
+        test("decodeNonceBase64 rejects malformed or wrong-length nonce") { `decodeNonceBase64 rejects malformed or wrong-length nonce`() }
+    }
+
+
+    private fun `encryptText decryptText roundtrip succeeds`() {
         val keyHex = ShareAuthUtils.deriveKeyHexFromPairingCode("pairing-code-crypto-1")!!
         val encrypted =
             ShareCryptoUtils.encryptText(
@@ -27,11 +55,10 @@ class ShareCryptoUtilsTest {
                 aad = "memo-content",
             )
 
-        assertEquals("hello lan share", decrypted)
+        decrypted shouldBe "hello lan share"
     }
 
-    @Test
-    fun `decryptText fails with wrong key or aad`() {
+    private fun `decryptText fails with wrong key or aad`() {
         val keyHex = ShareAuthUtils.deriveKeyHexFromPairingCode("pairing-code-crypto-2")!!
         val otherKeyHex = ShareAuthUtils.deriveKeyHexFromPairingCode("pairing-code-crypto-3")!!
         val encrypted =
@@ -56,12 +83,11 @@ class ShareCryptoUtilsTest {
                 aad = "other-aad",
             )
 
-        assertNull(wrongKeyResult)
-        assertNull(wrongAadResult)
+        wrongKeyResult.shouldBeNull()
+        wrongAadResult.shouldBeNull()
     }
 
-    @Test
-    fun `decryptBytes fails when ciphertext is tampered`() {
+    private fun `decryptBytes fails when ciphertext is tampered`() {
         val keyHex = ShareAuthUtils.deriveKeyHexFromPairingCode("pairing-code-crypto-4")!!
         val encrypted =
             ShareCryptoUtils.encryptBytes(
@@ -69,7 +95,7 @@ class ShareCryptoUtilsTest {
                 plaintext = byteArrayOf(1, 2, 3, 4, 5),
                 aad = "attachment:test.png",
             )
-        assertNotNull(encrypted.ciphertext)
+        encrypted.ciphertext.shouldNotBeNull()
 
         val tampered = encrypted.ciphertext.copyOf()
         tampered[0] = (tampered[0].toInt() xor 0x01).toByte()
@@ -89,16 +115,15 @@ class ShareCryptoUtilsTest {
                 aad = "attachment:test.png",
             )
 
-        assertNull(tamperedResult)
-        assertArrayEquals(byteArrayOf(1, 2, 3, 4, 5), intactResult)
+        tamperedResult.shouldBeNull()
+        intactResult shouldBe byteArrayOf(1, 2, 3, 4, 5)
     }
 
     @OptIn(ExperimentalEncodingApi::class)
-    @Test
-    fun `decodeNonceBase64 rejects malformed or wrong-length nonce`() {
+    private fun `decodeNonceBase64 rejects malformed or wrong-length nonce`() {
         val wrongLength = Base64.Default.encode(byteArrayOf(1, 2, 3))
 
-        assertNull(ShareCryptoUtils.decodeNonceBase64("%%%"))
-        assertNull(ShareCryptoUtils.decodeNonceBase64(wrongLength))
+        ShareCryptoUtils.decodeNonceBase64("%%%").shouldBeNull()
+        ShareCryptoUtils.decodeNonceBase64(wrongLength).shouldBeNull()
     }
 }

@@ -1,9 +1,11 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
@@ -11,8 +13,6 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -23,30 +23,34 @@ import org.junit.Test
  * - Test Change Justification: reason category = product contract changed; the old assertions covered recorded-days exposure and updates, which are no longer valid after the setting was deleted. Coverage is preserved by keeping signature-text exposure and update assertions on the remaining share-card settings path. This is not fitting the test to the implementation because the product requirement explicitly removed recorded-days from settings.
  * - Excludes: Compose rendering, DataStore serialization, and bitmap rendering.
  */
-class SettingsAppConfigCoordinatorShareCardTest {
+class SettingsAppConfigCoordinatorShareCardTest : AppFunSpec() {
     private val appConfigRepository: AppConfigRepository = mockk(relaxed = true)
     private val switchRootStorageUseCase: SwitchRootStorageUseCase = mockk(relaxed = true)
 
-    @Test
-    fun `share card settings expose signature text`() =
-        runTest {
-            stubRepository(signatureText = "Unsigned57")
+    init {
+        test("share card settings expose signature text") {
+            runTest {
+                stubRepository(signatureText = "Unsigned57")
 
-            val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
+                val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
 
-            assertEquals("Unsigned57", coordinator.shareCardSignatureText.drop(1).first())
+                (coordinator.shareCardSignatureText.drop(1).first()) shouldBe ("Unsigned57")
+            }
         }
+    }
 
-    @Test
-    fun `share card settings forward signature text updates`() =
-        runTest {
-            stubRepository(signatureText = "Lomo")
-            val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
+    init {
+        test("share card settings forward signature text updates") {
+            runTest {
+                stubRepository(signatureText = "Lomo")
+                val coordinator = SettingsAppConfigCoordinator(appConfigRepository, switchRootStorageUseCase, backgroundScope)
 
-            coordinator.updateShareCardSignatureText("Unsigned57")
+                coordinator.updateShareCardSignatureText("Unsigned57")
 
-            coVerify(exactly = 1) { appConfigRepository.setShareCardSignatureText("Unsigned57") }
+                coVerify(exactly = 1) { appConfigRepository.setShareCardSignatureText("Unsigned57") }
+            }
         }
+    }
 
     private fun stubRepository(
         signatureText: String,

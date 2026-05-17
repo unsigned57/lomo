@@ -1,10 +1,10 @@
 package com.lomo.ui.component.input
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -14,26 +14,28 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the input editor has no shared minimum-height policy, so empty and non-empty states can measure from different widget paths.
  * - Excludes: IME animation, Compose sheet transitions, and OEM EditText rendering quirks.
  */
-class MemoInputHeightPolicyTest {
-    @Test
-    fun `minimum content height uses explicit line height across the configured minimum lines`() {
+class MemoInputHeightPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("minimum content height uses explicit line height across the configured minimum lines") {
         val minHeight =
             resolveMemoInputMinimumContentHeightPx(
                 style = TextStyle(fontSize = 14.sp, lineHeight = 16.sp),
                 density = Density(density = 1f),
             )
 
-        assertEquals(48, minHeight)
+        (minHeight) shouldBe (48)
+        }
     }
 
-    @Test
-    fun `minimum content height falls back to font size when line height is unspecified`() {
+    init {
+        test("minimum content height falls back to font size when line height is unspecified") {
         val minHeight =
             resolveMemoInputMinimumContentHeightPx(
                 style = TextStyle(fontSize = 18.sp),
                 density = Density(density = 1f),
             )
 
-        assertEquals(54, minHeight)
+        (minHeight) shouldBe (54)
+        }
     }
 }

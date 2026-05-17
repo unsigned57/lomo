@@ -1,8 +1,8 @@
 package com.lomo.ui.component.markdown
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlinx.collections.immutable.toImmutableList
 
 /*
@@ -13,9 +13,9 @@ import kotlinx.collections.immutable.toImmutableList
  * - Red phase: Fails before the fix because the renderer returns no content while waiting for an async plan, so fast-scrolling memo items can appear blank before the render plan arrives.
  * - Excludes: Compose composition timing, Android TextView behavior, and third-party markdown parser internals beyond the already-tested render plan.
  */
-class ModernMarkdownRenderStatePolicyTest {
-    @Test
-    fun `pending render state exposes visible fallback text instead of a blank frame`() {
+class ModernMarkdownRenderStatePolicyTest : UiComponentsFunSpec() {
+    init {
+        test("pending render state exposes visible fallback text instead of a blank frame") {
         val state =
             resolveModernMarkdownRenderState(
                 basePlan = null,
@@ -24,13 +24,13 @@ class ModernMarkdownRenderStatePolicyTest {
                 knownTagsToStrip = listOf("todo").toImmutableList(),
             )
 
-        assertTrue(state is ModernMarkdownRenderState.Pending)
-        val pending = state as ModernMarkdownRenderState.Pending
-        assertEquals("body line", pending.fallbackText)
+        val pending = state.shouldBeInstanceOf<ModernMarkdownRenderState.Pending>()
+        (pending.fallbackText) shouldBe ("body line")
+        }
     }
 
-    @Test
-    fun `ready render state keeps the visible block limit from the computed plan`() {
+    init {
+        test("ready render state keeps the visible block limit from the computed plan") {
         val plan =
             createModernMarkdownRenderPlan(
                 content =
@@ -52,9 +52,9 @@ class ModernMarkdownRenderStatePolicyTest {
                 knownTagsToStrip = emptyList<String>().toImmutableList(),
             )
 
-        assertTrue(state is ModernMarkdownRenderState.Ready)
-        val ready = state as ModernMarkdownRenderState.Ready
-        assertEquals(3, ready.plan.totalBlocks)
-        assertEquals(2, ready.plan.items.size)
+        val ready = state.shouldBeInstanceOf<ModernMarkdownRenderState.Ready>()
+        (ready.plan.totalBlocks) shouldBe (3)
+        (ready.plan.items.size) shouldBe (2)
+        }
     }
 }

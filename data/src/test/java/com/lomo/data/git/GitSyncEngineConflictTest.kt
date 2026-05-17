@@ -1,4 +1,23 @@
+/*
+ * Test Contract:
+ * - Unit under test: GitSyncEngineConflictTest
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for GitSyncEngineConflictTest.
+ * - Boundary: boundary and edge cases for GitSyncEngineConflictTest.
+ * - Failure: failure and error scenarios for GitSyncEngineConflictTest.
+ * - Must-not-happen: invariants are never violated for GitSyncEngineConflictTest.
+ *
+ * - Behavior focus: test behavioral outcomes of GitSyncEngineConflictTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.data.git
+
 
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.GitSyncResult
@@ -11,15 +30,26 @@ import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.URIish
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
-class GitSyncEngineConflictTest {
+class GitSyncEngineConflictTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        afterTest {
+            tearDown()
+        }
+
+        test("sync returns conflict on rebase conflict and preserves remote content") { `sync returns conflict on rebase conflict and preserves remote content`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var credentialStore: GitCredentialStore
 
@@ -29,8 +59,7 @@ class GitSyncEngineConflictTest {
     private lateinit var engine: GitSyncEngine
     private lateinit var tempRoot: File
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { credentialStore.getToken() } returns "dummy-token"
         every { dataStore.gitAuthorName } returns flowOf("Lomo Test")
@@ -45,13 +74,11 @@ class GitSyncEngineConflictTest {
         tempRoot = Files.createTempDirectory("git-sync-engine-conflict").toFile()
     }
 
-    @After
-    fun tearDown() {
+    private fun tearDown() {
         tempRoot.deleteRecursively()
     }
 
-    @Test
-    fun `sync returns conflict on rebase conflict and preserves remote content`() =
+    private fun `sync returns conflict on rebase conflict and preserves remote content`() =
         runTest {
             val remoteBareDir = File(tempRoot, "remote.git").also { it.mkdirs() }
             val remoteUrl = remoteBareDir.toURI().toString()
@@ -93,10 +120,10 @@ class GitSyncEngineConflictTest {
             File(localDir, "memo.md").writeText("local change\n")
 
             val result = engine.sync(localDir, remoteUrl)
-            assertTrue(result is GitSyncResult.Conflict)
+            (result is GitSyncResult.Conflict).shouldBeTrue()
             val conflict = result as GitSyncResult.Conflict
-            assertTrue(conflict.message.contains("conflict", ignoreCase = true))
-            assertEquals(listOf("memo.md"), conflict.conflicts.files.map { it.relativePath })
+            (conflict.message.contains("conflict", ignoreCase = true)).shouldBeTrue()
+            conflict.conflicts.files.map { it.relativePath } shouldBe listOf("memo.md")
 
             Git.open(seedDir).use { seedGit ->
                 seedGit.fetch().setRemote("origin").call()
@@ -106,7 +133,7 @@ class GitSyncEngineConflictTest {
                     .setRef("origin/main")
                     .call()
             }
-            assertEquals("remote change\n", File(seedDir, "memo.md").readText())
+            File(seedDir, "memo.md").readText() shouldBe "remote change\n"
         }
 
     private fun createBaseCommitAndPush(

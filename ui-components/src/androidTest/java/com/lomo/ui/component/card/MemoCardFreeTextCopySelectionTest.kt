@@ -32,14 +32,17 @@ import org.junit.runner.RunWith
  * - Unit under test: MemoCard free-text-copy selection behavior.
  * - Behavior focus: when free-text copy is enabled, a real long-press on Compose-native memo body
  *   text must enter memo selection and allow copying without delegating body display to TextView;
- *   body double-tap must still invoke edit, and when free copy is disabled the same long-press
+ *   body double-tap must still invoke edit; pressing the system back button while a selection is
+ *   active must clear it without forcing a copy; and when free copy is disabled the same long-press
  *   must not expose memo copy chrome.
  * - Observable outcomes: Compose text semantics, absence of a body TextView, copy toolbar
- *   presence/absence, copied clipboard text after the Compose copy action, and edit callback count.
+ *   presence/absence, copied clipboard text after the Compose copy action, edit callback count,
+ *   and copy toolbar disappearance after back-press.
  * - Red phase: Fails before the migration because memo body selection/copy is owned by TextView
  *   instead of Compose-native selection state and copy chrome; the body double-tap companion fails
  *   before the fix because enabling free copy removes the card-level combinedClickable handler and
- *   the Compose text node does not forward double-tap to edit.
+ *   the Compose text node does not forward double-tap to edit; the back-press dismissal fails
+ *   before the selection scope installs a BackHandler when a selection is active.
  * - Excludes: selection handle pixels, exact selected word heuristics, and OEM-specific action menus.
  *
  * Test Change Justification:
@@ -164,6 +167,43 @@ class MemoCardFreeTextCopySelectionTest {
             longClick()
         }
         composeRule.waitForIdle()
+
+        assertFalse(hasText(copyLabel))
+    }
+
+    @Test
+    fun backPress_clearsSelection_whenFreeCopyEnabled() {
+        val targetText = "Memo body back press clears"
+        val renderPlan =
+            createModernMarkdownRenderPlan(
+                content = targetText,
+                knownTagsToStrip = emptyList(),
+            )
+
+        composeRule.setContent {
+            MaterialTheme {
+                MemoCard(
+                    content = targetText,
+                    processedContent = targetText,
+                    precomputedRenderPlan = renderPlan,
+                    timestamp = 1L,
+                    tags = persistentListOf(),
+                    allowFreeTextCopy = true,
+                    shouldShowExpand = false,
+                )
+            }
+        }
+
+        val copyLabel = composeRule.activity.getString(R.string.action_copy)
+        composeRule.onNodeWithText(targetText, substring = true).performTouchInput {
+            longClick()
+        }
+        waitForText(copyLabel)
+
+        composeRule.runOnUiThread {
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitUntil(5_000) { !hasText(copyLabel) }
 
         assertFalse(hasText(copyLabel))
     }

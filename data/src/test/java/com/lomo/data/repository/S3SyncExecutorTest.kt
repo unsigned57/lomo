@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -22,12 +23,10 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -37,9 +36,22 @@ import java.io.File
  * - Red phase: Fails before the fix when plaintext S3 listings are not filtered to the content-only sync scope, allowing ignored external objects to influence execution-side deletes or mismatch handling.
  * - Excludes: AWS SDK transport behavior, Compose/UI rendering, and Room persistence implementation details.
  */
-class S3SyncExecutorTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class S3SyncExecutorTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setUp()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("performSync deletes only syncable remote objects and ignores external plaintext objects") { `performSync deletes only syncable remote objects and ignores external plaintext objects`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -66,7 +78,6 @@ class S3SyncExecutorTest {
 
     private lateinit var executor: S3SyncExecutor
 
-    @Before
     fun setUp() {
         MockKAnnotations.init(this)
 
@@ -133,8 +144,7 @@ class S3SyncExecutorTest {
             )
     }
 
-    @Test
-    fun `performSync deletes only syncable remote objects and ignores external plaintext objects`() =
+    private fun `performSync deletes only syncable remote objects and ignores external plaintext objects`() =
         runTest {
             val managedPath = "Projects/note.md"
             val externalPath = ".obsidian/workspace.json"
@@ -183,11 +193,8 @@ class S3SyncExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
             coVerify(exactly = 1) { client.deleteObject(managedPath) }
             coVerify(exactly = 0) { client.deleteObject(externalPath) }
         }

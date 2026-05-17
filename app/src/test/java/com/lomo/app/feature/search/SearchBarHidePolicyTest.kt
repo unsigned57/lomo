@@ -1,9 +1,8 @@
 package com.lomo.app.feature.search
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -30,126 +29,110 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the current implementation still
  *   uses the threshold gate and fails the below-threshold scrollable assertion before the fix.
  */
-class SearchBarHidePolicyTest {
-    @Test
-    fun `non scrollable result lists never allow search bar scroll`() {
-        assertFalse(
-            shouldAllowSearchBarScroll(
-                snapshot =
-                    SearchBarHideSnapshot(
-                        canScrollContent = false,
-                        firstVisibleItemIndex = 0,
-                        firstVisibleItemScrollOffsetPx = 0,
-                    ),
-            ),
-        )
+class SearchBarHidePolicyTest : AppFunSpec() {
+    init {
+        test("non scrollable result lists never allow search bar scroll") {
+            ((shouldAllowSearchBarScroll(
+                    snapshot =
+                        SearchBarHideSnapshot(
+                            canScrollContent = false,
+                            firstVisibleItemIndex = 0,
+                            firstVisibleItemScrollOffsetPx = 0,
+                        ),
+                ))) shouldBe false
+        }
     }
 
-    @Test
-    fun `scrollable result lists at the top allow synchronized search bar movement`() {
-        assertTrue(
-            shouldAllowSearchBarScroll(
-                snapshot =
-                    SearchBarHideSnapshot(
-                        canScrollContent = true,
-                        firstVisibleItemIndex = 0,
-                        firstVisibleItemScrollOffsetPx = 0,
-                    ),
-            ),
-        )
+    init {
+        test("scrollable result lists at the top allow synchronized search bar movement") {
+            ((shouldAllowSearchBarScroll(
+                    snapshot =
+                        SearchBarHideSnapshot(
+                            canScrollContent = true,
+                            firstVisibleItemIndex = 0,
+                            firstVisibleItemScrollOffsetPx = 0,
+                        ),
+                ))) shouldBe true
+        }
     }
 
-    @Test
-    fun `scrollable result lists below the old threshold still allow synchronized movement`() {
-        assertTrue(
-            shouldAllowSearchBarScroll(
-                snapshot =
-                    SearchBarHideSnapshot(
-                        canScrollContent = true,
-                        firstVisibleItemIndex = 0,
-                        firstVisibleItemScrollOffsetPx = 48,
-                    ),
-            ),
-        )
+    init {
+        test("scrollable result lists below the old threshold still allow synchronized movement") {
+            ((shouldAllowSearchBarScroll(
+                    snapshot =
+                        SearchBarHideSnapshot(
+                            canScrollContent = true,
+                            firstVisibleItemIndex = 0,
+                            firstVisibleItemScrollOffsetPx = 48,
+                        ),
+                ))) shouldBe true
+        }
     }
 
-    @Test
-    fun `scrollable result lists beyond the old threshold keep allowing search bar movement`() {
-        assertTrue(
-            shouldAllowSearchBarScroll(
-                snapshot =
-                    SearchBarHideSnapshot(
-                        canScrollContent = true,
-                        firstVisibleItemIndex = 0,
-                        firstVisibleItemScrollOffsetPx = 96,
-                    ),
-            ),
-        )
+    init {
+        test("scrollable result lists beyond the old threshold keep allowing search bar movement") {
+            ((shouldAllowSearchBarScroll(
+                    snapshot =
+                        SearchBarHideSnapshot(
+                            canScrollContent = true,
+                            firstVisibleItemIndex = 0,
+                            firstVisibleItemScrollOffsetPx = 96,
+                        ),
+                ))) shouldBe true
+        }
     }
 
-    @Test
-    fun `scrolling past the first item keeps allowing search bar movement`() {
-        assertTrue(
-            shouldAllowSearchBarScroll(
-                snapshot =
-                    SearchBarHideSnapshot(
-                        canScrollContent = true,
-                        firstVisibleItemIndex = 1,
-                        firstVisibleItemScrollOffsetPx = 0,
-                    ),
-            ),
-        )
+    init {
+        test("scrolling past the first item keeps allowing search bar movement") {
+            ((shouldAllowSearchBarScroll(
+                    snapshot =
+                        SearchBarHideSnapshot(
+                            canScrollContent = true,
+                            firstVisibleItemIndex = 1,
+                            firstVisibleItemScrollOffsetPx = 0,
+                        ),
+                ))) shouldBe true
+        }
     }
 
-    @Test
-    fun `upward consumed list movement moves search bar by the same distance`() {
-        assertEquals(
-            24f,
-            resolveSyncedSearchBarOffsetPx(
-                currentOffsetPx = 0f,
-                consumedContentDeltaYPx = -24f,
-                maxOffsetPx = 96f,
-            ),
-            0.001f,
-        )
+    init {
+        test("upward consumed list movement moves search bar by the same distance") {
+            (resolveSyncedSearchBarOffsetPx(
+                    currentOffsetPx = 0f,
+                    consumedContentDeltaYPx = -24f,
+                    maxOffsetPx = 96f,
+                )) shouldBe ((24f) plusOrMinus 0.001f)
+        }
     }
 
-    @Test
-    fun `downward consumed list movement reveals search bar by the same distance`() {
-        assertEquals(
-            48f,
-            resolveSyncedSearchBarOffsetPx(
-                currentOffsetPx = 80f,
-                consumedContentDeltaYPx = 32f,
-                maxOffsetPx = 96f,
-            ),
-            0.001f,
-        )
+    init {
+        test("downward consumed list movement reveals search bar by the same distance") {
+            (resolveSyncedSearchBarOffsetPx(
+                    currentOffsetPx = 80f,
+                    consumedContentDeltaYPx = 32f,
+                    maxOffsetPx = 96f,
+                )) shouldBe ((48f) plusOrMinus 0.001f)
+        }
     }
 
-    @Test
-    fun `synchronized search bar offset clamps to measured bar height`() {
-        assertEquals(
-            96f,
-            resolveSyncedSearchBarOffsetPx(
-                currentOffsetPx = 80f,
-                consumedContentDeltaYPx = -60f,
-                maxOffsetPx = 96f,
-            ),
-            0.001f,
-        )
+    init {
+        test("synchronized search bar offset clamps to measured bar height") {
+            (resolveSyncedSearchBarOffsetPx(
+                    currentOffsetPx = 80f,
+                    consumedContentDeltaYPx = -60f,
+                    maxOffsetPx = 96f,
+                )) shouldBe ((96f) plusOrMinus 0.001f)
+        }
     }
 
-    @Test
-    fun `zero consumed movement keeps current search bar offset`() {
-        assertEquals(
-            20f,
-            resolveSyncedSearchBarOffsetPx(
-                currentOffsetPx = 20f,
-                consumedContentDeltaYPx = 0f,
-                maxOffsetPx = 96f,
-            ),
-            0.001f,
-        )
+    init {
+        test("zero consumed movement keeps current search bar offset") {
+            (resolveSyncedSearchBarOffsetPx(
+                    currentOffsetPx = 20f,
+                    consumedContentDeltaYPx = 0f,
+                    maxOffsetPx = 96f,
+                )) shouldBe ((20f) plusOrMinus 0.001f)
+        }
     }
+
 }

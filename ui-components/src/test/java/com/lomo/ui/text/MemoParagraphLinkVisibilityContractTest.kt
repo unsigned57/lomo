@@ -1,5 +1,7 @@
 package com.lomo.ui.text
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.LinkAnnotation
@@ -9,8 +11,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
 import com.lomo.ui.component.markdown.createModernMarkdownTokenSpec
 import com.lomo.ui.theme.TypographyScales
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -32,12 +32,12 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the user-visible link color and
  *   underline contract is unchanged; only the rendering backend changed.
  */
-class MemoParagraphLinkVisibilityContractTest {
+class MemoParagraphLinkVisibilityContractTest : UiComponentsFunSpec() {
     private val linkColor = Color(0xFF0061A4)
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `compose link style keeps annotated markdown color with underline`() {
+    init {
+        test("compose link style keeps annotated markdown color with underline") {
         val annotated =
             buildAnnotatedString {
                 pushLink(
@@ -66,12 +66,13 @@ class MemoParagraphLinkVisibilityContractTest {
                 defaultUnderline = true,
             )
 
-        assertEquals(linkColor, visualStyle.color)
-        assertEquals(true, visualStyle.isUnderlineText)
+        (visualStyle.color) shouldBe (linkColor)
+        (visualStyle.isUnderlineText) shouldBe (true)
+        }
     }
 
-    @Test
-    fun `modern markdown tokens expose underlined link style`() {
+    init {
+        test("modern markdown tokens expose underlined link style") {
         val spec =
             createModernMarkdownTokenSpec(
                 Typography(),
@@ -79,10 +80,8 @@ class MemoParagraphLinkVisibilityContractTest {
                 scales = defaultScales,
             )
 
-        assertEquals(linkColor, spec.linkStyle.style?.color)
-        assertEquals(
-            TextDecoration.Underline,
-            spec.linkStyle.style?.textDecoration,
-        )
+        (spec.linkStyle.style?.color) shouldBe (linkColor)
+        (spec.linkStyle.style?.textDecoration) shouldBe (TextDecoration.Underline)
+        }
     }
 }

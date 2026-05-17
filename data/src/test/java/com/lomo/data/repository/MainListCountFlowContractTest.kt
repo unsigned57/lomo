@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.DefaultMainListDao
 import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
@@ -11,9 +12,9 @@ import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 import java.time.LocalDate
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -25,7 +26,12 @@ import java.time.LocalDate
  *   and has no query/filter-aware count flow for the main list.
  * - Excludes: Room SQL execution, FTS tokenizer internals beyond normalized query delegation, and UI rendering.
  */
-class MainListCountFlowContractTest {
+class MainListCountFlowContractTest : DataFunSpec() {
+    init {
+        test("main list count flow follows the same normalized query and filter as paging") { `main list count flow follows the same normalized query and filter as paging`() }
+    }
+
+
     private val memoDao: MemoDao = mockk()
     private val memoBrowseDao: MemoBrowseDao = mockk()
     private val defaultMainListDao: DefaultMainListDao = mockk()
@@ -41,8 +47,7 @@ class MainListCountFlowContractTest {
             synchronizer = synchronizer,
         )
 
-    @Test
-    fun `main list count flow follows the same normalized query and filter as paging`() =
+    private fun `main list count flow follows the same normalized query and filter as paging`() =
         runTest {
             every {
                 defaultMainListDao.getCountFlow(
@@ -67,6 +72,6 @@ class MainListCountFlowContractTest {
                             ),
                     ).first()
 
-            assertEquals(7, count)
+            count shouldBe 7
         }
 }

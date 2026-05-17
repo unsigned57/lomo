@@ -1,12 +1,11 @@
 package com.lomo.app.feature.common
 
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -36,111 +35,124 @@ import org.junit.Test
  *   implementation detail.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class DeleteAnimationRunnerTest {
-    @Test
-    fun `marks deleting on success`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
+class DeleteAnimationRunnerTest : AppFunSpec() {
+    init {
+        test("marks deleting on success") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
 
-            val result =
-                runDeleteAnimationWithRollback(
-                    itemId = "memo_1",
-                    deletingIds = deletingIds,
-                ) {
-                    Unit
-                }
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = "memo_1",
+                        deletingIds = deletingIds,
+                    ) {
+                        Unit
+                    }
 
-            assertTrue(result.isSuccess)
-            assertTrue(deletingIds.value.contains("memo_1"))
-        }
-
-    @Test
-    fun `rolls back deleting marker on failure`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
-
-            val result =
-                runDeleteAnimationWithRollback(
-                    itemId = "memo_1",
-                    deletingIds = deletingIds,
-                ) {
-                    throw IllegalStateException("delete failed")
-                }
-
-            assertTrue(result.isFailure)
-            assertFalse(deletingIds.value.contains("memo_1"))
-        }
-
-    @Test
-    fun `rolls back deleting marker on cancellation`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
-
-            var cancelled = false
-            try {
-                runDeleteAnimationWithRollback(
-                    itemId = "memo_1",
-                    deletingIds = deletingIds,
-                ) {
-                    throw CancellationException("cancel")
-                }
-            } catch (_: CancellationException) {
-                cancelled = true
+                ((result.isSuccess)) shouldBe true
+                ((deletingIds.value.contains("memo_1"))) shouldBe true
             }
-
-            assertTrue(cancelled)
-            assertFalse(deletingIds.value.contains("memo_1"))
         }
+    }
 
-    @Test
-    fun `marks all deleting ids on bulk success`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
+    init {
+        test("rolls back deleting marker on failure") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
 
-            val result =
-                runDeleteAnimationWithRollback(
-                    itemIds = setOf("memo_1", "memo_2"),
-                    deletingIds = deletingIds,
-                ) {
-                    Unit
-                }
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemId = "memo_1",
+                        deletingIds = deletingIds,
+                    ) {
+                        throw IllegalStateException("delete failed")
+                    }
 
-            assertTrue(result.isSuccess)
-            assertTrue(deletingIds.value.containsAll(setOf("memo_1", "memo_2")))
-        }
-
-    @Test
-    fun `rolls back all deleting ids on bulk failure`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
-
-            val result =
-                runDeleteAnimationWithRollback(
-                    itemIds = setOf("memo_1", "memo_2"),
-                    deletingIds = deletingIds,
-                ) {
-                    throw IllegalStateException("bulk delete failed")
-                }
-
-            assertTrue(result.isFailure)
-            assertFalse(deletingIds.value.contains("memo_1"))
-            assertFalse(deletingIds.value.contains("memo_2"))
-        }
-
-    @Test
-    fun `executes mutation immediately without internal delay`() =
-        runTest {
-            val deletingIds = MutableStateFlow(emptySet<String>())
-            var mutationCalled = false
-
-            runDeleteAnimationWithRollback(
-                itemId = "memo_1",
-                deletingIds = deletingIds,
-            ) {
-                mutationCalled = true
+                ((result.isFailure)) shouldBe true
+                ((deletingIds.value.contains("memo_1"))) shouldBe false
             }
-
-            assertTrue(mutationCalled)
-            assertTrue(deletingIds.value.contains("memo_1"))
         }
+    }
+
+    init {
+        test("rolls back deleting marker on cancellation") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
+
+                var cancelled = false
+                try {
+                    runDeleteAnimationWithRollback(
+                        itemId = "memo_1",
+                        deletingIds = deletingIds,
+                    ) {
+                        throw CancellationException("cancel")
+                    }
+                } catch (_: CancellationException) {
+                    cancelled = true
+                }
+
+                ((cancelled)) shouldBe true
+                ((deletingIds.value.contains("memo_1"))) shouldBe false
+            }
+        }
+    }
+
+    init {
+        test("marks all deleting ids on bulk success") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
+
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemIds = setOf("memo_1", "memo_2"),
+                        deletingIds = deletingIds,
+                    ) {
+                        Unit
+                    }
+
+                ((result.isSuccess)) shouldBe true
+                ((deletingIds.value.containsAll(setOf("memo_1", "memo_2")))) shouldBe true
+            }
+        }
+    }
+
+    init {
+        test("rolls back all deleting ids on bulk failure") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
+
+                val result =
+                    runDeleteAnimationWithRollback(
+                        itemIds = setOf("memo_1", "memo_2"),
+                        deletingIds = deletingIds,
+                    ) {
+                        throw IllegalStateException("bulk delete failed")
+                    }
+
+                ((result.isFailure)) shouldBe true
+                ((deletingIds.value.contains("memo_1"))) shouldBe false
+                ((deletingIds.value.contains("memo_2"))) shouldBe false
+            }
+        }
+    }
+
+    init {
+        test("executes mutation immediately without internal delay") {
+            runTest {
+                val deletingIds = MutableStateFlow(emptySet<String>())
+                var mutationCalled = false
+
+                runDeleteAnimationWithRollback(
+                    itemId = "memo_1",
+                    deletingIds = deletingIds,
+                ) {
+                    mutationCalled = true
+                }
+
+                ((mutationCalled)) shouldBe true
+                ((deletingIds.value.contains("memo_1"))) shouldBe true
+            }
+        }
+    }
+
 }

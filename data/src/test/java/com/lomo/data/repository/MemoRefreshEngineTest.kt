@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
 import com.lomo.data.local.entity.MemoEntity
@@ -13,10 +14,10 @@ import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import io.mockk.slot
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
  * Test Contract:
@@ -28,7 +29,26 @@ import org.junit.Test
  *   instead of entering a pending-deletion confirmation state.
  * - Excludes: Room transaction behavior, parser internals, and storage backend implementation details.
  */
-class MemoRefreshEngineTest {
+class MemoRefreshEngineTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("refresh uses directory-scoped local file state queries without per-file probes") { `refresh uses directory-scoped local file state queries without per-file probes`() }
+
+        test("refresh keeps first confirmed missing main file pending instead of deleting immediately") { `refresh keeps first confirmed missing main file pending instead of deleting immediately`() }
+
+        test("refresh keeps confirmed missing main file in delete set after second confirmation") { `refresh keeps confirmed missing main file in delete set after second confirmation`() }
+
+        test("refresh clears pending missing state when file reappears unchanged") { `refresh clears pending missing state when file reappears unchanged`() }
+
+        test("refresh target routes imported file updates through shared applier instead of direct inserts") { `refresh target routes imported file updates through shared applier instead of direct inserts`() }
+
+        test("refresh target routes missing imported file through shared applier delete set") { `refresh target routes missing imported file through shared applier delete set`() }
+    }
+
+
     @MockK
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
@@ -43,8 +63,7 @@ class MemoRefreshEngineTest {
 
     private lateinit var engine: MemoRefreshEngine
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         engine =
             MemoRefreshEngine(
@@ -56,8 +75,7 @@ class MemoRefreshEngineTest {
             )
     }
 
-    @Test
-    fun `refresh uses directory-scoped local file state queries without per-file probes`() =
+    private fun `refresh uses directory-scoped local file state queries without per-file probes`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -83,11 +101,10 @@ class MemoRefreshEngineTest {
                 markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, any())
             }
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
-            assertEquals(emptySet<Pair<String, Boolean>>(), capturedDeleteSet.captured)
+            capturedDeleteSet.captured shouldBe emptySet<Pair<String, Boolean>>()
         }
 
-    @Test
-    fun `refresh keeps first confirmed missing main file pending instead of deleting immediately`() =
+    private fun `refresh keeps first confirmed missing main file pending instead of deleting immediately`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -110,14 +127,13 @@ class MemoRefreshEngineTest {
 
             coVerify(exactly = 1) { localFileStateDao.upsertAll(capture(capturedStateUpdates)) }
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
-            assertEquals(emptySet<Pair<String, Boolean>>(), capturedDeleteSet.captured)
-            assertEquals(1, capturedStateUpdates.captured.size)
-            assertEquals(1, capturedStateUpdates.captured.single().missingCount)
-            assertNotNull(capturedStateUpdates.captured.single().missingSince)
+            capturedDeleteSet.captured shouldBe emptySet<Pair<String, Boolean>>()
+            capturedStateUpdates.captured.size shouldBe 1
+            capturedStateUpdates.captured.single().missingCount shouldBe 1
+            capturedStateUpdates.captured.single().missingSince.shouldNotBeNull()
         }
 
-    @Test
-    fun `refresh keeps confirmed missing main file in delete set after second confirmation`() =
+    private fun `refresh keeps confirmed missing main file in delete set after second confirmation`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -140,11 +156,10 @@ class MemoRefreshEngineTest {
             engine.refresh()
 
             coVerify(exactly = 1) { refreshDbApplier.apply(parseResult, capture(capturedDeleteSet)) }
-            assertEquals(setOf("2026_03_25.md" to false), capturedDeleteSet.captured)
+            capturedDeleteSet.captured shouldBe setOf("2026_03_25.md" to false)
         }
 
-    @Test
-    fun `refresh clears pending missing state when file reappears unchanged`() =
+    private fun `refresh clears pending missing state when file reappears unchanged`() =
         runTest {
             val knownState =
                 LocalFileStateEntity(
@@ -175,13 +190,12 @@ class MemoRefreshEngineTest {
             engine.refresh()
 
             coVerify(exactly = 1) { localFileStateDao.upsertAll(capture(capturedStateUpdates)) }
-            assertEquals(1, capturedStateUpdates.captured.size)
-            assertEquals(0, capturedStateUpdates.captured.single().missingCount)
-            assertEquals(null, capturedStateUpdates.captured.single().missingSince)
+            capturedStateUpdates.captured.size shouldBe 1
+            capturedStateUpdates.captured.single().missingCount shouldBe 0
+            capturedStateUpdates.captured.single().missingSince shouldBe null
         }
 
-    @Test
-    fun `refresh target routes imported file updates through shared applier instead of direct inserts`() =
+    private fun `refresh target routes imported file updates through shared applier instead of direct inserts`() =
         runTest {
             val targetFilename = "2026_03_25.md"
             val refreshedFile =
@@ -231,16 +245,12 @@ class MemoRefreshEngineTest {
 
             coVerify(exactly = 1) { refreshDbApplier.apply(capture(capturedParseResult), emptySet()) }
             coVerify(exactly = 0) { localFileStateDao.upsert(any()) }
-            assertEquals(setOf("2026_03_25"), capturedParseResult.captured.mainDatesToReplace)
-            assertEquals(listOf("memo-imported"), capturedParseResult.captured.mainMemos.map { it.id })
-            assertEquals(
-                listOf(refreshedFile.lastModified),
-                capturedParseResult.captured.metadataToUpdate.map { it.lastKnownModifiedTime },
-            )
+            capturedParseResult.captured.mainDatesToReplace shouldBe setOf("2026_03_25")
+            capturedParseResult.captured.mainMemos.map { it.id } shouldBe listOf("memo-imported")
+            capturedParseResult.captured.metadataToUpdate.map { it.lastKnownModifiedTime } shouldBe listOf(refreshedFile.lastModified)
         }
 
-    @Test
-    fun `refresh target routes missing imported file through shared applier delete set`() =
+    private fun `refresh target routes missing imported file through shared applier delete set`() =
         runTest {
             val targetFilename = "2026_03_25.md"
             val capturedParseResult = slot<MemoRefreshParseResult>()
@@ -255,8 +265,8 @@ class MemoRefreshEngineTest {
             coVerify(exactly = 1) {
                 refreshDbApplier.apply(capture(capturedParseResult), capture(capturedDeleteSet))
             }
-            assertEquals(emptyList<MemoEntity>(), capturedParseResult.captured.mainMemos)
-            assertEquals(setOf(targetFilename to false), capturedDeleteSet.captured)
+            capturedParseResult.captured.mainMemos shouldBe emptyList<MemoEntity>()
+            capturedDeleteSet.captured shouldBe setOf(targetFilename to false)
         }
 
     private fun emptyParseResult() =

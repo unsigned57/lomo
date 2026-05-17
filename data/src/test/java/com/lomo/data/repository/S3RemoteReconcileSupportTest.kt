@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.s3.S3RemoteListPage
 import com.lomo.data.s3.S3RemoteObject
 import com.lomo.data.sync.SyncDirectoryLayout
@@ -10,12 +11,13 @@ import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncScanPolicy
 import com.lomo.domain.model.S3SyncReason
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
  * Test Contract:
@@ -25,7 +27,44 @@ import java.io.File
  * - Red phase: Fails before the fix because scan planning only rotates coarse memo/images/voice shards, reconcile never re-checks indexed entries hidden from a shard listing, and remote-index updates delete missing entries instead of retaining actionable missing/dirty state.
  * - Excludes: AWS SDK transport internals, Room generated DAO SQL, WorkManager execution, and UI rendering.
  */
-class S3RemoteReconcileSupportTest {
+class S3RemoteReconcileSupportTest : DataFunSpec() {
+    init {
+        test("hasFreshRemoteIndex uses endpoint profile specific freshness window") { `hasFreshRemoteIndex uses endpoint profile specific freshness window`() }
+
+        test("shouldRunIncrementalReconcile uses endpoint profile specific interval") { `shouldRunIncrementalReconcile uses endpoint profile specific interval`() }
+
+        test("buildRemoteScanPlan derives hot character shards and keeps cold fallback") { `buildRemoteScanPlan derives hot character shards and keeps cold fallback`() }
+
+        test("buildRemoteScanPlan keeps root fallback for vault root content outside configured folders") { `buildRemoteScanPlan keeps root fallback for vault root content outside configured folders`() }
+
+        test("prepareRemoteReconcile verifies indexed file missing from fully scanned hot shard") { `prepareRemoteReconcile verifies indexed file missing from fully scanned hot shard`() }
+
+        test("prepareRemoteReconcile reads root fallback candidates without full index scan") { `prepareRemoteReconcile reads root fallback candidates without full index scan`() }
+
+        test("prepareRemoteReconcile records shard scan stats after listing a page") { `prepareRemoteReconcile records shard scan stats after listing a page`() }
+
+        test("prepareRemoteReconcile records idle streak and verification failures for shard state") { `prepareRemoteReconcile records idle streak and verification failures for shard state`() }
+
+        test("prepareRemoteReconcile resolves ancestor shard telemetry without scanning the full shard-state table") { `prepareRemoteReconcile resolves ancestor shard telemetry without scanning the full shard-state table`() }
+
+        test("applyRemoteIndexUpdates retains dirty unresolved entries and missing tombstones") { `applyRemoteIndexUpdates retains dirty unresolved entries and missing tombstones`() }
+
+        test("applyRemoteIndexUpdates replaces full snapshot through upsert and diff delete without replaceAll") { `applyRemoteIndexUpdates replaces full snapshot through upsert and diff delete without replaceAll`() }
+
+        test("applyRemoteIndexUpdates replaces full snapshot without loading full entry rows") { `applyRemoteIndexUpdates replaces full snapshot without loading full entry rows`() }
+
+        test("applyRemoteIndexUpdates promotes successful action outcomes into recent activity candidates") { `applyRemoteIndexUpdates promotes successful action outcomes into recent activity candidates`() }
+
+        test("prepareRemoteReconcile expands list page budget for hot high-change shard") { `prepareRemoteReconcile expands list page budget for hot high-change shard`() }
+
+        test("reconcile tuner uses more conservative base budgets for minio profile") { `reconcile tuner uses more conservative base budgets for minio profile`() }
+
+        test("reconcile tuner does not clamp moderate verification failures for minio profile") { `reconcile tuner does not clamp moderate verification failures for minio profile`() }
+
+        test("prepareRemoteReconcile shrinks verification head budget when shard has high failure rate") { `prepareRemoteReconcile shrinks verification head budget when shard has high failure rate`() }
+    }
+
+
     private val layout = SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false)
     private val encodingSupport = S3SyncEncodingSupport()
     private val config =
@@ -42,50 +81,39 @@ class S3RemoteReconcileSupportTest {
             encryptionPassword = null,
         )
 
-    @Test
-    fun `hasFreshRemoteIndex uses endpoint profile specific freshness window`() {
+    private fun `hasFreshRemoteIndex uses endpoint profile specific freshness window`() {
         val now = 20 * 60_000L
         val protocolState = S3SyncProtocolState(lastFullRemoteScanAt = now - 10 * 60_000L)
 
-        assertTrue(
-            protocolState.hasFreshRemoteIndex(
+        (protocolState.hasFreshRemoteIndex(
                 config.copy(endpointProfile = S3EndpointProfile.AWS_S3),
                 now = now,
-            ),
-        )
-        assertFalse(
-            protocolState.hasFreshRemoteIndex(
+            )).shouldBeTrue()
+        (protocolState.hasFreshRemoteIndex(
                 config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
                 now = now,
-            ),
-        )
+            )).shouldBeFalse()
     }
 
-    @Test
-    fun `shouldRunIncrementalReconcile uses endpoint profile specific interval`() {
+    private fun `shouldRunIncrementalReconcile uses endpoint profile specific interval`() {
         val now = 3 * 60_000L
         val protocolState = S3SyncProtocolState(lastReconcileAt = now - (2 * 60_000L))
 
-        assertTrue(
-            shouldRunIncrementalReconcile(
+        (shouldRunIncrementalReconcile(
                 policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
                 config = config.copy(endpointProfile = S3EndpointProfile.GENERIC_S3),
                 protocolState = protocolState,
                 now = now,
-            ),
-        )
-        assertFalse(
-            shouldRunIncrementalReconcile(
+            )).shouldBeTrue()
+        (shouldRunIncrementalReconcile(
                 policy = S3SyncScanPolicy.FAST_THEN_RECONCILE,
                 config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
                 protocolState = protocolState,
                 now = now,
-            ),
-        )
+            )).shouldBeFalse()
     }
 
-    @Test
-    fun `buildRemoteScanPlan derives hot character shards and keeps cold fallback`() {
+    private fun `buildRemoteScanPlan derives hot character shards and keeps cold fallback`() {
         val plan =
             buildRemoteScanPlan(
                 layout = layout,
@@ -103,17 +131,16 @@ class S3RemoteReconcileSupportTest {
         val imageHotIndex = plan.indexOfFirst { it.relativePrefix == "lomo/images/c" }
         val imageBaseIndex = plan.indexOfFirst { it.relativePrefix == "lomo/images" }
 
-        assertTrue("expected hot memo shard", memoHotIndex >= 0)
-        assertTrue("expected cold memo fallback shard", memoBaseIndex >= 0)
-        assertTrue("expected hot image shard", imageHotIndex >= 0)
-        assertTrue("expected cold image fallback shard", imageBaseIndex >= 0)
-        assertTrue("hot memo shard should run before its cold fallback", memoHotIndex < memoBaseIndex)
-        assertTrue("hot image shard should run before its cold fallback", imageHotIndex < imageBaseIndex)
-        assertTrue("voice fallback shard should still be present", plan.any { it.relativePrefix == "lomo/voice" })
+        withClue("expected hot memo shard") { (memoHotIndex >= 0).shouldBeTrue() }
+        withClue("expected cold memo fallback shard") { (memoBaseIndex >= 0).shouldBeTrue() }
+        withClue("expected hot image shard") { (imageHotIndex >= 0).shouldBeTrue() }
+        withClue("expected cold image fallback shard") { (imageBaseIndex >= 0).shouldBeTrue() }
+        withClue("hot memo shard should run before its cold fallback") { (memoHotIndex < memoBaseIndex).shouldBeTrue() }
+        withClue("hot image shard should run before its cold fallback") { (imageHotIndex < imageBaseIndex).shouldBeTrue() }
+        withClue("voice fallback shard should still be present") { (plan.any { it.relativePrefix == "lomo/voice" }).shouldBeTrue() }
     }
 
-    @Test
-    fun `buildRemoteScanPlan keeps root fallback for vault root content outside configured folders`() {
+    private fun `buildRemoteScanPlan keeps root fallback for vault root content outside configured folders`() {
         val plan =
             buildRemoteScanPlan(
                 layout = layout,
@@ -137,18 +164,17 @@ class S3RemoteReconcileSupportTest {
         val rootHotPagesIndex = plan.indexOfFirst { it.relativePrefix == "pages.kanban" }
         val rootFallbackIndex = plan.indexOfFirst { it.relativePrefix == null }
 
-        assertTrue("configured memo folder shard should remain", plan.any { it.relativePrefix == "journal" })
-        assertTrue("configured image folder shard should remain", plan.any { it.relativePrefix == "asset" })
-        assertTrue("configured voice folder shard should remain", plan.any { it.relativePrefix == "voice" })
-        assertTrue("vault root should derive a top-level hot shard for indexed generic content", rootHotProjectsIndex >= 0)
-        assertTrue("vault root should derive a second top-level hot shard for indexed generic content", rootHotPagesIndex >= 0)
-        assertTrue("vault root should keep a cold root fallback", rootFallbackIndex >= 0)
-        assertTrue("hot root shards should run before the cold root fallback", rootHotProjectsIndex < rootFallbackIndex)
-        assertTrue("hot root shards should run before the cold root fallback", rootHotPagesIndex < rootFallbackIndex)
+        withClue("configured memo folder shard should remain") { (plan.any { it.relativePrefix == "journal" }).shouldBeTrue() }
+        withClue("configured image folder shard should remain") { (plan.any { it.relativePrefix == "asset" }).shouldBeTrue() }
+        withClue("configured voice folder shard should remain") { (plan.any { it.relativePrefix == "voice" }).shouldBeTrue() }
+        withClue("vault root should derive a top-level hot shard for indexed generic content") { (rootHotProjectsIndex >= 0).shouldBeTrue() }
+        withClue("vault root should derive a second top-level hot shard for indexed generic content") { (rootHotPagesIndex >= 0).shouldBeTrue() }
+        withClue("vault root should keep a cold root fallback") { (rootFallbackIndex >= 0).shouldBeTrue() }
+        withClue("hot root shards should run before the cold root fallback") { (rootHotProjectsIndex < rootFallbackIndex).shouldBeTrue() }
+        withClue("hot root shards should run before the cold root fallback") { (rootHotPagesIndex < rootFallbackIndex).shouldBeTrue() }
     }
 
-    @Test
-    fun `prepareRemoteReconcile verifies indexed file missing from fully scanned hot shard`() =
+    private fun `prepareRemoteReconcile verifies indexed file missing from fully scanned hot shard`() =
         runTest {
             val path = "lomo/memo/apple.md"
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
@@ -160,17 +186,17 @@ class S3RemoteReconcileSupportTest {
                     mode = S3LocalSyncMode.Legacy(),
                     indexedRelativePaths = listOf(path),
                 ).firstOrNull { it.relativePrefix == "lomo/memo/a" }
-            assertNotNull(hotShard)
+            hotShard.shouldNotBeNull()
             val client =
                 ReconcileProbeClient(
                     onList = { throw AssertionError("reconcile should use paged listing") },
                     onListPage = { prefix, continuationToken, _ ->
-                        assertEquals("lomo/memo/a/", prefix)
-                        assertEquals(null, continuationToken)
+                        prefix shouldBe "lomo/memo/a/"
+                        continuationToken shouldBe null
                         S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
                     },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         null
                     },
                 )
@@ -185,19 +211,18 @@ class S3RemoteReconcileSupportTest {
                         S3SyncProtocolState(
                             lastSuccessfulSyncAt = System.currentTimeMillis(),
                             lastFullRemoteScanAt = System.currentTimeMillis(),
-                            remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard!!.bucketId)),
+                            remoteScanCursor = encodeRemoteScanCursor(StoredS3RemoteScanCursor(bucketId = hotShard.bucketId)),
                         ),
                     encodingSupport = encodingSupport,
                     remoteIndexStore = remoteIndexStore,
                 )
 
-            assertEquals(setOf(path), prepared.missingRemotePaths)
-            assertTrue(path in prepared.candidatePaths)
-            assertEquals(listOf(path), client.headKeys)
+            prepared.missingRemotePaths shouldBe setOf(path)
+            (path in prepared.candidatePaths).shouldBeTrue()
+            client.headKeys shouldBe listOf(path)
         }
 
-    @Test
-    fun `prepareRemoteReconcile reads root fallback candidates without full index scan`() =
+    private fun `prepareRemoteReconcile reads root fallback candidates without full index scan`() =
         runTest {
             val rootPath = "Projects/note.md"
             val remoteIndexStore =
@@ -267,12 +292,12 @@ class S3RemoteReconcileSupportTest {
                 ReconcileProbeClient(
                     onList = { throw AssertionError("reconcile should use paged listing") },
                     onListPage = { prefix, continuationToken, _ ->
-                        assertEquals("", prefix)
-                        assertEquals(null, continuationToken)
+                        prefix shouldBe ""
+                        continuationToken shouldBe null
                         S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
                     },
                     onGetObjectMetadata = { key ->
-                        assertTrue(key == rootPath || key == "journal/entry.md")
+                        (key == rootPath || key == "journal/entry.md").shouldBeTrue()
                         null
                     },
                 )
@@ -300,12 +325,11 @@ class S3RemoteReconcileSupportTest {
                     remoteIndexStore = remoteIndexStore,
                 )
 
-            assertTrue(rootPath in prepared.missingRemotePaths)
-            assertTrue(rootPath in client.headKeys)
+            (rootPath in prepared.missingRemotePaths).shouldBeTrue()
+            (rootPath in client.headKeys).shouldBeTrue()
         }
 
-    @Test
-    fun `prepareRemoteReconcile records shard scan stats after listing a page`() =
+    private fun `prepareRemoteReconcile records shard scan stats after listing a page`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -314,9 +338,9 @@ class S3RemoteReconcileSupportTest {
                 ReconcileProbeClient(
                     onList = { throw AssertionError("reconcile should use paged listing") },
                     onListPage = { prefix, continuationToken, maxKeys ->
-                        assertEquals("lomo/memo/", prefix)
-                        assertEquals(null, continuationToken)
-                        assertEquals(256, maxKeys)
+                        prefix shouldBe "lomo/memo/"
+                        continuationToken shouldBe null
+                        maxKeys shouldBe 256
                         S3RemoteListPage(
                             objects =
                                 listOf(
@@ -350,16 +374,15 @@ class S3RemoteReconcileSupportTest {
                 )
 
             val shardState = requireNotNull(shardStateStore.readByBucketId(S3_SCAN_BUCKET_MEMO))
-            assertTrue(listedPath in prepared.candidatePaths)
-            assertEquals("lomo/memo", shardState.relativePrefix)
-            assertEquals(1, shardState.lastObjectCount)
-            assertTrue("shard scan timestamp should be recorded", shardState.lastScannedAt > 0L)
-            assertTrue("shard scan duration should be recorded", shardState.lastDurationMs >= 0L)
-            assertEquals("listed objects should count as observed changes", 1, shardState.lastChangeCount)
+            (listedPath in prepared.candidatePaths).shouldBeTrue()
+            shardState.relativePrefix shouldBe "lomo/memo"
+            shardState.lastObjectCount shouldBe 1
+            withClue("shard scan timestamp should be recorded") { (shardState.lastScannedAt > 0L).shouldBeTrue() }
+            withClue("shard scan duration should be recorded") { (shardState.lastDurationMs >= 0L).shouldBeTrue() }
+            withClue("listed objects should count as observed changes") { shardState.lastChangeCount shouldBe 1 }
         }
 
-    @Test
-    fun `prepareRemoteReconcile records idle streak and verification failures for shard state`() =
+    private fun `prepareRemoteReconcile records idle streak and verification failures for shard state`() =
         runTest {
             val path = "lomo/memo/apple.md"
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
@@ -414,14 +437,13 @@ class S3RemoteReconcileSupportTest {
                 )
 
             val shardState = requireNotNull(shardStateStore.readByBucketId(hotShard.bucketId))
-            assertEquals(setOf(path), prepared.missingRemotePaths)
-            assertEquals(0, shardState.idleScanStreak)
-            assertEquals(1, shardState.lastVerificationAttemptCount)
-            assertEquals(1, shardState.lastVerificationFailureCount)
+            prepared.missingRemotePaths shouldBe setOf(path)
+            shardState.idleScanStreak shouldBe 0
+            shardState.lastVerificationAttemptCount shouldBe 1
+            shardState.lastVerificationFailureCount shouldBe 1
         }
 
-    @Test
-    fun `prepareRemoteReconcile resolves ancestor shard telemetry without scanning the full shard-state table`() =
+    private fun `prepareRemoteReconcile resolves ancestor shard telemetry without scanning the full shard-state table`() =
         runTest {
             val path = "lomo/memo/apple.md"
             val remoteIndexStore = InMemoryS3RemoteIndexStore().apply {
@@ -500,11 +522,10 @@ class S3RemoteReconcileSupportTest {
                     shardStateStore = shardStateStore,
                 )
 
-            assertEquals(setOf(path), prepared.missingRemotePaths)
+            prepared.missingRemotePaths shouldBe setOf(path)
         }
 
-    @Test
-    fun `applyRemoteIndexUpdates retains dirty unresolved entries and missing tombstones`() =
+    private fun `applyRemoteIndexUpdates retains dirty unresolved entries and missing tombstones`() =
         runTest {
             val unresolvedPath = "lomo/memo/note.md"
             val missingPath = "lomo/memo/gone.md"
@@ -577,14 +598,13 @@ class S3RemoteReconcileSupportTest {
             val unresolved = requireNotNull(byPath[unresolvedPath])
             val missing = requireNotNull(byPath[missingPath])
 
-            assertTrue("unresolved entry should stay dirty", unresolved.dirtySuspect)
-            assertTrue("unresolved entry should be promoted for follow-up verification", unresolved.scanPriority > 10)
-            assertTrue("missing entry should be retained as a tombstone", missing.missingOnLastScan)
-            assertTrue("missing entry should stay hot for verification", missing.dirtySuspect)
+            withClue("unresolved entry should stay dirty") { (unresolved.dirtySuspect).shouldBeTrue() }
+            withClue("unresolved entry should be promoted for follow-up verification") { (unresolved.scanPriority > 10).shouldBeTrue() }
+            withClue("missing entry should be retained as a tombstone") { (missing.missingOnLastScan).shouldBeTrue() }
+            withClue("missing entry should stay hot for verification") { (missing.dirtySuspect).shouldBeTrue() }
         }
 
-    @Test
-    fun `applyRemoteIndexUpdates replaces full snapshot through upsert and diff delete without replaceAll`() =
+    private fun `applyRemoteIndexUpdates replaces full snapshot through upsert and diff delete without replaceAll`() =
         runTest {
             val keptPath = "lomo/memo/keep.md"
             val refreshedPath = "lomo/memo/refresh.md"
@@ -655,16 +675,15 @@ class S3RemoteReconcileSupportTest {
             )
 
             val byPath = remoteIndexStore.readAll().associateBy(S3RemoteIndexEntry::relativePath)
-            assertEquals(0, remoteIndexStore.replaceAllCalls)
-            assertEquals(setOf(removedPath), remoteIndexStore.deletedPaths)
-            assertEquals(setOf(keptPath, refreshedPath), remoteIndexStore.upsertedPaths)
-            assertTrue("full snapshot should delete paths missing from the new scan", removedPath !in byPath)
-            assertEquals(9L, byPath[keptPath]?.scanEpoch)
-            assertEquals(9L, byPath[refreshedPath]?.scanEpoch)
+            remoteIndexStore.replaceAllCalls shouldBe 0
+            remoteIndexStore.deletedPaths shouldBe setOf(removedPath)
+            remoteIndexStore.upsertedPaths shouldBe setOf(keptPath, refreshedPath)
+            withClue("full snapshot should delete paths missing from the new scan") { (removedPath !in byPath).shouldBeTrue() }
+            byPath[keptPath]?.scanEpoch shouldBe 9L
+            byPath[refreshedPath]?.scanEpoch shouldBe 9L
         }
 
-    @Test
-    fun `applyRemoteIndexUpdates replaces full snapshot without loading full entry rows`() =
+    private fun `applyRemoteIndexUpdates replaces full snapshot without loading full entry rows`() =
         runTest {
             val keptPath = "lomo/memo/keep.md"
             val removedPath = "lomo/memo/remove.md"
@@ -724,12 +743,11 @@ class S3RemoteReconcileSupportTest {
                 now = 300L,
             )
 
-            assertEquals(setOf(removedPath), remoteIndexStore.deletedPaths)
-            assertEquals(0, remoteIndexStore.readAllCalls)
+            remoteIndexStore.deletedPaths shouldBe setOf(removedPath)
+            remoteIndexStore.readAllCalls shouldBe 0
         }
 
-    @Test
-    fun `applyRemoteIndexUpdates promotes successful action outcomes into recent activity candidates`() =
+    private fun `applyRemoteIndexUpdates promotes successful action outcomes into recent activity candidates`() =
         runTest {
             val path = "lomo/memo/recent.md"
             val remoteIndexStore =
@@ -778,14 +796,13 @@ class S3RemoteReconcileSupportTest {
             )
 
             val recent = requireNotNull(remoteIndexStore.readByRelativePaths(listOf(path)).singleOrNull())
-            assertEquals(5L, recent.scanEpoch)
-            assertTrue("successful actions should stay warm for planner seeds", recent.scanPriority > 100)
-            assertTrue("successful actions should refresh planner recency", recent.lastSeenAt >= 420L)
-            assertTrue("successful actions should remain present, not tombstoned", !recent.missingOnLastScan)
+            recent.scanEpoch shouldBe 5L
+            withClue("successful actions should stay warm for planner seeds") { (recent.scanPriority > 100).shouldBeTrue() }
+            withClue("successful actions should refresh planner recency") { (recent.lastSeenAt >= 420L).shouldBeTrue() }
+            withClue("successful actions should remain present, not tombstoned") { (!recent.missingOnLastScan).shouldBeTrue() }
         }
 
-    @Test
-    fun `prepareRemoteReconcile expands list page budget for hot high-change shard`() =
+    private fun `prepareRemoteReconcile expands list page budget for hot high-change shard`() =
         runTest {
             val shardStateStore = InMemoryS3RemoteShardStateStore().apply {
                 upsert(
@@ -808,7 +825,7 @@ class S3RemoteReconcileSupportTest {
             val client =
                 ReconcileProbeClient(
                     onListPage = { prefix, _, maxKeys ->
-                        assertEquals("lomo/memo/", prefix)
+                        prefix shouldBe "lomo/memo/"
                         observedMaxKeys = maxKeys
                         S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
                     },
@@ -829,11 +846,10 @@ class S3RemoteReconcileSupportTest {
                 shardStateStore = shardStateStore,
             )
 
-            assertTrue("hot changing shard should receive a larger list-page budget", observedMaxKeys > 256)
+            withClue("hot changing shard should receive a larger list-page budget") { (observedMaxKeys > 256).shouldBeTrue() }
         }
 
-    @Test
-    fun `reconcile tuner uses more conservative base budgets for minio profile`() {
+    private fun `reconcile tuner uses more conservative base budgets for minio profile`() {
         val tuning =
             S3RemoteReconcileTuner().tune(
                 config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
@@ -841,13 +857,12 @@ class S3RemoteReconcileSupportTest {
                 activeShardState = null,
             )
 
-        assertEquals(192, tuning.pageSize)
-        assertEquals(10, tuning.headLimit)
-        assertEquals(2, tuning.headConcurrency)
+        tuning.pageSize shouldBe 192
+        tuning.headLimit shouldBe 10
+        tuning.headConcurrency shouldBe 2
     }
 
-    @Test
-    fun `reconcile tuner does not clamp moderate verification failures for minio profile`() {
+    private fun `reconcile tuner does not clamp moderate verification failures for minio profile`() {
         val tuning =
             S3RemoteReconcileTuner().tune(
                 config = config.copy(endpointProfile = S3EndpointProfile.MINIO_COMPAT),
@@ -866,12 +881,11 @@ class S3RemoteReconcileSupportTest {
                     ),
             )
 
-        assertEquals(10, tuning.headLimit)
-        assertEquals(2, tuning.headConcurrency)
+        tuning.headLimit shouldBe 10
+        tuning.headConcurrency shouldBe 2
     }
 
-    @Test
-    fun `prepareRemoteReconcile shrinks verification head budget when shard has high failure rate`() =
+    private fun `prepareRemoteReconcile shrinks verification head budget when shard has high failure rate`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -925,8 +939,8 @@ class S3RemoteReconcileSupportTest {
                     shardStateStore = shardStateStore,
                 )
 
-            assertTrue("high-failure shards should verify fewer candidates per cycle", client.headKeys.size in 1..8)
-            assertEquals(client.headKeys.size, prepared.missingRemotePaths.size)
+            withClue("high-failure shards should verify fewer candidates per cycle") { (client.headKeys.size in 1..8).shouldBeTrue() }
+            prepared.missingRemotePaths.size shouldBe client.headKeys.size
         }
 
     private fun remoteIndexEntry(

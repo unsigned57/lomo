@@ -1,19 +1,19 @@
 package com.lomo.app.feature.settings
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.MemoSnapshotPreferencesRepository
 import com.lomo.domain.repository.MemoVersionRepository
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.coVerifyOrder
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -23,56 +23,60 @@ import org.junit.Test
  * - Red phase: Fails if Settings stops exposing memo snapshot preferences or stops clearing memo rollback history when snapshot capture is disabled.
  * - Excludes: Compose rendering, DataStore serialization internals, and removed day-file snapshot UI.
  */
-class SettingsAppConfigCoordinatorSnapshotTest {
+class SettingsAppConfigCoordinatorSnapshotTest : AppFunSpec() {
     private val switchRootStorageUseCase: SwitchRootStorageUseCase = mockk(relaxed = true)
     private val memoSnapshotPreferencesRepository: MemoSnapshotPreferencesRepository = mockk(relaxed = true)
     private val memoVersionRepository: MemoVersionRepository = mockk(relaxed = true)
     private val appConfigRepository: AppConfigRepository = mockk(relaxed = true)
 
-    @Test
-    fun `memo snapshot flows expose repository values`() =
-        runTest {
-            val memoCount = 50
-            val memoDays = 90
-            every { memoSnapshotPreferencesRepository.isMemoSnapshotsEnabled() } returns flowOf(false)
-            every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxCount() } returns flowOf(memoCount)
-            every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxAgeDays() } returns flowOf(memoDays)
-            stubAppConfigRepository()
+    init {
+        test("memo snapshot flows expose repository values") {
+            runTest {
+                val memoCount = 50
+                val memoDays = 90
+                every { memoSnapshotPreferencesRepository.isMemoSnapshotsEnabled() } returns flowOf(false)
+                every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxCount() } returns flowOf(memoCount)
+                every { memoSnapshotPreferencesRepository.getMemoSnapshotMaxAgeDays() } returns flowOf(memoDays)
+                stubAppConfigRepository()
 
-            val coordinator =
-                SettingsAppConfigCoordinator(
-                    appConfigRepository = appConfigRepository,
-                    switchRootStorageUseCase = switchRootStorageUseCase,
-                    scope = backgroundScope,
-                    memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
-                    memoVersionRepository = memoVersionRepository,
-                )
+                val coordinator =
+                    SettingsAppConfigCoordinator(
+                        appConfigRepository = appConfigRepository,
+                        switchRootStorageUseCase = switchRootStorageUseCase,
+                        scope = backgroundScope,
+                        memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                        memoVersionRepository = memoVersionRepository,
+                    )
 
-            assertEquals(false, coordinator.memoSnapshotsEnabled.first { it == false })
-            assertEquals(memoCount, coordinator.memoSnapshotMaxCount.first { it == memoCount })
-            assertEquals(memoDays, coordinator.memoSnapshotMaxAgeDays.first { it == memoDays })
-        }
-
-    @Test
-    fun `disabling memo snapshots turns off recording and clears rollback history`() =
-        runTest {
-            stubAppConfigRepository()
-            val coordinator =
-                SettingsAppConfigCoordinator(
-                    appConfigRepository = appConfigRepository,
-                    switchRootStorageUseCase = switchRootStorageUseCase,
-                    scope = backgroundScope,
-                    memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
-                    memoVersionRepository = memoVersionRepository,
-                )
-
-            coordinator.updateMemoSnapshotsEnabled(false)
-
-            coVerifyOrder {
-                memoSnapshotPreferencesRepository.setMemoSnapshotsEnabled(false)
-                memoVersionRepository.clearAllMemoSnapshots()
+                (coordinator.memoSnapshotsEnabled.first { it == false }) shouldBe (false)
+                (coordinator.memoSnapshotMaxCount.first { it == memoCount }) shouldBe (memoCount)
+                (coordinator.memoSnapshotMaxAgeDays.first { it == memoDays }) shouldBe (memoDays)
             }
         }
+    }
+
+    init {
+        test("disabling memo snapshots turns off recording and clears rollback history") {
+            runTest {
+                stubAppConfigRepository()
+                val coordinator =
+                    SettingsAppConfigCoordinator(
+                        appConfigRepository = appConfigRepository,
+                        switchRootStorageUseCase = switchRootStorageUseCase,
+                        scope = backgroundScope,
+                        memoSnapshotPreferencesRepository = memoSnapshotPreferencesRepository,
+                        memoVersionRepository = memoVersionRepository,
+                    )
+
+                coordinator.updateMemoSnapshotsEnabled(false)
+
+                coVerifyOrder {
+                    memoSnapshotPreferencesRepository.setMemoSnapshotsEnabled(false)
+                    memoVersionRepository.clearAllMemoSnapshots()
+                }
+            }
+        }
+    }
 
     private fun stubAppConfigRepository() {
         every { appConfigRepository.observeRootDisplayName() } returns flowOf("")

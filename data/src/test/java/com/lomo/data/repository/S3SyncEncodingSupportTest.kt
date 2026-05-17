@@ -1,12 +1,12 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.nio.charset.StandardCharsets
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -16,7 +16,16 @@ import java.nio.charset.StandardCharsets
  * - Red phase: Fails before the fix because the S3 key contract was still coupled to the legacy lomo/ path model instead of vault-root-relative paths.
  * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
  */
-class S3SyncEncodingSupportTest {
+class S3SyncEncodingSupportTest : DataFunSpec() {
+    init {
+        test("remotePathFor and decodeRelativePath round-trip in rclone crypt mode") { `remotePathFor and decodeRelativePath round-trip in rclone crypt mode`() }
+
+        test("remotePathFor preserves vault root relative path when prefix is empty") { `remotePathFor preserves vault root relative path when prefix is empty`() }
+
+        test("encodeContent and decodeContent round-trip in rclone crypt mode") { `encodeContent and decodeContent round-trip in rclone crypt mode`() }
+    }
+
+
     private val support = S3SyncEncodingSupport()
 
     private val rcloneConfig =
@@ -33,33 +42,30 @@ class S3SyncEncodingSupportTest {
             encryptionPassword = "secret-pass",
         )
 
-    @Test
-    fun `remotePathFor and decodeRelativePath round-trip in rclone crypt mode`() {
+    private fun `remotePathFor and decodeRelativePath round-trip in rclone crypt mode`() {
         val relativePath = "Projects/2026_03_24.md"
 
         val remotePath = support.remotePathFor(relativePath, rcloneConfig)
 
-        assertTrue(remotePath.startsWith("vault/"))
-        assertEquals(relativePath, support.decodeRelativePath(remotePath, rcloneConfig))
+        (remotePath.startsWith("vault/")).shouldBeTrue()
+        support.decodeRelativePath(remotePath, rcloneConfig) shouldBe relativePath
     }
 
-    @Test
-    fun `remotePathFor preserves vault root relative path when prefix is empty`() {
+    private fun `remotePathFor preserves vault root relative path when prefix is empty`() {
         val config = rcloneConfig.copy(prefix = "")
         val relativePath = "attachments/screenshots/shot.png"
 
         val remotePath = support.remotePathFor(relativePath, config)
 
-        assertEquals(relativePath, support.decodeRelativePath(remotePath, config))
-        assertTrue(!remotePath.startsWith("/"))
+        support.decodeRelativePath(remotePath, config) shouldBe relativePath
+        (!remotePath.startsWith("/")).shouldBeTrue()
     }
 
-    @Test
-    fun `encodeContent and decodeContent round-trip in rclone crypt mode`() {
+    private fun `encodeContent and decodeContent round-trip in rclone crypt mode`() {
         val plaintext = "hello rclone crypt".toByteArray(StandardCharsets.UTF_8)
 
         val encrypted = support.encodeContent(plaintext, rcloneConfig)
 
-        assertArrayEquals(plaintext, support.decodeContent(encrypted, rcloneConfig))
+        support.decodeContent(encrypted, rcloneConfig) shouldBe plaintext
     }
 }

@@ -1,14 +1,15 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.sync.Semaphore
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -21,7 +22,16 @@ import kotlinx.coroutines.sync.Semaphore
  *   separate lane classification and a saturated large-transfer lane cannot let a small transfer proceed.
  * - Excludes: AWS SDK transport behavior, executor wiring beyond lane selection, and memo refresh side effects.
  */
-class S3LargeTransferPolicyTest {
+class S3LargeTransferPolicyTest : DataFunSpec() {
+    init {
+        test("small transfer routes to the small lane") { `small transfer routes to the small lane`() }
+
+        test("large upload routes to the large lane") { `large upload routes to the large lane`() }
+
+        test("small transfer still completes while the large lane is saturated") { `small transfer still completes while the large lane is saturated`() }
+    }
+
+
     /*
      * Test Change Justification:
      * - Reason category: product contract changed.
@@ -30,22 +40,19 @@ class S3LargeTransferPolicyTest {
      * - Coverage preserved by: the retained small-transfer assertion plus the updated large-transfer assertion that still proves heavy work is throttled above the small-file baseline.
      * - Why this is not fitting the test to the implementation: the new assertion protects the user-visible performance goal from `task.md`, not a private refactor detail.
      */
-    @Test
-    fun `small transfer routes to the small lane`() {
+    private fun `small transfer routes to the small lane`() {
         val lane = laneForS3Action(action = smallDownloadAction(), localFiles = emptyMap(), remoteFiles = smallRemoteFiles(), metadataByPath = emptyMap())
 
-        assertEquals(S3ActionLane.SMALL, lane)
+        lane shouldBe S3ActionLane.SMALL
     }
 
-    @Test
-    fun `large upload routes to the large lane`() {
+    private fun `large upload routes to the large lane`() {
         val lane = laneForS3Action(action = largeUploadAction(), localFiles = largeLocalFiles(), remoteFiles = emptyMap(), metadataByPath = emptyMap())
 
-        assertEquals(S3ActionLane.LARGE, lane)
+        lane shouldBe S3ActionLane.LARGE
     }
 
-    @Test
-    fun `small transfer still completes while the large lane is saturated`() =
+    private fun `small transfer still completes while the large lane is saturated`() =
         runTest {
             val smallLane = Semaphore(1)
             val largeLane = Semaphore(1)
@@ -77,10 +84,10 @@ class S3LargeTransferPolicyTest {
                 smallCompleted = true
             }
 
-            assertTrue(smallCompleted)
-            assertFalse(largeBlocked.isCompleted)
+            (smallCompleted).shouldBeTrue()
+            (largeBlocked.isCompleted).shouldBeFalse()
             largeLane.release()
-            assertEquals("large-completed", largeBlocked.await())
+            largeBlocked.await() shouldBe "large-completed"
         }
 
     private fun smallDownloadAction() =

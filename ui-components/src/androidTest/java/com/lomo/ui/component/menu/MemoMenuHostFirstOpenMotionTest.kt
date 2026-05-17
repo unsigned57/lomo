@@ -44,6 +44,7 @@ class MemoMenuHostFirstOpenMotionTest {
                 LocalBenchmarkAnchorConfig provides BenchmarkAnchorConfig(enabled = true),
             ) {
                 MaterialTheme {
+                    PrewarmMemoMenuMotion()
                     MemoMenuHost(
                         onEdit = {},
                         onDelete = {},

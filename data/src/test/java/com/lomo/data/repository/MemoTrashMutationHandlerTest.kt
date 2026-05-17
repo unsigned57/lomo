@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.local.dao.LocalFileStateDao
@@ -13,10 +14,10 @@ import io.mockk.coVerify
 import io.mockk.coVerifyOrder
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -26,7 +27,44 @@ import org.junit.Test
  * - Red phase: Fails before the fix because top-level trash restore and permanent delete paths only log missing blocks instead of rejecting the unsafe mutation.
  * - Excludes: MemoTextProcessor internals, storage backend implementation details, and UI rendering behavior.
  */
-class MemoTrashMutationHandlerTest {
+class MemoTrashMutationHandlerTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setup()
+        }
+
+        test("moveToTrashFileOnly deletes main file and main local state when removed block empties file") { `moveToTrashFileOnly deletes main file and main local state when removed block empties file`() }
+
+        test("moveToTrashFileOnly rewrites main file and upserts main slash trash states when content remains") { `moveToTrashFileOnly rewrites main file and upserts main slash trash states when content remains`() }
+
+        test("restoreFromTrashFileOnly returns false and skips side effects when block is absent") { `restoreFromTrashFileOnly returns false and skips side effects when block is absent`() }
+
+        test("restoreFromTrashFileOnly deletes trash file and updates main state when trash becomes empty") { `restoreFromTrashFileOnly deletes trash file and updates main state when trash becomes empty`() }
+
+        test("restoreFromTrashFileOnly rewrites trash before appending back to main when trash content remains") { `restoreFromTrashFileOnly rewrites trash before appending back to main when trash content remains`() }
+
+        test("restoreFromTrashInDb returns false when source memo is missing") { `restoreFromTrashInDb returns false when source memo is missing`() }
+
+        test("moveToTrashInDb avoids direct fts deletion because triggers maintain index") { `moveToTrashInDb avoids direct fts deletion because triggers maintain index`() }
+
+        test("restoreFromTrash throws when target block cannot be matched safely") { shouldThrow<UnsafeWorkspaceMutationException> { `restoreFromTrash throws when target block cannot be matched safely`() } }
+
+        test("restoreFromTrashInDb persists main memo and removes trash row when source exists") { `restoreFromTrashInDb persists main memo and removes trash row when source exists`() }
+
+        test("deleteFromTrashPermanently keeps attachment when referenced by another trash memo") { `deleteFromTrashPermanently keeps attachment when referenced by another trash memo`() }
+
+        test("deleteFromTrashPermanently deletes attachment when no memo references remain") { `deleteFromTrashPermanently deletes attachment when no memo references remain`() }
+
+        test("deleteFromTrashPermanently throws when target block cannot be matched safely") { shouldThrow<UnsafeWorkspaceMutationException> { `deleteFromTrashPermanently throws when target block cannot be matched safely`() } }
+
+        test("deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API") { `deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API`() }
+
+        test("clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo") { `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() }
+
+        test("clearAllTrashPermanently returns without touching storage when given empty list") { `clearAllTrashPermanently returns without touching storage when given empty list`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var fileDataSource: FileDataSource
 
@@ -41,8 +79,7 @@ class MemoTrashMutationHandlerTest {
 
     private lateinit var handler: MemoTrashMutationHandler
 
-    @Before
-    fun setup() {
+    private fun setup() {
         MockKAnnotations.init(this)
         handler =
             MemoTrashMutationHandler(
@@ -59,8 +96,7 @@ class MemoTrashMutationHandlerTest {
             )
     }
 
-    @Test
-    fun `moveToTrashFileOnly deletes main file and main local state when removed block empties file`() =
+    private fun `moveToTrashFileOnly deletes main file and main local state when removed block empties file`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 memo to trash")
             val filename = "${memo.dateKey}.md"
@@ -77,7 +113,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.moveToTrashFileOnly(memo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 1) {
                 fileDataSource.saveFileIn(
                     directory = MemoDirectoryType.TRASH,
@@ -114,8 +150,7 @@ class MemoTrashMutationHandlerTest {
             }
         }
 
-    @Test
-    fun `moveToTrashFileOnly rewrites main file and upserts main slash trash states when content remains`() =
+    private fun `moveToTrashFileOnly rewrites main file and upserts main slash trash states when content remains`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 target memo")
             val filename = "${memo.dateKey}.md"
@@ -144,7 +179,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.moveToTrashFileOnly(memo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 0) { fileDataSource.deleteFileIn(MemoDirectoryType.MAIN, filename, any()) }
             coVerify(exactly = 0) { localFileStateDao.deleteByFilename(filename, false) }
             coVerify(exactly = 1) {
@@ -177,8 +212,7 @@ class MemoTrashMutationHandlerTest {
             }
         }
 
-    @Test
-    fun `restoreFromTrashFileOnly returns false and skips side effects when block is absent`() =
+    private fun `restoreFromTrashFileOnly returns false and skips side effects when block is absent`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 missing memo")
             val filename = "${memo.dateKey}.md"
@@ -189,7 +223,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.restoreFromTrashFileOnly(memo)
 
-            assertFalse(result)
+            (result).shouldBeFalse()
             coVerify(exactly = 0) {
                 fileDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
@@ -203,8 +237,7 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 0) { localFileStateDao.deleteByFilename(any(), any()) }
         }
 
-    @Test
-    fun `restoreFromTrashFileOnly deletes trash file and updates main state when trash becomes empty`() =
+    private fun `restoreFromTrashFileOnly deletes trash file and updates main state when trash becomes empty`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 restore me")
             val filename = "${memo.dateKey}.md"
@@ -218,7 +251,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.restoreFromTrashFileOnly(memo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 1) {
                 fileDataSource.saveFileIn(
                     directory = MemoDirectoryType.MAIN,
@@ -248,8 +281,7 @@ class MemoTrashMutationHandlerTest {
             }
         }
 
-    @Test
-    fun `restoreFromTrashFileOnly rewrites trash before appending back to main when trash content remains`() =
+    private fun `restoreFromTrashFileOnly rewrites trash before appending back to main when trash content remains`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 restore me")
             val filename = "${memo.dateKey}.md"
@@ -267,7 +299,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.restoreFromTrashFileOnly(memo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 1) {
                 fileDataSource.saveFileIn(
                     directory = MemoDirectoryType.TRASH,
@@ -320,21 +352,19 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 0) { localFileStateDao.deleteByFilename(filename, true) }
         }
 
-    @Test
-    fun `restoreFromTrashInDb returns false when source memo is missing`() =
+    private fun `restoreFromTrashInDb returns false when source memo is missing`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 source absent")
             coEvery { memoDao.getTrashMemo(memo.id) } returns null
 
             val result = handler.restoreFromTrashInDb(memo)
 
-            assertFalse(result)
+            (result).shouldBeFalse()
             coVerify(exactly = 0) { memoDao.insertMemo(any()) }
             coVerify(exactly = 0) { memoDao.deleteTrashMemoById(any()) }
         }
 
-    @Test
-    fun `moveToTrashInDb avoids direct fts deletion because triggers maintain index`() =
+    private fun `moveToTrashInDb avoids direct fts deletion because triggers maintain index`() =
         runTest {
             val memo = buildMemo(id = "memo_trash_db")
 
@@ -350,7 +380,6 @@ class MemoTrashMutationHandlerTest {
             }
         }
 
-    @Test(expected = UnsafeWorkspaceMutationException::class)
     fun `restoreFromTrash throws when target block cannot be matched safely`() =
         runTest {
             val memo = buildMemo(rawContent = "- 10:00 restore me")
@@ -360,8 +389,7 @@ class MemoTrashMutationHandlerTest {
             handler.restoreFromTrash(memo)
         }
 
-    @Test
-    fun `restoreFromTrashInDb persists main memo and removes trash row when source exists`() =
+    private fun `restoreFromTrashInDb persists main memo and removes trash row when source exists`() =
         runTest {
             val sourceMemo =
                 buildMemo(
@@ -378,7 +406,7 @@ class MemoTrashMutationHandlerTest {
 
             val result = handler.restoreFromTrashInDb(sourceMemo)
 
-            assertTrue(result)
+            (result).shouldBeTrue()
             coVerify(exactly = 1) {
                 memoDao.insertMemo(
                     match {
@@ -394,8 +422,7 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(sourceMemo.id) }
         }
 
-    @Test
-    fun `deleteFromTrashPermanently keeps attachment when referenced by another trash memo`() =
+    private fun `deleteFromTrashPermanently keeps attachment when referenced by another trash memo`() =
         runTest {
             val memo = buildMemo(attachments = listOf("shared.png"), deleted = true)
             coEvery {
@@ -414,8 +441,7 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
         }
 
-    @Test
-    fun `deleteFromTrashPermanently deletes attachment when no memo references remain`() =
+    private fun `deleteFromTrashPermanently deletes attachment when no memo references remain`() =
         runTest {
             val memo = buildMemo(attachments = listOf("orphan.png"), deleted = true)
             coEvery {
@@ -435,7 +461,6 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 1) { memoDao.deleteTrashMemoById(memo.id) }
         }
 
-    @Test(expected = UnsafeWorkspaceMutationException::class)
     fun `deleteFromTrashPermanently throws when target block cannot be matched safely`() =
         runTest {
             val memo = buildMemo(attachments = listOf("orphan.png"), deleted = true)
@@ -446,8 +471,7 @@ class MemoTrashMutationHandlerTest {
             handler.deleteFromTrashPermanently(memo)
         }
 
-    @Test
-    fun `deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API`() =
+    private fun `deleteFromTrashPermanently routes unreferenced voice attachment to voice deletion API`() =
         runTest {
             val memo = buildMemo(attachments = listOf("voice_123.m4a"), deleted = true)
             coEvery {
@@ -463,8 +487,7 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 0) { fileDataSource.deleteImage("voice_123.m4a") }
         }
 
-    @Test
-    fun `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() =
+    private fun `clearAllTrashPermanently batches by date with one file and DB wipe instead of per memo`() =
         runTest {
             val memoA1 = TrashMemoEntity.fromDomain(buildMemo(id = "a1", deleted = true).copy(dateKey = "2026_03_01"))
             val memoA2 = TrashMemoEntity.fromDomain(buildMemo(id = "a2", deleted = true).copy(dateKey = "2026_03_01"))
@@ -482,8 +505,7 @@ class MemoTrashMutationHandlerTest {
             coVerify(exactly = 0) { fileDataSource.saveFileIn(MemoDirectoryType.TRASH, any(), any(), any(), any()) }
         }
 
-    @Test
-    fun `clearAllTrashPermanently returns without touching storage when given empty list`() =
+    private fun `clearAllTrashPermanently returns without touching storage when given empty list`() =
         runTest {
             handler.clearAllTrashPermanently(emptyList())
 

@@ -1,11 +1,12 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3SyncDirection
 import com.lomo.domain.model.S3SyncReason
 import com.lomo.domain.model.SyncConflictSessionKind
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,9 +16,15 @@ import org.junit.Test
  * - Red phase: Fails before the fix because S3 conflict classification does not distinguish first-sync overlap from normal conflicts, so the executor can only publish generic ConflictDetected.
  * - Excludes: S3 transport, file content merging, Compose rendering, and metadata DAO I/O.
  */
-class S3ConflictSessionClassifierTest {
-    @Test
-    fun `all conflict paths without metadata become initial sync preview`() {
+class S3ConflictSessionClassifierTest : DataFunSpec() {
+    init {
+        test("all conflict paths without metadata become initial sync preview") { `all conflict paths without metadata become initial sync preview`() }
+
+        test("existing metadata keeps conflict in standard session") { `existing metadata keeps conflict in standard session`() }
+    }
+
+
+    private fun `all conflict paths without metadata become initial sync preview`() {
         val actions =
             listOf(
                 S3SyncAction(
@@ -33,11 +40,10 @@ class S3ConflictSessionClassifierTest {
                 metadataByPath = emptyMap(),
             )
 
-        assertEquals(SyncConflictSessionKind.INITIAL_SYNC_PREVIEW, sessionKind)
+        sessionKind shouldBe SyncConflictSessionKind.INITIAL_SYNC_PREVIEW
     }
 
-    @Test
-    fun `existing metadata keeps conflict in standard session`() {
+    private fun `existing metadata keeps conflict in standard session`() {
         val actions =
             listOf(
                 S3SyncAction(
@@ -67,6 +73,6 @@ class S3ConflictSessionClassifierTest {
                 metadataByPath = metadata,
             )
 
-        assertEquals(SyncConflictSessionKind.STANDARD_CONFLICT, sessionKind)
+        sessionKind shouldBe SyncConflictSessionKind.STANDARD_CONFLICT
     }
 }

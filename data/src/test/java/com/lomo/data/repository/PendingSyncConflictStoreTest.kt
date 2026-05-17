@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.PendingSyncConflictDao
 import com.lomo.data.local.entity.PendingSyncConflictEntity
 import com.lomo.domain.model.SyncBackendType
@@ -7,9 +8,9 @@ import com.lomo.domain.model.SyncConflictFile
 import com.lomo.domain.model.SyncConflictSessionKind
 import com.lomo.domain.model.SyncConflictSet
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -19,9 +20,15 @@ import org.junit.Test
  * - Red phase: Fails before the fix because pending sync conflicts are not persisted in Room at all, so there is no store capable of reconstructing a saved conflict session.
  * - Excludes: Room framework internals, repository orchestration, and UI rendering.
  */
-class PendingSyncConflictStoreTest {
-    @Test
-    fun `write and read round trips first sync preview conflict set`() =
+class PendingSyncConflictStoreTest : DataFunSpec() {
+    init {
+        test("write and read round trips first sync preview conflict set") { `write and read round trips first sync preview conflict set`() }
+
+        test("clear removes only targeted backend session") { `clear removes only targeted backend session`() }
+    }
+
+
+    private fun `write and read round trips first sync preview conflict set`() =
         runTest {
             val dao = FakePendingSyncConflictDao()
             val store = RoomPendingSyncConflictStore(dao)
@@ -43,11 +50,10 @@ class PendingSyncConflictStoreTest {
 
             store.write(conflictSet)
 
-            assertEquals(conflictSet, store.read(SyncBackendType.S3))
+            store.read(SyncBackendType.S3) shouldBe conflictSet
         }
 
-    @Test
-    fun `clear removes only targeted backend session`() =
+    private fun `clear removes only targeted backend session`() =
         runTest {
             val dao = FakePendingSyncConflictDao()
             val store = RoomPendingSyncConflictStore(dao)
@@ -84,8 +90,8 @@ class PendingSyncConflictStoreTest {
 
             store.clear(SyncBackendType.S3)
 
-            assertNull(store.read(SyncBackendType.S3))
-            assertEquals(SyncBackendType.WEBDAV, store.read(SyncBackendType.WEBDAV)?.source)
+            store.read(SyncBackendType.S3).shouldBeNull()
+            store.read(SyncBackendType.WEBDAV)?.source shouldBe SyncBackendType.WEBDAV
         }
 }
 

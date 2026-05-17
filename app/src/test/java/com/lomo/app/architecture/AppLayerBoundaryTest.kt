@@ -1,40 +1,54 @@
+/*
+ * Test Contract:
+ * - Unit under test: AppLayerBoundaryTest
+ * - Owning layer: app
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for AppLayerBoundaryTest.
+ * - Boundary: boundary and edge cases for AppLayerBoundaryTest.
+ * - Failure: failure and error scenarios for AppLayerBoundaryTest.
+ * - Must-not-happen: invariants are never violated for AppLayerBoundaryTest.
+ *
+ * - Behavior focus: test behavioral outcomes of AppLayerBoundaryTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.app.architecture
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
 import java.io.File
 
-class AppLayerBoundaryTest {
+class AppLayerBoundaryTest : AppFunSpec() {
     private val kotlinFileExtension = "kt"
     private val moduleRoot = resolveModuleRoot("app")
     private val sourceRoot = moduleRoot.resolve("src/main/java")
     private val gradleFile = moduleRoot.resolve("build.gradle.kts")
 
-    @Test
-    fun `app source does not reference data layer package`() {
-        val kotlinFiles = collectKotlinFiles()
-        assertTrue("No Kotlin sources found in app/src/main/java", kotlinFiles.isNotEmpty())
+    init {
+        test("app source does not reference data layer package") {
+            val kotlinFiles = collectKotlinFiles()
+            withClue("No Kotlin sources found in app/src/main/java") { ((kotlinFiles.isNotEmpty())) shouldBe true }
 
-        val offenders = kotlinFiles.filter(::containsDataLayerReference)
-        assertTrue(
-            "App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}",
-            offenders.isEmpty(),
-        )
+            val offenders = kotlinFiles.filter(::containsDataLayerReference)
+            withClue("App layer must not reference data layer package. Offenders: ${offenders.joinToString { it.path }}") { ((offenders.isEmpty())) shouldBe true }
+        }
     }
 
-    @Test
-    fun `app module does not expose data dependency outside implementation`() {
-        val content = gradleFile.readText()
-        val offenders =
-            FORBIDDEN_DATA_DEPENDENCY_PATTERNS
-                .filter { it.pattern.containsMatchIn(content) }
-                .map { it.description }
+    init {
+        test("app module does not expose data dependency outside implementation") {
+            val content = gradleFile.readText()
+            val offenders =
+                FORBIDDEN_DATA_DEPENDENCY_PATTERNS
+                    .filter { it.pattern.containsMatchIn(content) }
+                    .map { it.description }
 
-        assertFalse(
-            "app/build.gradle.kts must not expose :data outside implementation. Offenders: ${offenders.joinToString()}",
-            offenders.isNotEmpty(),
-        )
+            withClue("app/build.gradle.kts must not expose :data outside implementation. Offenders: ${offenders.joinToString()}") { ((offenders.isNotEmpty())) shouldBe false }
+        }
     }
 
     private fun collectKotlinFiles(): List<File> =

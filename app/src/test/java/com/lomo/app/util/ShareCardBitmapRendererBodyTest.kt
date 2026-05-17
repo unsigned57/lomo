@@ -1,9 +1,7 @@
 package com.lomo.app.util
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,80 +11,79 @@ import org.junit.Test
  * - Red phase: Fails before the fix because `.ogg` voice attachments are treated like images and replaced with image markers instead of being preserved as audio markdown.
  * - Excludes: bitmap pixel rendering, Android resources, and share intent/file-provider wiring.
  */
-class ShareCardBitmapRendererBodyTest {
-    @Test
-    fun `preprocessShareCardContent replaces wiki and markdown images but preserves audio markdown`() {
-        val content =
-            """
-            Intro
-            ![[cover.png]]
-            ![photo](gallery/day-1.jpg)
-            ![voice](recordings/memo.ogg)
-            Outro
-            """.trimIndent()
+class ShareCardBitmapRendererBodyTest : AppFunSpec() {
+    init {
+        test("preprocessShareCardContent replaces wiki and markdown images but preserves audio markdown") {
+            val content =
+                """
+                Intro
+                ![[cover.png]]
+                ![photo](gallery/day-1.jpg)
+                ![voice](recordings/memo.ogg)
+                Outro
+                """.trimIndent()
 
-        val result = preprocessShareCardContent(content, hasImages = true)
+            val result = preprocessShareCardContent(content, hasImages = true)
 
-        assertTrue(result.hasImages)
-        assertEquals(2, result.totalImageSlots)
-        assertTrue(result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX"))
-        assertTrue(result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX"))
-        assertTrue(result.contentForProcessing.contains("![voice](recordings/memo.ogg)"))
-        assertFalse(result.contentForProcessing.contains("cover.png"))
-        assertFalse(result.contentForProcessing.contains("gallery/day-1.jpg"))
+            ((result.hasImages)) shouldBe true
+            (result.totalImageSlots) shouldBe (2)
+            ((result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX"))) shouldBe true
+            ((result.contentForProcessing.contains("${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX"))) shouldBe true
+            ((result.contentForProcessing.contains("![voice](recordings/memo.ogg)"))) shouldBe true
+            ((result.contentForProcessing.contains("cover.png"))) shouldBe false
+            ((result.contentForProcessing.contains("gallery/day-1.jpg"))) shouldBe false
+        }
     }
 
-    @Test
-    fun `buildShareBodyLines classifies paragraphs quotes bullets code and image placeholders while collapsing blank lines`() {
-        val bodyText =
-            """
-            Intro ${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX outro
+    init {
+        test("buildShareBodyLines classifies paragraphs quotes bullets code and image placeholders while collapsing blank lines") {
+            val bodyText =
+                """
+                Intro ${IMAGE_MARKER_PREFIX}0$IMAGE_MARKER_SUFFIX outro
 
+                │ quoted text
+                • bullet item
+                ☐ task item
+                    val x = 1
+                ${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX
 
-            │ quoted text
-            • bullet item
-            ☐ task item
-                val x = 1
-            ${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX
+                Final paragraph
+                """.trimIndent()
 
+            val result = buildShareBodyLines(bodyText, imagePlaceholder = "[Image]")
 
-            Final paragraph
-            """.trimIndent()
-
-        val result = buildShareBodyLines(bodyText, imagePlaceholder = "[Image]")
-
-        assertEquals(
-            listOf(
-                ShareBodyLine("Intro [Image] outro", ShareBodyLineType.Paragraph),
-                ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
-                ShareBodyLine("quoted text", ShareBodyLineType.Quote),
-                ShareBodyLine("• bullet item", ShareBodyLineType.Bullet),
-                ShareBodyLine("☐ task item", ShareBodyLineType.Bullet),
-                ShareBodyLine("val x = 1", ShareBodyLineType.Code),
-                ShareBodyLine(
-                    "${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX",
-                    ShareBodyLineType.Image,
-                    imageIndex = 1,
-                ),
-                ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
-                ShareBodyLine("Final paragraph", ShareBodyLineType.Paragraph),
-            ),
-            result,
-        )
+            (result) shouldBe (listOf(
+                    ShareBodyLine("Intro [Image] outro", ShareBodyLineType.Paragraph),
+                    ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
+                    ShareBodyLine("quoted text", ShareBodyLineType.Quote),
+                    ShareBodyLine("• bullet item", ShareBodyLineType.Bullet),
+                    ShareBodyLine("☐ task item", ShareBodyLineType.Bullet),
+                    ShareBodyLine("val x = 1", ShareBodyLineType.Code),
+                    ShareBodyLine(
+                        "${IMAGE_MARKER_PREFIX}1$IMAGE_MARKER_SUFFIX",
+                        ShareBodyLineType.Image,
+                        imageIndex = 1,
+                    ),
+                    ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
+                    ShareBodyLine("Final paragraph", ShareBodyLineType.Paragraph),
+                ))
+        }
     }
 
-    @Test
-    fun `buildShareBodyLines falls back for blank content and caps rendered lines`() {
-        val blankResult = buildShareBodyLines("", imagePlaceholder = "[Image]")
-        val longResult =
-            buildShareBodyLines(
-                bodyText = List(MAX_SHARE_BODY_LINES + 10) { index -> "line $index" }.joinToString("\n"),
-                imagePlaceholder = "[Image]",
-            )
+    init {
+        test("buildShareBodyLines falls back for blank content and caps rendered lines") {
+            val blankResult = buildShareBodyLines("", imagePlaceholder = "[Image]")
+            val longResult =
+                buildShareBodyLines(
+                    bodyText = List(MAX_SHARE_BODY_LINES + 10) { index -> "line $index" }.joinToString("\n"),
+                    imagePlaceholder = "[Image]",
+                )
 
-        assertEquals(listOf(ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)), blankResult)
-        assertEquals(MAX_SHARE_BODY_LINES, longResult.size)
-        assertEquals("line 0", longResult.first().text)
-        assertEquals("line ${MAX_SHARE_BODY_LINES - 1}", longResult.last().text)
+            (blankResult) shouldBe (listOf(ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Paragraph)))
+            (longResult.size) shouldBe (MAX_SHARE_BODY_LINES)
+            (longResult.first().text) shouldBe ("line 0")
+            (longResult.last().text) shouldBe ("line ${MAX_SHARE_BODY_LINES - 1}")
+        }
     }
+
 }

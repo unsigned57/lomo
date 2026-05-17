@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
@@ -24,21 +25,39 @@ import io.mockk.impl.annotations.MockK
 import io.mockk.verify
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: GitSyncConflictRepositoryImpl
  * - Behavior focus: precondition guarding, repo-directory resolution, and post-resolution memo refresh orchestration.
  * - Observable outcomes: returned GitSyncResult type or code, chosen repo directory source, and memo mirror or refresh side effects.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: JGit conflict internals, filesystem mirroring implementation, and UI state mapping.
  */
-class GitSyncConflictRepositoryImplTest {
+class GitSyncConflictRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("resolveConflicts returns repository-url error when remote is blank") { `resolveConflicts returns repository-url error when remote is blank`() }
+
+        test("resolveConflicts returns pat-required error when token is blank") { `resolveConflicts returns pat-required error when token is blank`() }
+
+        test("resolveConflicts returns memo-directory error when no repo root can be resolved") { `resolveConflicts returns memo-directory error when no repo root can be resolved`() }
+
+        test("resolveConflicts mirrors memo and refreshes after successful direct-root resolution") { `resolveConflicts mirrors memo and refreshes after successful direct-root resolution`() }
+
+        test("resolveConflicts skips mirror and refresh when engine returns error") { `resolveConflicts skips mirror and refresh when engine returns error`() }
+
+        test("resolveConflicts uses saf mirror repo when all directories share the same tree") { `resolveConflicts uses saf mirror repo when all directories share the same tree`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -102,8 +121,7 @@ class GitSyncConflictRepositoryImplTest {
             timestamp = 123L,
         )
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { context.filesDir } returns Files.createTempDirectory("git-sync-conflict").toFile()
         memoSynchronizer =
@@ -147,47 +165,43 @@ class GitSyncConflictRepositoryImplTest {
         repository = GitSyncConflictRepositoryImpl(runtime, support, memoMirror)
     }
 
-    @Test
-    fun `resolveConflicts returns repository-url error when remote is blank`() =
+    private fun `resolveConflicts returns repository-url error when remote is blank`() =
         runTest {
             every { dataStore.gitRemoteUrl } returns flowOf("  ")
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals(GitSyncErrorCode.REMOTE_URL_NOT_CONFIGURED, (result as GitSyncResult.Error).code)
-            assertEquals(REPOSITORY_URL_NOT_CONFIGURED_MESSAGE, result.message)
+            (result as GitSyncResult.Error).code shouldBe GitSyncErrorCode.REMOTE_URL_NOT_CONFIGURED
+            result.message shouldBe REPOSITORY_URL_NOT_CONFIGURED_MESSAGE
             coVerify(exactly = 0) { gitSyncEngine.resolveConflicts(any(), any(), any(), any()) }
             coVerify(exactly = 0) { memoMirror.mirrorMemoFromRepo(any(), any()) }
         }
 
-    @Test
-    fun `resolveConflicts returns pat-required error when token is blank`() =
+    private fun `resolveConflicts returns pat-required error when token is blank`() =
         runTest {
             every { credentialStore.getToken() } returns ""
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals(GitSyncErrorCode.PAT_REQUIRED, (result as GitSyncResult.Error).code)
+            (result as GitSyncResult.Error).code shouldBe GitSyncErrorCode.PAT_REQUIRED
             coVerify(exactly = 0) { gitSyncEngine.resolveConflicts(any(), any(), any(), any()) }
             coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
 
-    @Test
-    fun `resolveConflicts returns memo-directory error when no repo root can be resolved`() =
+    private fun `resolveConflicts returns memo-directory error when no repo root can be resolved`() =
         runTest {
             coEvery { support.resolveRootDir() } returns null
             coEvery { support.resolveSafRootUri() } returns null
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals(GitSyncErrorCode.MEMO_DIRECTORY_NOT_CONFIGURED, (result as GitSyncResult.Error).code)
-            assertEquals(MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE, result.message)
+            (result as GitSyncResult.Error).code shouldBe GitSyncErrorCode.MEMO_DIRECTORY_NOT_CONFIGURED
+            result.message shouldBe MEMO_DIRECTORY_NOT_CONFIGURED_MESSAGE
             coVerify(exactly = 0) { gitSyncEngine.resolveConflicts(any(), any(), any(), any()) }
             coVerify(exactly = 0) { memoMirror.mirrorMemoFromRepo(any(), any()) }
         }
 
-    @Test
-    fun `resolveConflicts mirrors memo and refreshes after successful direct-root resolution`() =
+    private fun `resolveConflicts mirrors memo and refreshes after successful direct-root resolution`() =
         runTest {
             val directRoot = File("/tmp/lomo-direct-root")
             val repoDir = File("/tmp/lomo-direct-repo")
@@ -199,7 +213,7 @@ class GitSyncConflictRepositoryImplTest {
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals(GitSyncResult.Success("Conflicts resolved"), result)
+            result shouldBe GitSyncResult.Success("Conflicts resolved")
             coVerify(exactly = 1) { gitSyncEngine.resolveConflicts(repoDir, remoteUrl, resolution, conflictSet) }
             coVerify(exactly = 1) {
                 memoMirror.mirrorMemoFromRepo(
@@ -210,8 +224,7 @@ class GitSyncConflictRepositoryImplTest {
             coVerify(exactly = 1) { refreshEngine.refresh(null) }
         }
 
-    @Test
-    fun `resolveConflicts skips mirror and refresh when engine returns error`() =
+    private fun `resolveConflicts skips mirror and refresh when engine returns error`() =
         runTest {
             val directRoot = File("/tmp/lomo-direct-root")
             val repoDir = File("/tmp/lomo-direct-repo")
@@ -223,13 +236,12 @@ class GitSyncConflictRepositoryImplTest {
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals("boom", (result as GitSyncResult.Error).message)
+            (result as GitSyncResult.Error).message shouldBe "boom"
             coVerify(exactly = 0) { memoMirror.mirrorMemoFromRepo(any(), any()) }
             coVerify(exactly = 0) { refreshEngine.refresh(any()) }
         }
 
-    @Test
-    fun `resolveConflicts uses saf mirror repo when all directories share the same tree`() =
+    private fun `resolveConflicts uses saf mirror repo when all directories share the same tree`() =
         runTest {
             val safRootUri = "/tree/shared"
             val repoDir = File("/tmp/lomo-saf-repo")
@@ -248,7 +260,7 @@ class GitSyncConflictRepositoryImplTest {
 
             val result = repository.resolveConflicts(resolution, conflictSet)
 
-            assertEquals(GitSyncResult.Success("Resolved from SAF"), result)
+            result shouldBe GitSyncResult.Success("Resolved from SAF")
             coVerify(exactly = 1) { safGitMirrorBridge.mirrorDirectoryFor(safRootUri) }
             verify(exactly = 0) { support.resolveGitRepoDirForUri(any()) }
             coVerify(exactly = 1) { memoMirror.mirrorMemoFromRepo(repoDir, match { it.allSameDirectory }) }

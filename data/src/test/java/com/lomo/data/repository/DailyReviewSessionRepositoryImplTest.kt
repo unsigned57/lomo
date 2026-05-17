@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.domain.model.DailyReviewSession
 import io.mockk.coEvery
@@ -10,10 +11,10 @@ import io.mockk.mockk
 import io.mockk.runs
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
 import java.time.LocalDate
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -23,12 +24,20 @@ import java.time.LocalDate
  * - Red phase: Fails before the fix when session fields are read via multiple sequential `first()` calls and can observe torn state.
  * - Excludes: DataStore file I/O internals and date parsing implementation details outside repository boundaries.
  */
-class DailyReviewSessionRepositoryImplTest {
+class DailyReviewSessionRepositoryImplTest : DataFunSpec() {
+    init {
+        test("getSession returns null when date is invalid") { `getSession returns null when date is invalid`() }
+
+        test("getSession defaults page index to zero when page index is missing") { `getSession defaults page index to zero when page index is missing`() }
+
+        test("saveSession writes date seed and page index to datastore") { `saveSession writes date seed and page index to datastore`() }
+    }
+
+
     private val dataStore: LomoDataStore = mockk(relaxed = true)
     private val repository = DailyReviewSessionRepositoryImpl(dataStore)
 
-    @Test
-    fun `getSession returns null when date is invalid`() =
+    private fun `getSession returns null when date is invalid`() =
         runTest {
             every { dataStore.dailyReviewSessionDate } returns flowOf("invalid-date")
             every { dataStore.dailyReviewSessionSeed } returns flowOf(11L)
@@ -36,11 +45,10 @@ class DailyReviewSessionRepositoryImplTest {
 
             val session = repository.getSession()
 
-            assertNull(session)
+            session.shouldBeNull()
         }
 
-    @Test
-    fun `getSession defaults page index to zero when page index is missing`() =
+    private fun `getSession defaults page index to zero when page index is missing`() =
         runTest {
             every { dataStore.dailyReviewSessionDate } returns flowOf("2026-04-27")
             every { dataStore.dailyReviewSessionSeed } returns flowOf(42L)
@@ -48,18 +56,14 @@ class DailyReviewSessionRepositoryImplTest {
 
             val session = repository.getSession()
 
-            assertEquals(
-                DailyReviewSession(
+            session shouldBe DailyReviewSession(
                     date = LocalDate.of(2026, 4, 27),
                     seed = 42L,
                     pageIndex = 0,
-                ),
-                session,
-            )
+                )
         }
 
-    @Test
-    fun `saveSession writes date seed and page index to datastore`() =
+    private fun `saveSession writes date seed and page index to datastore`() =
         runTest {
             coEvery {
                 dataStore.updateDailyReviewSession(any(), any(), any())

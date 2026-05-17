@@ -1,13 +1,13 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -22,10 +22,11 @@ import org.junit.Test
  * - Excludes: markdown rendering correctness, image map resolution semantics, header recovery semantics
  *   (covered by sibling MemoUiMapperTest / MemoUiMapperStorageHeaderRecoveryTest).
  */
-class MemoUiMapperConcurrencyTest {
-    @Test(timeout = 30_000L)
-    fun `mapToUiModels survives concurrent invocations that churn the LRU cache`() {
-        runBlocking { exerciseConcurrentMapping() }
+class MemoUiMapperConcurrencyTest : AppFunSpec() {
+    init {
+        test("mapToUiModels survives concurrent invocations that churn the LRU cache") {
+            runBlocking { exerciseConcurrentMapping() }
+        }
     }
 
     private suspend fun exerciseConcurrentMapping() {
@@ -65,9 +66,9 @@ class MemoUiMapperConcurrencyTest {
                             imageMap = emptyMap(),
                             prioritizedMemoIds = skipPrecomputeIds,
                         )
-                        assertEquals(subset.size, result.size)
+                        (result.size) shouldBe (subset.size)
                         result.forEachIndexed { index, model ->
-                            assertEquals(subset[index].id, model.memo.id)
+                            (model.memo.id) shouldBe (subset[index].id)
                         }
                     }
                 }

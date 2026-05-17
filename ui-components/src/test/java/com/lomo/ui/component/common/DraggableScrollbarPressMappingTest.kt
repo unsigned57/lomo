@@ -1,8 +1,8 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -28,9 +28,9 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the new assertions encode the chosen
  *   product interaction, not a workaround for current code.
  */
-class DraggableScrollbarPressMappingTest {
-    @Test
-    fun `press on thumb starts drag from current thumb offset`() {
+class DraggableScrollbarPressMappingTest : UiComponentsFunSpec() {
+    init {
+        test("press on thumb starts drag from current thumb offset") {
         val offset =
             resolveThumbDragStartOffsetFromPress(
                 pressY = 55f,
@@ -38,11 +38,12 @@ class DraggableScrollbarPressMappingTest {
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertEquals(40f, offset ?: error("Expected thumb press to start drag"), 0.001f)
+        (offset ?: error("Expected thumb press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `press on thumb bottom boundary starts drag`() {
+    init {
+        test("press on thumb bottom boundary starts drag") {
         val offset =
             resolveThumbDragStartOffsetFromPress(
                 pressY = 100f,
@@ -50,11 +51,12 @@ class DraggableScrollbarPressMappingTest {
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertEquals(40f, offset ?: error("Expected thumb boundary press to start drag"), 0.001f)
+        (offset ?: error("Expected thumb boundary press to start drag")) shouldBe ((40f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `press above thumb ignores track jump`() {
+    init {
+        test("press above thumb ignores track jump") {
         val offset =
             resolveThumbDragStartOffsetFromPress(
                 pressY = 20f,
@@ -62,11 +64,12 @@ class DraggableScrollbarPressMappingTest {
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertNull(offset)
+        (offset) shouldBe null
+        }
     }
 
-    @Test
-    fun `press below thumb ignores track jump`() {
+    init {
+        test("press below thumb ignores track jump") {
         val offset =
             resolveThumbDragStartOffsetFromPress(
                 pressY = 200f,
@@ -74,11 +77,12 @@ class DraggableScrollbarPressMappingTest {
                 thumbExtentPx = 60f,
                 trackHeightPx = 400f,
             )
-        assertNull(offset)
+        (offset) shouldBe null
+        }
     }
 
-    @Test
-    fun `press with zero track height starts no drag`() {
+    init {
+        test("press with zero track height starts no drag") {
         val offset =
             resolveThumbDragStartOffsetFromPress(
                 pressY = 50f,
@@ -86,6 +90,7 @@ class DraggableScrollbarPressMappingTest {
                 thumbExtentPx = 60f,
                 trackHeightPx = 0f,
             )
-        assertNull(offset)
+        (offset) shouldBe null
+        }
     }
 }

@@ -1,21 +1,28 @@
 package com.lomo.data.git
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: GitMediaSyncPlanner
  * - Behavior focus: media sync direction selection for local-only, repo-only, changed, deleted, and tolerance-window cases.
  * - Observable outcomes: planned GitMediaSyncAction direction/reason list for each path.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: actual file I/O, Git transport, and metadata store persistence.
  */
-class GitMediaSyncPlannerTest {
+class GitMediaSyncPlannerTest : DataFunSpec() {
+    init {
+        test("plan resolves both-present combinations including unchanged local-only repo-only and newer wins") { `plan resolves both-present combinations including unchanged local-only repo-only and newer wins`() }
+
+        test("plan resolves local-only and repo-only files using metadata deletion hints") { `plan resolves local-only and repo-only files using metadata deletion hints`() }
+    }
+
+
     private val planner = GitMediaSyncPlanner(timestampToleranceMs = 1000L)
 
-    @Test
-    fun `plan resolves both-present combinations including unchanged local-only repo-only and newer wins`() {
+    private fun `plan resolves both-present combinations including unchanged local-only repo-only and newer wins`() {
         val actions =
             planner.plan(
                 localFiles =
@@ -44,20 +51,16 @@ class GitMediaSyncPlannerTest {
                     ),
             )
 
-        assertEquals(
-            listOf(
+        actions shouldBe listOf(
                 GitMediaSyncAction("local-changed.jpg", GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY),
                 GitMediaSyncAction("newer-local.jpg", GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_NEWER),
                 GitMediaSyncAction("newer-repo.jpg", GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_NEWER),
                 GitMediaSyncAction("repo-changed.jpg", GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY),
                 GitMediaSyncAction("same-time.jpg", GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.SAME_TIMESTAMP),
-            ),
-            actions,
-        )
+            )
     }
 
-    @Test
-    fun `plan resolves local-only and repo-only files using metadata deletion hints`() {
+    private fun `plan resolves local-only and repo-only files using metadata deletion hints`() {
         val actions =
             planner.plan(
                 localFiles =
@@ -91,8 +94,7 @@ class GitMediaSyncPlannerTest {
                     ),
             )
 
-        assertEquals(
-            listOf(
+        actions shouldBe listOf(
                 GitMediaSyncAction("brand-new-local.m4a", GitMediaSyncDirection.PUSH_TO_REPO, GitMediaSyncReason.LOCAL_ONLY),
                 GitMediaSyncAction("brand-new-repo.m4a", GitMediaSyncDirection.PULL_TO_LOCAL, GitMediaSyncReason.REPO_ONLY),
                 GitMediaSyncAction("local-deleted.m4a", GitMediaSyncDirection.DELETE_REPO, GitMediaSyncReason.LOCAL_DELETED),
@@ -107,9 +109,7 @@ class GitMediaSyncPlannerTest {
                     GitMediaSyncDirection.PULL_TO_LOCAL,
                     GitMediaSyncReason.REPO_NEWER,
                 ),
-            ),
-            actions,
-        )
+            )
     }
 
     private fun metadata(

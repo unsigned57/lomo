@@ -1,23 +1,35 @@
+/*
+ * Test Contract:
+ * - Unit under test: RecordingViewModelTest
+ * - Owning layer: app
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for RecordingViewModelTest.
+ * - Boundary: boundary and edge cases for RecordingViewModelTest.
+ * - Failure: failure and error scenarios for RecordingViewModelTest.
+ * - Must-not-happen: invariants are never violated for RecordingViewModelTest.
+ *
+ * - Behavior focus: test behavioral outcomes of RecordingViewModelTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.MainDispatcherExtension
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -27,119 +39,132 @@ import org.junit.Test
  * - Excludes: actual audio capture implementation, filesystem writes, and Compose rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class RecordingViewModelTest {
+class RecordingViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
-    private lateinit var recordingCoordinator: RecordingCoordinator
 
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(testDispatcher)
-        recordingCoordinator = mockk(relaxed = true)
-        every { recordingCoordinator.voiceDirectory() } returns flowOf("/voice")
-        every { recordingCoordinator.currentAmplitude() } returns 42
-        coEvery { recordingCoordinator.startRecording(any()) } returns "/voice/voice_20260324_100000.m4a"
-        coEvery { recordingCoordinator.stopRecording() } returns Unit
-        coEvery { recordingCoordinator.discardRecording(any()) } returns Unit
+    init {
+        extension(MainDispatcherExtension(testDispatcher))
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+private lateinit var recordingCoordinator: RecordingCoordinator
+
+    init {
+        beforeTest {
+            recordingCoordinator = mockk(relaxed = true)
+            every { recordingCoordinator.voiceDirectory() } returns flowOf("/voice")
+            every { recordingCoordinator.currentAmplitude() } returns 42
+            coEvery { recordingCoordinator.startRecording(any()) } returns "/voice/voice_20260324_100000.m4a"
+            coEvery { recordingCoordinator.stopRecording() } returns Unit
+            coEvery { recordingCoordinator.discardRecording(any()) } returns Unit
+        }
     }
 
-    @Test
-    fun `startRecording enters recording mode with generated filename`() =
-        runTest {
-            val viewModel = RecordingViewModel(recordingCoordinator)
+    init {
+        test("startRecording enters recording mode with generated filename") {
+            runTest(testDispatcher) {
+                val viewModel = RecordingViewModel(recordingCoordinator)
 
-            viewModel.startRecording()
-            advanceUntilIdle()
+                viewModel.startRecording()
+                advanceUntilIdle()
 
-            assertTrue(viewModel.isRecording.value)
-            assertEquals(null, viewModel.errorMessage.value)
-            coVerify(exactly = 1) { recordingCoordinator.startRecording(match { it.startsWith("voice_") }) }
+                ((viewModel.isRecording.value)) shouldBe true
+                (viewModel.errorMessage.value) shouldBe (null)
+                coVerify(exactly = 1) { recordingCoordinator.startRecording(match { it.startsWith("voice_") }) }
 
-            viewModel.cancelRecording()
-            advanceUntilIdle()
+                viewModel.cancelRecording()
+                advanceUntilIdle()
+            }
         }
+    }
 
-    @Test
-    fun `stopRecording returns markdown for current filename and resets state`() =
-        runTest {
-            val viewModel = RecordingViewModel(recordingCoordinator)
-            var resultMarkdown: String? = null
+    init {
+        test("stopRecording returns markdown for current filename and resets state") {
+            runTest(testDispatcher) {
+                val viewModel = RecordingViewModel(recordingCoordinator)
+                var resultMarkdown: String? = null
 
-            viewModel.startRecording()
-            advanceUntilIdle()
-            viewModel.stopRecording { resultMarkdown = it }
-            advanceUntilIdle()
+                viewModel.startRecording()
+                advanceUntilIdle()
+                viewModel.stopRecording { resultMarkdown = it }
+                advanceUntilIdle()
 
-            assertFalse(viewModel.isRecording.value)
-            assertEquals(0L, viewModel.recordingDuration.value)
-            assertEquals(0, viewModel.recordingAmplitude.value)
-            assertTrue(resultMarkdown?.startsWith("![voice](voice_") == true)
-            coVerify(exactly = 1) { recordingCoordinator.stopRecording() }
+                ((viewModel.isRecording.value)) shouldBe false
+                (viewModel.recordingDuration.value) shouldBe (0L)
+                (viewModel.recordingAmplitude.value) shouldBe (0)
+                ((resultMarkdown?.startsWith("![voice](voice_") == true)) shouldBe true
+                coVerify(exactly = 1) { recordingCoordinator.stopRecording() }
+            }
         }
+    }
 
-    @Test
-    fun `startRecording failure reports error and discards recording`() =
-        runTest {
-            coEvery { recordingCoordinator.startRecording(any()) } throws IllegalStateException("mic unavailable")
-            val viewModel = RecordingViewModel(recordingCoordinator)
+    init {
+        test("startRecording failure reports error and discards recording") {
+            runTest(testDispatcher) {
+                coEvery { recordingCoordinator.startRecording(any()) } throws IllegalStateException("mic unavailable")
+                val viewModel = RecordingViewModel(recordingCoordinator)
 
-            viewModel.startRecording()
-            advanceUntilIdle()
+                viewModel.startRecording()
+                advanceUntilIdle()
 
-            assertFalse(viewModel.isRecording.value)
-            assertEquals("Failed to start recording: mic unavailable", viewModel.errorMessage.value)
-            coVerify(exactly = 1) { recordingCoordinator.discardRecording(null) }
+                ((viewModel.isRecording.value)) shouldBe false
+                (viewModel.errorMessage.value) shouldBe ("Failed to start recording: mic unavailable")
+                coVerify(exactly = 1) { recordingCoordinator.discardRecording(null) }
+            }
         }
+    }
 
-    @Test
-    fun `cancelRecording discards current filename and resets state`() =
-        runTest {
-            val viewModel = RecordingViewModel(recordingCoordinator)
+    init {
+        test("cancelRecording discards current filename and resets state") {
+            runTest(testDispatcher) {
+                val viewModel = RecordingViewModel(recordingCoordinator)
 
-            viewModel.startRecording()
-            advanceUntilIdle()
-            viewModel.cancelRecording()
-            advanceUntilIdle()
+                viewModel.startRecording()
+                advanceUntilIdle()
+                viewModel.cancelRecording()
+                advanceUntilIdle()
 
-            assertFalse(viewModel.isRecording.value)
-            assertEquals(0L, viewModel.recordingDuration.value)
-            assertEquals(0, viewModel.recordingAmplitude.value)
-            coVerify(exactly = 1) { recordingCoordinator.discardRecording(any()) }
+                ((viewModel.isRecording.value)) shouldBe false
+                (viewModel.recordingDuration.value) shouldBe (0L)
+                (viewModel.recordingAmplitude.value) shouldBe (0)
+                coVerify(exactly = 1) { recordingCoordinator.discardRecording(any()) }
+            }
         }
+    }
 
-    @Test
-    fun `stopRecording failure reports error and still clears active state`() =
-        runTest {
-            coEvery { recordingCoordinator.stopRecording() } throws IllegalStateException("stop failed")
-            val viewModel = RecordingViewModel(recordingCoordinator)
+    init {
+        test("stopRecording failure reports error and still clears active state") {
+            runTest(testDispatcher) {
+                coEvery { recordingCoordinator.stopRecording() } throws IllegalStateException("stop failed")
+                val viewModel = RecordingViewModel(recordingCoordinator)
 
-            viewModel.startRecording()
-            advanceUntilIdle()
-            viewModel.stopRecording {}
-            advanceUntilIdle()
+                viewModel.startRecording()
+                advanceUntilIdle()
+                viewModel.stopRecording {}
+                advanceUntilIdle()
 
-            assertFalse(viewModel.isRecording.value)
-            assertEquals(0L, viewModel.recordingDuration.value)
-            assertEquals(0, viewModel.recordingAmplitude.value)
-            assertEquals("Failed to stop recording: stop failed", viewModel.errorMessage.value)
+                ((viewModel.isRecording.value)) shouldBe false
+                (viewModel.recordingDuration.value) shouldBe (0L)
+                (viewModel.recordingAmplitude.value) shouldBe (0)
+                (viewModel.errorMessage.value) shouldBe ("Failed to stop recording: stop failed")
+            }
         }
+    }
 
-    @Test
-    fun `clearError removes existing failure message`() =
-        runTest {
-            coEvery { recordingCoordinator.startRecording(any()) } throws IllegalStateException("mic unavailable")
-            val viewModel = RecordingViewModel(recordingCoordinator)
+    init {
+        test("clearError removes existing failure message") {
+            runTest(testDispatcher) {
+                coEvery { recordingCoordinator.startRecording(any()) } throws IllegalStateException("mic unavailable")
+                val viewModel = RecordingViewModel(recordingCoordinator)
 
-            viewModel.startRecording()
-            advanceUntilIdle()
-            assertEquals("Failed to start recording: mic unavailable", viewModel.errorMessage.value)
+                viewModel.startRecording()
+                advanceUntilIdle()
+                (viewModel.errorMessage.value) shouldBe ("Failed to start recording: mic unavailable")
 
-            viewModel.clearError()
+                viewModel.clearError()
 
-            assertEquals(null, viewModel.errorMessage.value)
+                (viewModel.errorMessage.value) shouldBe (null)
+            }
         }
+    }
+
 }

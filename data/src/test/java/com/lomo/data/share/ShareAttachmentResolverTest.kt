@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -12,31 +13,49 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
  * - Unit under test: ShareAttachmentResolver
  * - Behavior focus: attachment URI resolution order, file-size/type validation, and sender-side error classification.
  * - Observable outcomes: success vs failure result, resolved URIs, resolved ShareAttachmentInfo metadata, and ShareTransferError codes.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Content tree traversal via DocumentFile, LAN transport, and memo send orchestration.
  */
-class ShareAttachmentResolverTest {
+class ShareAttachmentResolverTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        afterTest {
+            tearDown()
+        }
+
+        test("prepareAttachments returns attachment info for direct file uri") { `prepareAttachments returns attachment info for direct file uri`() }
+
+        test("prepareAttachments resolves attachment from configured image directory") { `prepareAttachments resolves attachment from configured image directory`() }
+
+        test("prepareAttachments reports missing attachment when no uri can be resolved") { `prepareAttachments reports missing attachment when no uri can be resolved`() }
+
+        test("prepareAttachments rejects unsupported attachment type") { `prepareAttachments rejects unsupported attachment type`() }
+
+        test("prepareAttachments rejects attachment that exceeds payload size limit") { `prepareAttachments rejects attachment that exceeds payload size limit`() }
+    }
+
+
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
     private val uriCache = linkedMapOf<String, Uri>()
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         mockkStatic(Uri::class)
         every { Uri.fromFile(any()) } answers { fileUri(firstArg()) }
         every { Uri.parse(any()) } answers { parsedUri(firstArg()) }
@@ -49,14 +68,12 @@ class ShareAttachmentResolverTest {
         every { dataStore.rootUri } returns flowOf(null)
     }
 
-    @After
-    fun tearDown() {
+    private fun tearDown() {
         unmockkStatic(Uri::class)
         uriCache.clear()
     }
 
-    @Test
-    fun `prepareAttachments returns attachment info for direct file uri`() =
+    private fun `prepareAttachments returns attachment info for direct file uri`() =
         runBlocking {
             val file = tempFile("photo", ".png", "png-bytes")
             val resolver = ShareAttachmentResolver(context, dataStore)
@@ -66,24 +83,20 @@ class ShareAttachmentResolverTest {
                     rawAttachmentUris = mapOf("photo.png" to fileUriString(file)),
                 )
 
-            assertTrue(result is ShareAttachmentResolver.AttachmentPreparationResult.Success)
+            (result is ShareAttachmentResolver.AttachmentPreparationResult.Success).shouldBeTrue()
             val prepared =
                 (result as ShareAttachmentResolver.AttachmentPreparationResult.Success).prepared
-            assertEquals(mapOf("photo.png" to fileUri(file)), prepared.uris)
-            assertEquals(
-                listOf(
+            prepared.uris shouldBe mapOf("photo.png" to fileUri(file))
+            prepared.infos shouldBe listOf(
                     ShareAttachmentInfo(
                         name = "photo.png",
                         type = "image",
                         size = file.length(),
                     ),
-                ),
-                prepared.infos,
-            )
+                )
         }
 
-    @Test
-    fun `prepareAttachments resolves attachment from configured image directory`() =
+    private fun `prepareAttachments resolves attachment from configured image directory`() =
         runBlocking {
             val directory = Files.createTempDirectory("lomo-share-images").toFile()
             val file = File(directory, "cover.jpg").apply { writeText("jpeg") }
@@ -95,15 +108,14 @@ class ShareAttachmentResolverTest {
                     rawAttachmentUris = mapOf("cover.jpg" to "app://missing"),
                 )
 
-            assertTrue(result is ShareAttachmentResolver.AttachmentPreparationResult.Success)
+            (result is ShareAttachmentResolver.AttachmentPreparationResult.Success).shouldBeTrue()
             val prepared =
                 (result as ShareAttachmentResolver.AttachmentPreparationResult.Success).prepared
-            assertEquals(Uri.fromFile(file), prepared.uris["cover.jpg"])
-            assertEquals("image", prepared.infos.single().type)
+            prepared.uris["cover.jpg"] shouldBe Uri.fromFile(file)
+            prepared.infos.single().type shouldBe "image"
         }
 
-    @Test
-    fun `prepareAttachments reports missing attachment when no uri can be resolved`() =
+    private fun `prepareAttachments reports missing attachment when no uri can be resolved`() =
         runBlocking {
             val resolver = ShareAttachmentResolver(context, dataStore)
 
@@ -112,15 +124,14 @@ class ShareAttachmentResolverTest {
                     rawAttachmentUris = mapOf("ghost.jpg" to "app://missing"),
                 )
 
-            assertTrue(result is ShareAttachmentResolver.AttachmentPreparationResult.Failure)
+            (result is ShareAttachmentResolver.AttachmentPreparationResult.Failure).shouldBeTrue()
             val error =
                 (result as ShareAttachmentResolver.AttachmentPreparationResult.Failure).error
-            assertEquals(ShareTransferErrorCode.ATTACHMENT_RESOLVE_FAILED, error.code)
-            assertEquals(1, error.missingAttachmentCount)
+            error.code shouldBe ShareTransferErrorCode.ATTACHMENT_RESOLVE_FAILED
+            error.missingAttachmentCount shouldBe 1
         }
 
-    @Test
-    fun `prepareAttachments rejects unsupported attachment type`() =
+    private fun `prepareAttachments rejects unsupported attachment type`() =
         runBlocking {
             val file = tempFile("note", ".txt", "plain-text")
             val resolver = ShareAttachmentResolver(context, dataStore)
@@ -130,14 +141,13 @@ class ShareAttachmentResolverTest {
                     rawAttachmentUris = mapOf("note.txt" to fileUriString(file)),
                 )
 
-            assertTrue(result is ShareAttachmentResolver.AttachmentPreparationResult.Failure)
+            (result is ShareAttachmentResolver.AttachmentPreparationResult.Failure).shouldBeTrue()
             val error =
                 (result as ShareAttachmentResolver.AttachmentPreparationResult.Failure).error
-            assertEquals(ShareTransferErrorCode.UNSUPPORTED_ATTACHMENT_TYPE, error.code)
+            error.code shouldBe ShareTransferErrorCode.UNSUPPORTED_ATTACHMENT_TYPE
         }
 
-    @Test
-    fun `prepareAttachments rejects attachment that exceeds payload size limit`() =
+    private fun `prepareAttachments rejects attachment that exceeds payload size limit`() =
         runBlocking {
             val file = Files.createTempFile("lomo-share-huge", ".png").toFile()
             RandomAccessFile(file, "rw").use { raf ->
@@ -150,10 +160,10 @@ class ShareAttachmentResolverTest {
                     rawAttachmentUris = mapOf("huge.png" to fileUriString(file)),
                 )
 
-            assertTrue(result is ShareAttachmentResolver.AttachmentPreparationResult.Failure)
+            (result is ShareAttachmentResolver.AttachmentPreparationResult.Failure).shouldBeTrue()
             val error =
                 (result as ShareAttachmentResolver.AttachmentPreparationResult.Failure).error
-            assertEquals(ShareTransferErrorCode.ATTACHMENT_TOO_LARGE, error.code)
+            error.code shouldBe ShareTransferErrorCode.ATTACHMENT_TOO_LARGE
         }
 
     private fun tempFile(

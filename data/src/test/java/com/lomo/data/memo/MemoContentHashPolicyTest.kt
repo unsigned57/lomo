@@ -1,8 +1,9 @@
 package com.lomo.data.memo
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -13,38 +14,45 @@ import org.junit.Test
  *   not guaranteed to be consistent across JVM restarts.
  * - Excludes: MemoTextProcessor logic and file-system side effects.
  */
-class MemoContentHashPolicyTest {
-    @Test
-    fun `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() {
+class MemoContentHashPolicyTest : DataFunSpec() {
+    init {
+        test("hashHex produces 64-character lowercase hex string (SHA-256 output shape)") { `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() }
+
+        test("hashHex is deterministic for the same input") { `hashHex is deterministic for the same input`() }
+
+        test("hashHex produces different values for different inputs") { `hashHex produces different values for different inputs`() }
+
+        test("hashHex trims surrounding whitespace before hashing") { `hashHex trims surrounding whitespace before hashing`() }
+    }
+
+
+    private fun `hashHex produces 64-character lowercase hex string (SHA-256 output shape)`() {
         val hash = MemoContentHashPolicy.hashHex("hello")
 
-        assertEquals(64, hash.length)
+        hash.length shouldBe 64
         assert(hash.all { it in '0'..'9' || it in 'a'..'f' }) {
             "Expected only lowercase hex characters but got: $hash"
         }
     }
 
-    @Test
-    fun `hashHex is deterministic for the same input`() {
+    private fun `hashHex is deterministic for the same input`() {
         val first = MemoContentHashPolicy.hashHex("consistent content")
         val second = MemoContentHashPolicy.hashHex("consistent content")
 
-        assertEquals(first, second)
+        second shouldBe first
     }
 
-    @Test
-    fun `hashHex produces different values for different inputs`() {
+    private fun `hashHex produces different values for different inputs`() {
         val hash1 = MemoContentHashPolicy.hashHex("content A")
         val hash2 = MemoContentHashPolicy.hashHex("content B")
 
-        assertNotEquals(hash1, hash2)
+        hash2 shouldNotBe hash1
     }
 
-    @Test
-    fun `hashHex trims surrounding whitespace before hashing`() {
+    private fun `hashHex trims surrounding whitespace before hashing`() {
         val plain = MemoContentHashPolicy.hashHex("note")
         val padded = MemoContentHashPolicy.hashHex("  note  ")
 
-        assertEquals(plain, padded)
+        padded shouldBe plain
     }
 }

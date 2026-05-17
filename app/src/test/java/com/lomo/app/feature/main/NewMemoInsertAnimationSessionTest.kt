@@ -1,10 +1,7 @@
 package com.lomo.app.feature.main
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -18,130 +15,128 @@ import org.junit.Test
  *   first row until the inserted memo is pinned to the visible top and explicitly revealed.
  * - Excludes: LazyColumn measurement, actual Compose animation frames, repository persistence, and scroll physics.
  */
-class NewMemoInsertAnimationSessionTest {
-    @Test
-    fun `arm waits for a different top memo id and then starts blank-space preparation before reveal`() {
-        val session = NewMemoInsertAnimationSession()
+class NewMemoInsertAnimationSessionTest : AppFunSpec() {
+    init {
+        test("arm waits for a different top memo id and then starts blank-space preparation before reveal") {
+            val session = NewMemoInsertAnimationSession()
 
-        assertTrue(session.arm(previousTopMemoId = "memo-01"))
-        assertTrue(session.state.awaitingInsertedTopMemo)
-        assertNull(session.state.blankSpaceMemoId)
-        assertNull(session.state.gapReadyMemoId)
-        assertNull(session.state.pendingRevealMemoId)
+            ((session.arm(previousTopMemoId = "memo-01"))) shouldBe true
+            ((session.state.awaitingInsertedTopMemo)) shouldBe true
+            (session.state.blankSpaceMemoId) shouldBe null
+            (session.state.gapReadyMemoId) shouldBe null
+            (session.state.pendingRevealMemoId) shouldBe null
 
-        assertNull(session.markInsertedTopMemoReady(insertedTopMemoId = "memo-01"))
-        assertTrue(session.state.awaitingInsertedTopMemo)
-        assertNull(session.state.blankSpaceMemoId)
-        assertNull(session.state.gapReadyMemoId)
-        assertNull(session.state.pendingRevealMemoId)
+            (session.markInsertedTopMemoReady(insertedTopMemoId = "memo-01")) shouldBe null
+            ((session.state.awaitingInsertedTopMemo)) shouldBe true
+            (session.state.blankSpaceMemoId) shouldBe null
+            (session.state.gapReadyMemoId) shouldBe null
+            (session.state.pendingRevealMemoId) shouldBe null
 
-        assertEquals("memo-new", session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new"))
-        assertFalse(session.state.awaitingInsertedTopMemo)
-        assertEquals("memo-new", session.state.blankSpaceMemoId)
-        assertNull(session.state.gapReadyMemoId)
-        assertNull(session.state.pendingRevealMemoId)
+            (session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new")) shouldBe ("memo-new")
+            ((session.state.awaitingInsertedTopMemo)) shouldBe false
+            (session.state.blankSpaceMemoId) shouldBe ("memo-new")
+            (session.state.gapReadyMemoId) shouldBe null
+            (session.state.pendingRevealMemoId) shouldBe null
+        }
     }
 
-    @Test
-    fun `arm treats the first non-null top memo as the blank-space target when the list was previously empty`() {
-        val session = NewMemoInsertAnimationSession()
+    init {
+        test("arm treats the first non-null top memo as the blank-space target when the list was previously empty") {
+            val session = NewMemoInsertAnimationSession()
 
-        assertTrue(session.arm(previousTopMemoId = null))
+            ((session.arm(previousTopMemoId = null))) shouldBe true
 
-        assertNull(session.markInsertedTopMemoReady(insertedTopMemoId = null))
-        assertEquals("memo-new", session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new"))
-        assertEquals(
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = false,
-                blankSpaceMemoId = "memo-new",
-            ),
-            session.state,
-        )
+            (session.markInsertedTopMemoReady(insertedTopMemoId = null)) shouldBe null
+            (session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new")) shouldBe ("memo-new")
+            (session.state) shouldBe (NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = false,
+                    blankSpaceMemoId = "memo-new",
+                ))
+        }
     }
 
-    @Test
-    fun `markBlankSpacePrepared moves the active memo into gap-ready state only`() {
-        val session =
-            NewMemoInsertAnimationSession(
-                initialState =
-                    NewMemoInsertAnimationState(
-                        awaitingInsertedTopMemo = false,
-                        blankSpaceMemoId = "memo-new",
-                    ),
-            )
+    init {
+        test("markBlankSpacePrepared moves the active memo into gap-ready state only") {
+            val session =
+                NewMemoInsertAnimationSession(
+                    initialState =
+                        NewMemoInsertAnimationState(
+                            awaitingInsertedTopMemo = false,
+                            blankSpaceMemoId = "memo-new",
+                        ),
+                )
 
-        session.markBlankSpacePrepared(memoId = "other")
-        assertEquals("memo-new", session.state.blankSpaceMemoId)
-        assertNull(session.state.gapReadyMemoId)
-        assertNull(session.state.pendingRevealMemoId)
+            session.markBlankSpacePrepared(memoId = "other")
+            (session.state.blankSpaceMemoId) shouldBe ("memo-new")
+            (session.state.gapReadyMemoId) shouldBe null
+            (session.state.pendingRevealMemoId) shouldBe null
 
-        session.markBlankSpacePrepared(memoId = "memo-new")
-        assertEquals(
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = false,
-                gapReadyMemoId = "memo-new",
-            ),
-            session.state,
-        )
+            session.markBlankSpacePrepared(memoId = "memo-new")
+            (session.state) shouldBe (NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = false,
+                    gapReadyMemoId = "memo-new",
+                ))
+        }
     }
 
-    @Test
-    fun `markRevealReady promotes only the gap-ready memo into reveal stage`() {
-        val session =
-            NewMemoInsertAnimationSession(
-                initialState =
-                    NewMemoInsertAnimationState(
-                        awaitingInsertedTopMemo = false,
-                        gapReadyMemoId = "memo-new",
-                    ),
-            )
+    init {
+        test("markRevealReady promotes only the gap-ready memo into reveal stage") {
+            val session =
+                NewMemoInsertAnimationSession(
+                    initialState =
+                        NewMemoInsertAnimationState(
+                            awaitingInsertedTopMemo = false,
+                            gapReadyMemoId = "memo-new",
+                        ),
+                )
 
-        session.markRevealReady(memoId = "other")
-        assertEquals("memo-new", session.state.gapReadyMemoId)
-        assertNull(session.state.pendingRevealMemoId)
+            session.markRevealReady(memoId = "other")
+            (session.state.gapReadyMemoId) shouldBe ("memo-new")
+            (session.state.pendingRevealMemoId) shouldBe null
 
-        session.markRevealReady(memoId = "memo-new")
-        assertEquals(
-            NewMemoInsertAnimationState(
-                awaitingInsertedTopMemo = false,
-                pendingRevealMemoId = "memo-new",
-            ),
-            session.state,
-        )
+            session.markRevealReady(memoId = "memo-new")
+            (session.state) shouldBe (NewMemoInsertAnimationState(
+                    awaitingInsertedTopMemo = false,
+                    pendingRevealMemoId = "memo-new",
+                ))
+        }
     }
 
-    @Test
-    fun `clearReveal resets the session only for the active reveal target`() {
-        val session =
-            NewMemoInsertAnimationSession(
-                initialState =
-                    NewMemoInsertAnimationState(
-                        awaitingInsertedTopMemo = false,
-                        pendingRevealMemoId = "memo-new",
-                    ),
-            )
+    init {
+        test("clearReveal resets the session only for the active reveal target") {
+            val session =
+                NewMemoInsertAnimationSession(
+                    initialState =
+                        NewMemoInsertAnimationState(
+                            awaitingInsertedTopMemo = false,
+                            pendingRevealMemoId = "memo-new",
+                        ),
+                )
 
-        session.clearReveal(memoId = "other")
-        assertEquals("memo-new", session.state.pendingRevealMemoId)
+            session.clearReveal(memoId = "other")
+            (session.state.pendingRevealMemoId) shouldBe ("memo-new")
 
-        session.clearReveal(memoId = "memo-new")
-        assertEquals(NewMemoInsertAnimationState(), session.state)
+            session.clearReveal(memoId = "memo-new")
+            (session.state) shouldBe (NewMemoInsertAnimationState())
+        }
     }
 
-    @Test
-    fun `arm rejects overlap while waiting for insertion or reveal completion`() {
-        val session = NewMemoInsertAnimationSession()
+    init {
+        test("arm rejects overlap while waiting for insertion or reveal completion") {
+            val session = NewMemoInsertAnimationSession()
 
-        assertTrue(session.arm(previousTopMemoId = "memo-01"))
-        assertFalse(session.arm(previousTopMemoId = "memo-02"))
+            ((session.arm(previousTopMemoId = "memo-01"))) shouldBe true
+            ((session.arm(previousTopMemoId = "memo-02"))) shouldBe false
 
-        assertEquals("memo-new", session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new"))
-        assertFalse(session.arm(previousTopMemoId = "memo-03"))
+            (session.markInsertedTopMemoReady(insertedTopMemoId = "memo-new")) shouldBe ("memo-new")
+            ((session.arm(previousTopMemoId = "memo-03"))) shouldBe false
 
-        session.markBlankSpacePrepared(memoId = "memo-new")
-        assertFalse(session.arm(previousTopMemoId = "memo-04"))
+            session.markBlankSpacePrepared(memoId = "memo-new")
+            ((session.arm(previousTopMemoId = "memo-04"))) shouldBe false
 
-        session.markRevealReady(memoId = "memo-new")
-        assertFalse(session.arm(previousTopMemoId = "memo-04"))
+            session.markRevealReady(memoId = "memo-new")
+            ((session.arm(previousTopMemoId = "memo-04"))) shouldBe false
+        }
     }
+
 }

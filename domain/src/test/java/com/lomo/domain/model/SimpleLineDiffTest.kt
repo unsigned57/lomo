@@ -1,70 +1,88 @@
+/*
+ * Test Contract:
+ * - Unit under test: SimpleLineDiffTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for SimpleLineDiffTest.
+ * - Boundary: boundary and edge cases for SimpleLineDiffTest.
+ * - Failure: failure and error scenarios for SimpleLineDiffTest.
+ * - Must-not-happen: invariants are never violated for SimpleLineDiffTest.
+ *
+ * - Behavior focus: test behavioral outcomes of SimpleLineDiffTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.model
 
 import com.lomo.domain.model.SimpleLineDiff.DiffOp
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
-class SimpleLineDiffTest {
-    @Test
-    fun `identical texts produce no hunks`() {
-        val hunks = SimpleLineDiff.diff("hello\nworld", "hello\nworld")
-        assertTrue(hunks.isEmpty())
+class SimpleLineDiffTest : DomainFunSpec() {
+    init {
+        test("identical texts produce no hunks") {
+            val hunks = SimpleLineDiff.diff("hello\nworld", "hello\nworld")
+            (hunks.isEmpty()) shouldBe true
+        }
     }
-
-    @Test
-    fun `empty old text shows all inserts`() {
-        val hunks = SimpleLineDiff.diff("", "a\nb")
-        val lines = hunks.flatMap { it.lines }
-        assertTrue(lines.all { it.op == DiffOp.INSERT || it.op == DiffOp.DELETE })
+    init {
+        test("empty old text shows all inserts") {
+            val hunks = SimpleLineDiff.diff("", "a\nb")
+            val lines = hunks.flatMap { it.lines }
+            (lines.all { it.op == DiffOp.INSERT || it.op == DiffOp.DELETE }) shouldBe true
+        }
     }
-
-    @Test
-    fun `empty new text shows all deletes`() {
-        val hunks = SimpleLineDiff.diff("a\nb", "")
-        val lines = hunks.flatMap { it.lines }
-        assertTrue(lines.any { it.op == DiffOp.DELETE })
+    init {
+        test("empty new text shows all deletes") {
+            val hunks = SimpleLineDiff.diff("a\nb", "")
+            val lines = hunks.flatMap { it.lines }
+            (lines.any { it.op == DiffOp.DELETE }) shouldBe true
+        }
     }
-
-    @Test
-    fun `single line change produces one hunk with delete and insert`() {
-        val hunks = SimpleLineDiff.diff("hello", "world")
-        assertEquals(1, hunks.size)
-        val lines = hunks[0].lines
-        assertTrue(lines.any { it.op == DiffOp.DELETE && it.text == "hello" })
-        assertTrue(lines.any { it.op == DiffOp.INSERT && it.text == "world" })
+    init {
+        test("single line change produces one hunk with delete and insert") {
+            val hunks = SimpleLineDiff.diff("hello", "world")
+            hunks.size shouldBe 1
+            val lines = hunks[0].lines
+            (lines.any { it.op == DiffOp.DELETE && it.text == "hello" }) shouldBe true
+            (lines.any { it.op == DiffOp.INSERT && it.text == "world" }) shouldBe true
+        }
     }
-
-    @Test
-    fun `addition in middle produces correct diff`() {
-        val old = "a\nb\nc"
-        val new = "a\nb\nnew\nc"
-        val hunks = SimpleLineDiff.diff(old, new)
-        val inserts = hunks.flatMap { it.lines }.filter { it.op == DiffOp.INSERT }
-        assertEquals(1, inserts.size)
-        assertEquals("new", inserts[0].text)
+    init {
+        test("addition in middle produces correct diff") {
+            val old = "a\nb\nc"
+            val new = "a\nb\nnew\nc"
+            val hunks = SimpleLineDiff.diff(old, new)
+            val inserts = hunks.flatMap { it.lines }.filter { it.op == DiffOp.INSERT }
+            inserts.size shouldBe 1
+            inserts[0].text shouldBe "new"
+        }
     }
-
-    @Test
-    fun `line numbers are correct`() {
-        val hunks = SimpleLineDiff.diff("a\nb\nc", "a\nx\nc")
-        val lines = hunks.flatMap { it.lines }
-        val deletedLine = lines.first { it.op == DiffOp.DELETE }
-        val insertedLine = lines.first { it.op == DiffOp.INSERT }
-        assertEquals(2, deletedLine.oldLineNumber)
-        assertEquals(2, insertedLine.newLineNumber)
+    init {
+        test("line numbers are correct") {
+            val hunks = SimpleLineDiff.diff("a\nb\nc", "a\nx\nc")
+            val lines = hunks.flatMap { it.lines }
+            val deletedLine = lines.first { it.op == DiffOp.DELETE }
+            val insertedLine = lines.first { it.op == DiffOp.INSERT }
+            deletedLine.oldLineNumber shouldBe 2
+            insertedLine.newLineNumber shouldBe 2
+        }
     }
-
-    @Test
-    fun `distant changes produce separate hunks`() {
-        // 10 equal lines, 1 change, 10 equal lines, 1 change
-        val oldLines =
-            (1..10).map { "line$it" } + listOf("old1") +
-                (12..21).map { "line$it" } + listOf("old2")
-        val newLines =
-            (1..10).map { "line$it" } + listOf("new1") +
-                (12..21).map { "line$it" } + listOf("new2")
-        val hunks = SimpleLineDiff.diff(oldLines.joinToString("\n"), newLines.joinToString("\n"))
-        assertEquals(2, hunks.size)
+    init {
+        test("distant changes produce separate hunks") {
+            // 10 equal lines, 1 change, 10 equal lines, 1 change
+            val oldLines =
+                (1..10).map { "line$it" } + listOf("old1") +
+                    (12..21).map { "line$it" } + listOf("old2")
+            val newLines =
+                (1..10).map { "line$it" } + listOf("new1") +
+                    (12..21).map { "line$it" } + listOf("new2")
+            val hunks = SimpleLineDiff.diff(oldLines.joinToString("\n"), newLines.joinToString("\n"))
+            hunks.size shouldBe 2
+        }
     }
 }

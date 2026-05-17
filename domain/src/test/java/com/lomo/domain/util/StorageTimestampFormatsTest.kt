@@ -1,64 +1,82 @@
+/*
+ * Test Contract:
+ * - Unit under test: StorageTimestampFormatsTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for StorageTimestampFormatsTest.
+ * - Boundary: boundary and edge cases for StorageTimestampFormatsTest.
+ * - Failure: failure and error scenarios for StorageTimestampFormatsTest.
+ * - Must-not-happen: invariants are never violated for StorageTimestampFormatsTest.
+ *
+ * - Behavior focus: test behavioral outcomes of StorageTimestampFormatsTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.model
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
-class StorageTimestampFormatsTest {
-    @Test
-    fun `parseMemoHeaderLine returns null for malformed or non-header input`() {
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine(""))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("   "))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("09:30 content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("-"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("-    "))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- content only"))
+class StorageTimestampFormatsTest : DomainFunSpec() {
+    init {
+        test("parseMemoHeaderLine returns null for malformed or non-header input") {
+            StorageTimestampFormats.parseMemoHeaderLine("") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("   ") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("09:30 content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("-") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("-    ") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- content only") shouldBe null
+        }
     }
-
-    @Test
-    fun `parseMemoHeaderLine returns null when timestamp fields are missing`() {
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09 content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- :30 content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09: content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09::30 content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09:30: content"))
+    init {
+        test("parseMemoHeaderLine returns null when timestamp fields are missing") {
+            StorageTimestampFormats.parseMemoHeaderLine("- 09 content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- :30 content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 09: content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 09::30 content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 09:30: content") shouldBe null
+        }
     }
-
-    @Test
-    fun `parseMemoHeaderLine returns null for illegal time values`() {
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 24:01 overflow hour"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09:60 overflow minute"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09:10:60 overflow second"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 99:00 clearly invalid"))
+    init {
+        test("parseMemoHeaderLine returns null for illegal time values") {
+            StorageTimestampFormats.parseMemoHeaderLine("- 24:01 overflow hour") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 09:60 overflow minute") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 09:10:60 overflow second") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 99:00 clearly invalid") shouldBe null
+        }
     }
-
-    @Test
-    fun `parseMemoHeaderLine rejects non-whitespace token boundaries`() {
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 09:30content"))
-        assertNull(StorageTimestampFormats.parseMemoHeaderLine("- 9:30:05content"))
+    init {
+        test("parseMemoHeaderLine rejects non-whitespace token boundaries") {
+            StorageTimestampFormats.parseMemoHeaderLine("- 09:30content") shouldBe null
+            StorageTimestampFormats.parseMemoHeaderLine("- 9:30:05content") shouldBe null
+        }
     }
+    init {
+        test("parseMemoHeaderLine parses supported time formats and content") {
+            val withMinutes = StorageTimestampFormats.parseMemoHeaderLine("- 09:30 hello")
+            withMinutes shouldNotBe null
+            withMinutes?.timePart shouldBe "09:30"
+            withMinutes?.contentPart shouldBe "hello"
 
-    @Test
-    fun `parseMemoHeaderLine parses supported time formats and content`() {
-        val withMinutes = StorageTimestampFormats.parseMemoHeaderLine("- 09:30 hello")
-        assertNotNull(withMinutes)
-        assertEquals("09:30", withMinutes?.timePart)
-        assertEquals("hello", withMinutes?.contentPart)
+            val singleDigitHour = StorageTimestampFormats.parseMemoHeaderLine("  - 9:30 hi")
+            singleDigitHour shouldNotBe null
+            singleDigitHour?.timePart shouldBe "9:30"
+            singleDigitHour?.contentPart shouldBe "hi"
 
-        val singleDigitHour = StorageTimestampFormats.parseMemoHeaderLine("  - 9:30 hi")
-        assertNotNull(singleDigitHour)
-        assertEquals("9:30", singleDigitHour?.timePart)
-        assertEquals("hi", singleDigitHour?.contentPart)
+            val withSeconds = StorageTimestampFormats.parseMemoHeaderLine("- 9:30:05 details")
+            withSeconds shouldNotBe null
+            withSeconds?.timePart shouldBe "9:30:05"
+            withSeconds?.contentPart shouldBe "details"
 
-        val withSeconds = StorageTimestampFormats.parseMemoHeaderLine("- 9:30:05 details")
-        assertNotNull(withSeconds)
-        assertEquals("9:30:05", withSeconds?.timePart)
-        assertEquals("details", withSeconds?.contentPart)
-
-        val noContent = StorageTimestampFormats.parseMemoHeaderLine("- 09:30")
-        assertNotNull(noContent)
-        assertEquals("09:30", noContent?.timePart)
-        assertEquals("", noContent?.contentPart)
+            val noContent = StorageTimestampFormats.parseMemoHeaderLine("- 09:30")
+            noContent shouldNotBe null
+            noContent?.timePart shouldBe "09:30"
+            noContent?.contentPart shouldBe ""
+        }
     }
 }

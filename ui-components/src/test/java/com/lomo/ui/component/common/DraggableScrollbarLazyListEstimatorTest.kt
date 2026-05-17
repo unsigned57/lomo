@@ -1,9 +1,10 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -20,9 +21,9 @@ import org.junit.Test
  *   because the estimator cannot override LazyColumn's loaded item count with the repository count.
  * - Excludes: Compose LazyColumn rendering, pointer input dispatch, and scrollbar canvas pixels.
  */
-class DraggableScrollbarLazyListEstimatorTest {
-    @Test
-    fun `forward scroll keeps thumb from moving backward when a tall memo enters the cache`() {
+class DraggableScrollbarLazyListEstimatorTest : UiComponentsFunSpec() {
+    init {
+        test("forward scroll keeps thumb from moving backward when a tall memo enters the cache") {
         val estimator = LazyListScrollbarEstimator()
         val beforeTallMemo =
             estimator.update(
@@ -32,7 +33,7 @@ class DraggableScrollbarLazyListEstimatorTest {
                 ),
                 contentGeneration = "memos",
         )
-        assertNotNull(beforeTallMemo)
+        (beforeTallMemo) shouldNotBe null
         val before = checkNotNull(beforeTallMemo)
 
         val afterTallMemo =
@@ -43,18 +44,16 @@ class DraggableScrollbarLazyListEstimatorTest {
                 ),
                 contentGeneration = "memos",
         )
-        assertNotNull(afterTallMemo)
+        (afterTallMemo) shouldNotBe null
         val after = checkNotNull(afterTallMemo)
 
-        assertTrue(
-            "Expected forward scrolling to keep the scrollbar fraction monotonic, " +
-                "but before=${before.scrollFraction} and after=${after.scrollFraction}.",
-            after.scrollFraction >= before.scrollFraction,
-        )
+        withClue("Expected forward scrolling to keep the scrollbar fraction monotonic, " +
+                "but before=${before.scrollFraction} and after=${after.scrollFraction}.") { (after.scrollFraction >= before.scrollFraction) shouldBe true }
+        }
     }
 
-    @Test
-    fun `lazy list estimator pins thumb to bottom when forward scrolling is blocked`() {
+    init {
+        test("lazy list estimator pins thumb to bottom when forward scrolling is blocked") {
         val estimator = LazyListScrollbarEstimator()
 
         val metrics =
@@ -67,12 +66,13 @@ class DraggableScrollbarLazyListEstimatorTest {
                 contentGeneration = "memos",
             )
 
-        assertNotNull(metrics)
-        assertEquals(1f, metrics!!.scrollFraction, 0.001f)
+        (metrics) shouldNotBe null
+        (metrics!!.scrollFraction) shouldBe ((1f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `content generation change clears stale measured sizes`() {
+    init {
+        test("content generation change clears stale measured sizes") {
         val estimator = LazyListScrollbarEstimator()
         estimator.update(
             snapshot(
@@ -91,12 +91,13 @@ class DraggableScrollbarLazyListEstimatorTest {
                 contentGeneration = "after-filter",
             )
 
-        assertNotNull(resetMetrics)
-        assertEquals(100f, resetMetrics!!.avgItemSizePx, 0.001f)
+        (resetMetrics) shouldNotBe null
+        (resetMetrics!!.avgItemSizePx) shouldBe ((100f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `external total keeps paging append from moving thumb upward`() {
+    init {
+        test("external total keeps paging append from moving thumb upward") {
         val estimator = LazyListScrollbarEstimator()
         val beforeAppend =
             estimator.update(
@@ -108,7 +109,7 @@ class DraggableScrollbarLazyListEstimatorTest {
                 contentGeneration = "main-feed",
                 totalItemsCountOverride = 100,
             )
-        assertNotNull(beforeAppend)
+        (beforeAppend) shouldNotBe null
         val before = checkNotNull(beforeAppend)
 
         val afterAppend =
@@ -121,16 +122,17 @@ class DraggableScrollbarLazyListEstimatorTest {
                 contentGeneration = "main-feed",
                 totalItemsCountOverride = 100,
             )
-        assertNotNull(afterAppend)
+        (afterAppend) shouldNotBe null
         val after = checkNotNull(afterAppend)
 
-        assertEquals(100, before.totalItemsCount)
-        assertEquals(100, after.totalItemsCount)
-        assertEquals(before.scrollFraction, after.scrollFraction, 0.001f)
+        (before.totalItemsCount) shouldBe (100)
+        (after.totalItemsCount) shouldBe (100)
+        (after.scrollFraction) shouldBe ((before.scrollFraction) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `drag target clamps to materialized rows when repository total is larger than loaded page`() {
+    init {
+        test("drag target clamps to materialized rows when repository total is larger than loaded page") {
         val metrics =
             LazyListScrollbarMetrics(
                 totalItemsCount = 100,
@@ -142,12 +144,13 @@ class DraggableScrollbarLazyListEstimatorTest {
 
         val target = metrics.targetForFraction(1f)
 
-        assertEquals(19, target.index)
-        assertEquals(0, target.scrollOffsetPx)
+        (target.index) shouldBe (19)
+        (target.scrollOffsetPx) shouldBe (0)
+        }
     }
 
-    @Test
-    fun `known-size target mapping lands in the correct heterogeneous memo range`() {
+    init {
+        test("known-size target mapping lands in the correct heterogeneous memo range") {
         val knownSizes =
             buildMap {
                 repeat(50) { index -> put(index, 100) }
@@ -164,8 +167,9 @@ class DraggableScrollbarLazyListEstimatorTest {
 
         val target = metrics.targetForFraction(0.5f)
 
-        assertEquals(65, target.index)
-        assertEquals(0, target.scrollOffsetPx)
+        (target.index) shouldBe (65)
+        (target.scrollOffsetPx) shouldBe (0)
+        }
     }
 
     private fun snapshot(

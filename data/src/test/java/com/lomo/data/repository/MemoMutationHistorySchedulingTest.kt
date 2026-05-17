@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.MemoEntity
@@ -18,9 +19,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -33,7 +33,18 @@ import org.junit.Test
  *   MemoVersionJournal.appendLocalRevision directly, so a slow snapshot append blocks the mutation call.
  * - Excludes: blob persistence, snapshot prune policy, and file-flush behavior.
  */
-class MemoMutationHistorySchedulingTest {
+class MemoMutationHistorySchedulingTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("updateMemoInDb returns before history snapshot append completes") { `updateMemoInDb returns before history snapshot append completes`() }
+
+        test("deleteMemoInDb returns before trashed snapshot append completes") { `deleteMemoInDb returns before trashed snapshot append completes`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var fileDataSource: FileDataSource
 
@@ -57,8 +68,7 @@ class MemoMutationHistorySchedulingTest {
 
     private lateinit var handler: MemoMutationHandler
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         every { dataStore.storageFilenameFormat } returns flowOf("yyyy_MM_dd")
         every { dataStore.storageTimestampFormat } returns flowOf("HH:mm")
@@ -80,8 +90,7 @@ class MemoMutationHistorySchedulingTest {
             )
     }
 
-    @Test
-    fun `updateMemoInDb returns before history snapshot append completes`() =
+    private fun `updateMemoInDb returns before history snapshot append completes`() =
         runTest {
             val sourceMemo = testMemo(id = "memo-update", updatedAt = 10L, content = "before")
             val historyGate = CompletableDeferred<Unit>()
@@ -96,7 +105,7 @@ class MemoMutationHistorySchedulingTest {
                     handler.updateMemoInDb(sourceMemo, "after")
                 }
 
-            assertEquals(11L, outboxId)
+            outboxId shouldBe 11L
             historyGate.complete(Unit)
             coVerify(timeout = 1_000, exactly = 1) {
                 memoVersionJournal.appendLocalRevision(
@@ -107,8 +116,7 @@ class MemoMutationHistorySchedulingTest {
             }
         }
 
-    @Test
-    fun `deleteMemoInDb returns before trashed snapshot append completes`() =
+    private fun `deleteMemoInDb returns before trashed snapshot append completes`() =
         runTest {
             val sourceMemo = testMemo(id = "memo-delete", updatedAt = 20L, content = "trash me")
             val historyGate = CompletableDeferred<Unit>()
@@ -123,7 +131,7 @@ class MemoMutationHistorySchedulingTest {
                     handler.deleteMemoInDb(sourceMemo)
                 }
 
-            assertEquals(21L, outboxId)
+            outboxId shouldBe 21L
             historyGate.complete(Unit)
             coVerify(timeout = 1_000, exactly = 1) {
                 memoVersionJournal.appendLocalRevision(

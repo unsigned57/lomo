@@ -1,10 +1,10 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import com.lomo.ui.theme.TypographyScales
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -14,11 +14,11 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the modern markdown token spec leaves heading and other block-text styles at Color.Unspecified, so title and similar text can render invisible on the new backend.
  * - Excludes: Compose tree rendering, third-party markdown parsing internals, and Android TextView behavior.
  */
-class ModernMarkdownVisibleTextStylePolicyTest {
+class ModernMarkdownVisibleTextStylePolicyTest : UiComponentsFunSpec() {
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `unstyled modern markdown text tokens receive visible theme colors`() {
+    init {
+        test("unstyled modern markdown text tokens receive visible theme colors") {
         val baseSpec =
             createModernMarkdownTokenSpec(
                 Typography(),
@@ -35,22 +35,23 @@ class ModernMarkdownVisibleTextStylePolicyTest {
                 secondaryTextColor = secondaryTextColor,
             )
 
-        assertEquals(primaryTextColor, resolved.paragraphStyle.color)
-        assertEquals(primaryTextColor, resolved.heading1Style.color)
-        assertEquals(primaryTextColor, resolved.heading2Style.color)
-        assertEquals(primaryTextColor, resolved.heading3Style.color)
-        assertEquals(primaryTextColor, resolved.heading4Style.color)
-        assertEquals(primaryTextColor, resolved.heading5Style.color)
-        assertEquals(secondaryTextColor, resolved.heading6Style.color)
-        assertEquals(primaryTextColor, resolved.listStyle.color)
-        assertEquals(primaryTextColor, resolved.quoteStyle.color)
-        assertEquals(primaryTextColor, resolved.codeStyle.color)
-        assertEquals(primaryTextColor, resolved.inlineCodeStyle.color)
-        assertEquals(primaryTextColor, resolved.tableStyle.color)
+        (resolved.paragraphStyle.color) shouldBe (primaryTextColor)
+        (resolved.heading1Style.color) shouldBe (primaryTextColor)
+        (resolved.heading2Style.color) shouldBe (primaryTextColor)
+        (resolved.heading3Style.color) shouldBe (primaryTextColor)
+        (resolved.heading4Style.color) shouldBe (primaryTextColor)
+        (resolved.heading5Style.color) shouldBe (primaryTextColor)
+        (resolved.heading6Style.color) shouldBe (secondaryTextColor)
+        (resolved.listStyle.color) shouldBe (primaryTextColor)
+        (resolved.quoteStyle.color) shouldBe (primaryTextColor)
+        (resolved.codeStyle.color) shouldBe (primaryTextColor)
+        (resolved.inlineCodeStyle.color) shouldBe (primaryTextColor)
+        (resolved.tableStyle.color) shouldBe (primaryTextColor)
+        }
     }
 
-    @Test
-    fun `explicit token colors survive visible color resolution`() {
+    init {
+        test("explicit token colors survive visible color resolution") {
         val explicitHeadingColor = Color(0xFFAA3300)
         val explicitQuoteColor = Color(0xFF0055AA)
         val baseSpec =
@@ -84,7 +85,8 @@ class ModernMarkdownVisibleTextStylePolicyTest {
                 secondaryTextColor = Color(0xFF556677),
             )
 
-        assertEquals(explicitHeadingColor, resolved.heading2Style.color)
-        assertEquals(explicitQuoteColor, resolved.quoteStyle.color)
+        (resolved.heading2Style.color) shouldBe (explicitHeadingColor)
+        (resolved.quoteStyle.color) shouldBe (explicitQuoteColor)
+        }
     }
 }

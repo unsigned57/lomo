@@ -1,12 +1,11 @@
 package com.lomo.app.feature.main
 
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -35,72 +34,79 @@ import org.junit.Test
  *   user-visible prepend sequence rather than an internal refactor detail.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class NewMemoCreationCoordinatorTest {
-    @Test
-    fun `submit creates immediately without scrolling or repinning when list is already at top`() =
-        runTest {
-            val events = mutableListOf<String>()
-            val coordinator =
-                NewMemoCreationCoordinator<String>(
-                    scope = backgroundScope,
-                    isListAtAbsoluteTop = { true },
-                    scrollListToAbsoluteTop = { events += "scroll" },
-                    createMemo = { content -> events += "create:$content" },
-                )
+class NewMemoCreationCoordinatorTest : AppFunSpec() {
+    init {
+        test("submit creates immediately without scrolling or repinning when list is already at top") {
+            runTest {
+                val events = mutableListOf<String>()
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { true },
+                        scrollListToAbsoluteTop = { events += "scroll" },
+                        createMemo = { content -> events += "create:$content" },
+                    )
 
-            val accepted = coordinator.submit("memo body")
-            advanceUntilIdle()
+                val accepted = coordinator.submit("memo body")
+                advanceUntilIdle()
 
-            assertTrue(accepted)
-            assertEquals(listOf("create:memo body"), events)
+                ((accepted)) shouldBe true
+                (events) shouldBe (listOf("create:memo body"))
+            }
         }
+    }
 
-    @Test
-    fun `submit jumps to top and then creates when list is away from top without a second anchor phase`() =
-        runTest {
-            val events = mutableListOf<String>()
-            var atTop = false
-            val coordinator =
-                NewMemoCreationCoordinator<String>(
-                    scope = backgroundScope,
-                    isListAtAbsoluteTop = { atTop },
-                    scrollListToAbsoluteTop = {
-                        events += "scroll"
-                        atTop = true
-                    },
-                    createMemo = { content -> events += "create:$content" },
-                )
+    init {
+        test("submit jumps to top and then creates when list is away from top without a second anchor phase") {
+            runTest {
+                val events = mutableListOf<String>()
+                var atTop = false
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { atTop },
+                        scrollListToAbsoluteTop = {
+                            events += "scroll"
+                            atTop = true
+                        },
+                        createMemo = { content -> events += "create:$content" },
+                    )
 
-            val accepted = coordinator.submit("memo body")
-            advanceUntilIdle()
+                val accepted = coordinator.submit("memo body")
+                advanceUntilIdle()
 
-            assertTrue(accepted)
-            assertEquals(listOf("scroll", "create:memo body"), events)
+                ((accepted)) shouldBe true
+                (events) shouldBe (listOf("scroll", "create:memo body"))
+            }
         }
+    }
 
-    @Test
-    fun `submit ignores overlapping requests while waiting for scroll completion`() =
-        runTest {
-            val scrollGate = CompletableDeferred<Unit>()
-            val events = mutableListOf<String>()
-            val coordinator =
-                NewMemoCreationCoordinator<String>(
-                    scope = backgroundScope,
-                    isListAtAbsoluteTop = { false },
-                    scrollListToAbsoluteTop = {
-                        events += "scroll"
-                        scrollGate.await()
-                    },
-                    createMemo = { content -> events += "create:$content" },
-                )
+    init {
+        test("submit ignores overlapping requests while waiting for scroll completion") {
+            runTest {
+                val scrollGate = CompletableDeferred<Unit>()
+                val events = mutableListOf<String>()
+                val coordinator =
+                    NewMemoCreationCoordinator<String>(
+                        scope = backgroundScope,
+                        isListAtAbsoluteTop = { false },
+                        scrollListToAbsoluteTop = {
+                            events += "scroll"
+                            scrollGate.await()
+                        },
+                        createMemo = { content -> events += "create:$content" },
+                    )
 
-            val firstAccepted = coordinator.submit("first")
-            val secondAccepted = coordinator.submit("second")
-            scrollGate.complete(Unit)
-            advanceUntilIdle()
+                val firstAccepted = coordinator.submit("first")
+                val secondAccepted = coordinator.submit("second")
+                scrollGate.complete(Unit)
+                advanceUntilIdle()
 
-            assertTrue(firstAccepted)
-            assertEquals(false, secondAccepted)
-            assertEquals(listOf("scroll", "create:first"), events)
+                ((firstAccepted)) shouldBe true
+                (secondAccepted) shouldBe (false)
+                (events) shouldBe (listOf("scroll", "create:first"))
+            }
         }
+    }
+
 }

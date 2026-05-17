@@ -1,7 +1,7 @@
 package com.lomo.app.feature.main
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,48 +13,50 @@ import org.junit.Test
  *   deleted row disappears as soon as Paging invalidates.
  * - Excludes: Compose runtime animation frames, LazyPagingItems internals, and ViewModel wiring.
  */
-class PagedMemoRetentionPolicyTest {
-    @Test
-    fun `retained paged row stays visible after latest paging snapshot removes it`() {
-        val previousVisibleItems =
-            listOf(
-                visibleItem("first"),
-                visibleItem("deleting"),
-                visibleItem("last"),
-            )
-        val sourceItems =
-            listOf(
-                visibleItem("first"),
-                visibleItem("last"),
-            )
+class PagedMemoRetentionPolicyTest : AppFunSpec() {
+    init {
+        test("retained paged row stays visible after latest paging snapshot removes it") {
+            val previousVisibleItems =
+                listOf(
+                    visibleItem("first"),
+                    visibleItem("deleting"),
+                    visibleItem("last"),
+                )
+            val sourceItems =
+                listOf(
+                    visibleItem("first"),
+                    visibleItem("last"),
+                )
 
-        val result =
-            mergePagedVisibleItemsWithRetainedRows(
-                sourceItems = sourceItems,
-                previousVisibleItems = previousVisibleItems,
-                retainedIds = setOf("deleting"),
-                itemId = VisibleItem::id,
-            )
+            val result =
+                mergePagedVisibleItemsWithRetainedRows(
+                    sourceItems = sourceItems,
+                    previousVisibleItems = previousVisibleItems,
+                    retainedIds = setOf("deleting"),
+                    itemId = VisibleItem::id,
+                )
 
-        assertEquals(listOf("first", "deleting", "last"), result.map(VisibleItem::id))
+            (result.map(VisibleItem::id)) shouldBe (listOf("first", "deleting", "last"))
+        }
     }
 
-    @Test
-    fun `cleanup only starts for retained ids missing from latest paging snapshot`() {
-        val sourceItems =
-            listOf(
-                visibleItem("still-present"),
-                visibleItem("fresh"),
-            )
+    init {
+        test("cleanup only starts for retained ids missing from latest paging snapshot") {
+            val sourceItems =
+                listOf(
+                    visibleItem("still-present"),
+                    visibleItem("fresh"),
+                )
 
-        val result =
-            resolvePagedRetentionCleanupIds(
-                sourceItems = sourceItems,
-                retainedIds = setOf("still-present", "already-removed"),
-                itemId = VisibleItem::id,
-            )
+            val result =
+                resolvePagedRetentionCleanupIds(
+                    sourceItems = sourceItems,
+                    retainedIds = setOf("still-present", "already-removed"),
+                    itemId = VisibleItem::id,
+                )
 
-        assertEquals(setOf("already-removed"), result)
+            (result) shouldBe (setOf("already-removed"))
+        }
     }
 
     private fun visibleItem(id: String): VisibleItem = VisibleItem(id = id)

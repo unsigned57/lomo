@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
@@ -16,21 +17,39 @@ import io.mockk.runs
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
  * - Unit under test: SettingsRepositoryImpl
  * - Behavior focus: workspace-location writes, failure propagation, and datastore-backed preference delegation.
  * - Observable outcomes: repository return values, thrown exceptions, and collaborator interactions.
- * - Red phase: Not applicable - constructor wiring mechanically narrowed after tag-pinning rollback; no behavior change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Test Change Justification: reason category = pure refactor preserved behavior; removed the unshipped pinned-tag preference dependency from test setup because the production preferences aggregate no longer exposes that repository, while the retained assertions still cover workspace writes, failure propagation, and delegated preference mutations.
  * - Excludes: concrete datastore implementation details and Compose/UI rendering.
  */
-class SettingsRepositoryImplTest {
+class SettingsRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("applyRootLocation updates root workspace location") { `applyRootLocation updates root workspace location`() }
+
+        test("applyLocation propagates update failure") { `applyLocation propagates update failure`() }
+
+        test("isAppLockEnabled delegates to datastore") { `isAppLockEnabled delegates to datastore`() }
+
+        test("setAppLockEnabled delegates to datastore") { `setAppLockEnabled delegates to datastore`() }
+
+        test("applyLocation updates sync inbox workspace location") { `applyLocation updates sync inbox workspace location`() }
+
+        test("setSyncInboxEnabled delegates to datastore") { `setSyncInboxEnabled delegates to datastore`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataSource: WorkspaceConfigSource
 
@@ -39,8 +58,7 @@ class SettingsRepositoryImplTest {
 
     private lateinit var repository: SettingsRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         repository =
             SettingsRepositoryImpl(
@@ -64,8 +82,7 @@ class SettingsRepositoryImplTest {
             )
     }
 
-    @Test
-    fun `applyRootLocation updates root workspace location`() =
+    private fun `applyRootLocation updates root workspace location`() =
         runTest {
             coEvery { dataSource.setRoot(type = StorageRootType.MAIN, pathOrUri = "/tmp/lomo") } just runs
 
@@ -76,8 +93,7 @@ class SettingsRepositoryImplTest {
             }
         }
 
-    @Test
-    fun `applyLocation propagates update failure`() =
+    private fun `applyLocation propagates update failure`() =
         runTest {
             val update = StorageAreaUpdate(area = StorageArea.ROOT, location = StorageLocation("content://lomo/root"))
             coEvery {
@@ -86,24 +102,22 @@ class SettingsRepositoryImplTest {
 
             val exception = runCatching { repository.applyLocation(update) }.exceptionOrNull()
 
-            assertTrue(exception is IllegalStateException)
+            (exception is IllegalStateException).shouldBeTrue()
             coVerify(exactly = 1) {
                 dataSource.setRoot(type = StorageRootType.MAIN, pathOrUri = "content://lomo/root")
             }
         }
 
-    @Test
-    fun `isAppLockEnabled delegates to datastore`() =
+    private fun `isAppLockEnabled delegates to datastore`() =
         runTest {
             every { dataStore.appLockEnabled } returns flowOf(true)
 
             val enabled = repository.isAppLockEnabled().first()
 
-            assertEquals(true, enabled)
+            enabled shouldBe true
         }
 
-    @Test
-    fun `setAppLockEnabled delegates to datastore`() =
+    private fun `setAppLockEnabled delegates to datastore`() =
         runTest {
             coEvery { dataStore.updateAppLockEnabled(true) } just runs
 
@@ -112,8 +126,7 @@ class SettingsRepositoryImplTest {
             coVerify(exactly = 1) { dataStore.updateAppLockEnabled(true) }
         }
 
-    @Test
-    fun `applyLocation updates sync inbox workspace location`() =
+    private fun `applyLocation updates sync inbox workspace location`() =
         runTest {
             coEvery { dataSource.setRoot(type = StorageRootType.SYNC_INBOX, pathOrUri = "/tmp/inbox") } just runs
 
@@ -124,8 +137,7 @@ class SettingsRepositoryImplTest {
             }
         }
 
-    @Test
-    fun `setSyncInboxEnabled delegates to datastore`() =
+    private fun `setSyncInboxEnabled delegates to datastore`() =
         runTest {
             coEvery { dataStore.updateSyncInboxEnabled(true) } just runs
 

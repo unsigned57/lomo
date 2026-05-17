@@ -1,9 +1,10 @@
 package com.lomo.data.local
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -17,18 +18,22 @@ import org.junit.Test
  * - Excludes: Room schema validation, actual SQLite query execution, tokenizer semantics, and
  *   migration correctness beyond the FTS rebuild step.
  */
-class DatabaseFtsInfrastructureExistingTableTest {
-    @Test
-    fun `rebuildMemoFtsExternalContentInfrastructure upgrades existing fts4 table to external-content fts5`() {
+class DatabaseFtsInfrastructureExistingTableTest : DataFunSpec() {
+    init {
+        test("rebuildMemoFtsExternalContentInfrastructure upgrades existing fts4 table to external-content fts5") { `rebuildMemoFtsExternalContentInfrastructure upgrades existing fts4 table to external-content fts5`() }
+    }
+
+
+    private fun `rebuildMemoFtsExternalContentInfrastructure upgrades existing fts4 table to external-content fts5`() {
         val db = RecordingSQLiteConnection { sql, _ -> if (sql.contains("name='$MEMO_TABLE'")) oneRowResult() else SQLiteQueryResult.EMPTY }
 
         rebuildMemoFtsExternalContentInfrastructure(db)
 
-        assertEquals(1, db.executedStatements.count { it.sql == "$DROP_TABLE_IF_EXISTS `$FTS_TABLE`" })
-        assertTrue(db.executedStatements.any { it.sql.contains("USING fts5", ignoreCase = true) })
-        assertTrue(db.executedStatements.any { it.sql.contains("content='Lomo'", ignoreCase = true) })
-        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") })
-        assertFalse(db.executedStatements.any { it.sql.contains("USING FTS4", ignoreCase = true) })
+        db.executedStatements.count { it.sql == "$DROP_TABLE_IF_EXISTS `$FTS_TABLE`" } shouldBe 1
+        (db.executedStatements.any { it.sql.contains("USING fts5", ignoreCase = true) }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("content='Lomo'", ignoreCase = true) }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("USING FTS4", ignoreCase = true) }).shouldBeFalse()
     }
 
     private fun oneRowResult(): SQLiteQueryResult = queryResult("present", rows = listOf(rowOf(1)))

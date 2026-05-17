@@ -1,9 +1,9 @@
 package com.lomo.ui.component.input
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -13,9 +13,9 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the editor still uses line-break-based quick-send interception instead of preserving trailing line breaks.
  * - Excludes: IME delivery, submit button wiring, and Compose host lifecycle.
  */
-class PassThroughInputInterceptorTest {
-    @Test
-    fun `double trailing line breaks remain editable content`() {
+class PassThroughInputInterceptorTest : UiComponentsFunSpec() {
+    init {
+        test("double trailing line breaks remain editable content") {
         val interceptor = passThroughInputInterceptor()
 
         val result =
@@ -24,14 +24,12 @@ class PassThroughInputInterceptorTest {
                 newValue = TextFieldValue("memo\n\n", TextRange(6)),
             )
 
-        assertEquals(
-            InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n", TextRange(6))),
-            result,
-        )
+        (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n", TextRange(6))))
+        }
     }
 
-    @Test
-    fun `triple trailing line breaks remain editable content`() {
+    init {
+        test("triple trailing line breaks remain editable content") {
         val interceptor = passThroughInputInterceptor()
 
         val result =
@@ -40,9 +38,7 @@ class PassThroughInputInterceptorTest {
                 newValue = TextFieldValue("memo\n\n\n", TextRange(7)),
             )
 
-        assertEquals(
-            InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n\n", TextRange(7))),
-            result,
-        )
+        (result) shouldBe (InputInterceptionResult.UpdateValue(TextFieldValue("memo\n\n\n", TextRange(7))))
+        }
     }
 }

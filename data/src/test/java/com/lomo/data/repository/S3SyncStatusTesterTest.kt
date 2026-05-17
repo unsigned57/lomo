@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.s3.LomoS3Client
@@ -18,11 +19,10 @@ import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -32,7 +32,36 @@ import org.junit.Test
  * - Red phase: Fails before the fix because testConnection rejects Remotely Save base64url rclone object names as invalid base32hex and treats them as incompatible encrypted objects.
  * - Excludes: AWS SDK transport behavior, full sync planning, metadata persistence, and UI rendering.
  */
-class S3SyncStatusTesterTest {
+class S3SyncStatusTesterTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("testConnection succeeds when a valid rclone object exists") { `testConnection succeeds when a valid rclone object exists`() }
+
+        test("testConnection succeeds when a remotely save base64url rclone object exists") { `testConnection succeeds when a remotely save base64url rclone object exists`() }
+
+        test("testConnection succeeds when a later valid rclone object exists after an undecodable entry") { `testConnection succeeds when a later valid rclone object exists after an undecodable entry`() }
+
+        test("testConnection succeeds when first compatible key appears after sample window") { `testConnection succeeds when first compatible key appears after sample window`() }
+
+        test("testConnection returns actionable encryption detail when sampled keys are incompatible") { `testConnection returns actionable encryption detail when sampled keys are incompatible`() }
+
+        test("testConnection treats undecodable ciphertext-like keys as encryption mismatch instead of external root mismatch") { `testConnection treats undecodable ciphertext-like keys as encryption mismatch instead of external root mismatch`() }
+
+        test("testConnection ignores hidden and unsupported objects when a valid content object exists later") { `testConnection ignores hidden and unsupported objects when a valid content object exists later`() }
+
+        test("testConnection succeeds in plaintext mode when sampled objects include syncable content") { `testConnection succeeds in plaintext mode when sampled objects include syncable content`() }
+
+        test("testConnection returns vault root mismatch in plaintext mode when sampled objects are all ignored") { `testConnection returns vault root mismatch in plaintext mode when sampled objects are all ignored`() }
+
+        test("testConnection returns vault root mismatch when sampled objects contain only ignored external files") { `testConnection returns vault root mismatch when sampled objects contain only ignored external files`() }
+
+        test("testConnection returns timeout error when access verification stalls") { `testConnection returns timeout error when access verification stalls`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -59,8 +88,7 @@ class S3SyncStatusTesterTest {
 
     private lateinit var tester: S3SyncStatusTester
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -112,8 +140,7 @@ class S3SyncStatusTesterTest {
             )
     }
 
-    @Test
-    fun `testConnection succeeds when a valid rclone object exists`() =
+    private fun `testConnection succeeds when a valid rclone object exists`() =
         runTest {
             val validRemoteKey =
                 "prefix/" + S3RcloneCryptCompatCodec().encryptKey("lomo/memo/note.md", "secret-pass")
@@ -122,11 +149,10 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
         }
 
-    @Test
-    fun `testConnection succeeds when a remotely save base64url rclone object exists`() =
+    private fun `testConnection succeeds when a remotely save base64url rclone object exists`() =
         runTest {
             val validRemoteKey =
                 "prefix/Y3nf7vUZhT99GJAC1Bqipg/85UUhLN5OijcHlZs6pU07A/9vWZAnc9N8y-EfXu9VYmfQ"
@@ -135,11 +161,10 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
         }
 
-    @Test
-    fun `testConnection succeeds when a later valid rclone object exists after an undecodable entry`() =
+    private fun `testConnection succeeds when a later valid rclone object exists after an undecodable entry`() =
         runTest {
             val validRemoteKey =
                 "prefix/" + S3RcloneCryptCompatCodec().encryptKey("lomo/memo/note.md", "secret-pass")
@@ -152,13 +177,12 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
             coVerify(exactly = 1) { client.verifyAccess("prefix/") }
             coVerify(exactly = 1) { client.listKeys(prefix = "prefix/", maxKeys = 32) }
         }
 
-    @Test
-    fun `testConnection succeeds when first compatible key appears after sample window`() =
+    private fun `testConnection succeeds when first compatible key appears after sample window`() =
         runTest {
             val validRemoteKey =
                 "prefix/" + S3RcloneCryptCompatCodec().encryptKey("Projects/note.md", "secret-pass")
@@ -170,14 +194,13 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
             coVerify(exactly = 1) { client.verifyAccess("prefix/") }
             coVerify(exactly = 1) { client.listKeys(prefix = "prefix/", maxKeys = 32) }
             coVerify(exactly = 1) { client.listKeys(prefix = "prefix/", maxKeys = null) }
         }
 
-    @Test
-    fun `testConnection returns actionable encryption detail when sampled keys are incompatible`() =
+    private fun `testConnection returns actionable encryption detail when sampled keys are incompatible`() =
         runTest {
             coEvery { client.verifyAccess("prefix/") } returns Unit
             coEvery { client.listKeys(prefix = "prefix/", maxKeys = 32) } returns
@@ -189,14 +212,13 @@ class S3SyncStatusTesterTest {
             val result = tester.testConnection()
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.ENCRYPTION_FAILED, error.code)
-            assertTrue(error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'"))
-            assertTrue(error.message.contains("prefix/plaintext-file.md"))
-            assertTrue(error.message.contains("Check the S3 prefix, encryption mode, and encryption password"))
+            error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
+            (error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'")).shouldBeTrue()
+            (error.message.contains("prefix/plaintext-file.md")).shouldBeTrue()
+            (error.message.contains("Check the S3 prefix, encryption mode, and encryption password")).shouldBeTrue()
         }
 
-    @Test
-    fun `testConnection treats undecodable ciphertext-like keys as encryption mismatch instead of external root mismatch`() =
+    private fun `testConnection treats undecodable ciphertext-like keys as encryption mismatch instead of external root mismatch`() =
         runTest {
             coEvery { client.verifyAccess("prefix/") } returns Unit
             coEvery { client.listKeys(prefix = "prefix/", maxKeys = 32) } returns
@@ -209,15 +231,14 @@ class S3SyncStatusTesterTest {
             val result = tester.testConnection()
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.ENCRYPTION_FAILED, error.code)
-            assertTrue(error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'"))
-            assertTrue(error.message.contains("ZmFrZV9lbmNyeXB0ZWRfcm9vdA"))
-            assertTrue(error.message.contains("Check the S3 prefix, encryption mode, and encryption password"))
-            assertFalse(error.message.contains("remote root", ignoreCase = true))
+            error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
+            (error.message.contains("No RCLONE_CRYPT-compatible object names were found under prefix 'prefix/'")).shouldBeTrue()
+            (error.message.contains("ZmFrZV9lbmNyeXB0ZWRfcm9vdA")).shouldBeTrue()
+            (error.message.contains("Check the S3 prefix, encryption mode, and encryption password")).shouldBeTrue()
+            (error.message.contains("remote root", ignoreCase = true)).shouldBeFalse()
         }
 
-    @Test
-    fun `testConnection ignores hidden and unsupported objects when a valid content object exists later`() =
+    private fun `testConnection ignores hidden and unsupported objects when a valid content object exists later`() =
         runTest {
             val validRemoteKey =
                 "prefix/" + S3RcloneCryptCompatCodec().encryptKey("Projects/note.md", "secret-pass")
@@ -232,11 +253,10 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
         }
 
-    @Test
-    fun `testConnection succeeds in plaintext mode when sampled objects include syncable content`() =
+    private fun `testConnection succeeds in plaintext mode when sampled objects include syncable content`() =
         runTest {
             every { dataStore.s3EncryptionMode } returns flowOf("none")
             coEvery { client.verifyAccess("prefix/") } returns Unit
@@ -249,11 +269,10 @@ class S3SyncStatusTesterTest {
 
             val result = tester.testConnection()
 
-            assertEquals(S3SyncResult.Success("S3 connection successful"), result)
+            result shouldBe S3SyncResult.Success("S3 connection successful")
         }
 
-    @Test
-    fun `testConnection returns vault root mismatch in plaintext mode when sampled objects are all ignored`() =
+    private fun `testConnection returns vault root mismatch in plaintext mode when sampled objects are all ignored`() =
         runTest {
             every { dataStore.s3EncryptionMode } returns flowOf("none")
             coEvery { client.verifyAccess("prefix/") } returns Unit
@@ -267,14 +286,13 @@ class S3SyncStatusTesterTest {
             val result = tester.testConnection()
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.ENCRYPTION_FAILED, error.code)
-            assertTrue(error.message.contains("remote root"))
-            assertTrue(error.message.contains("content"))
-            assertTrue(error.message.contains(".obsidian"))
+            error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
+            (error.message.contains("remote root")).shouldBeTrue()
+            (error.message.contains("content")).shouldBeTrue()
+            (error.message.contains(".obsidian")).shouldBeTrue()
         }
 
-    @Test
-    fun `testConnection returns vault root mismatch when sampled objects contain only ignored external files`() =
+    private fun `testConnection returns vault root mismatch when sampled objects contain only ignored external files`() =
         runTest {
             coEvery { client.verifyAccess("prefix/") } returns Unit
             coEvery { client.listKeys(prefix = "prefix/", maxKeys = 32) } returns
@@ -287,14 +305,13 @@ class S3SyncStatusTesterTest {
             val result = tester.testConnection()
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.ENCRYPTION_FAILED, error.code)
-            assertTrue(error.message.contains("remote root"))
-            assertTrue(error.message.contains("content"))
-            assertTrue(error.message.contains(".obsidian"))
+            error.code shouldBe S3SyncErrorCode.ENCRYPTION_FAILED
+            (error.message.contains("remote root")).shouldBeTrue()
+            (error.message.contains("content")).shouldBeTrue()
+            (error.message.contains(".obsidian")).shouldBeTrue()
         }
 
-    @Test
-    fun `testConnection returns timeout error when access verification stalls`() =
+    private fun `testConnection returns timeout error when access verification stalls`() =
         runTest {
             coEvery { client.verifyAccess("prefix/") } coAnswers {
                 delay(20_000)
@@ -304,8 +321,8 @@ class S3SyncStatusTesterTest {
             val result = tester.testConnection()
 
             val error = result as S3SyncResult.Error
-            assertEquals(S3SyncErrorCode.CONNECTION_FAILED, error.code)
-            assertTrue(error.message.contains("timed out", ignoreCase = true))
+            error.code shouldBe S3SyncErrorCode.CONNECTION_FAILED
+            (error.message.contains("timed out", ignoreCase = true)).shouldBeTrue()
             coVerify(exactly = 0) { client.listKeys(any(), any()) }
         }
 }

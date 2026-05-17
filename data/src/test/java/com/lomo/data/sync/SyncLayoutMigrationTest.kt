@@ -1,16 +1,17 @@
 package com.lomo.data.sync
 
+
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteResource
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -20,9 +21,25 @@ import java.nio.file.Files
  * - Red phase: Verified by asserting when migration logic is disabled.
  * - Excludes: WebDAV transport implementation details, logging behavior, and file-system primitive internals.
  */
-class SyncLayoutMigrationTest {
-    @Test
-    fun `migrateWebDavRemote moves legacy memo and media files into lomo layout`() {
+class SyncLayoutMigrationTest : DataFunSpec() {
+    init {
+        test("migrateWebDavRemote moves legacy memo and media files into lomo layout") { `migrateWebDavRemote moves legacy memo and media files into lomo layout`() }
+
+        test("migrateWebDavRemote exits without migration when lomo root already exists") { `migrateWebDavRemote exits without migration when lomo root already exists`() }
+
+        test("migrateWebDavRemote returns immediately when root listing fails") { `migrateWebDavRemote returns immediately when root listing fails`() }
+
+        test("migrateWebDavRemote continues migrating media when one legacy memo migration fails") { `migrateWebDavRemote continues migrating media when one legacy memo migration fails`() }
+
+        test("migrateGitRepo moves root memos and legacy media folders when layout is split") { `migrateGitRepo moves root memos and legacy media folders when layout is split`() }
+
+        test("migrateGitRepo does nothing when all directories are the same") { `migrateGitRepo does nothing when all directories are the same`() }
+
+        test("migrateGitRepo must not overwrite existing target media file") { `migrateGitRepo must not overwrite existing target media file`() }
+    }
+
+
+    private fun `migrateWebDavRemote moves legacy memo and media files into lomo layout`() {
         val client = mockk<WebDavClient>(relaxed = true)
         val layout =
             SyncDirectoryLayout(
@@ -53,8 +70,7 @@ class SyncLayoutMigrationTest {
         verify(exactly = 1) { client.delete("voice") }
     }
 
-    @Test
-    fun `migrateWebDavRemote exits without migration when lomo root already exists`() {
+    private fun `migrateWebDavRemote exits without migration when lomo root already exists`() {
         val client = mockk<WebDavClient>(relaxed = true)
         val layout =
             SyncDirectoryLayout(
@@ -78,8 +94,7 @@ class SyncLayoutMigrationTest {
         verify(exactly = 0) { client.delete(any()) }
     }
 
-    @Test
-    fun `migrateWebDavRemote returns immediately when root listing fails`() {
+    private fun `migrateWebDavRemote returns immediately when root listing fails`() {
         val client = mockk<WebDavClient>(relaxed = true)
         val layout =
             SyncDirectoryLayout(
@@ -98,8 +113,7 @@ class SyncLayoutMigrationTest {
         verify(exactly = 0) { client.delete(any()) }
     }
 
-    @Test
-    fun `migrateWebDavRemote continues migrating media when one legacy memo migration fails`() {
+    private fun `migrateWebDavRemote continues migrating media when one legacy memo migration fails`() {
         val client = mockk<WebDavClient>(relaxed = true)
         val layout =
             SyncDirectoryLayout(
@@ -125,8 +139,7 @@ class SyncLayoutMigrationTest {
         verify(exactly = 1) { client.delete("images") }
     }
 
-    @Test
-    fun `migrateGitRepo moves root memos and legacy media folders when layout is split`() {
+    private fun `migrateGitRepo moves root memos and legacy media folders when layout is split`() {
         val repoRoot = Files.createTempDirectory("lomo-git-migration").toFile()
         val topMemo = File(repoRoot, "2026_03_24.md").apply { writeText("memo") }
         val nestedMemo = File(repoRoot, "nested/keep.md").apply { parentFile?.mkdirs(); writeText("keep") }
@@ -142,18 +155,17 @@ class SyncLayoutMigrationTest {
 
         val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
 
-        assertTrue(changed)
-        assertFalse(topMemo.exists())
-        assertTrue(File(repoRoot, "memos/2026_03_24.md").exists())
-        assertTrue(File(repoRoot, "media_img/a.png").exists())
-        assertTrue(File(repoRoot, "media_voice/v1.m4a").exists())
-        assertTrue(nestedMemo.exists())
-        assertFalse(oldImage.exists())
-        assertFalse(oldVoice.exists())
+        (changed).shouldBeTrue()
+        (topMemo.exists()).shouldBeFalse()
+        (File(repoRoot, "memos/2026_03_24.md").exists()).shouldBeTrue()
+        (File(repoRoot, "media_img/a.png").exists()).shouldBeTrue()
+        (File(repoRoot, "media_voice/v1.m4a").exists()).shouldBeTrue()
+        (nestedMemo.exists()).shouldBeTrue()
+        (oldImage.exists()).shouldBeFalse()
+        (oldVoice.exists()).shouldBeFalse()
     }
 
-    @Test
-    fun `migrateGitRepo does nothing when all directories are the same`() {
+    private fun `migrateGitRepo does nothing when all directories are the same`() {
         val repoRoot = Files.createTempDirectory("lomo-git-no-migration").toFile()
         val topMemo = File(repoRoot, "2026_03_24.md").apply { writeText("memo") }
         val oldImage = File(repoRoot, "images/a.png").apply { parentFile?.mkdirs(); writeText("img") }
@@ -167,14 +179,13 @@ class SyncLayoutMigrationTest {
 
         val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
 
-        assertFalse(changed)
-        assertTrue(topMemo.exists())
-        assertTrue(oldImage.exists())
-        assertFalse(File(repoRoot, "memos/2026_03_24.md").exists())
+        (changed).shouldBeFalse()
+        (topMemo.exists()).shouldBeTrue()
+        (oldImage.exists()).shouldBeTrue()
+        (File(repoRoot, "memos/2026_03_24.md").exists()).shouldBeFalse()
     }
 
-    @Test
-    fun `migrateGitRepo must not overwrite existing target media file`() {
+    private fun `migrateGitRepo must not overwrite existing target media file`() {
         val repoRoot = Files.createTempDirectory("lomo-git-existing-target").toFile()
         val oldImage = File(repoRoot, "images/dup.png").apply { parentFile?.mkdirs(); writeText("old") }
         val newImage = File(repoRoot, "media_img/dup.png").apply { parentFile?.mkdirs(); writeText("new") }
@@ -188,11 +199,11 @@ class SyncLayoutMigrationTest {
 
         val changed = SyncLayoutMigration.migrateGitRepo(repoRoot, layout)
 
-        assertFalse(changed)
-        assertTrue(oldImage.exists())
-        assertTrue(newImage.exists())
-        assertEquals("old", oldImage.readText())
-        assertEquals("new", newImage.readText())
+        (changed).shouldBeFalse()
+        (oldImage.exists()).shouldBeTrue()
+        (newImage.exists()).shouldBeTrue()
+        oldImage.readText() shouldBe "old"
+        newImage.readText() shouldBe "new"
     }
 
     private fun file(path: String): WebDavRemoteResource =

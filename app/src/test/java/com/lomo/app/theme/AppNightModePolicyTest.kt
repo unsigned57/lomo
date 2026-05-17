@@ -1,9 +1,9 @@
 package com.lomo.app.theme
 
 import android.app.UiModeManager
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.ThemeMode
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -31,24 +31,18 @@ import org.junit.Test
  * - Why this is not changing the test to fit the implementation: the assertion is based on the
  *   user-visible contract that follow-system must actually resume tracking system changes.
  */
-class AppNightModePolicyTest {
-    @Test
-    fun `system mode clears previous explicit platform override`() {
-        assertEquals(
-            UiModeManager.MODE_NIGHT_AUTO,
-            resolvePlatformNightMode(themeMode = ThemeMode.SYSTEM),
-        )
+class AppNightModePolicyTest : AppFunSpec() {
+    init {
+        test("system mode clears previous explicit platform override") {
+            (resolvePlatformNightMode(themeMode = ThemeMode.SYSTEM)) shouldBe (UiModeManager.MODE_NIGHT_AUTO)
+        }
     }
 
-    @Test
-    fun `explicit theme modes keep explicit platform values`() {
-        assertEquals(
-            UiModeManager.MODE_NIGHT_NO,
-            resolvePlatformNightMode(themeMode = ThemeMode.LIGHT),
-        )
-        assertEquals(
-            UiModeManager.MODE_NIGHT_YES,
-            resolvePlatformNightMode(themeMode = ThemeMode.DARK),
-        )
+    init {
+        test("explicit theme modes keep explicit platform values") {
+            (resolvePlatformNightMode(themeMode = ThemeMode.LIGHT)) shouldBe (UiModeManager.MODE_NIGHT_NO)
+            (resolvePlatformNightMode(themeMode = ThemeMode.DARK)) shouldBe (UiModeManager.MODE_NIGHT_YES)
+        }
     }
+
 }

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.entity.MemoFileOutboxEntity
 import com.lomo.data.local.entity.MemoFileOutboxOp
 import io.mockk.MockKAnnotations
@@ -7,8 +8,7 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
 
 /*
  * Test Contract:
@@ -20,20 +20,29 @@ import org.junit.Test
  *   outbox coordinator, which races with the synchronous refresh path and makes the assertions flaky.
  * - Excludes: background drain scheduling, Room DAO behavior, and retired legacy capture coordination.
  */
-class MemoSynchronizerOutboxPolicyTest {
+class MemoSynchronizerOutboxPolicyTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("refresh drops poisoned outbox item when retry limit is reached") { `refresh drops poisoned outbox item when retry limit is reached`() }
+
+        test("refresh marks failed outbox item and skips refresh while pending") { `refresh marks failed outbox item and skips refresh while pending`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
 
     @MockK(relaxed = true)
     private lateinit var mutationHandler: MemoMutationHandler
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
     }
 
-    @Test
-    fun `refresh drops poisoned outbox item when retry limit is reached`() =
+    private fun `refresh drops poisoned outbox item when retry limit is reached`() =
         runTest {
             val poisonedItem = outboxItem(id = 1L, retryCount = 5, operation = MemoFileOutboxOp.UPDATE)
             val healthyItem = outboxItem(id = 2L, retryCount = 0, operation = MemoFileOutboxOp.DELETE)
@@ -58,8 +67,7 @@ class MemoSynchronizerOutboxPolicyTest {
             coVerify(exactly = 1) { refreshEngine.refresh(null) }
         }
 
-    @Test
-    fun `refresh marks failed outbox item and skips refresh while pending`() =
+    private fun `refresh marks failed outbox item and skips refresh while pending`() =
         runTest {
             val failingItem = outboxItem(id = 11L, retryCount = 0, operation = MemoFileOutboxOp.UPDATE)
             val queue = ArrayDeque(listOf<MemoFileOutboxEntity?>(failingItem, null))

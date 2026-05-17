@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -23,10 +24,9 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -36,7 +36,22 @@ import java.nio.file.Files
  * - Red phase: Fails before the fix because remote-changing syncs re-list S3 during metadata persistence, attachment-only downloads trigger full memo refreshes, and memo downloads refresh the whole cache instead of the touched file.
  * - Excludes: AWS SDK transport internals, Room implementation details, and UI rendering.
  */
-class S3SyncExecutorPerformancePolicyTest {
+class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("performSync does not re-list remote files after delete remote action") { `performSync does not re-list remote files after delete remote action`() }
+
+        test("performSync skips memo refresh for attachment only download") { `performSync skips memo refresh for attachment only download`() }
+
+        test("performSync refreshes only the downloaded memo target") { `performSync refreshes only the downloaded memo target`() }
+
+        test("performSync skips memo refresh for downloaded non memo markdown under explicit vault root") { `performSync skips memo refresh for downloaded non memo markdown under explicit vault root`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -66,8 +81,7 @@ class S3SyncExecutorPerformancePolicyTest {
     private lateinit var imageRootDirectory: java.io.File
     private lateinit var voiceRootDirectory: java.io.File
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         val writableRoot = Files.createTempDirectory("s3-sync-performance").toFile()
         memoRootDirectory = writableRoot.resolve("memo").also { it.mkdirs() }
@@ -154,8 +168,7 @@ class S3SyncExecutorPerformancePolicyTest {
             )
     }
 
-    @Test
-    fun `performSync does not re-list remote files after delete remote action`() =
+    private fun `performSync does not re-list remote files after delete remote action`() =
         runTest {
             val managedPath = "lomo/memo/note.md"
             stubSinglePageRemoteScan(
@@ -201,16 +214,12 @@ class S3SyncExecutorPerformancePolicyTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
             coVerify(exactly = 3) { client.listPage(prefix = any(), continuationToken = null, maxKeys = any()) }
         }
 
-    @Test
-    fun `performSync skips memo refresh for attachment only download`() =
+    private fun `performSync skips memo refresh for attachment only download`() =
         runTest {
             val imagePath = "lomo/images/cover.png"
             stubSinglePageRemoteScan(
@@ -232,16 +241,12 @@ class S3SyncExecutorPerformancePolicyTest {
                 throw ClassCastException("Expected S3SyncResult.Success but got $errorMsg")
             }
             val success = result
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
             coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync(any()) }
         }
 
-    @Test
-    fun `performSync refreshes only the downloaded memo target`() =
+    private fun `performSync refreshes only the downloaded memo target`() =
         runTest {
             val memoRemotePath = "lomo/memo/note.md"
             val memoBytes = "# note".toByteArray()
@@ -268,17 +273,13 @@ class S3SyncExecutorPerformancePolicyTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
             coVerify(exactly = 1) { memoSynchronizer.refreshImportedSync("note.md") }
             coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync() }
         }
 
-    @Test
-    fun `performSync skips memo refresh for downloaded non memo markdown under explicit vault root`() =
+    private fun `performSync skips memo refresh for downloaded non memo markdown under explicit vault root`() =
         runTest {
             val vaultRoot = Files.createTempDirectory("s3-refresh-vault-root").toFile()
             val memoRoot = vaultRoot.resolve("journal").also { it.mkdirs() }
@@ -304,11 +305,8 @@ class S3SyncExecutorPerformancePolicyTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
             coVerify(exactly = 0) { memoSynchronizer.refreshImportedSync(any()) }
         }
 

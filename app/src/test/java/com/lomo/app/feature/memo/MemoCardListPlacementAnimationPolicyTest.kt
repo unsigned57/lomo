@@ -1,8 +1,7 @@
 package com.lomo.app.feature.memo
 
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,58 +14,62 @@ import org.junit.Test
  *   fadeInSpec/placementSpec for Placement lists and has no shared expansion movement blocker.
  * - Excludes: runtime Compose frame timing, exact easing curves, and pixel-level scroll positions.
  */
-class MemoCardListPlacementAnimationPolicyTest {
-    @Test
-    fun `placement lists disable lazy enter fade after initial entrance settles`() {
-        val active =
-            resolveMemoCardListItemMotionPolicy(
-                animation = MemoCardListAnimation.Placement,
-                entranceState = MemoCardListEntranceState.Active,
-                deleteAnimationEnabled = false,
-                blockPlacementSpringForDeleteViewportEntry = false,
-                blockPlacementSpringForMemoExpansion = false,
-            )
-        val settled =
-            resolveMemoCardListItemMotionPolicy(
-                animation = MemoCardListAnimation.Placement,
-                entranceState = MemoCardListEntranceState.Settled,
-                deleteAnimationEnabled = false,
-                blockPlacementSpringForDeleteViewportEntry = false,
-                blockPlacementSpringForMemoExpansion = false,
-            )
+class MemoCardListPlacementAnimationPolicyTest : AppFunSpec() {
+    init {
+        test("placement lists disable lazy enter fade after initial entrance settles") {
+            val active =
+                resolveMemoCardListItemMotionPolicy(
+                    animation = MemoCardListAnimation.Placement,
+                    entranceState = MemoCardListEntranceState.Active,
+                    deleteAnimationEnabled = false,
+                    blockPlacementSpringForDeleteViewportEntry = false,
+                    blockPlacementSpringForMemoExpansion = false,
+                )
+            val settled =
+                resolveMemoCardListItemMotionPolicy(
+                    animation = MemoCardListAnimation.Placement,
+                    entranceState = MemoCardListEntranceState.Settled,
+                    deleteAnimationEnabled = false,
+                    blockPlacementSpringForDeleteViewportEntry = false,
+                    blockPlacementSpringForMemoExpansion = false,
+                )
 
-        assertTrue(active.usesLazyItemFadeIn)
-        assertFalse(settled.usesLazyItemFadeIn)
-        assertTrue(settled.usesPlacementSpring)
+            ((active.usesLazyItemFadeIn)) shouldBe true
+            ((settled.usesLazyItemFadeIn)) shouldBe false
+            ((settled.usesPlacementSpring)) shouldBe true
+        }
     }
 
-    @Test
-    fun `memo expansion blocks shared placement spring while card height owns movement`() {
-        val policy =
-            resolveMemoCardListItemMotionPolicy(
-                animation = MemoCardListAnimation.Placement,
-                entranceState = MemoCardListEntranceState.Settled,
-                deleteAnimationEnabled = false,
-                blockPlacementSpringForDeleteViewportEntry = false,
-                blockPlacementSpringForMemoExpansion = true,
-            )
+    init {
+        test("memo expansion blocks shared placement spring while card height owns movement") {
+            val policy =
+                resolveMemoCardListItemMotionPolicy(
+                    animation = MemoCardListAnimation.Placement,
+                    entranceState = MemoCardListEntranceState.Settled,
+                    deleteAnimationEnabled = false,
+                    blockPlacementSpringForDeleteViewportEntry = false,
+                    blockPlacementSpringForMemoExpansion = true,
+                )
 
-        assertFalse(policy.usesLazyItemFadeIn)
-        assertFalse(policy.usesPlacementSpring)
+            ((policy.usesLazyItemFadeIn)) shouldBe false
+            ((policy.usesPlacementSpring)) shouldBe false
+        }
     }
 
-    @Test
-    fun `non placement lists keep delete placement without lazy enter fade`() {
-        val policy =
-            resolveMemoCardListItemMotionPolicy(
-                animation = MemoCardListAnimation.None,
-                entranceState = MemoCardListEntranceState.Settled,
-                deleteAnimationEnabled = true,
-                blockPlacementSpringForDeleteViewportEntry = false,
-                blockPlacementSpringForMemoExpansion = false,
-            )
+    init {
+        test("non placement lists keep delete placement without lazy enter fade") {
+            val policy =
+                resolveMemoCardListItemMotionPolicy(
+                    animation = MemoCardListAnimation.None,
+                    entranceState = MemoCardListEntranceState.Settled,
+                    deleteAnimationEnabled = true,
+                    blockPlacementSpringForDeleteViewportEntry = false,
+                    blockPlacementSpringForMemoExpansion = false,
+                )
 
-        assertFalse(policy.usesLazyItemFadeIn)
-        assertTrue(policy.usesPlacementSpring)
+            ((policy.usesLazyItemFadeIn)) shouldBe false
+            ((policy.usesPlacementSpring)) shouldBe true
+        }
     }
+
 }

@@ -1,7 +1,7 @@
 package com.lomo.app.feature.statistics
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,28 +14,19 @@ import org.junit.Test
  *   always stacks the weekly heatmap and hourly chart.
  * - Excludes: Compose measurement, chart Canvas drawing, and runtime window-size-class plumbing.
  */
-class StatisticsTimeDistributionLayoutPolicyTest {
-    @Test
-    fun `phone and narrow tablet widths keep time charts stacked`() {
-        assertEquals(
-            StatisticsTimeDistributionLayout.Stacked,
-            resolveStatisticsTimeDistributionLayout(widthDp = 360),
-        )
-        assertEquals(
-            StatisticsTimeDistributionLayout.Stacked,
-            resolveStatisticsTimeDistributionLayout(widthDp = 719),
-        )
+class StatisticsTimeDistributionLayoutPolicyTest : AppFunSpec() {
+    init {
+        test("phone and narrow tablet widths keep time charts stacked") {
+            (resolveStatisticsTimeDistributionLayout(widthDp = 360)) shouldBe (StatisticsTimeDistributionLayout.Stacked)
+            (resolveStatisticsTimeDistributionLayout(widthDp = 719)) shouldBe (StatisticsTimeDistributionLayout.Stacked)
+        }
     }
 
-    @Test
-    fun `tablet widths use balanced two column time charts`() {
-        assertEquals(
-            StatisticsTimeDistributionLayout.TwoColumn,
-            resolveStatisticsTimeDistributionLayout(widthDp = 720),
-        )
-        assertEquals(
-            StatisticsTimeDistributionLayout.TwoColumn,
-            resolveStatisticsTimeDistributionLayout(widthDp = 840),
-        )
+    init {
+        test("tablet widths use balanced two column time charts") {
+            (resolveStatisticsTimeDistributionLayout(widthDp = 720)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
+            (resolveStatisticsTimeDistributionLayout(widthDp = 840)) shouldBe (StatisticsTimeDistributionLayout.TwoColumn)
+        }
     }
+
 }

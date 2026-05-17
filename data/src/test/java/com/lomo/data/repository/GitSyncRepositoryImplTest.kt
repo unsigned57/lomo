@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
 import com.lomo.data.git.GitMediaSyncBridge
@@ -21,13 +22,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
-import org.junit.Assert.fail
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.fail
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -37,7 +36,18 @@ import java.nio.file.Files
  * - Red phase: Fails to compile before the cleanup because GitSyncRepositoryImpl still requires the deleted version-history collaborator.
  * - Excludes: version-history queries, git engine internals, and memo refresh parsing details.
  */
-class GitSyncRepositoryImplTest {
+class GitSyncRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("sync returns error when memo refresh fails after successful git sync") { `sync returns error when memo refresh fails after successful git sync`() }
+
+        test("sync rethrows cancellation when memo refresh is cancelled") { `sync rethrows cancellation when memo refresh is cancelled`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -70,8 +80,7 @@ class GitSyncRepositoryImplTest {
 
     private lateinit var repository: GitSyncRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         val tempFilesDir = Files.createTempDirectory("lomo-context-files").toFile()
         every { context.filesDir } returns tempFilesDir
@@ -130,8 +139,7 @@ class GitSyncRepositoryImplTest {
             )
     }
 
-    @Test
-    fun `sync returns error when memo refresh fails after successful git sync`() =
+    private fun `sync returns error when memo refresh fails after successful git sync`() =
         runTest {
             val rootDir = createRepoRootWithGitDir()
             stubSameDirectoryLayout(rootDir)
@@ -143,17 +151,17 @@ class GitSyncRepositoryImplTest {
 
             val result = repository.sync()
 
-            assertTrue(result is GitSyncResult.Error)
+            (result is GitSyncResult.Error).shouldBeTrue()
             val error = result as GitSyncResult.Error
-            assertTrue(error.message.contains("memo refresh failed"))
-            assertTrue(error.message.contains("refresh failed"))
-            assertTrue(error.exception is IllegalStateException)
+            (error.message.contains("memo refresh failed")).shouldBeTrue()
+            (error.message.contains("refresh failed")).shouldBeTrue()
+            (error.exception is IllegalStateException).shouldBeTrue()
             val markedErrorSlot = slot<String>()
             verify(exactly = 1) {
                 gitSyncEngine.markError(capture(markedErrorSlot))
             }
-            assertTrue(markedErrorSlot.captured.contains("memo refresh failed"))
-            assertTrue(markedErrorSlot.captured.contains("refresh failed"))
+            (markedErrorSlot.captured.contains("memo refresh failed")).shouldBeTrue()
+            (markedErrorSlot.captured.contains("refresh failed")).shouldBeTrue()
             coVerifyOrder {
                 credentialStore.getToken()
                 gitSyncEngine.sync(any(), REMOTE_URL)
@@ -161,8 +169,7 @@ class GitSyncRepositoryImplTest {
             }
         }
 
-    @Test
-    fun `sync rethrows cancellation when memo refresh is cancelled`() =
+    private fun `sync rethrows cancellation when memo refresh is cancelled`() =
         runTest {
             val rootDir = createRepoRootWithGitDir()
             stubSameDirectoryLayout(rootDir)
@@ -177,7 +184,7 @@ class GitSyncRepositoryImplTest {
                 repository.sync()
                 fail("Expected CancellationException")
             } catch (e: CancellationException) {
-                assertSame(cancellation, e)
+                (e === cancellation).shouldBeTrue()
             }
 
             coVerifyOrder {

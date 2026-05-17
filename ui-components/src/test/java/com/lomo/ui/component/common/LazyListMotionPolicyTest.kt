@@ -1,11 +1,11 @@
 package com.lomo.ui.component.common
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 import com.lomo.ui.component.card.MemoCardBodyTransitionMode
 import com.lomo.ui.component.card.resolveMemoCardBodyMotionSpec
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -39,9 +39,9 @@ import org.junit.Test
  *   user-visible owner boundary: resize motion remains the only row-movement owner until list
  *   layout has produced a stable post-resize snapshot.
  */
-class LazyListMotionPolicyTest {
-    @Test
-    fun `initial entrance is one shot and is disabled after the entrance session settles`() {
+class LazyListMotionPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("initial entrance is one shot and is disabled after the entrance session settles") {
         val active =
             resolveLazyListItemMotionPolicy(
                 entranceState = LazyListItemEntranceState.Active,
@@ -55,14 +55,15 @@ class LazyListMotionPolicyTest {
                 structureMotionActive = false,
             )
 
-        assertTrue(active.usesLazyItemFadeIn)
-        assertTrue(active.usesPlacementSpring)
-        assertFalse(settled.usesLazyItemFadeIn)
-        assertTrue(settled.usesPlacementSpring)
+        (active.usesLazyItemFadeIn) shouldBe true
+        (active.usesPlacementSpring) shouldBe true
+        (settled.usesLazyItemFadeIn) shouldBe false
+        (settled.usesPlacementSpring) shouldBe true
+        }
     }
 
-    @Test
-    fun `structure motion disables lazy fade and placement spring for affected rows`() {
+    init {
+        test("structure motion disables lazy fade and placement spring for affected rows") {
         val policy =
             resolveLazyListItemMotionPolicy(
                 entranceState = LazyListItemEntranceState.Active,
@@ -70,12 +71,13 @@ class LazyListMotionPolicyTest {
                 structureMotionActive = true,
             )
 
-        assertFalse(policy.usesLazyItemFadeIn)
-        assertFalse(policy.usesPlacementSpring)
+        (policy.usesLazyItemFadeIn) shouldBe false
+        (policy.usesPlacementSpring) shouldBe false
+        }
     }
 
-    @Test
-    fun `disabled placement mode never enables lazy placement spring`() {
+    init {
+        test("disabled placement mode never enables lazy placement spring") {
         val policy =
             resolveLazyListItemMotionPolicy(
                 entranceState = LazyListItemEntranceState.Settled,
@@ -83,23 +85,22 @@ class LazyListMotionPolicyTest {
                 structureMotionActive = false,
             )
 
-        assertFalse(policy.usesLazyItemFadeIn)
-        assertFalse(policy.usesPlacementSpring)
+        (policy.usesLazyItemFadeIn) shouldBe false
+        (policy.usesPlacementSpring) shouldBe false
+        }
     }
 
-    @Test
-    fun `resize settle window outlasts memo body size transform`() {
+    init {
+        test("resize settle window outlasts memo body size transform") {
         val bodyMotionSpec = resolveMemoCardBodyMotionSpec(MemoCardBodyTransitionMode.StateContentTransform)
 
-        assertTrue(
-            "LazyList resize guard must stay active until memo body size animation has settled.",
-            LAZY_LIST_RESIZE_TRANSITION_SETTLE_MILLIS >=
-                bodyMotionSpec.sizeExitDurationMillis + RESIZE_POST_FRAME_BUFFER_MILLIS,
-        )
+        withClue("LazyList resize guard must stay active until memo body size animation has settled.") { (LAZY_LIST_RESIZE_TRANSITION_SETTLE_MILLIS >=
+                bodyMotionSpec.sizeExitDurationMillis + RESIZE_POST_FRAME_BUFFER_MILLIS) shouldBe true }
+        }
     }
 
-    @Test
-    fun `resize session blocks placement spring for visible sibling rows through post settle sync`() {
+    init {
+        test("resize session blocks placement spring for visible sibling rows through post settle sync") {
         val state = LazyListResizeMotionState()
         val itemOrder =
             mapOf(
@@ -141,19 +142,19 @@ class LazyListMotionPolicyTest {
                     ),
             )
 
-        assertTrue(state.blocksPlacementSpringFor("expanded"))
-        assertTrue(state.blocksPlacementSpringFor("below"))
-        assertFalse(state.blocksPlacementSpringFor("above"))
+        (state.blocksPlacementSpringFor("expanded")) shouldBe true
+        (state.blocksPlacementSpringFor("below")) shouldBe true
+        (state.blocksPlacementSpringFor("above")) shouldBe false
 
         state.settleTransition(generation)
 
-        assertTrue(state.blocksPlacementSpringFor("expanded"))
-        assertTrue(state.blocksPlacementSpringFor("below"))
+        (state.blocksPlacementSpringFor("expanded")) shouldBe true
+        (state.blocksPlacementSpringFor("below")) shouldBe true
 
         state.updateItemOrder(itemOrder)
 
-        assertTrue(state.blocksPlacementSpringFor("expanded"))
-        assertTrue(state.blocksPlacementSpringFor("below"))
+        (state.blocksPlacementSpringFor("expanded")) shouldBe true
+        (state.blocksPlacementSpringFor("below")) shouldBe true
 
         state.onVisibleItemsChanged(
             LazyListMotionViewportSnapshot(
@@ -185,12 +186,13 @@ class LazyListMotionPolicyTest {
 
         state.updateItemOrder(itemOrder)
 
-        assertFalse(state.blocksPlacementSpringFor("expanded"))
-        assertFalse(state.blocksPlacementSpringFor("below"))
+        (state.blocksPlacementSpringFor("expanded")) shouldBe false
+        (state.blocksPlacementSpringFor("below")) shouldBe false
+        }
     }
 
-    @Test
-    fun `same id content edit growth blocks edited row and lower siblings until post settle sync`() {
+    init {
+        test("same id content edit growth blocks edited row and lower siblings until post settle sync") {
         val state = LazyListResizeMotionState()
         val itemOrder =
             mapOf(
@@ -231,16 +233,16 @@ class LazyListMotionPolicyTest {
                     ),
             )
 
-        assertTrue(state.blocksPlacementSpringFor("edited"))
-        assertTrue(state.blocksPlacementSpringFor("below"))
-        assertFalse(state.blocksPlacementSpringFor("above"))
+        (state.blocksPlacementSpringFor("edited")) shouldBe true
+        (state.blocksPlacementSpringFor("below")) shouldBe true
+        (state.blocksPlacementSpringFor("above")) shouldBe false
 
         state.onItemMeasured(itemId = "edited", heightPx = 260)
         state.settleTransition(generation)
         state.updateItemOrder(itemOrder)
 
-        assertTrue(state.blocksPlacementSpringFor("edited"))
-        assertTrue(state.blocksPlacementSpringFor("below"))
+        (state.blocksPlacementSpringFor("edited")) shouldBe true
+        (state.blocksPlacementSpringFor("below")) shouldBe true
 
         state.onVisibleItemsChanged(
             LazyListMotionViewportSnapshot(
@@ -271,12 +273,13 @@ class LazyListMotionPolicyTest {
         )
         state.updateItemOrder(itemOrder)
 
-        assertFalse(state.blocksPlacementSpringFor("edited"))
-        assertFalse(state.blocksPlacementSpringFor("below"))
+        (state.blocksPlacementSpringFor("edited")) shouldBe false
+        (state.blocksPlacementSpringFor("below")) shouldBe false
+        }
     }
 
-    @Test
-    fun `completed resize viewport entries remain blocked through post settle viewport sync`() {
+    init {
+        test("completed resize viewport entries remain blocked through post settle viewport sync") {
         val state = LazyListResizeMotionState()
         val itemOrder =
             mapOf(
@@ -341,14 +344,14 @@ class LazyListMotionPolicyTest {
         )
 
         val guard = requireNotNull(state.viewportEntryGuardFor("above"))
-        assertEquals(0f, guard.initialOffsetPx, 0.0f)
-        assertTrue(state.blocksPlacementSpringFor("above"))
+        (guard.initialOffsetPx) shouldBe ((0f) plusOrMinus (0.0f))
+        (state.blocksPlacementSpringFor("above")) shouldBe true
 
         state.clearViewportEntryGuard("above")
-        assertTrue(state.blocksPlacementSpringFor("above"))
+        (state.blocksPlacementSpringFor("above")) shouldBe true
 
         state.settleTransition(generation)
-        assertTrue(state.blocksPlacementSpringFor("above"))
+        (state.blocksPlacementSpringFor("above")) shouldBe true
 
         state.onVisibleItemsChanged(
             LazyListMotionViewportSnapshot(
@@ -379,11 +382,12 @@ class LazyListMotionPolicyTest {
         )
         state.updateItemOrder(itemOrder)
 
-        assertFalse(state.blocksPlacementSpringFor("above"))
+        (state.blocksPlacementSpringFor("above")) shouldBe false
+        }
     }
 
-    @Test
-    fun `structure motion during active entrance prevents later entrance replay for the same item`() {
+    init {
+        test("structure motion during active entrance prevents later entrance replay for the same item") {
         val state = LazyListMotionEntranceState()
 
         state.recordResolvedItem(
@@ -392,12 +396,10 @@ class LazyListMotionPolicyTest {
             structureMotionActive = true,
         )
 
-        assertTrue(
-            state.blocksEntranceRecovery(
+        (state.blocksEntranceRecovery(
                 itemId = "below",
                 entranceState = LazyListItemEntranceState.Active,
-            ),
-        )
+            )) shouldBe true
 
         state.recordResolvedItem(
             itemId = "below",
@@ -405,12 +407,11 @@ class LazyListMotionPolicyTest {
             structureMotionActive = false,
         )
 
-        assertFalse(
-            state.blocksEntranceRecovery(
+        (state.blocksEntranceRecovery(
                 itemId = "below",
                 entranceState = LazyListItemEntranceState.Active,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
     private companion object {

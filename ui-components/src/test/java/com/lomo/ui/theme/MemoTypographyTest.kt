@@ -1,10 +1,10 @@
 package com.lomo.ui.theme
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography as MaterialTypography
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -14,49 +14,53 @@ import org.junit.Test
  * - Red phase: Fails before the fix because bodyMedium still uses 0.25sp and memo text tokens still use 0sp instead of the tightened 0.1sp spacing contract.
  * - Excludes: MaterialTheme composition wiring, OEM font rendering differences, and downstream Text composable layout.
  */
-class MemoTypographyTest {
+class MemoTypographyTest : UiComponentsFunSpec() {
     private val typography = MaterialTypography()
     private val appTypography = Typography
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `material body medium keeps the tightened global reading spacing`() {
-        assertEquals(14.sp, appTypography.bodyMedium.fontSize)
-        assertEquals(20.sp, appTypography.bodyMedium.lineHeight)
-        assertEquals(0.1.sp, appTypography.bodyMedium.letterSpacing)
+    init {
+        test("material body medium keeps the tightened global reading spacing") {
+        (appTypography.bodyMedium.fontSize) shouldBe (14.sp)
+        (appTypography.bodyMedium.lineHeight) shouldBe (20.sp)
+        (appTypography.bodyMedium.letterSpacing) shouldBe (0.1.sp)
+        }
     }
 
-    @Test
-    fun `memo body and editor styles stay close to the previous body medium size`() {
+    init {
+        test("memo body and editor styles stay close to the previous body medium size") {
         val body = typography.memoBodyTextStyle(defaultScales)
         val editor = typography.memoBodyTextStyle(defaultScales) // memoEditorTextStyle delegates to memoBodyTextStyle
         val hint = typography.memoHintTextStyle(defaultScales)
 
-        assertEquals(14.sp, body.fontSize)
-        assertEquals(16.sp, body.lineHeight)
-        assertEquals(0.1.sp, body.letterSpacing)
+        (body.fontSize) shouldBe (14.sp)
+        (body.lineHeight) shouldBe (16.sp)
+        (body.letterSpacing) shouldBe (0.1.sp)
 
-        assertEquals(body.fontSize, editor.fontSize)
-        assertEquals(body.lineHeight, editor.lineHeight)
-        assertEquals(body.letterSpacing, editor.letterSpacing)
-        assertEquals(body, editor)
+        (editor.fontSize) shouldBe (body.fontSize)
+        (editor.lineHeight) shouldBe (body.lineHeight)
+        (editor.letterSpacing) shouldBe (body.letterSpacing)
+        (editor) shouldBe (body)
 
-        assertEquals(body.fontSize, hint.fontSize)
-        assertEquals(body.lineHeight, hint.lineHeight)
-        assertEquals(body.letterSpacing, hint.letterSpacing)
+        (hint.fontSize) shouldBe (body.fontSize)
+        (hint.lineHeight) shouldBe (body.lineHeight)
+        (hint.letterSpacing) shouldBe (body.letterSpacing)
+        }
     }
 
-    @Test
-    fun `memo summary keeps compact body medium rhythm`() {
+    init {
+        test("memo summary keeps compact body medium rhythm") {
         val summary = typography.memoSummaryTextStyle(defaultScales)
 
-        assertEquals(14.sp, summary.fontSize)
-        assertEquals(20.sp, summary.lineHeight)
-        assertEquals(0.1.sp, summary.letterSpacing)
+        (summary.fontSize) shouldBe (14.sp)
+        (summary.lineHeight) shouldBe (20.sp)
+        (summary.letterSpacing) shouldBe (0.1.sp)
+        }
     }
 
-    @Test
-    fun `memo paragraph block spacing stays clearly larger than the compact line rhythm`() {
-        assertEquals(8.dp, memoParagraphBlockSpacing(defaultScales))
+    init {
+        test("memo paragraph block spacing stays clearly larger than the compact line rhythm") {
+        (memoParagraphBlockSpacing(defaultScales)) shouldBe (8.dp)
+        }
     }
 }

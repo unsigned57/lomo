@@ -1,12 +1,14 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -16,9 +18,13 @@ import org.junit.Test
  * - Red phase: Fails before the fix because an empty snapshot result still falls back to getAll(), which reintroduces the full-row metadata scan the manifest-free incremental planner is meant to avoid.
  * - Excludes: Room generated SQL, repository orchestration, and sync action execution.
  */
-class S3PlannerMetadataSupportTest {
-    @Test
-    fun `readAllPlannerMetadataByPath does not fall back to full-row scan when snapshot query is empty`() =
+class S3PlannerMetadataSupportTest : DataFunSpec() {
+    init {
+        test("readAllPlannerMetadataByPath does not fall back to full-row scan when snapshot query is empty") { `readAllPlannerMetadataByPath does not fall back to full-row scan when snapshot query is empty`() }
+    }
+
+
+    private fun `readAllPlannerMetadataByPath does not fall back to full-row scan when snapshot query is empty`() =
         runTest {
             val dao =
                 object : S3SyncMetadataDao {
@@ -42,6 +48,6 @@ class S3PlannerMetadataSupportTest {
                     override suspend fun clearAll() = Unit
                 }
 
-            assertEquals(emptyMap<String, S3SyncMetadataEntity>(), dao.readAllPlannerMetadataByPath())
+            dao.readAllPlannerMetadataByPath() shouldBe emptyMap<String, S3SyncMetadataEntity>()
         }
 }

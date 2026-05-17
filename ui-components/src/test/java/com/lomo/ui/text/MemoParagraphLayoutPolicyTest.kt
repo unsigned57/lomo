@@ -1,11 +1,9 @@
 package com.lomo.ui.text
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import android.os.Build
 import android.text.Layout
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -28,22 +26,23 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: renderer-path cleanup now has one
  *   dedicated migration-boundary test.
  */
-class MemoParagraphLayoutPolicyTest {
-    @Test
-    fun `pure cjk paragraph uses inter-character justification on api 35 and above`() {
+class MemoParagraphLayoutPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("pure cjk paragraph uses inter-character justification on api 35 and above") {
         val policy =
             resolveMemoParagraphLayoutPolicy(
                 text = "这是一段纯中文长段落，用来确认在支持的平台上使用字间两端对齐。",
                 sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
             )
 
-        assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
-        assertEquals(Layout.JUSTIFICATION_MODE_INTER_CHARACTER, policy.justificationMode)
-        assertEquals(Layout.HYPHENATION_FREQUENCY_NONE, policy.hyphenationFrequency)
+        (policy.alignment) shouldBe (Layout.Alignment.ALIGN_NORMAL)
+        (policy.justificationMode) shouldBe (Layout.JUSTIFICATION_MODE_INTER_CHARACTER)
+        (policy.hyphenationFrequency) shouldBe (Layout.HYPHENATION_FREQUENCY_NONE)
+        }
     }
 
-    @Test
-    fun `pure cjk paragraph disables strict justification when platform letter spacing is applied`() {
+    init {
+        test("pure cjk paragraph disables strict justification when platform letter spacing is applied") {
         val policy =
             resolveMemoParagraphLayoutPolicy(
                 text = "这是一段纯中文长段落，用来确认自定义字间距不会和字符级两端对齐叠加。",
@@ -51,14 +50,15 @@ class MemoParagraphLayoutPolicyTest {
                 platformLetterSpacing = 0.1f,
             )
 
-        assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
-        assertEquals(Layout.JUSTIFICATION_MODE_NONE, policy.justificationMode)
-        assertEquals(Layout.HYPHENATION_FREQUENCY_NORMAL, policy.hyphenationFrequency)
-        assertFalse(policy.shouldUseStrictCjkJustification)
+        (policy.alignment) shouldBe (Layout.Alignment.ALIGN_NORMAL)
+        (policy.justificationMode) shouldBe (Layout.JUSTIFICATION_MODE_NONE)
+        (policy.hyphenationFrequency) shouldBe (Layout.HYPHENATION_FREQUENCY_NORMAL)
+        (policy.shouldUseStrictCjkJustification) shouldBe false
+        }
     }
 
-    @Test
-    fun `zero platform letter spacing does not disable cjk strict justification`() {
+    init {
+        test("zero platform letter spacing does not disable cjk strict justification") {
         val policy =
             resolveMemoParagraphLayoutPolicy(
                 text = "这是一段纯中文长段落，用来确认零字间距仍然可以使用字符级两端对齐。",
@@ -66,33 +66,36 @@ class MemoParagraphLayoutPolicyTest {
                 platformLetterSpacing = 0f,
             )
 
-        assertEquals(Layout.JUSTIFICATION_MODE_INTER_CHARACTER, policy.justificationMode)
-        assertTrue(policy.shouldUseStrictCjkJustification)
+        (policy.justificationMode) shouldBe (Layout.JUSTIFICATION_MODE_INTER_CHARACTER)
+        (policy.shouldUseStrictCjkJustification) shouldBe true
+        }
     }
 
-    @Test
-    fun `pure cjk paragraph falls back to non-justify policy below api 35`() {
+    init {
+        test("pure cjk paragraph falls back to non-justify policy below api 35") {
         val policy =
             resolveMemoParagraphLayoutPolicy(
                 text = "这是一段纯中文长段落，用来确认低版本不会强行走不受支持的字间对齐。",
                 sdkInt = Build.VERSION_CODES.UPSIDE_DOWN_CAKE,
             )
 
-        assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
-        assertEquals(Layout.JUSTIFICATION_MODE_NONE, policy.justificationMode)
-        assertEquals(Layout.HYPHENATION_FREQUENCY_NORMAL, policy.hyphenationFrequency)
+        (policy.alignment) shouldBe (Layout.Alignment.ALIGN_NORMAL)
+        (policy.justificationMode) shouldBe (Layout.JUSTIFICATION_MODE_NONE)
+        (policy.hyphenationFrequency) shouldBe (Layout.HYPHENATION_FREQUENCY_NORMAL)
+        }
     }
 
-    @Test
-    fun `mixed memo paragraph avoids forced android strict justify`() {
+    init {
+        test("mixed memo paragraph avoids forced android strict justify") {
         val policy =
             resolveMemoParagraphLayoutPolicy(
                 text = "今天阅读 README 与设计笔记。",
                 sdkInt = Build.VERSION_CODES.VANILLA_ICE_CREAM,
             )
 
-        assertEquals(Layout.Alignment.ALIGN_NORMAL, policy.alignment)
-        assertEquals(Layout.JUSTIFICATION_MODE_NONE, policy.justificationMode)
-        assertFalse(policy.shouldUseStrictCjkJustification)
+        (policy.alignment) shouldBe (Layout.Alignment.ALIGN_NORMAL)
+        (policy.justificationMode) shouldBe (Layout.JUSTIFICATION_MODE_NONE)
+        (policy.shouldUseStrictCjkJustification) shouldBe false
+        }
     }
 }

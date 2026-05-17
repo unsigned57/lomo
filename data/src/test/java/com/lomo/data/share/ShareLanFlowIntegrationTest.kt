@@ -1,16 +1,17 @@
 package com.lomo.data.share
 
+
 import android.content.Context
 import com.lomo.domain.model.DiscoveredDevice
 import com.lomo.domain.model.SharePayload
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
  * Test Contract:
@@ -21,11 +22,23 @@ import org.junit.Test
  *   receiver pairing configuration, so the new missing-pairing contract stays green incorrectly.
  * - Excludes: UI prompts, attachment file persistence internals, and discovery transport.
  */
-class ShareLanFlowIntegrationTest {
+class ShareLanFlowIntegrationTest : DataFunSpec() {
+    init {
+        test("open mode share flow saves memo after approval") { `open mode share flow saves memo after approval`() }
+
+        test("open mode prepare fails when sender pairing code is missing") { `open mode prepare fails when sender pairing code is missing`() }
+
+        test("encrypted share flow retries with compatibility key and saves decrypted memo") { `encrypted share flow retries with compatibility key and saves decrypted memo`() }
+
+        test("prepare returns empty session token when receiver rejects request") { `prepare returns empty session token when receiver rejects request`() }
+
+        test("transfer returns false when session token was never approved") { `transfer returns false when session token was never approved`() }
+    }
+
+
     private val context: Context = mockk(relaxed = true)
 
-    @Test
-    fun `open mode share flow saves memo after approval`() =
+    private fun `open mode share flow saves memo after approval`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
             val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
@@ -71,29 +84,25 @@ class ShareLanFlowIntegrationTest {
                         e2eEnabled = false,
                     )
 
-                assertNotNull(prepared.sessionToken)
-                assertNull(prepared.keyHex)
-                assertTrue(transferred)
-                assertEquals(
-                    listOf(
+                prepared.sessionToken.shouldNotBeNull()
+                prepared.keyHex.shouldBeNull()
+                (transferred).shouldBeTrue()
+                incomingPayloads shouldBe listOf(
                         SharePayload(
                             content = content,
                             timestamp = timestamp,
                             senderName = "Sender",
                             attachments = emptyList(),
                         ),
-                    ),
-                    incomingPayloads,
-                )
-                assertEquals(listOf(SavedMemo(content, timestamp, emptyMap())), savedMemos)
+                    )
+                savedMemos shouldBe listOf(SavedMemo(content, timestamp, emptyMap()))
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `open mode prepare fails when sender pairing code is missing`() =
+    private fun `open mode prepare fails when sender pairing code is missing`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
             val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
@@ -118,15 +127,14 @@ class ShareLanFlowIntegrationTest {
                         e2eEnabled = false,
                     )
 
-                assertTrue(result.isFailure)
+                (result.isFailure).shouldBeTrue()
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `encrypted share flow retries with compatibility key and saves decrypted memo`() =
+    private fun `encrypted share flow retries with compatibility key and saves decrypted memo`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("compat-123"))
             val legacyReceiverKey = resolveCandidateKeyHexes(pairingMaterial).last()
@@ -173,28 +181,24 @@ class ShareLanFlowIntegrationTest {
                         e2eKeyHex = prepared.keyHex,
                     )
 
-                assertEquals(legacyReceiverKey, prepared.keyHex)
-                assertTrue(transferred)
-                assertEquals(
-                    listOf(
+                prepared.keyHex shouldBe legacyReceiverKey
+                (transferred).shouldBeTrue()
+                incomingPayloads shouldBe listOf(
                         SharePayload(
                             content = content,
                             timestamp = timestamp,
                             senderName = "Encrypted Sender",
                             attachments = emptyList(),
                         ),
-                    ),
-                    incomingPayloads,
-                )
-                assertEquals(listOf(SavedMemo(content, timestamp, emptyMap())), savedMemos)
+                    )
+                savedMemos shouldBe listOf(SavedMemo(content, timestamp, emptyMap()))
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `prepare returns empty session token when receiver rejects request`() =
+    private fun `prepare returns empty session token when receiver rejects request`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-mode-123"))
             val receiverKey = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
@@ -222,16 +226,15 @@ class ShareLanFlowIntegrationTest {
                             e2eEnabled = false,
                         ).getOrThrow()
 
-                assertNull(prepared.sessionToken)
-                assertNull(prepared.keyHex)
+                prepared.sessionToken.shouldBeNull()
+                prepared.keyHex.shouldBeNull()
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `transfer returns false when session token was never approved`() =
+    private fun `transfer returns false when session token was never approved`() =
         runBlocking {
             var saveInvoked = false
             val server =
@@ -257,8 +260,8 @@ class ShareLanFlowIntegrationTest {
                         e2eEnabled = false,
                     )
 
-                assertFalse(transferred)
-                assertFalse(saveInvoked)
+                (transferred).shouldBeFalse()
+                (saveInvoked).shouldBeFalse()
             } finally {
                 client.close()
                 server.stop()

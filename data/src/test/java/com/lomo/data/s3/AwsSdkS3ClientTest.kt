@@ -1,5 +1,6 @@
 package com.lomo.data.s3
 
+
 import aws.sdk.kotlin.services.s3.S3Client
 import aws.sdk.kotlin.services.s3.model.CompleteMultipartUploadResponse
 import aws.sdk.kotlin.services.s3.model.CreateMultipartUploadResponse
@@ -18,13 +19,11 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -42,9 +41,40 @@ import java.util.concurrent.atomic.AtomicInteger
  * - Coverage preserved by: `deleteObject issues a synchronous DeleteObject request before returning`, `deleteObject propagates SDK errors before returning so callers do not record success`, and `deleteObjects sends a single batched DeleteObjects request synchronously`.
  * - Why this is not fitting the test to the implementation: the lazy-flush behavior is the bug, not a contract; locking it in via test would protect the defect.
  */
-class AwsSdkS3ClientTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class AwsSdkS3ClientTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setUp()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("list uses summary fields across pages without head requests") { `list uses summary fields across pages without head requests`() }
+
+        test("putObject returns uploaded eTag for metadata persistence") { `putObject returns uploaded eTag for metadata persistence`() }
+
+        test("putObjectFile keeps small files on the single request path") { `putObjectFile keeps small files on the single request path`() }
+
+        test("putObjectFile uses multipart upload for large files") { `putObjectFile uses multipart upload for large files`() }
+
+        test("putObjectFile respects tuned multipart part concurrency") { `putObjectFile respects tuned multipart part concurrency`() }
+
+        test("putObjectFile aborts multipart upload when a part fails") { `putObjectFile aborts multipart upload when a part fails`() }
+
+        test("getObjectMetadata returns head metadata for a regular object") { `getObjectMetadata returns head metadata for a regular object`() }
+
+        test("deleteObject issues a synchronous DeleteObject request before returning") { `deleteObject issues a synchronous DeleteObject request before returning`() }
+
+        test("deleteObject propagates SDK errors before returning so callers do not record success") { `deleteObject propagates SDK errors before returning so callers do not record success`() }
+
+        test("deleteObjects sends a single batched DeleteObjects request synchronously") { `deleteObjects sends a single batched DeleteObjects request synchronously`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     @MockK(relaxed = true)
     private lateinit var sdkClient: S3Client
 
@@ -62,14 +92,12 @@ class AwsSdkS3ClientTest {
             encryptionPassword = null,
         )
 
-    @Before
     fun setUp() {
         MockKAnnotations.init(this)
         every { sdkClient.close() } returns Unit
     }
 
-    @Test
-    fun `list uses summary fields across pages without head requests`() =
+    private fun `list uses summary fields across pages without head requests`() =
         runTest {
             coEvery { sdkClient.headObject(any()) } throws
                 AssertionError("list() should not call headObject() for listed objects")
@@ -95,8 +123,7 @@ class AwsSdkS3ClientTest {
 
             val listed = client.list(prefix = "vault/", maxKeys = null)
 
-            assertEquals(
-                listOf(
+            listed shouldBe listOf(
                     S3RemoteObject(
                         key = "vault/note.md",
                         eTag = "etag-note",
@@ -109,14 +136,11 @@ class AwsSdkS3ClientTest {
                         lastModified = 40_000L,
                         metadata = emptyMap(),
                     ),
-                ),
-                listed,
-            )
+                )
             coVerify(exactly = 0) { sdkClient.headObject(any()) }
         }
 
-    @Test
-    fun `putObject returns uploaded eTag for metadata persistence`() =
+    private fun `putObject returns uploaded eTag for metadata persistence`() =
         runTest {
             coEvery { sdkClient.putObject(any()) } returns
                 PutObjectResponse {
@@ -133,11 +157,10 @@ class AwsSdkS3ClientTest {
                     metadata = mapOf("mtime" to "30"),
                 )
 
-            assertEquals(S3PutObjectResult(eTag = "etag-uploaded"), result)
+            result shouldBe S3PutObjectResult(eTag = "etag-uploaded")
         }
 
-    @Test
-    fun `putObjectFile keeps small files on the single request path`() =
+    private fun `putObjectFile keeps small files on the single request path`() =
         runTest {
             val file = tempFile("small.bin", S3_MULTIPART_UPLOAD_THRESHOLD_BYTES - 1)
             coEvery { sdkClient.putObject(any()) } returns
@@ -157,13 +180,12 @@ class AwsSdkS3ClientTest {
                     metadata = emptyMap(),
                 )
 
-            assertEquals(S3PutObjectResult(eTag = "etag-small"), result)
+            result shouldBe S3PutObjectResult(eTag = "etag-small")
             coVerify(exactly = 1) { sdkClient.putObject(match { it.key == "vault/small.bin" }) }
             coVerify(exactly = 0) { sdkClient.createMultipartUpload(any()) }
         }
 
-    @Test
-    fun `putObjectFile uses multipart upload for large files`() =
+    private fun `putObjectFile uses multipart upload for large files`() =
         runTest {
             val file = tempFile("large.bin", S3_MULTIPART_UPLOAD_THRESHOLD_BYTES + 1)
             coEvery { sdkClient.putObject(any()) } throws
@@ -193,7 +215,7 @@ class AwsSdkS3ClientTest {
                     metadata = mapOf("mtime" to "42"),
                 )
 
-            assertEquals(S3PutObjectResult(eTag = "etag-complete"), result)
+            result shouldBe S3PutObjectResult(eTag = "etag-complete")
             coVerify(exactly = 0) { sdkClient.putObject(any()) }
             coVerify(exactly = 1) {
                 sdkClient.createMultipartUpload(
@@ -227,8 +249,7 @@ class AwsSdkS3ClientTest {
             }
         }
 
-    @Test
-    fun `putObjectFile respects tuned multipart part concurrency`() =
+    private fun `putObjectFile respects tuned multipart part concurrency`() =
         runTest {
             val file = tempFile("tuned-large.bin", S3_MULTIPART_UPLOAD_PART_SIZE_BYTES * 2 + 1)
             val inFlight = AtomicInteger(0)
@@ -266,11 +287,10 @@ class AwsSdkS3ClientTest {
                 metadata = emptyMap(),
             )
 
-            assertEquals(1, peakConcurrency.get())
+            peakConcurrency.get() shouldBe 1
         }
 
-    @Test
-    fun `putObjectFile aborts multipart upload when a part fails`() =
+    private fun `putObjectFile aborts multipart upload when a part fails`() =
         runTest {
             val file = tempFile("broken.bin", S3_MULTIPART_UPLOAD_THRESHOLD_BYTES + 1)
             coEvery { sdkClient.createMultipartUpload(any()) } returns
@@ -297,7 +317,7 @@ class AwsSdkS3ClientTest {
             }.onSuccess {
                 throw AssertionError("Multipart failure should be rethrown")
             }.onFailure { error ->
-                assertEquals("boom", error.message)
+                error.message shouldBe "boom"
             }
 
             coVerify(exactly = 1) {
@@ -311,8 +331,7 @@ class AwsSdkS3ClientTest {
             coVerify(exactly = 0) { sdkClient.completeMultipartUpload(any()) }
         }
 
-    @Test
-    fun `getObjectMetadata returns head metadata for a regular object`() =
+    private fun `getObjectMetadata returns head metadata for a regular object`() =
         runTest {
             coEvery { sdkClient.headObject(any()) } returns
                 HeadObjectResponse {
@@ -329,8 +348,7 @@ class AwsSdkS3ClientTest {
 
             val metadata = client.getObjectMetadata("vault/note.md")
 
-            assertEquals(
-                S3RemoteObject(
+            metadata shouldBe S3RemoteObject(
                     key = "vault/note.md",
                     eTag = "etag-note",
                     lastModified = 120_000L,
@@ -339,13 +357,10 @@ class AwsSdkS3ClientTest {
                             "mtime" to "120",
                             "author" to "lomo",
                         ),
-                ),
-                metadata,
-            )
+                )
         }
 
-    @Test
-    fun `deleteObject issues a synchronous DeleteObject request before returning`() =
+    private fun `deleteObject issues a synchronous DeleteObject request before returning`() =
         runTest {
             coEvery { sdkClient.deleteObject(any()) } returns
                 aws.sdk.kotlin.services.s3.model.DeleteObjectResponse {}
@@ -362,8 +377,7 @@ class AwsSdkS3ClientTest {
             coVerify(exactly = 0) { sdkClient.deleteObjects(any()) }
         }
 
-    @Test
-    fun `deleteObject propagates SDK errors before returning so callers do not record success`() =
+    private fun `deleteObject propagates SDK errors before returning so callers do not record success`() =
         runTest {
             coEvery { sdkClient.deleteObject(any()) } throws IllegalStateException("boom")
 
@@ -374,11 +388,10 @@ class AwsSdkS3ClientTest {
                     client.deleteObject("vault/a.md")
                 }.exceptionOrNull()
 
-            assertEquals("boom", error?.message)
+            error?.message shouldBe "boom"
         }
 
-    @Test
-    fun `deleteObjects sends a single batched DeleteObjects request synchronously`() =
+    private fun `deleteObjects sends a single batched DeleteObjects request synchronously`() =
         runTest {
             coEvery { sdkClient.deleteObjects(any()) } returns
                 aws.sdk.kotlin.services.s3.model.DeleteObjectsResponse {}

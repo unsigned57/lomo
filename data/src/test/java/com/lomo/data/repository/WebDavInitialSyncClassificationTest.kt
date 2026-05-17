@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteFile
@@ -8,9 +9,10 @@ import com.lomo.domain.model.WebDavSyncDirection
 import com.lomo.domain.model.WebDavSyncReason
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -20,9 +22,19 @@ import org.junit.Test
  * - Red phase: Fails before the fix because overlapping files with local fingerprints always trigger a GET, even when timestamps are far outside the conflict tolerance window.
  * - Excludes: DAV transport internals, metadata persistence, and later upload/download execution.
  */
-class WebDavInitialSyncClassificationTest {
-    @Test
-    fun `classification skips remote fingerprint download when timestamps already pick local upload`() =
+class WebDavInitialSyncClassificationTest : DataFunSpec() {
+    init {
+        test("classification skips remote fingerprint download when timestamps already pick local upload") { `classification skips remote fingerprint download when timestamps already pick local upload`() }
+
+        test("classification downloads conflicting remote fingerprints concurrently") { `classification downloads conflicting remote fingerprints concurrently`() }
+
+        test("classification trusts matching WebDAV etag fingerprint before downloading bytes") { `classification trusts matching WebDAV etag fingerprint before downloading bytes`() }
+
+        test("classification keeps non memo overlap unresolved without downloading remote bytes") { `classification keeps non memo overlap unresolved without downloading remote bytes`() }
+    }
+
+
+    private fun `classification skips remote fingerprint download when timestamps already pick local upload`() =
         runTest {
             val path = "lomo/memos/note.md"
             val client =
@@ -81,15 +93,11 @@ class WebDavInitialSyncClassificationTest {
                     timestampToleranceMs = 1_000L,
                 )
 
-            assertEquals(0, client.getCalls)
-            assertEquals(
-                mapOf(path to WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY)),
-                classification.resolvedActionsByPath,
-            )
+            client.getCalls shouldBe 0
+            classification.resolvedActionsByPath shouldBe mapOf(path to WebDavSyncAction(path, WebDavSyncDirection.UPLOAD, WebDavSyncReason.LOCAL_ONLY))
         }
 
-    @Test
-    fun `classification downloads conflicting remote fingerprints concurrently`() =
+    private fun `classification downloads conflicting remote fingerprints concurrently`() =
         runTest {
             val paths =
                 listOf(
@@ -158,16 +166,12 @@ class WebDavInitialSyncClassificationTest {
                     timestampToleranceMs = 1_000L,
                 )
 
-            assertEquals(paths.size, getCalls.get())
-            assertEquals(paths, classification.equivalentMetadataByPath.keys.toList())
-            assertTrue(
-                "Initial WebDAV overlap downloads should overlap for independent files instead of serializing all GET requests.",
-                peakConcurrency.get() > 1,
-            )
+            getCalls.get() shouldBe paths.size
+            classification.equivalentMetadataByPath.keys.toList() shouldBe paths
+            withClue("Initial WebDAV overlap downloads should overlap for independent files instead of serializing all GET requests.") { (peakConcurrency.get() > 1).shouldBeTrue() }
         }
 
-    @Test
-    fun `classification trusts matching WebDAV etag fingerprint before downloading bytes`() =
+    private fun `classification trusts matching WebDAV etag fingerprint before downloading bytes`() =
         runTest {
             val path = "lomo/memos/note.md"
             val contentBytes = "same-content".toByteArray()
@@ -229,12 +233,11 @@ class WebDavInitialSyncClassificationTest {
                     timestampToleranceMs = 1_000L,
                 )
 
-            assertEquals(0, client.getCalls)
-            assertEquals(listOf(path), classification.equivalentMetadataByPath.keys.toList())
+            client.getCalls shouldBe 0
+            classification.equivalentMetadataByPath.keys.toList() shouldBe listOf(path)
         }
 
-    @Test
-    fun `classification keeps non memo overlap unresolved without downloading remote bytes`() =
+    private fun `classification keeps non memo overlap unresolved without downloading remote bytes`() =
         runTest {
             val path = "lomo/images/cover.png"
             val client =
@@ -295,8 +298,8 @@ class WebDavInitialSyncClassificationTest {
                     timestampToleranceMs = 1_000L,
                 )
 
-            assertEquals(0, client.getCalls)
-            assertTrue(classification.equivalentMetadataByPath.isEmpty())
-            assertTrue(classification.resolvedActionsByPath.isEmpty())
+            client.getCalls shouldBe 0
+            (classification.equivalentMetadataByPath.isEmpty()).shouldBeTrue()
+            (classification.resolvedActionsByPath.isEmpty()).shouldBeTrue()
         }
 }

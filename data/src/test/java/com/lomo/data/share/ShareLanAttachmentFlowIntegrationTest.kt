@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -9,12 +10,12 @@ import com.lomo.domain.model.SharePayload
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -24,7 +25,16 @@ import java.nio.file.Files
  * - Red phase: Fails before the fix because the LAN transfer flow has no rollback callback and leaves saved attachments committed when memo persistence fails.
  * - Excludes: sender-side attachment discovery policy, UI approval dialogs, and persistence backend details after save callbacks return or rollback finishes.
  */
-class ShareLanAttachmentFlowIntegrationTest {
+class ShareLanAttachmentFlowIntegrationTest : DataFunSpec() {
+    init {
+        test("open mode attachment transfer copies bytes and saves memo mapping") { `open mode attachment transfer copies bytes and saves memo mapping`() }
+
+        test("encrypted attachment transfer decrypts bytes before save callback") { `encrypted attachment transfer decrypts bytes before save callback`() }
+
+        test("memo save failure rolls back previously saved attachments") { `memo save failure rolls back previously saved attachments`() }
+    }
+
+
     private val context = mockk<Context>(relaxed = true)
     private val contentResolver = mockk<ContentResolver>(relaxed = true)
     private val cacheDir = Files.createTempDirectory("lomo-share-cache").toFile()
@@ -39,8 +49,7 @@ class ShareLanAttachmentFlowIntegrationTest {
         }
     }
 
-    @Test
-    fun `open mode attachment transfer copies bytes and saves memo mapping`() =
+    private fun `open mode attachment transfer copies bytes and saves memo mapping`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("open-attachments"))
             val attachmentFile = tempFile("share-open", ".png", "open-image-payload")
@@ -95,9 +104,8 @@ class ShareLanAttachmentFlowIntegrationTest {
                         e2eEnabled = false,
                     )
 
-                assertTrue(transferred)
-                assertEquals(
-                    listOf(
+                (transferred).shouldBeTrue()
+                incomingPayloads shouldBe listOf(
                         SharePayload(
                             content = "memo with open attachment",
                             timestamp = 11L,
@@ -111,37 +119,28 @@ class ShareLanAttachmentFlowIntegrationTest {
                                     ),
                                 ),
                         ),
-                    ),
-                    incomingPayloads,
-                )
-                assertEquals(
-                    listOf(
+                    )
+                savedAttachments shouldBe listOf(
                         SavedAttachment(
                             name = "photo.png",
                             type = "image",
                             contents = "open-image-payload",
                         ),
-                    ),
-                    savedAttachments,
-                )
-                assertEquals(
-                    listOf(
+                    )
+                savedMemos shouldBe listOf(
                         SavedMemo(
                             content = "memo with open attachment",
                             timestamp = 11L,
                             attachmentMappings = mapOf("photo.png" to "/store/photo.png"),
                         ),
-                    ),
-                    savedMemos,
-                )
+                    )
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `encrypted attachment transfer decrypts bytes before save callback`() =
+    private fun `encrypted attachment transfer decrypts bytes before save callback`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("secure-attachments"))
             val primaryKeyHex = requireNotNull(resolvePrimaryKeyHex(pairingMaterial))
@@ -194,35 +193,28 @@ class ShareLanAttachmentFlowIntegrationTest {
                         e2eKeyHex = prepared.keyHex,
                     )
 
-                assertTrue(transferred)
-                assertEquals(
-                    listOf(
+                (transferred).shouldBeTrue()
+                savedAttachments shouldBe listOf(
                         SavedAttachment(
                             name = "voice.mp3",
                             type = "audio",
                             contents = "secret-audio-payload",
                         ),
-                    ),
-                    savedAttachments,
-                )
-                assertEquals(
-                    listOf(
+                    )
+                savedMemos shouldBe listOf(
                         SavedMemo(
                             content = "memo with secure attachment",
                             timestamp = 22L,
                             attachmentMappings = mapOf("voice.mp3" to "/secure/voice.mp3"),
                         ),
-                    ),
-                    savedMemos,
-                )
+                    )
             } finally {
                 client.close()
                 server.stop()
             }
         }
 
-    @Test
-    fun `memo save failure rolls back previously saved attachments`() =
+    private fun `memo save failure rolls back previously saved attachments`() =
         runBlocking {
             val pairingMaterial = requireNotNull(ShareAuthUtils.deriveKeyMaterialFromPairingCode("rollback-attachments"))
             val attachmentFile = tempFile("share-rollback", ".png", "rollback-image-payload")
@@ -276,18 +268,15 @@ class ShareLanAttachmentFlowIntegrationTest {
                         e2eEnabled = false,
                     )
 
-                assertFalse(transferred)
-                assertEquals(
-                    listOf(
+                (transferred).shouldBeFalse()
+                savedAttachments shouldBe listOf(
                         SavedAttachment(
                             name = "photo.png",
                             type = "image",
                             contents = "rollback-image-payload",
                         ),
-                    ),
-                    savedAttachments,
-                )
-                assertEquals(listOf("/store/photo.png" to "image"), rolledBackAttachments)
+                    )
+                rolledBackAttachments shouldBe listOf("/store/photo.png" to "image")
             } finally {
                 client.close()
                 server.stop()

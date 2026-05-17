@@ -1,5 +1,6 @@
 package com.lomo.data.share
 
+
 import com.lomo.data.local.datastore.LomoDataStore
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -8,24 +9,42 @@ import io.mockk.mockk
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
  * - Unit under test: SharePairingConfig
  * - Behavior focus: pairing-code normalization/storage, device-name sanitization, and send gating based on E2E + pairing state.
  * - Observable outcomes: stored key material, exposed StateFlow pairing code, sanitized device name, and requiresPairingBeforeSend result.
- * - Red phase: Not applicable - test-only coverage addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Build.MODEL fallback lookup, HTTP client creation, and UI settings rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SharePairingConfigTest {
+class SharePairingConfigTest : DataFunSpec() {
+    init {
+        test("setLanSharePairingCode normalizes input and stores derived key material") { `setLanSharePairingCode normalizes input and stores derived key material`() }
+
+        test("clearLanSharePairingCode clears store and in memory state") { `clearLanSharePairingCode clears store and in memory state`() }
+
+        test("setLanShareDeviceName stores sanitized device name") { `setLanShareDeviceName stores sanitized device name`() }
+
+        test("setLanShareDeviceName strips bidi spoofing controls") { `setLanShareDeviceName strips bidi spoofing controls`() }
+
+        test("requiresPairingBeforeSend returns false when e2e is disabled") { `requiresPairingBeforeSend returns false when e2e is disabled`() }
+
+        test("requiresPairingBeforeSend returns true when e2e is enabled without valid key") { `requiresPairingBeforeSend returns true when e2e is enabled without valid key`() }
+
+        test("setLanShareEnabled delegates to datastore") { `setLanShareEnabled delegates to datastore`() }
+
+        test("isLanShareEnabled reflects datastore flag") { `isLanShareEnabled reflects datastore flag`() }
+    }
+
+
     private val dataStore = mockk<LomoDataStore>(relaxed = true)
 
-    @Test
-    fun `setLanSharePairingCode normalizes input and stores derived key material`() =
+    private fun `setLanSharePairingCode normalizes input and stores derived key material`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
             every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
@@ -34,7 +53,7 @@ class SharePairingConfigTest {
 
             config.setLanSharePairingCode("  123 456  ")
 
-            assertEquals("123 456", config.lanSharePairingCode.value)
+            config.lanSharePairingCode.value shouldBe "123 456"
             coVerify(exactly = 1) {
                 dataStore.updateLanSharePairingKeyHex(
                     match { stored ->
@@ -44,8 +63,7 @@ class SharePairingConfigTest {
             }
         }
 
-    @Test
-    fun `clearLanSharePairingCode clears store and in memory state`() =
+    private fun `clearLanSharePairingCode clears store and in memory state`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
             every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
@@ -55,12 +73,11 @@ class SharePairingConfigTest {
 
             config.clearLanSharePairingCode()
 
-            assertEquals("", config.lanSharePairingCode.value)
+            config.lanSharePairingCode.value shouldBe ""
             coVerify(exactly = 1) { dataStore.updateLanSharePairingKeyHex(null) }
         }
 
-    @Test
-    fun `setLanShareDeviceName stores sanitized device name`() =
+    private fun `setLanShareDeviceName stores sanitized device name`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
             every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
@@ -72,8 +89,7 @@ class SharePairingConfigTest {
             coVerify(exactly = 1) { dataStore.updateLanShareDeviceName("My Phone") }
         }
 
-    @Test
-    fun `setLanShareDeviceName strips bidi spoofing controls`() =
+    private fun `setLanShareDeviceName strips bidi spoofing controls`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
             every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
@@ -85,8 +101,7 @@ class SharePairingConfigTest {
             coVerify(exactly = 1) { dataStore.updateLanShareDeviceName("My Phone") }
         }
 
-    @Test
-    fun `requiresPairingBeforeSend returns false when e2e is disabled`() =
+    private fun `requiresPairingBeforeSend returns false when e2e is disabled`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(false)
             every { dataStore.lanSharePairingKeyHex } returns flowOf(null)
@@ -95,11 +110,10 @@ class SharePairingConfigTest {
 
             val requiresPairing = config.requiresPairingBeforeSend()
 
-            assertEquals(false, requiresPairing)
+            requiresPairing shouldBe false
         }
 
-    @Test
-    fun `requiresPairingBeforeSend returns true when e2e is enabled without valid key`() =
+    private fun `requiresPairingBeforeSend returns true when e2e is enabled without valid key`() =
         runTest {
             every { dataStore.lanShareE2eEnabled } returns flowOf(true)
             every { dataStore.lanSharePairingKeyHex } returns flowOf("not-a-valid-key")
@@ -109,12 +123,11 @@ class SharePairingConfigTest {
             val requiresPairing = config.requiresPairingBeforeSend()
             val resolvedName = config.resolveDeviceName()
 
-            assertTrue(requiresPairing)
-            assertEquals("My Phone", resolvedName)
+            (requiresPairing).shouldBeTrue()
+            resolvedName shouldBe "My Phone"
         }
 
-    @Test
-    fun `setLanShareEnabled delegates to datastore`() =
+    private fun `setLanShareEnabled delegates to datastore`() =
         runTest {
             val config = SharePairingConfig(dataStore)
 
@@ -123,14 +136,13 @@ class SharePairingConfigTest {
             coVerify(exactly = 1) { dataStore.updateLanShareEnabled(false) }
         }
 
-    @Test
-    fun `isLanShareEnabled reflects datastore flag`() =
+    private fun `isLanShareEnabled reflects datastore flag`() =
         runTest {
             every { dataStore.lanShareEnabled } returns flowOf(false)
             val config = SharePairingConfig(dataStore)
 
             val enabled = config.isLanShareEnabled()
 
-            assertEquals(false, enabled)
+            enabled shouldBe false
         }
 }

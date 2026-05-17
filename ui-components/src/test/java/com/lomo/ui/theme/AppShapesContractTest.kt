@@ -1,9 +1,9 @@
 package com.lomo.ui.theme
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -20,68 +20,66 @@ import org.junit.Test
  * - Excludes: actual Compose render output, per-component shape overrides, Squircle / superellipse
  *   (non-goal), and color / typography tokens covered by their own contract tests.
  */
-class AppShapesContractTest {
-    @Test
-    fun `M3 Expressive corner ramp exposes 20, 32, and 48 dp tokens`() {
-        assertEquals(RoundedCornerShape(20.dp), AppShapes.LargeIncreased)
-        assertEquals(RoundedCornerShape(32.dp), AppShapes.ExtraLargeIncreased)
-        assertEquals(RoundedCornerShape(48.dp), AppShapes.ExtraExtraLarge)
+class AppShapesContractTest : UiComponentsFunSpec() {
+    init {
+        test("M3 Expressive corner ramp exposes 20, 32, and 48 dp tokens") {
+        (AppShapes.LargeIncreased) shouldBe (RoundedCornerShape(20.dp))
+        (AppShapes.ExtraLargeIncreased) shouldBe (RoundedCornerShape(32.dp))
+        (AppShapes.ExtraExtraLarge) shouldBe (RoundedCornerShape(48.dp))
+        }
     }
 
-    @Test
-    fun `legacy ExtraLarge stays at 28dp for call sites that intentionally pin there`() {
-        assertEquals(RoundedCornerShape(28.dp), AppShapes.ExtraLarge)
+    init {
+        test("legacy ExtraLarge stays at 28dp for call sites that intentionally pin there") {
+        (AppShapes.ExtraLarge) shouldBe (RoundedCornerShape(28.dp))
+        }
     }
 
-    @Test
-    fun `SmallTop has 8dp top corners and square bottom for bottom-sheet first-item style`() {
-        assertEquals(
-            RoundedCornerShape(
+    init {
+        test("SmallTop has 8dp top corners and square bottom for bottom-sheet first-item style") {
+        (AppShapes.SmallTop) shouldBe (RoundedCornerShape(
                 topStart = 8.dp,
                 topEnd = 8.dp,
                 bottomEnd = 0.dp,
                 bottomStart = 0.dp,
-            ),
-            AppShapes.SmallTop,
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `MediumTop has 16dp top corners and square bottom for bottom-sheet header style`() {
-        assertEquals(
-            RoundedCornerShape(
+    init {
+        test("MediumTop has 16dp top corners and square bottom for bottom-sheet header style") {
+        (AppShapes.MediumTop) shouldBe (RoundedCornerShape(
                 topStart = 16.dp,
                 topEnd = 16.dp,
                 bottomEnd = 0.dp,
                 bottomStart = 0.dp,
-            ),
-            AppShapes.MediumTop,
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `LargeEnd has 28dp on the end edge and square start edge for drawer-sheet shape`() {
-        assertEquals(
-            RoundedCornerShape(
+    init {
+        test("LargeEnd has 28dp on the end edge and square start edge for drawer-sheet shape") {
+        (AppShapes.LargeEnd) shouldBe (RoundedCornerShape(
                 topStart = 0.dp,
                 topEnd = 28.dp,
                 bottomEnd = 28.dp,
                 bottomStart = 0.dp,
-            ),
-            AppShapes.LargeEnd,
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `Shapes extraLarge slot binds to the 32dp Expressive ExtraLargeIncreased token, not legacy 28dp`() {
-        assertEquals(AppShapes.ExtraLargeIncreased, Shapes.extraLarge)
+    init {
+        test("Shapes extraLarge slot binds to the 32dp Expressive ExtraLargeIncreased token, not legacy 28dp") {
+        (Shapes.extraLarge) shouldBe (AppShapes.ExtraLargeIncreased)
+        }
     }
 
-    @Test
-    fun `non-extraLarge Shapes slots keep their pre-Expressive token bindings`() {
-        assertEquals(AppShapes.ExtraSmall, Shapes.extraSmall)
-        assertEquals(AppShapes.Small, Shapes.small)
-        assertEquals(AppShapes.Medium, Shapes.medium)
-        assertEquals(AppShapes.Large, Shapes.large)
+    init {
+        test("non-extraLarge Shapes slots keep their pre-Expressive token bindings") {
+        (Shapes.extraSmall) shouldBe (AppShapes.ExtraSmall)
+        (Shapes.small) shouldBe (AppShapes.Small)
+        (Shapes.medium) shouldBe (AppShapes.Medium)
+        (Shapes.large) shouldBe (AppShapes.Large)
+        }
     }
 }

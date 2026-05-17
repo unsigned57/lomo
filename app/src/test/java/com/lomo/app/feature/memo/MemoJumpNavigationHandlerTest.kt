@@ -1,14 +1,12 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.Memo
 import com.lomo.ui.component.menu.MemoMenuState
-import kotlinx.collections.immutable.persistentListOf
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.collections.immutable.persistentListOf
 
 /*
  * Test Contract:
@@ -20,35 +18,37 @@ import java.time.ZoneId
  *   and there is no shared handler that guarantees focus is requested before main navigation.
  * - Excludes: NavHost back-stack implementation, Compose rendering, and LazyList scroll physics.
  */
-class MemoJumpNavigationHandlerTest {
-    @Test
-    fun `jump requests focus before navigating to main list`() {
-        val calls = mutableListOf<String>()
+class MemoJumpNavigationHandlerTest : AppFunSpec() {
+    init {
+        test("jump requests focus before navigating to main list") {
+            val calls = mutableListOf<String>()
 
-        val handled =
-            handleMemoJumpToMain(
-                state = MemoMenuState.withPayload(memo("memo-42")),
-                requestFocusMemo = { memoId -> calls += "focus:$memoId" },
-                navigateToMain = { calls += "navigate" },
-            )
+            val handled =
+                handleMemoJumpToMain(
+                    state = MemoMenuState.withPayload(memo("memo-42")),
+                    requestFocusMemo = { memoId -> calls += "focus:$memoId" },
+                    navigateToMain = { calls += "navigate" },
+                )
 
-        assertTrue(handled)
-        assertEquals(listOf("focus:memo-42", "navigate"), calls)
+            ((handled)) shouldBe true
+            (calls) shouldBe (listOf("focus:memo-42", "navigate"))
+        }
     }
 
-    @Test
-    fun `jump ignores menu states without memo payload`() {
-        val calls = mutableListOf<String>()
+    init {
+        test("jump ignores menu states without memo payload") {
+            val calls = mutableListOf<String>()
 
-        val handled =
-            handleMemoJumpToMain(
-                state = MemoMenuState(),
-                requestFocusMemo = { memoId -> calls += "focus:$memoId" },
-                navigateToMain = { calls += "navigate" },
-            )
+            val handled =
+                handleMemoJumpToMain(
+                    state = MemoMenuState(),
+                    requestFocusMemo = { memoId -> calls += "focus:$memoId" },
+                    navigateToMain = { calls += "navigate" },
+                )
 
-        assertFalse(handled)
-        assertEquals(emptyList<String>(), calls)
+            ((handled)) shouldBe false
+            (calls) shouldBe (emptyList<String>())
+        }
     }
 
     private fun memo(id: String): Memo =

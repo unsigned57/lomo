@@ -1,7 +1,8 @@
 package com.lomo.ui.component.menu
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -26,9 +27,9 @@ import org.junit.Test
  *   exists in the current design and the replacement assertions still protect horizontal boundary
  *   feedback behavior.
  */
-class MemoActionSheetEdgePreviewTest {
-    @Test
-    fun `swipe affordance progress is zero when content cannot scroll`() {
+class MemoActionSheetEdgePreviewTest : UiComponentsFunSpec() {
+    init {
+        test("swipe affordance progress is zero when content cannot scroll") {
         val progress =
             resolveLazyRowSwipeAffordanceProgress(
                 LazyRowSwipeAffordanceSnapshot(
@@ -39,11 +40,12 @@ class MemoActionSheetEdgePreviewTest {
                 ),
             )
 
-        assertEquals(0f, progress, 0.0001f)
+        (progress) shouldBe ((0f) plusOrMinus (0.0001f))
+        }
     }
 
-    @Test
-    fun `swipe affordance progress stays at the leading edge when only forward scroll remains`() {
+    init {
+        test("swipe affordance progress stays at the leading edge when only forward scroll remains") {
         val progress =
             resolveLazyRowSwipeAffordanceProgress(
                 LazyRowSwipeAffordanceSnapshot(
@@ -57,11 +59,12 @@ class MemoActionSheetEdgePreviewTest {
                 ),
             )
 
-        assertEquals(0f, progress, 0.0001f)
+        (progress) shouldBe ((0f) plusOrMinus (0.0001f))
+        }
     }
 
-    @Test
-    fun `swipe affordance progress advances smoothly through the middle of the row`() {
+    init {
+        test("swipe affordance progress advances smoothly through the middle of the row") {
         val progress =
             resolveLazyRowSwipeAffordanceProgress(
                 LazyRowSwipeAffordanceSnapshot(
@@ -75,11 +78,12 @@ class MemoActionSheetEdgePreviewTest {
                 ),
             )
 
-        assertEquals(0.45f, progress, 0.0001f)
+        (progress) shouldBe ((0.45f) plusOrMinus (0.0001f))
+        }
     }
 
-    @Test
-    fun `swipe affordance progress snaps to the trailing edge when only backward scroll remains`() {
+    init {
+        test("swipe affordance progress snaps to the trailing edge when only backward scroll remains") {
         val progress =
             resolveLazyRowSwipeAffordanceProgress(
                 LazyRowSwipeAffordanceSnapshot(
@@ -93,6 +97,7 @@ class MemoActionSheetEdgePreviewTest {
                 ),
             )
 
-        assertEquals(1f, progress, 0.0001f)
+        (progress) shouldBe ((1f) plusOrMinus (0.0001f))
+        }
     }
 }

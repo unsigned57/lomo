@@ -1,9 +1,10 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.sync.SyncDirectoryLayout
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,12 +14,24 @@ import org.junit.Test
  * - Red phase: Fails before the fix because planner only sorts by lastScannedAt and original order, so equal-age shards never gain priority from higher observed change rates or verification-failure risk.
  * - Excludes: S3 transport behavior, Room SQL generation, WorkManager scheduling, and sync action application.
  */
-class S3RemoteShardPlannerTest {
+class S3RemoteShardPlannerTest : DataFunSpec() {
+    init {
+        test("plan keeps in-flight cursor shard even when other shards are colder") { `plan keeps in-flight cursor shard even when other shards are colder`() }
+
+        test("plan prioritizes unscanned shard ahead of recently active shard") { `plan prioritizes unscanned shard ahead of recently active shard`() }
+
+        test("plan prefers higher change rate when shard freshness is tied") { `plan prefers higher change rate when shard freshness is tied`() }
+
+        test("plan prefers higher verification failure rate when shard freshness is tied") { `plan prefers higher verification failure rate when shard freshness is tied`() }
+
+        test("plan derives hot shard seeds from prioritized candidates without reading full index") { `plan derives hot shard seeds from prioritized candidates without reading full index`() }
+    }
+
+
     private val planner = S3RemoteShardPlanner()
     private val layout = SyncDirectoryLayout(memoFolder = "memo", imageFolder = "images", voiceFolder = "voice", allSameDirectory = false)
 
-    @Test
-    fun `plan keeps in-flight cursor shard even when other shards are colder`() =
+    private fun `plan keeps in-flight cursor shard even when other shards are colder`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -49,13 +62,12 @@ class S3RemoteShardPlannerTest {
                     now = 1_000L,
                 )
 
-            assertEquals(S3_SCAN_BUCKET_MEMO, planned.activeShard?.bucketId)
-            assertEquals("page-2", planned.continuationToken)
-            assertEquals(7L, planned.scanEpoch)
+            planned.activeShard?.bucketId shouldBe S3_SCAN_BUCKET_MEMO
+            planned.continuationToken shouldBe "page-2"
+            planned.scanEpoch shouldBe 7L
         }
 
-    @Test
-    fun `plan prioritizes unscanned shard ahead of recently active shard`() =
+    private fun `plan prioritizes unscanned shard ahead of recently active shard`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -76,12 +88,11 @@ class S3RemoteShardPlannerTest {
                     now = 1_000L,
                 )
 
-            assertEquals(S3_SCAN_BUCKET_VOICE, planned.scanPlan.firstOrNull()?.bucketId)
-            assertEquals(S3_SCAN_BUCKET_VOICE, planned.activeShard?.bucketId)
+            planned.scanPlan.firstOrNull()?.bucketId shouldBe S3_SCAN_BUCKET_VOICE
+            planned.activeShard?.bucketId shouldBe S3_SCAN_BUCKET_VOICE
         }
 
-    @Test
-    fun `plan prefers higher change rate when shard freshness is tied`() =
+    private fun `plan prefers higher change rate when shard freshness is tied`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -121,15 +132,11 @@ class S3RemoteShardPlannerTest {
                     now = 1_000L,
                 )
 
-            assertEquals(
-                listOf(S3_SCAN_BUCKET_IMAGE, S3_SCAN_BUCKET_MEMO, S3_SCAN_BUCKET_VOICE),
-                planned.scanPlan.take(3).map(S3RemoteScanShard::bucketId),
-            )
-            assertEquals(S3_SCAN_BUCKET_IMAGE, planned.activeShard?.bucketId)
+            planned.scanPlan.take(3).map(S3RemoteScanShard::bucketId) shouldBe listOf(S3_SCAN_BUCKET_IMAGE, S3_SCAN_BUCKET_MEMO, S3_SCAN_BUCKET_VOICE)
+            planned.activeShard?.bucketId shouldBe S3_SCAN_BUCKET_IMAGE
         }
 
-    @Test
-    fun `plan prefers higher verification failure rate when shard freshness is tied`() =
+    private fun `plan prefers higher verification failure rate when shard freshness is tied`() =
         runTest {
             val remoteIndexStore = InMemoryS3RemoteIndexStore()
             val shardStateStore = InMemoryS3RemoteShardStateStore()
@@ -175,12 +182,11 @@ class S3RemoteShardPlannerTest {
                     now = 1_000L,
                 )
 
-            assertEquals(S3_SCAN_BUCKET_IMAGE, planned.scanPlan.firstOrNull()?.bucketId)
-            assertEquals(S3_SCAN_BUCKET_IMAGE, planned.activeShard?.bucketId)
+            planned.scanPlan.firstOrNull()?.bucketId shouldBe S3_SCAN_BUCKET_IMAGE
+            planned.activeShard?.bucketId shouldBe S3_SCAN_BUCKET_IMAGE
         }
 
-    @Test
-    fun `plan derives hot shard seeds from prioritized candidates without reading full index`() =
+    private fun `plan derives hot shard seeds from prioritized candidates without reading full index`() =
         runTest {
             val remoteIndexStore =
                 PlannerSeedRemoteIndexStore(
@@ -211,9 +217,9 @@ class S3RemoteShardPlannerTest {
                     now = 1_000L,
                 )
 
-            assertEquals("lomo/memo/z", planned.scanPlan.firstOrNull()?.relativePrefix)
-            assertEquals("lomo/memo/z", planned.activeShard?.relativePrefix)
-            assertEquals(0, remoteIndexStore.readAllCalls)
+            planned.scanPlan.firstOrNull()?.relativePrefix shouldBe "lomo/memo/z"
+            planned.activeShard?.relativePrefix shouldBe "lomo/memo/z"
+            remoteIndexStore.readAllCalls shouldBe 0
         }
 
     private fun shardState(

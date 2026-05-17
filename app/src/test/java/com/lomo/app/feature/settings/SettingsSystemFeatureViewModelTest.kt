@@ -2,6 +2,7 @@ package com.lomo.app.feature.settings
 
 import com.lomo.app.feature.update.AppUpdateChecker
 import com.lomo.app.feature.update.AppUpdateDialogState
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.LatestAppRelease
 import com.lomo.domain.model.PreferenceDefaults
 import com.lomo.domain.model.ThemeMode
@@ -13,6 +14,7 @@ import com.lomo.domain.usecase.CheckStartupAppUpdateUseCase
 import com.lomo.domain.usecase.GetCurrentAppVersionUseCase
 import com.lomo.domain.usecase.GetLatestAppReleaseUseCase
 import com.lomo.domain.usecase.SwitchRootStorageUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -20,12 +22,10 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -36,173 +36,174 @@ import org.junit.Test
  * - Excludes: Compose rendering, snackbar presentation, and repository transport details.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class SettingsSystemFeatureViewModelTest {
-    @Test
-    fun `initialization loads current version name`() =
-        runTest {
-            val fixture = systemFeatureFixture(currentVersion = "0.9.1")
+class SettingsSystemFeatureViewModelTest : AppFunSpec() {
+    init {
+        test("initialization loads current version name") {
+            runTest {
+                val fixture = systemFeatureFixture(currentVersion = "0.9.1")
 
-            val feature =
-                SettingsSystemFeatureViewModel(
-                    scope = this,
-                    appConfigCoordinator = fixture.appConfigCoordinator,
-                    appUpdateChecker = fixture.appUpdateChecker,
-                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
-                )
+                val feature =
+                    SettingsSystemFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = fixture.appConfigCoordinator,
+                        appUpdateChecker = fixture.appUpdateChecker,
+                        getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    )
 
-            advanceUntilIdle()
+                advanceUntilIdle()
 
-            assertEquals("0.9.1", feature.currentVersion.value)
-            assertEquals(SettingsManualUpdateState.Idle, feature.manualUpdateState.value)
+                (feature.currentVersion.value) shouldBe ("0.9.1")
+                (feature.manualUpdateState.value) shouldBe (SettingsManualUpdateState.Idle)
+            }
         }
+    }
 
-    @Test
-    fun `manual update check exposes inline update state and suppresses duplicate requests`() =
-        runTest(StandardTestDispatcher()) {
-            val gate = CompletableDeferred<Unit>()
-            var manualChecks = 0
-            val fixture =
-                systemFeatureFixture(
-                    currentVersion = "0.9.1",
-                    checkUpdatesOnStartupEnabled = false,
-                ).also { createdFixture ->
-                    coEvery { createdFixture.appUpdateRepository.fetchLatestRelease() } coAnswers {
-                        manualChecks += 1
-                        gate.await()
-                        LatestAppRelease(
-                            tagName = "v1.0.0",
-                            htmlUrl = "https://example.com/releases/1.0.0",
-                            body = "notes",
-                        )
+    init {
+        test("manual update check exposes inline update state and suppresses duplicate requests") {
+            runTest(StandardTestDispatcher()) {
+                val gate = CompletableDeferred<Unit>()
+                var manualChecks = 0
+                val fixture =
+                    systemFeatureFixture(
+                        currentVersion = "0.9.1",
+                        checkUpdatesOnStartupEnabled = false,
+                    ).also { createdFixture ->
+                        coEvery { createdFixture.appUpdateRepository.fetchLatestRelease() } coAnswers {
+                            manualChecks += 1
+                            gate.await()
+                            LatestAppRelease(
+                                tagName = "v1.0.0",
+                                htmlUrl = "https://example.com/releases/1.0.0",
+                                body = "notes",
+                            )
+                        }
                     }
-                }
 
-            val feature =
-                SettingsSystemFeatureViewModel(
-                    scope = this,
-                    appConfigCoordinator = fixture.appConfigCoordinator,
-                    appUpdateChecker = fixture.appUpdateChecker,
-                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
-                )
+                val feature =
+                    SettingsSystemFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = fixture.appConfigCoordinator,
+                        appUpdateChecker = fixture.appUpdateChecker,
+                        getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    )
 
-            feature.checkForUpdatesManually()
-            runCurrent()
+                feature.checkForUpdatesManually()
+                runCurrent()
 
-            assertEquals(SettingsManualUpdateState.Checking, feature.manualUpdateState.value)
+                (feature.manualUpdateState.value) shouldBe (SettingsManualUpdateState.Checking)
 
-            feature.checkForUpdatesManually()
-            runCurrent()
+                feature.checkForUpdatesManually()
+                runCurrent()
 
-            assertEquals(1, manualChecks)
+                (manualChecks) shouldBe (1)
 
-            gate.complete(Unit)
-            runCurrent()
+                gate.complete(Unit)
+                runCurrent()
 
-            assertEquals(
-                SettingsManualUpdateState.UpdateAvailable(
-                    dialogState =
-                        AppUpdateDialogState(
-                            url = "https://example.com/releases/1.0.0",
-                            version = "1.0.0",
-                            releaseNotes = "notes",
-                        ),
-                ),
-                feature.manualUpdateState.value,
-            )
+                (feature.manualUpdateState.value) shouldBe (SettingsManualUpdateState.UpdateAvailable(
+                        dialogState =
+                            AppUpdateDialogState(
+                                url = "https://example.com/releases/1.0.0",
+                                version = "1.0.0",
+                                releaseNotes = "notes",
+                            ),
+                    ))
+            }
         }
+    }
 
-    @Test
-    fun `manual update check exposes up-to-date state when no release is available`() =
-        runTest {
-            val fixture =
-                systemFeatureFixture(
-                    currentVersion = "0.9.1",
-                    checkUpdatesOnStartupEnabled = true,
-                )
-            coEvery { fixture.appUpdateRepository.fetchLatestRelease() } returns null
+    init {
+        test("manual update check exposes up-to-date state when no release is available") {
+            runTest {
+                val fixture =
+                    systemFeatureFixture(
+                        currentVersion = "0.9.1",
+                        checkUpdatesOnStartupEnabled = true,
+                    )
+                coEvery { fixture.appUpdateRepository.fetchLatestRelease() } returns null
 
-            val feature =
-                SettingsSystemFeatureViewModel(
-                    scope = this,
-                    appConfigCoordinator = fixture.appConfigCoordinator,
-                    appUpdateChecker = fixture.appUpdateChecker,
-                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
-                )
+                val feature =
+                    SettingsSystemFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = fixture.appConfigCoordinator,
+                        appUpdateChecker = fixture.appUpdateChecker,
+                        getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    )
 
-            feature.checkForUpdatesManually()
-            advanceUntilIdle()
+                feature.checkForUpdatesManually()
+                advanceUntilIdle()
 
-            assertEquals(SettingsManualUpdateState.UpToDate, feature.manualUpdateState.value)
+                (feature.manualUpdateState.value) shouldBe (SettingsManualUpdateState.UpToDate)
+            }
         }
+    }
 
-    @Test
-    fun `manual update check exposes error state when checker throws`() =
-        runTest {
-            val fixture =
-                systemFeatureFixture(
-                    currentVersion = "0.9.1",
-                    checkUpdatesOnStartupEnabled = true,
-                )
-            coEvery { fixture.appUpdateRepository.fetchLatestRelease() } throws IllegalStateException("network down")
+    init {
+        test("manual update check exposes error state when checker throws") {
+            runTest {
+                val fixture =
+                    systemFeatureFixture(
+                        currentVersion = "0.9.1",
+                        checkUpdatesOnStartupEnabled = true,
+                    )
+                coEvery { fixture.appUpdateRepository.fetchLatestRelease() } throws IllegalStateException("network down")
 
-            val feature =
-                SettingsSystemFeatureViewModel(
-                    scope = this,
-                    appConfigCoordinator = fixture.appConfigCoordinator,
-                    appUpdateChecker = fixture.appUpdateChecker,
-                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
-                )
+                val feature =
+                    SettingsSystemFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = fixture.appConfigCoordinator,
+                        appUpdateChecker = fixture.appUpdateChecker,
+                        getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    )
 
-            feature.checkForUpdatesManually()
-            advanceUntilIdle()
+                feature.checkForUpdatesManually()
+                advanceUntilIdle()
 
-            assertEquals(
-                SettingsManualUpdateState.Error("network down"),
-                feature.manualUpdateState.value,
-            )
+                (feature.manualUpdateState.value) shouldBe (SettingsManualUpdateState.Error("network down"))
+            }
         }
+    }
 
-    @Test
-    fun `debug latest release preview exposes a real release dialog even when normal version filtering would hide it`() =
-        runTest {
-            val fixture =
-                systemFeatureFixture(
-                    currentVersion = "1.0.0-DEBUG",
-                    checkUpdatesOnStartupEnabled = true,
-                )
-            coEvery { fixture.appUpdateRepository.fetchLatestRelease() } returns
-                LatestAppRelease(
-                    tagName = "v1.0.0",
-                    htmlUrl = "https://example.com/releases/1.0.0",
-                    body = "[FORCE_UPDATE]\npreview notes",
-                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
-                    apkFileName = "lomo-1.0.0.apk",
-                    apkSizeBytes = 8_192L,
-                )
+    init {
+        test("debug latest release preview exposes a real release dialog even when normal version filtering would hide it") {
+            runTest {
+                val fixture =
+                    systemFeatureFixture(
+                        currentVersion = "1.0.0-DEBUG",
+                        checkUpdatesOnStartupEnabled = true,
+                    )
+                coEvery { fixture.appUpdateRepository.fetchLatestRelease() } returns
+                    LatestAppRelease(
+                        tagName = "v1.0.0",
+                        htmlUrl = "https://example.com/releases/1.0.0",
+                        body = "[FORCE_UPDATE]\npreview notes",
+                        apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
+                        apkFileName = "lomo-1.0.0.apk",
+                        apkSizeBytes = 8_192L,
+                    )
 
-            val feature =
-                SettingsSystemFeatureViewModel(
-                    scope = this,
-                    appConfigCoordinator = fixture.appConfigCoordinator,
-                    appUpdateChecker = fixture.appUpdateChecker,
-                    getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
-                )
+                val feature =
+                    SettingsSystemFeatureViewModel(
+                        scope = this,
+                        appConfigCoordinator = fixture.appConfigCoordinator,
+                        appUpdateChecker = fixture.appUpdateChecker,
+                        getCurrentAppVersionUseCase = fixture.getCurrentAppVersionUseCase,
+                    )
 
-            feature.openDebugLatestReleasePreview()
-            advanceUntilIdle()
+                feature.openDebugLatestReleasePreview()
+                advanceUntilIdle()
 
-            assertEquals(
-                AppUpdateDialogState(
-                    url = "https://example.com/releases/1.0.0",
-                    version = "1.0.0",
-                    releaseNotes = "preview notes",
-                    apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
-                    apkFileName = "lomo-1.0.0.apk",
-                    apkSizeBytes = 8_192L,
-                ),
-                feature.debugPreviewDialogState.value,
-            )
+                (feature.debugPreviewDialogState.value) shouldBe (AppUpdateDialogState(
+                        url = "https://example.com/releases/1.0.0",
+                        version = "1.0.0",
+                        releaseNotes = "preview notes",
+                        apkDownloadUrl = "https://example.com/assets/lomo-1.0.0.apk",
+                        apkFileName = "lomo-1.0.0.apk",
+                        apkSizeBytes = 8_192L,
+                    ))
+            }
         }
+    }
 
     private data class SystemFeatureFixture(
         val appConfigCoordinator: SettingsAppConfigCoordinator,

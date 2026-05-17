@@ -1,9 +1,7 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,9 +13,9 @@ import org.junit.Test
  *   request independently and has no latest-wins cancellation policy.
  * - Excludes: coroutine scheduler timing, Compose pointer input, and LazyListState internals.
  */
-class DraggableScrollbarScrollRequestDispatcherTest {
-    @Test
-    fun `dispatch cancels the previous in-flight request before launching the latest target`() {
+class DraggableScrollbarScrollRequestDispatcherTest : UiComponentsFunSpec() {
+    init {
+        test("dispatch cancels the previous in-flight request before launching the latest target") {
         val launchedRequests = mutableListOf<RecordingScrollRequest>()
         val dispatcher =
             LazyListScrollRequestDispatcher { target ->
@@ -27,19 +25,17 @@ class DraggableScrollbarScrollRequestDispatcherTest {
         dispatcher.dispatch(LazyListScrollTarget(index = 10, scrollOffsetPx = 0))
         dispatcher.dispatch(LazyListScrollTarget(index = 40, scrollOffsetPx = 12))
 
-        assertEquals(
-            listOf(
+        (launchedRequests.map { it.target }) shouldBe (listOf(
                 LazyListScrollTarget(index = 10, scrollOffsetPx = 0),
                 LazyListScrollTarget(index = 40, scrollOffsetPx = 12),
-            ),
-            launchedRequests.map { it.target },
-        )
-        assertTrue(launchedRequests.first().isCancelled)
-        assertFalse(launchedRequests.last().isCancelled)
+            ))
+        (launchedRequests.first().isCancelled) shouldBe true
+        (launchedRequests.last().isCancelled) shouldBe false
+        }
     }
 
-    @Test
-    fun `cancel active request only cancels the newest launched target`() {
+    init {
+        test("cancel active request only cancels the newest launched target") {
         val launchedRequests = mutableListOf<RecordingScrollRequest>()
         val dispatcher =
             LazyListScrollRequestDispatcher { target ->
@@ -50,8 +46,9 @@ class DraggableScrollbarScrollRequestDispatcherTest {
         dispatcher.dispatch(LazyListScrollTarget(index = 6, scrollOffsetPx = 80))
         dispatcher.cancelActiveRequest()
 
-        assertTrue(launchedRequests[0].isCancelled)
-        assertTrue(launchedRequests[1].isCancelled)
+        (launchedRequests[0].isCancelled) shouldBe true
+        (launchedRequests[1].isCancelled) shouldBe true
+        }
     }
 
     private class RecordingScrollRequest(

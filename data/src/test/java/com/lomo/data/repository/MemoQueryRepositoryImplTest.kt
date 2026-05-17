@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.DefaultMainListDao
 import com.lomo.data.local.dao.MemoBrowseDao
 import com.lomo.data.local.dao.MemoDao
@@ -16,11 +17,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.time.LocalDate
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -31,7 +32,28 @@ import java.time.LocalDate
  *   jumpingSupported flag, so placeholder-backed direct Jump requests cannot use Paging jump loading.
  * - Excludes: Room SQL behavior, entity recovery internals, and mutation workflow side effects.
  */
-class MemoQueryRepositoryImplTest {
+class MemoQueryRepositoryImplTest : DataFunSpec() {
+    init {
+        test("getMemosPage returns empty list and skips dao for invalid limit or offset") { `getMemosPage returns empty list and skips dao for invalid limit or offset`() }
+
+        test("getRecentMemos and getMemosPage merge pinned ids into domain output") { `getRecentMemos and getMemosPage merge pinned ids into domain output`() }
+
+        test("getAllMemosList combines memo flow with pinned flow") { `getAllMemosList combines memo flow with pinned flow`() }
+
+        test("getMemosByDateRange and getGalleryMemosList merge pinned ids into domain output") { `getMemosByDateRange and getGalleryMemosList merge pinned ids into domain output`() }
+
+        test("getMemoById returns null when dao misses and skips pinned lookup") { `getMemoById returns null when dao misses and skips pinned lookup`() }
+
+        test("getMemoById returns mapped domain memo with pinned state when found") { `getMemoById returns mapped domain memo with pinned state when found`() }
+
+        test("getMemoCount delegates to dao and isSyncing exposes synchronizer flow") { `getMemoCount delegates to dao and isSyncing exposes synchronizer flow`() }
+
+        test("getMainListPagingSource keeps source refresh key for offset paging") { `getMainListPagingSource keeps source refresh key for offset paging`() }
+
+        test("getMainListPagingSource preserves source jumping support for direct offscreen focus") { `getMainListPagingSource preserves source jumping support for direct offscreen focus`() }
+    }
+
+
     private val memoDao: MemoDao = mockk()
     private val memoBrowseDao: MemoBrowseDao = mockk()
     private val defaultMainListDao: DefaultMainListDao = mockk()
@@ -47,20 +69,18 @@ class MemoQueryRepositoryImplTest {
             synchronizer = synchronizer,
         )
 
-    @Test
-    fun `getMemosPage returns empty list and skips dao for invalid limit or offset`() =
+    private fun `getMemosPage returns empty list and skips dao for invalid limit or offset`() =
         runTest {
             val byInvalidLimit = repository.getMemosPage(limit = 0, offset = 0)
             val byInvalidOffset = repository.getMemosPage(limit = 10, offset = -1)
 
-            assertTrue(byInvalidLimit.isEmpty())
-            assertTrue(byInvalidOffset.isEmpty())
+            (byInvalidLimit.isEmpty()).shouldBeTrue()
+            (byInvalidOffset.isEmpty()).shouldBeTrue()
             coVerify(exactly = 0) { defaultMainListDao.getPage(any(), any()) }
             coVerify(exactly = 0) { memoPinDao.getPinnedMemoIds() }
         }
 
-    @Test
-    fun `getRecentMemos and getMemosPage merge pinned ids into domain output`() =
+    private fun `getRecentMemos and getMemosPage merge pinned ids into domain output`() =
         runTest {
             val recentEntities =
                 listOf(
@@ -79,14 +99,13 @@ class MemoQueryRepositoryImplTest {
             val recent = repository.getRecentMemos(limit = 2)
             val page = repository.getMemosPage(limit = 2, offset = 1)
 
-            assertEquals(listOf("memo-3", "memo-2"), recent.map { it.id })
-            assertEquals(listOf(false, true), recent.map { it.isPinned })
-            assertEquals(listOf("memo-2", "memo-1"), page.map { it.id })
-            assertEquals(listOf(true, false), page.map { it.isPinned })
+            recent.map { it.id } shouldBe listOf("memo-3", "memo-2")
+            recent.map { it.isPinned } shouldBe listOf(false, true)
+            page.map { it.id } shouldBe listOf("memo-2", "memo-1")
+            page.map { it.isPinned } shouldBe listOf(true, false)
         }
 
-    @Test
-    fun `getAllMemosList combines memo flow with pinned flow`() =
+    private fun `getAllMemosList combines memo flow with pinned flow`() =
         runTest {
             val entities =
                 listOf(
@@ -98,12 +117,11 @@ class MemoQueryRepositoryImplTest {
 
             val all = repository.getAllMemosList().first()
 
-            assertEquals(listOf("memo-a", "memo-b"), all.map { it.id })
-            assertEquals(listOf(false, true), all.map { it.isPinned })
+            all.map { it.id } shouldBe listOf("memo-a", "memo-b")
+            all.map { it.isPinned } shouldBe listOf(false, true)
         }
 
-    @Test
-    fun `getMemosByDateRange and getGalleryMemosList merge pinned ids into domain output`() =
+    private fun `getMemosByDateRange and getGalleryMemosList merge pinned ids into domain output`() =
         runTest {
             val rangeEntities =
                 listOf(
@@ -127,25 +145,23 @@ class MemoQueryRepositoryImplTest {
                     ).first()
             val gallery = repository.getGalleryMemosList().first()
 
-            assertEquals(listOf("memo-range-2", "memo-range-1"), range.map { it.id })
-            assertEquals(listOf(false, true), range.map { it.isPinned })
-            assertEquals(listOf("memo-gallery-2", "memo-gallery-1"), gallery.map { it.id })
-            assertEquals(listOf(true, false), gallery.map { it.isPinned })
+            range.map { it.id } shouldBe listOf("memo-range-2", "memo-range-1")
+            range.map { it.isPinned } shouldBe listOf(false, true)
+            gallery.map { it.id } shouldBe listOf("memo-gallery-2", "memo-gallery-1")
+            gallery.map { it.isPinned } shouldBe listOf(true, false)
         }
 
-    @Test
-    fun `getMemoById returns null when dao misses and skips pinned lookup`() =
+    private fun `getMemoById returns null when dao misses and skips pinned lookup`() =
         runTest {
             coEvery { memoDao.getMemo("missing") } returns null
 
             val memo = repository.getMemoById("missing")
 
-            assertNull(memo)
+            memo.shouldBeNull()
             coVerify(exactly = 0) { memoPinDao.getPinnedMemoIds() }
         }
 
-    @Test
-    fun `getMemoById returns mapped domain memo with pinned state when found`() =
+    private fun `getMemoById returns mapped domain memo with pinned state when found`() =
         runTest {
             coEvery { memoDao.getMemo("memo-1") } returns memoEntity(id = "memo-1", timestamp = 123L)
             coEvery { memoPinDao.getPinnedMemoIds() } returns listOf("memo-1")
@@ -153,26 +169,24 @@ class MemoQueryRepositoryImplTest {
             val memo = repository.getMemoById("memo-1")
 
             requireNotNull(memo)
-            assertEquals("memo-1", memo.id)
-            assertTrue(memo.isPinned)
+            memo.id shouldBe "memo-1"
+            (memo.isPinned).shouldBeTrue()
         }
 
-    @Test
-    fun `getMemoCount delegates to dao and isSyncing exposes synchronizer flow`() =
+    private fun `getMemoCount delegates to dao and isSyncing exposes synchronizer flow`() =
         runTest {
             val syncing = MutableStateFlow(false)
             coEvery { memoDao.getMemoCountSync() } returns 42
             every { synchronizer.isSyncing } returns syncing
 
-            assertEquals(42, repository.getMemoCount())
-            assertEquals(false, repository.isSyncing().first())
+            repository.getMemoCount() shouldBe 42
+            repository.isSyncing().first() shouldBe false
 
             syncing.value = true
-            assertEquals(true, repository.isSyncing().first())
+            repository.isSyncing().first() shouldBe true
         }
 
-    @Test
-    fun `getMainListPagingSource keeps source refresh key for offset paging`() =
+    private fun `getMainListPagingSource keeps source refresh key for offset paging`() =
         runTest {
             val source =
                 object : PagingSource<Int, DefaultMainListMemoRow>() {
@@ -207,11 +221,10 @@ class MemoQueryRepositoryImplTest {
                     ),
                 )
 
-            assertEquals(42, refreshKey)
+            refreshKey shouldBe 42
         }
 
-    @Test
-    fun `getMainListPagingSource preserves source jumping support for direct offscreen focus`() =
+    private fun `getMainListPagingSource preserves source jumping support for direct offscreen focus`() =
         runTest {
             val source =
                 object : PagingSource<Int, DefaultMainListMemoRow>() {
@@ -239,7 +252,7 @@ class MemoQueryRepositoryImplTest {
 
             val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
 
-            assertTrue(pagingSource.jumpingSupported)
+            (pagingSource.jumpingSupported).shouldBeTrue()
         }
 
     private fun memoEntity(

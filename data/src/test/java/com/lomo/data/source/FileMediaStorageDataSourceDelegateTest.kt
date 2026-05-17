@@ -1,5 +1,6 @@
 package com.lomo.data.source
 
+
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
@@ -10,12 +11,10 @@ import io.mockk.every
 import io.mockk.impl.annotations.MockK
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
-import org.junit.After
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.nio.file.Files
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -28,7 +27,28 @@ import java.nio.file.Files
  *   SafStorageBackend concrete types instead of using an explicit WorkspaceVfs resolution.
  * - Excludes: full SAF traversal, Android permission handling, and image listing/delete behavior.
  */
-class FileMediaStorageDataSourceDelegateTest {
+class FileMediaStorageDataSourceDelegateTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        afterTest {
+            tearDown()
+        }
+
+        test("saveImage copies bytes into direct workspace vfs without backend type checks") { `saveImage copies bytes into direct workspace vfs without backend type checks`() }
+
+        test("saveImage delegates saf workspace vfs to resolved backend") { `saveImage delegates saf workspace vfs to resolved backend`() }
+
+        test("listImageFiles uses resolved media root instead of legacy mediaBackend accessor") { `listImageFiles uses resolved media root instead of legacy mediaBackend accessor`() }
+
+        test("getImageLocation uses resolved media root instead of legacy mediaBackend accessor") { `getImageLocation uses resolved media root instead of legacy mediaBackend accessor`() }
+
+        test("deleteImage uses resolved media root instead of legacy mediaBackend accessor") { `deleteImage uses resolved media root instead of legacy mediaBackend accessor`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -46,8 +66,7 @@ class FileMediaStorageDataSourceDelegateTest {
 
     private lateinit var tempDir: java.nio.file.Path
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         tempDir = Files.createTempDirectory("file-media-storage-vfs")
         every { context.contentResolver } returns contentResolver
@@ -55,13 +74,11 @@ class FileMediaStorageDataSourceDelegateTest {
         every { contentResolver.openInputStream(sourceUri) } returns ByteArrayInputStream(PNG_HEADER)
     }
 
-    @After
-    fun tearDown() {
+    private fun tearDown() {
         tempDir.toFile().deleteRecursively()
     }
 
-    @Test
-    fun `saveImage copies bytes into direct workspace vfs without backend type checks`() =
+    private fun `saveImage copies bytes into direct workspace vfs without backend type checks`() =
         runTest {
             coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
                 ResolvedMediaRoot(
@@ -73,13 +90,12 @@ class FileMediaStorageDataSourceDelegateTest {
 
             val filename = delegate.saveImage(sourceUri)
 
-            assertTrue(filename.endsWith(".png"))
-            assertTrue(tempDir.resolve(filename).toFile().exists())
+            (filename.endsWith(".png")).shouldBeTrue()
+            (tempDir.resolve(filename).toFile().exists()).shouldBeTrue()
             coVerify(exactly = 0) { backend.saveImage(any(), any()) }
         }
 
-    @Test
-    fun `saveImage delegates saf workspace vfs to resolved backend`() =
+    private fun `saveImage delegates saf workspace vfs to resolved backend`() =
         runTest {
             val rootUri = mockk<Uri>(relaxed = true)
             coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
@@ -92,12 +108,11 @@ class FileMediaStorageDataSourceDelegateTest {
 
             val filename = delegate.saveImage(sourceUri)
 
-            assertTrue(filename.endsWith(".png"))
+            (filename.endsWith(".png")).shouldBeTrue()
             coVerify(exactly = 1) { backend.saveImage(sourceUri, filename) }
         }
 
-    @Test
-    fun `listImageFiles uses resolved media root instead of legacy mediaBackend accessor`() =
+    private fun `listImageFiles uses resolved media root instead of legacy mediaBackend accessor`() =
         runTest {
             coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
                 ResolvedMediaRoot(
@@ -110,11 +125,10 @@ class FileMediaStorageDataSourceDelegateTest {
 
             val files = delegate.listImageFiles()
 
-            assertTrue(files == listOf("cover.jpg" to "file:///images/cover.jpg"))
+            (files == listOf("cover.jpg" to "file:///images/cover.jpg")).shouldBeTrue()
         }
 
-    @Test
-    fun `getImageLocation uses resolved media root instead of legacy mediaBackend accessor`() =
+    private fun `getImageLocation uses resolved media root instead of legacy mediaBackend accessor`() =
         runTest {
             coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
                 ResolvedMediaRoot(
@@ -127,11 +141,10 @@ class FileMediaStorageDataSourceDelegateTest {
 
             val location = delegate.getImageLocation("cover.jpg")
 
-            assertTrue(location == "file:///images/cover.jpg")
+            (location == "file:///images/cover.jpg").shouldBeTrue()
         }
 
-    @Test
-    fun `deleteImage uses resolved media root instead of legacy mediaBackend accessor`() =
+    private fun `deleteImage uses resolved media root instead of legacy mediaBackend accessor`() =
         runTest {
             coEvery { backendResolver.resolvedMediaRoot(StorageRootType.IMAGE) } returns
                 ResolvedMediaRoot(

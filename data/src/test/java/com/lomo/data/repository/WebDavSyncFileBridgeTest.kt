@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
@@ -14,11 +15,12 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.ConcurrentHashMap
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -28,9 +30,19 @@ import java.util.concurrent.ConcurrentHashMap
  * - Red phase: Fails before the fix because (1) each repeated call recomputes md5 from storage and reissues the same per-folder PROPFIND requests, and (2) distinctFolders are listed sequentially, so total elapsed time grows linearly with folder count.
  * - Excludes: planner decisions, metadata persistence, transport protocol correctness, and cache expiry timing beyond same-turn reuse.
  */
-class WebDavSyncFileBridgeTest {
-    @Test
-    fun `localFiles reuses cached fingerprints for unchanged memo and media metadata`() =
+class WebDavSyncFileBridgeTest : DataFunSpec() {
+    init {
+        test("localFiles reuses cached fingerprints for unchanged memo and media metadata") { `localFiles reuses cached fingerprints for unchanged memo and media metadata`() }
+
+        test("localFiles computes media fingerprint without loading whole media bytes") { `localFiles computes media fingerprint without loading whole media bytes`() }
+
+        test("remoteFiles reuses short lived folder listings") { `remoteFiles reuses short lived folder listings`() }
+
+        test("remoteFiles lists distinct folders concurrently") { `remoteFiles lists distinct folders concurrently`() }
+    }
+
+
+    private fun `localFiles reuses cached fingerprints for unchanged memo and media metadata`() =
         runTest {
             val markdownStorageDataSource: MarkdownStorageDataSource = mockk(relaxed = true)
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
@@ -47,14 +59,13 @@ class WebDavSyncFileBridgeTest {
             val first = bridge.localFiles(layout)
             val second = bridge.localFiles(layout)
 
-            assertEquals(first, second)
+            second shouldBe first
             coVerify(exactly = 1) { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") }
             coVerify(exactly = 1) { localMediaSyncStore.md5Hex("lomo/images/pic.png", layout) }
             coVerify(exactly = 0) { localMediaSyncStore.readBytes("lomo/images/pic.png", layout) }
         }
 
-    @Test
-    fun `localFiles computes media fingerprint without loading whole media bytes`() =
+    private fun `localFiles computes media fingerprint without loading whole media bytes`() =
         runTest {
             val markdownStorageDataSource: MarkdownStorageDataSource = mockk(relaxed = true)
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
@@ -68,13 +79,12 @@ class WebDavSyncFileBridgeTest {
 
             val files = bridge.localFiles(layout)
 
-            assertEquals("010203", files.getValue("lomo/images/pic.png").localFingerprint)
+            files.getValue("lomo/images/pic.png").localFingerprint shouldBe "010203"
             coVerify(exactly = 1) { localMediaSyncStore.md5Hex("lomo/images/pic.png", layout) }
             coVerify(exactly = 0) { localMediaSyncStore.readBytes("lomo/images/pic.png", layout) }
         }
 
-    @Test
-    fun `remoteFiles reuses short lived folder listings`() =
+    private fun `remoteFiles reuses short lived folder listings`() =
         runBlocking {
             val client =
                 object : WebDavClient {
@@ -131,12 +141,11 @@ class WebDavSyncFileBridgeTest {
             val first = bridge.remoteFiles(client, layout)
             val second = bridge.remoteFiles(client, layout)
 
-            assertEquals(first, second)
-            assertEquals(mapOf("lomo/memos" to 1, "lomo/images" to 1, "lomo/voice" to 1), client.calls)
+            second shouldBe first
+            client.calls shouldBe mapOf("lomo/memos" to 1, "lomo/images" to 1, "lomo/voice" to 1)
         }
 
-    @Test
-    fun `remoteFiles lists distinct folders concurrently`() =
+    private fun `remoteFiles lists distinct folders concurrently`() =
         runBlocking {
             val callCount = AtomicInteger()
             val client =
@@ -186,11 +195,8 @@ class WebDavSyncFileBridgeTest {
             bridge.remoteFiles(client, layout)
             val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
 
-            assertEquals(3, callCount.get())
-            assertTrue(
-                "expected concurrent listings (elapsed=${elapsedMs}ms, threshold=${PARALLEL_LIST_ELAPSED_LIMIT_MS}ms)",
-                elapsedMs < PARALLEL_LIST_ELAPSED_LIMIT_MS,
-            )
+            callCount.get() shouldBe 3
+            withClue("expected concurrent listings (elapsed=${elapsedMs}ms, threshold=${PARALLEL_LIST_ELAPSED_LIMIT_MS}ms)") { (elapsedMs < PARALLEL_LIST_ELAPSED_LIMIT_MS).shouldBeTrue() }
         }
 
     private fun mockRuntime(

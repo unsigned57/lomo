@@ -1,9 +1,8 @@
 package com.lomo.app.util
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,106 +13,95 @@ import org.junit.Test
  * - Test Change Justification: reason category = pure refactor preserved behavior; removed the obsolete activeDayCountText constructor argument after recorded-days footer content was deleted. Coverage is preserved by keeping the same centered-body and text-size assertions. This is not fitting the test to the implementation because the assertions remain identical and only the input shape changed.
  * - Excludes: bitmap drawing, text paint construction, and Android typography/resource lookups.
  */
-class ShareCardBitmapRendererTextTest {
-    @Test
-    fun `shouldUseCenteredBody returns true for short headerless paragraph only body`() {
-        val input =
-            ShareCardRenderInput(
-                displayTags = emptyList(),
-                title = null,
-                safeText = "Short reflective note",
-                imagePlaceholder = "[Image]",
-                createdAtText = "2026-03-25 12:00",
-                textLengthWithoutMarkers = 21,
-                hasImages = false,
-            )
-        val bodyLines =
-            listOf(
-                ShareBodyLine("Short reflective note", ShareBodyLineType.Paragraph),
-                ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
-                ShareBodyLine("Second line", ShareBodyLineType.Paragraph),
-            )
+class ShareCardBitmapRendererTextTest : AppFunSpec() {
+    init {
+        test("shouldUseCenteredBody returns true for short headerless paragraph only body") {
+            val input =
+                ShareCardRenderInput(
+                    displayTags = emptyList(),
+                    title = null,
+                    safeText = "Short reflective note",
+                    imagePlaceholder = "[Image]",
+                    createdAtText = "2026-03-25 12:00",
+                    textLengthWithoutMarkers = 21,
+                    hasImages = false,
+                )
+            val bodyLines =
+                listOf(
+                    ShareBodyLine("Short reflective note", ShareBodyLineType.Paragraph),
+                    ShareBodyLine(BLANK_LAYOUT_TEXT, ShareBodyLineType.Blank),
+                    ShareBodyLine("Second line", ShareBodyLineType.Paragraph),
+                )
 
-        assertTrue(shouldUseCenteredBody(input, bodyLines))
+            ((shouldUseCenteredBody(input, bodyLines))) shouldBe true
+        }
     }
 
-    @Test
-    fun `shouldUseCenteredBody rejects headers images long bodies and non paragraph lines`() {
-        val baseInput =
-            ShareCardRenderInput(
-                displayTags = emptyList(),
-                title = null,
-                safeText = "Centered candidate",
-                imagePlaceholder = "[Image]",
-                createdAtText = "2026-03-25 12:00",
-                textLengthWithoutMarkers = 18,
-                hasImages = false,
-            )
-        val paragraphLines = listOf(ShareBodyLine("Centered candidate", ShareBodyLineType.Paragraph))
+    init {
+        test("shouldUseCenteredBody rejects headers images long bodies and non paragraph lines") {
+            val baseInput =
+                ShareCardRenderInput(
+                    displayTags = emptyList(),
+                    title = null,
+                    safeText = "Centered candidate",
+                    imagePlaceholder = "[Image]",
+                    createdAtText = "2026-03-25 12:00",
+                    textLengthWithoutMarkers = 18,
+                    hasImages = false,
+                )
+            val paragraphLines = listOf(ShareBodyLine("Centered candidate", ShareBodyLineType.Paragraph))
 
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput.copy(displayTags = listOf("tag")),
-                paragraphLines,
-            ),
-        )
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput.copy(title = "Title"),
-                paragraphLines,
-            ),
-        )
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput.copy(hasImages = true),
-                paragraphLines,
-            ),
-        )
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput.copy(textLengthWithoutMarkers = SHORT_BODY_CENTER_THRESHOLD + 1),
-                paragraphLines,
-            ),
-        )
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput,
-                listOf(ShareBodyLine("• bullet", ShareBodyLineType.Bullet)),
-            ),
-        )
-        assertFalse(
-            shouldUseCenteredBody(
-                baseInput,
-                List(SHORT_BODY_MAX_NON_BLANK_LINES + 1) { index ->
-                    ShareBodyLine("line $index", ShareBodyLineType.Paragraph)
-                },
-            ),
-        )
+            ((shouldUseCenteredBody(
+                    baseInput.copy(displayTags = listOf("tag")),
+                    paragraphLines,
+                ))) shouldBe false
+            ((shouldUseCenteredBody(
+                    baseInput.copy(title = "Title"),
+                    paragraphLines,
+                ))) shouldBe false
+            ((shouldUseCenteredBody(
+                    baseInput.copy(hasImages = true),
+                    paragraphLines,
+                ))) shouldBe false
+            ((shouldUseCenteredBody(
+                    baseInput.copy(textLengthWithoutMarkers = SHORT_BODY_CENTER_THRESHOLD + 1),
+                    paragraphLines,
+                ))) shouldBe false
+            ((shouldUseCenteredBody(
+                    baseInput,
+                    listOf(ShareBodyLine("• bullet", ShareBodyLineType.Bullet)),
+                ))) shouldBe false
+            ((shouldUseCenteredBody(
+                    baseInput,
+                    List(SHORT_BODY_MAX_NON_BLANK_LINES + 1) { index ->
+                        ShareBodyLine("line $index", ShareBodyLineType.Paragraph)
+                    },
+                ))) shouldBe false
+        }
     }
 
-    @Test
-    fun `bodyTextSizeSp scales down only at configured thresholds`() {
-        assertEquals(BODY_TEXT_SIZE_SHORT_SP, bodyTextSizeSp(BODY_TEXT_SIZE_SHORT_THRESHOLD), 0.0f)
-        assertEquals(
-            BODY_TEXT_SIZE_MEDIUM_SP,
-            bodyTextSizeSp(BODY_TEXT_SIZE_SHORT_THRESHOLD + 1),
-            0.0f,
-        )
-        assertEquals(BODY_TEXT_SIZE_LONG_SP, bodyTextSizeSp(BODY_TEXT_SIZE_MEDIUM_THRESHOLD + 1), 0.0f)
-        assertEquals(BODY_TEXT_SIZE_DEFAULT_SP, bodyTextSizeSp(BODY_TEXT_SIZE_LONG_THRESHOLD + 1), 0.0f)
+    init {
+        test("bodyTextSizeSp scales down only at configured thresholds") {
+            (bodyTextSizeSp(BODY_TEXT_SIZE_SHORT_THRESHOLD)) shouldBe ((BODY_TEXT_SIZE_SHORT_SP) plusOrMinus 0.0f)
+            (bodyTextSizeSp(BODY_TEXT_SIZE_SHORT_THRESHOLD + 1)) shouldBe ((BODY_TEXT_SIZE_MEDIUM_SP) plusOrMinus 0.0f)
+            (bodyTextSizeSp(BODY_TEXT_SIZE_MEDIUM_THRESHOLD + 1)) shouldBe ((BODY_TEXT_SIZE_LONG_SP) plusOrMinus 0.0f)
+            (bodyTextSizeSp(BODY_TEXT_SIZE_LONG_THRESHOLD + 1)) shouldBe ((BODY_TEXT_SIZE_DEFAULT_SP) plusOrMinus 0.0f)
+        }
     }
 
-    @Test
-    fun `quote layout reserves rounded indicator bar and text inset`() {
-        val spec = shareCardLayoutSpecForTest(contentWidth = 320)
+    init {
+        test("quote layout reserves rounded indicator bar and text inset") {
+            val spec = shareCardLayoutSpecForTest(contentWidth = 320)
 
-        val style = resolveShareCardQuoteLayoutStyle(spec)
+            val style = resolveShareCardQuoteLayoutStyle(spec)
 
-        assertEquals(4f, style.indicatorWidth, 0.0f)
-        assertEquals(2f, style.indicatorCornerRadius, 0.0f)
-        assertEquals(12f, style.textStartOffset, 0.0f)
-        assertEquals(308, style.textWidth)
+            (style.indicatorWidth) shouldBe ((4f) plusOrMinus 0.0f)
+            (style.indicatorCornerRadius) shouldBe ((2f) plusOrMinus 0.0f)
+            (style.textStartOffset) shouldBe ((12f) plusOrMinus 0.0f)
+            (style.textWidth) shouldBe (308)
+        }
     }
+
 }
 
 private fun shareCardLayoutSpecForTest(contentWidth: Int): ShareCardLayoutSpec =

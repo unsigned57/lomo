@@ -1,8 +1,8 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.ui.component.input.InputEditorDisplayMode
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -17,22 +17,24 @@ import org.junit.Test
  *   instead of cleanly resetting to compact edit.
  * - Excludes: Compose sheet rendering, IME activation timing, and markdown preview rendering.
  */
-class MemoEditorDisplayModeInterruptionPolicyTest {
-    @Test
-    fun `preview return followed by collapse keeps a single focus request`() {
-        val controller = MemoEditorController()
+class MemoEditorDisplayModeInterruptionPolicyTest : AppFunSpec() {
+    init {
+        test("preview return followed by collapse keeps a single focus request") {
+            val controller = MemoEditorController()
 
-        controller.openForCreate("draft")
-        controller.setExpanded(true)
-        controller.updateDisplayMode(InputEditorDisplayMode.Preview)
+            controller.openForCreate("draft")
+            controller.setExpanded(true)
+            controller.updateDisplayMode(InputEditorDisplayMode.Preview)
 
-        val previewToken = controller.focusRequestToken
+            val previewToken = controller.focusRequestToken
 
-        controller.updateDisplayMode(InputEditorDisplayMode.Edit)
-        controller.setExpanded(false)
+            controller.updateDisplayMode(InputEditorDisplayMode.Edit)
+            controller.setExpanded(false)
 
-        assertEquals(InputEditorDisplayMode.Edit, controller.displayMode)
-        assertEquals(MemoEditorMode.Compact, controller.mode)
-        assertEquals(previewToken + 1L, controller.focusRequestToken)
+            (controller.displayMode) shouldBe (InputEditorDisplayMode.Edit)
+            (controller.mode) shouldBe (MemoEditorMode.Compact)
+            (controller.focusRequestToken) shouldBe (previewToken + 1L)
+        }
     }
+
 }

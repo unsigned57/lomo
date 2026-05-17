@@ -1,7 +1,7 @@
 package com.lomo.app.feature.memo
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -11,18 +11,20 @@ import org.junit.Test
  * - Red phase: Fails before the fix because expand() and collapse() both bump focusRequestToken, which re-triggers InputSheet focus effects and causes the keyboard layout to flicker during long-form transitions.
  * - Excludes: Compose rendering, Android IME OEM behavior, and memo submission flow.
  */
-class MemoEditorFocusStabilityTest {
-    @Test
-    fun `expanding and collapsing current session keeps the existing focus request token`() {
-        val controller = MemoEditorController()
+class MemoEditorFocusStabilityTest : AppFunSpec() {
+    init {
+        test("expanding and collapsing current session keeps the existing focus request token") {
+            val controller = MemoEditorController()
 
-        controller.openForCreate("draft")
-        val initialFocusRequestToken = controller.focusRequestToken
+            controller.openForCreate("draft")
+            val initialFocusRequestToken = controller.focusRequestToken
 
-        controller.setExpanded(true)
-        assertEquals(initialFocusRequestToken, controller.focusRequestToken)
+            controller.setExpanded(true)
+            (controller.focusRequestToken) shouldBe (initialFocusRequestToken)
 
-        controller.setExpanded(false)
-        assertEquals(initialFocusRequestToken, controller.focusRequestToken)
+            controller.setExpanded(false)
+            (controller.focusRequestToken) shouldBe (initialFocusRequestToken)
+        }
     }
+
 }

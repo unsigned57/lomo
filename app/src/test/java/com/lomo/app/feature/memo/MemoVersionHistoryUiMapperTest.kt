@@ -1,13 +1,12 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.mockk
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertSame
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -17,69 +16,72 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the history sheet uses raw revision content directly, so relative image paths are never resolved for rendering.
  * - Excludes: Compose rendering, image decoding, and version-history coordinator state transitions.
  */
-class MemoVersionHistoryUiMapperTest {
+class MemoVersionHistoryUiMapperTest : AppFunSpec() {
     private val mapper = MemoVersionHistoryUiMapper()
 
-    @Test
-    fun `mapToUiModels resolves relative markdown image paths for history revisions`() {
-        val cachedUri = mockk<android.net.Uri>()
-        every { cachedUri.toString() } returns "content://images/foo%20bar.png"
-        val revisions =
-            listOf(
-                revision(
-                    revisionId = "r1",
-                    content = "![cover](assets/foo%20bar.png)",
-                ),
-            )
+    init {
+        test("mapToUiModels resolves relative markdown image paths for history revisions") {
+            val cachedUri = mockk<android.net.Uri>()
+            every { cachedUri.toString() } returns "content://images/foo%20bar.png"
+            val revisions =
+                listOf(
+                    revision(
+                        revisionId = "r1",
+                        content = "![cover](assets/foo%20bar.png)",
+                    ),
+                )
 
-        val models =
-            mapper.mapToUiModels(
-                revisions = revisions,
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap = mapOf("foo bar.png" to cachedUri),
-            )
+            val models =
+                mapper.mapToUiModels(
+                    revisions = revisions,
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap = mapOf("foo bar.png" to cachedUri),
+                )
 
-        assertEquals("![cover](content://images/foo%20bar.png)", models.single().processedContent)
+            (models.single().processedContent) shouldBe ("![cover](content://images/foo%20bar.png)")
+        }
     }
 
-    @Test
-    fun `mapToUiModels reuses unchanged cached models when a later page is appended`() {
-        val firstPage =
-            mapper.mapToUiModels(
-                revisions =
-                    listOf(
-                        revision(
-                            revisionId = "r1",
-                            content = "first",
+    init {
+        test("mapToUiModels reuses unchanged cached models when a later page is appended") {
+            val firstPage =
+                mapper.mapToUiModels(
+                    revisions =
+                        listOf(
+                            revision(
+                                revisionId = "r1",
+                                content = "first",
+                            ),
                         ),
-                    ),
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap = emptyMap(),
-            )
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap = emptyMap(),
+                )
 
-        val secondPage =
-            mapper.mapToUiModels(
-                revisions =
-                    listOf(
-                        revision(
-                            revisionId = "r1",
-                            content = "first",
+            val secondPage =
+                mapper.mapToUiModels(
+                    revisions =
+                        listOf(
+                            revision(
+                                revisionId = "r1",
+                                content = "first",
+                            ),
+                            revision(
+                                revisionId = "r2",
+                                content = "second",
+                            ),
                         ),
-                        revision(
-                            revisionId = "r2",
-                            content = "second",
-                        ),
-                    ),
-                rootPath = "/memo",
-                imagePath = null,
-                imageMap = emptyMap(),
-            )
+                    rootPath = "/memo",
+                    imagePath = null,
+                    imageMap = emptyMap(),
+                )
 
-        assertSame(firstPage.first(), secondPage.first())
-        assertEquals(listOf("first", "second"), secondPage.map(MemoVersionHistoryUiModel::processedContent))
+            ((secondPage.first()) === (firstPage.first())) shouldBe true
+            (secondPage.map(MemoVersionHistoryUiModel::processedContent)) shouldBe (listOf("first", "second"))
+        }
     }
+
 }
 
 private fun revision(

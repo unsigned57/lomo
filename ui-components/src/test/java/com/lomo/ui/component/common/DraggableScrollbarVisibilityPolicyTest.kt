@@ -1,9 +1,9 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
@@ -18,81 +18,77 @@ import org.junit.Test
  * - Excludes: AnimatedVisibility timing, color sourcing from the M3 color scheme, and width
  *   animation.
  */
-class DraggableScrollbarVisibilityPolicyTest {
-    @Test
-    fun `idle visual state when nothing is happening`() {
-        assertEquals(
-            ScrollbarThumbVisualState.Idle,
-            resolveScrollbarThumbVisualState(
+class DraggableScrollbarVisibilityPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("idle visual state when nothing is happening") {
+        (resolveScrollbarThumbVisualState(
                 isThumbDragged = false,
                 isScrollInProgress = false,
                 recentlyScrolled = false,
-            ),
-        )
+            )) shouldBe (ScrollbarThumbVisualState.Idle)
+        }
     }
 
-    @Test
-    fun `scroll in progress upgrades to active state`() {
-        assertEquals(
-            ScrollbarThumbVisualState.Active,
-            resolveScrollbarThumbVisualState(
+    init {
+        test("scroll in progress upgrades to active state") {
+        (resolveScrollbarThumbVisualState(
                 isThumbDragged = false,
                 isScrollInProgress = true,
                 recentlyScrolled = false,
-            ),
-        )
+            )) shouldBe (ScrollbarThumbVisualState.Active)
+        }
     }
 
-    @Test
-    fun `recently scrolled stays in active state during fade-out window`() {
-        assertEquals(
-            ScrollbarThumbVisualState.Active,
-            resolveScrollbarThumbVisualState(
+    init {
+        test("recently scrolled stays in active state during fade-out window") {
+        (resolveScrollbarThumbVisualState(
                 isThumbDragged = false,
                 isScrollInProgress = false,
                 recentlyScrolled = true,
-            ),
-        )
+            )) shouldBe (ScrollbarThumbVisualState.Active)
+        }
     }
 
-    @Test
-    fun `thumb dragged wins over scroll in progress`() {
-        assertEquals(
-            ScrollbarThumbVisualState.Drag,
-            resolveScrollbarThumbVisualState(
+    init {
+        test("thumb dragged wins over scroll in progress") {
+        (resolveScrollbarThumbVisualState(
                 isThumbDragged = true,
                 isScrollInProgress = true,
                 recentlyScrolled = true,
-            ),
-        )
+            )) shouldBe (ScrollbarThumbVisualState.Drag)
+        }
     }
 
-    @Test
-    fun `idle alpha is strictly lower than active alpha`() {
+    init {
+        test("idle alpha is strictly lower than active alpha") {
         val idle = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Idle)
         val active = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Active)
-        assertTrue("idle alpha must stay below active alpha", idle < active)
+        withClue("idle alpha must stay below active alpha") { (idle < active) shouldBe true }
+        }
     }
 
-    @Test
-    fun `drag alpha is highest`() {
+    init {
+        test("drag alpha is highest") {
         val active = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Active)
         val drag = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Drag)
-        assertTrue("drag alpha must rise above active alpha", drag > active)
+        withClue("drag alpha must rise above active alpha") { (drag > active) shouldBe true }
+        }
     }
 
-    @Test
-    fun `idle alpha stays positive so users can discover the scrollbar at rest`() {
-        assertTrue(resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Idle) > 0f)
+    init {
+        test("idle alpha stays positive so users can discover the scrollbar at rest") {
+        (resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Idle) > 0f) shouldBe true
+        }
     }
 
-    @Test
-    fun `each visual state maps to a distinct alpha`() {
+    init {
+        test("each visual state maps to a distinct alpha") {
         val idle = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Idle)
         val active = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Active)
         val drag = resolveScrollbarThumbAlpha(ScrollbarThumbVisualState.Drag)
-        assertNotEquals(idle, active)
-        assertNotEquals(active, drag)
-        assertNotEquals(idle, drag)
+        (idle) shouldNotBe (active)
+        (active) shouldNotBe (drag)
+        (idle) shouldNotBe (drag)
+        }
     }
 }

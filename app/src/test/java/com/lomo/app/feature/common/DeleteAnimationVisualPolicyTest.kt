@@ -1,14 +1,14 @@
 package com.lomo.app.feature.common
 
-import org.junit.Assert.assertNotNull
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldNotBe
 
 /*
  * Test Contract:
  * - Unit under test: DeleteAnimationVisualPolicy
  * - Behavior focus: the policy object exists as a marker type for future animation configuration.
  * - Observable outcomes: policy object is non-null.
- * - Red phase: Not applicable - test-only coverage lock-in; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Compose rendering, animation frame timing.
  */
 /*
@@ -23,11 +23,13 @@ import org.junit.Test
  * - Why this is not fitting the test to the implementation: the policy simplification is a direct
  *   consequence of the animation engine change, not a test convenience.
  */
-class DeleteAnimationVisualPolicyTest {
-    @Test
-    fun `policy object exists`() {
-        val policy = resolveDeleteAnimationVisualPolicy()
+class DeleteAnimationVisualPolicyTest : AppFunSpec() {
+    init {
+        test("policy object exists") {
+            val policy = resolveDeleteAnimationVisualPolicy()
 
-        assertNotNull(policy)
+            (policy) shouldNotBe null
+        }
     }
+
 }

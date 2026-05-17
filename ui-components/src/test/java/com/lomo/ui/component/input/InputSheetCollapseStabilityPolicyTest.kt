@@ -1,9 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,9 +13,9 @@ import org.junit.Test
  *   drops the mode bar and preview semantics instead of preserving them through the collapse transition.
  * - Excludes: Compose frame pacing, IME physics, and markdown rendering internals.
  */
-class InputSheetCollapseStabilityPolicyTest {
-    @Test
-    fun `expanded edit collapse keeps display mode bar visible during collapse`() {
+class InputSheetCollapseStabilityPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("expanded edit collapse keeps display mode bar visible during collapse") {
         val requested =
             resolveRequestedInputSheetPresentationState(
                 targetExpanded = false,
@@ -25,15 +23,16 @@ class InputSheetCollapseStabilityPolicyTest {
                 currentState = InputSheetPresentationState.ExpandedEdit,
             )
 
-        assertEquals(InputSheetPresentationState.CollapsingFromEdit, requested)
-        assertTrue(requested.showsDisplayModeToggle())
-        assertTrue(requested.showsEditorContent())
-        assertFalse(requested.showsPreviewLayer())
-        assertTrue(requested.prefersEditorFocus())
+        (requested) shouldBe (InputSheetPresentationState.CollapsingFromEdit)
+        (requested.showsDisplayModeToggle()) shouldBe true
+        (requested.showsEditorContent()) shouldBe true
+        (requested.showsPreviewLayer()) shouldBe false
+        (requested.prefersEditorFocus()) shouldBe true
+        }
     }
 
-    @Test
-    fun `expanded preview collapse keeps preview layer until compact state settles`() {
+    init {
+        test("expanded preview collapse keeps preview layer until compact state settles") {
         val requested =
             resolveRequestedInputSheetPresentationState(
                 targetExpanded = false,
@@ -41,15 +40,16 @@ class InputSheetCollapseStabilityPolicyTest {
                 currentState = InputSheetPresentationState.ExpandedPreview,
             )
 
-        assertEquals(InputSheetPresentationState.CollapsingFromPreview, requested)
-        assertTrue(requested.showsDisplayModeToggle())
-        assertFalse(requested.showsEditorContent())
-        assertTrue(requested.showsPreviewLayer())
-        assertFalse(requested.prefersEditorFocus())
+        (requested) shouldBe (InputSheetPresentationState.CollapsingFromPreview)
+        (requested.showsDisplayModeToggle()) shouldBe true
+        (requested.showsEditorContent()) shouldBe false
+        (requested.showsPreviewLayer()) shouldBe true
+        (requested.prefersEditorFocus()) shouldBe false
+        }
     }
 
-    @Test
-    fun `switching back to edit still collapses through preview-stable path`() {
+    init {
+        test("switching back to edit still collapses through preview-stable path") {
         val requested =
             resolveRequestedInputSheetPresentationState(
                 targetExpanded = false,
@@ -57,9 +57,10 @@ class InputSheetCollapseStabilityPolicyTest {
                 currentState = InputSheetPresentationState.SwitchingToEdit,
             )
 
-        assertEquals(InputSheetPresentationState.CollapsingFromPreview, requested)
-        assertTrue(requested.showsDisplayModeToggle())
-        assertTrue(requested.showsPreviewLayer())
-        assertFalse(requested.prefersEditorFocus())
+        (requested) shouldBe (InputSheetPresentationState.CollapsingFromPreview)
+        (requested.showsDisplayModeToggle()) shouldBe true
+        (requested.showsPreviewLayer()) shouldBe true
+        (requested.prefersEditorFocus()) shouldBe false
+        }
     }
 }

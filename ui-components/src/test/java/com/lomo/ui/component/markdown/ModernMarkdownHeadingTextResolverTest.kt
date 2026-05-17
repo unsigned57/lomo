@@ -1,13 +1,11 @@
 package com.lomo.ui.component.markdown
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
 import com.lomo.ui.theme.TypographyScales
 import org.intellij.markdown.MarkdownElementTypes
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -17,11 +15,11 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the modern heading renderer delegates the full heading node to the annotator, which can leave memo-card headings visually blank even though the block itself is present.
  * - Excludes: Compose tree rendering, Android TextView internals, and third-party markdown parser implementation details beyond the exposed AST shape.
  */
-class ModernMarkdownHeadingTextResolverTest {
+class ModernMarkdownHeadingTextResolverTest : UiComponentsFunSpec() {
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `atx heading produces visible text without heading markers`() {
+    init {
+        test("atx heading produces visible text without heading markers") {
         val content = "# 一级标题"
         val root = parseModernMarkdownDocument(content)
         val headingNode = root.children.first { it.type == MarkdownElementTypes.ATX_1 }
@@ -39,13 +37,14 @@ class ModernMarkdownHeadingTextResolverTest {
                     ),
             )
 
-        assertEquals("一级标题", resolved.text.trim())
-        assertFalse(resolved.text.contains("#"))
-        assertTrue(resolved.text.isNotBlank())
+        (resolved.text.trim()) shouldBe ("一级标题")
+        (resolved.text.contains("#")) shouldBe false
+        (resolved.text.isNotBlank()) shouldBe true
+        }
     }
 
-    @Test
-    fun `setext heading keeps inline text and strips underline syntax`() {
+    init {
+        test("setext heading keeps inline text and strips underline syntax") {
         val content =
             """
             **粗体** 标题
@@ -67,8 +66,9 @@ class ModernMarkdownHeadingTextResolverTest {
                     ),
             )
 
-        assertTrue(resolved.text.contains("粗体"))
-        assertTrue(resolved.text.contains("标题"))
-        assertFalse(resolved.text.contains("="))
+        (resolved.text.contains("粗体")) shouldBe true
+        (resolved.text.contains("标题")) shouldBe true
+        (resolved.text.contains("=")) shouldBe false
+        }
     }
 }

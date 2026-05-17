@@ -6,6 +6,8 @@ import com.lomo.app.feature.common.UiState
 import com.lomo.app.feature.main.MemoUiMapper
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.StorageArea
@@ -19,24 +21,19 @@ import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
+import java.time.LocalDate
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
-import java.time.LocalDate
 
 /*
  * Test Contract:
@@ -47,8 +44,12 @@ import java.time.LocalDate
  * - Excludes: Compose pager animation, DataStore persistence internals, and memo-card rendering.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class DailyReviewViewModelSessionTest {
+class DailyReviewViewModelSessionTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
+
+    init {
+        extension(MainDispatcherExtension(testDispatcher))
+    }
 
     private lateinit var memoRepository: MemoRepository
     private lateinit var appConfigRepository: AppConfigRepository
@@ -59,111 +60,116 @@ class DailyReviewViewModelSessionTest {
     private lateinit var dailyReviewQueryUseCase: DailyReviewQueryUseCase
     private lateinit var dailyReviewSessionUseCase: DailyReviewSessionUseCase
 
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(testDispatcher)
+    init {
+        beforeTest {
+memoRepository = mockk(relaxed = true)
+            appConfigRepository = mockk(relaxed = true)
+            imageMapProvider = emptyImageMapProvider()
+            deleteMemoUseCase = mockk(relaxed = true)
+            updateMemoContentUseCase = mockk(relaxed = true)
+            saveImageUseCase = mockk(relaxed = true)
+            dailyReviewQueryUseCase = mockk(relaxed = true)
+            dailyReviewSessionUseCase = mockk(relaxed = true)
 
-        memoRepository = mockk(relaxed = true)
-        appConfigRepository = mockk(relaxed = true)
-        imageMapProvider = emptyImageMapProvider()
-        deleteMemoUseCase = mockk(relaxed = true)
-        updateMemoContentUseCase = mockk(relaxed = true)
-        saveImageUseCase = mockk(relaxed = true)
-        dailyReviewQueryUseCase = mockk(relaxed = true)
-        dailyReviewSessionUseCase = mockk(relaxed = true)
+            every { memoRepository.getActiveDayCount() } returns flowOf(0)
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
+            every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
+            every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+            every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
+            every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
+            every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
+            every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
+            every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+            every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+            every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+            every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
+            every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+            every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
+            every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
+            every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+            every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
 
-        every { memoRepository.getActiveDayCount() } returns flowOf(0)
-        every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
-        every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
-        every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-        every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
-        every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
-        every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-        every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
-        every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-        every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
-        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
-        every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
-        every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
-        every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-        every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-        every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-
-        coEvery { deleteMemoUseCase(any()) } returns Unit
-        coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
-        coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
-            SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+            coEvery { deleteMemoUseCase(any()) } returns Unit
+            coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
+            coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
+                SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+        }
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+    init {
+        test("initial load uses the restored same-day seed and page") {
+            runTest {
+                val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"), sampleMemo("memo-3"), sampleMemo("memo-4"))
+                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
+                    DailyReviewSession(
+                        date = LocalDate.of(2026, 4, 16),
+                        seed = 77L,
+                        pageIndex = 3,
+                    )
+                coEvery { dailyReviewQueryUseCase(77L) } returns memos
+
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+
+                (viewModel.restoredPageIndex.value) shouldBe (3)
+                ((viewModel.uiState.value is UiState.Success)) shouldBe true
+                coVerify(exactly = 1) { dailyReviewQueryUseCase(77L) }
+            }
+        }
     }
 
-    @Test
-    fun `initial load uses the restored same-day seed and page`() =
-        runTest {
-            val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"), sampleMemo("memo-3"), sampleMemo("memo-4"))
-            coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                DailyReviewSession(
-                    date = LocalDate.of(2026, 4, 16),
-                    seed = 77L,
-                    pageIndex = 3,
-                )
-            coEvery { dailyReviewQueryUseCase(77L) } returns memos
+    init {
+        test("initial load clamps an out-of-range restored page and persists the correction") {
+            runTest {
+                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
+                    DailyReviewSession(
+                        date = LocalDate.of(2026, 4, 16),
+                        seed = 77L,
+                        pageIndex = 9,
+                    )
+                coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
+                coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
 
-            val viewModel = createViewModel()
-            advanceUntilIdle()
+                val viewModel = createViewModel()
+                advanceUntilIdle()
 
-            assertEquals(3, viewModel.restoredPageIndex.value)
-            assertTrue(viewModel.uiState.value is UiState.Success)
-            coVerify(exactly = 1) { dailyReviewQueryUseCase(77L) }
+                (viewModel.restoredPageIndex.value) shouldBe (1)
+                coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
+            }
         }
+    }
 
-    @Test
-    fun `initial load clamps an out-of-range restored page and persists the correction`() =
-        runTest {
-            coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                DailyReviewSession(
-                    date = LocalDate.of(2026, 4, 16),
-                    seed = 77L,
-                    pageIndex = 9,
-                )
-            coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
-            coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
+    init {
+        test("onPageChanged persists the latest page for the active seed") {
+            runTest {
+                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
+                    DailyReviewSession(
+                        date = LocalDate.of(2026, 4, 16),
+                        seed = 77L,
+                        pageIndex = 0,
+                    )
+                coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
+                coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
 
-            val viewModel = createViewModel()
-            advanceUntilIdle()
+                val viewModel = createViewModel()
+                advanceUntilIdle()
+                viewModel.onPageChanged(1)
+                advanceUntilIdle()
 
-            assertEquals(1, viewModel.restoredPageIndex.value)
-            coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
+                (viewModel.restoredPageIndex.value) shouldBe (1)
+                coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
+            }
         }
-
-    @Test
-    fun `onPageChanged persists the latest page for the active seed`() =
-        runTest {
-            coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                DailyReviewSession(
-                    date = LocalDate.of(2026, 4, 16),
-                    seed = 77L,
-                    pageIndex = 0,
-                )
-            coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
-            coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
-
-            val viewModel = createViewModel()
-            advanceUntilIdle()
-            viewModel.onPageChanged(1)
-            advanceUntilIdle()
-
-            assertEquals(1, viewModel.restoredPageIndex.value)
-            coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
-        }
+    }
 
     private fun createViewModel(): DailyReviewViewModel =
         DailyReviewViewModel(
             memoUiCoordinator = MemoUiCoordinator(memoRepository),
+            appConfigStateProvider =
+                com.lomo.app.feature.common.AppConfigStateProvider(
+                    AppConfigUiCoordinator(appConfigRepository),
+                    CoroutineScope(SupervisorJob() + testDispatcher),
+                ),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             imageMapProvider = imageMapProvider,
             memoUiMapper = MemoUiMapper(testDispatcher),

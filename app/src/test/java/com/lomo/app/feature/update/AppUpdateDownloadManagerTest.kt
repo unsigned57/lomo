@@ -1,28 +1,24 @@
 package com.lomo.app.feature.update
 
 import android.content.Context
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.model.AppUpdateInstallState
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -33,226 +29,217 @@ import org.junit.Test
  * - Excludes: Compose dialog rendering, APK file transport internals, and Android package installer UI.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AppUpdateDownloadManagerTest {
+class AppUpdateDownloadManagerTest : AppFunSpec() {
     private val dispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(dispatcher)
+    init {
+        extension(MainDispatcherExtension(dispatcher))
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
+    init {
+        test("startInAppUpdate exposes progress states from the download use case") {
+            runTest(dispatcher.scheduler) {
+                val gate = CompletableDeferred<Unit>()
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+                val update = sampleDialogState()
 
-    @Test
-    fun `startInAppUpdate exposes progress states from the download use case`() =
-        runTest(dispatcher.scheduler) {
-            val gate = CompletableDeferred<Unit>()
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-            val update = sampleDialogState()
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns
+                    flow {
+                        emit(AppUpdateInstallState.Preparing)
+                        emit(AppUpdateInstallState.Downloading(progress = 42))
+                        gate.await()
+                        emit(AppUpdateInstallState.Completed)
+                    }
 
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns
-                flow {
-                    emit(AppUpdateInstallState.Preparing)
-                    emit(AppUpdateInstallState.Downloading(progress = 42))
-                    gate.await()
-                    emit(AppUpdateInstallState.Completed)
-                }
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
 
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
 
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = AppUpdateInstallState.Downloading(progress = 42),
+                    ))
 
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = AppUpdateInstallState.Downloading(progress = 42),
-                ),
-                manager.progressDialogState.value,
-            )
+                gate.complete(Unit)
+                advanceUntilIdle()
 
-            gate.complete(Unit)
-            advanceUntilIdle()
-
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = AppUpdateInstallState.Completed,
-                ),
-                manager.progressDialogState.value,
-            )
-        }
-
-    @Test
-    fun `startInAppUpdate publishes preparing immediately before the download flow advances`() =
-        runTest(dispatcher.scheduler) {
-            val gate = CompletableDeferred<Unit>()
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-            val update = sampleDialogState()
-
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns
-                flow {
-                    gate.await()
-                    emit(AppUpdateInstallState.Downloading(progress = 42))
-                }
-
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-
-            manager.startInAppUpdate(update)
-            runCurrent()
-
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = AppUpdateInstallState.Preparing,
-                ),
-                manager.progressDialogState.value,
-            )
-
-            gate.complete(Unit)
-            advanceUntilIdle()
-        }
-
-    @Test
-    fun `startInAppUpdate waits until the next main-loop turn before showing progress dialog`() =
-        runTest(dispatcher.scheduler) {
-            val gate = CompletableDeferred<Unit>()
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-            val update = sampleDialogState()
-
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns
-                flow {
-                    emit(AppUpdateInstallState.Preparing)
-                    gate.await()
-                }
-
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-
-            manager.startInAppUpdate(update)
-
-            assertEquals(null, manager.progressDialogState.value)
-
-            runCurrent()
-
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = AppUpdateInstallState.Preparing,
-                ),
-                manager.progressDialogState.value,
-            )
-
-            gate.complete(Unit)
-            advanceUntilIdle()
-        }
-
-    @Test
-    fun `startInAppUpdate exposes install-permission recovery state from the download use case`() =
-        runTest(dispatcher.scheduler) {
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-            val update = sampleDialogState()
-
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns
-                flow {
-                    emit(
-                        AppUpdateInstallState.RequiresInstallPermission(
-                            message = "Allow installs from this app to continue.",
-                        ),
-                    )
-                }
-
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
-
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState =
-                        AppUpdateInstallState.RequiresInstallPermission(
-                            message = "Allow installs from this app to continue.",
-                        ),
-                ),
-                manager.progressDialogState.value,
-            )
-        }
-
-    @Test
-    fun `startInAppUpdate ignores duplicate requests while a download is already active`() =
-        runTest(dispatcher.scheduler) {
-            val gate = CompletableDeferred<Unit>()
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-            val update = sampleDialogState()
-            var starts = 0
-
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } answers {
-                starts += 1
-                flow {
-                    emit(AppUpdateInstallState.Preparing)
-                    gate.await()
-                    emit(AppUpdateInstallState.Completed)
-                }
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = AppUpdateInstallState.Completed,
+                    ))
             }
-
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
-
-            assertEquals(1, starts)
-
-            gate.complete(Unit)
-            advanceUntilIdle()
         }
+    }
 
-    @Test
-    fun `cancelInAppUpdate clears progress state and dispatches repository cancellation`() =
-        runTest(dispatcher.scheduler) {
-            val gate = CompletableDeferred<Unit>()
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+    init {
+        test("startInAppUpdate publishes preparing immediately before the download flow advances") {
+            runTest(dispatcher.scheduler) {
+                val gate = CompletableDeferred<Unit>()
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+                val update = sampleDialogState()
 
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns
-                flow {
-                    emit(AppUpdateInstallState.Preparing)
-                    gate.await()
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns
+                    flow {
+                        gate.await()
+                        emit(AppUpdateInstallState.Downloading(progress = 42))
+                    }
+
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+
+                manager.startInAppUpdate(update)
+                runCurrent()
+
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = AppUpdateInstallState.Preparing,
+                    ))
+
+                gate.complete(Unit)
+                advanceUntilIdle()
+            }
+        }
+    }
+
+    init {
+        test("startInAppUpdate waits until the next main-loop turn before showing progress dialog") {
+            runTest(dispatcher.scheduler) {
+                val gate = CompletableDeferred<Unit>()
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+                val update = sampleDialogState()
+
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns
+                    flow {
+                        emit(AppUpdateInstallState.Preparing)
+                        gate.await()
+                    }
+
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+
+                manager.startInAppUpdate(update)
+
+                (manager.progressDialogState.value) shouldBe (null)
+
+                runCurrent()
+
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = AppUpdateInstallState.Preparing,
+                    ))
+
+                gate.complete(Unit)
+                advanceUntilIdle()
+            }
+        }
+    }
+
+    init {
+        test("startInAppUpdate exposes install-permission recovery state from the download use case") {
+            runTest(dispatcher.scheduler) {
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+                val update = sampleDialogState()
+
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns
+                    flow {
+                        emit(
+                            AppUpdateInstallState.RequiresInstallPermission(
+                                message = "Allow installs from this app to continue.",
+                            ),
+                        )
+                    }
+
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
+
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState =
+                            AppUpdateInstallState.RequiresInstallPermission(
+                                message = "Allow installs from this app to continue.",
+                            ),
+                    ))
+            }
+        }
+    }
+
+    init {
+        test("startInAppUpdate ignores duplicate requests while a download is already active") {
+            runTest(dispatcher.scheduler) {
+                val gate = CompletableDeferred<Unit>()
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+                val update = sampleDialogState()
+                var starts = 0
+
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } answers {
+                    starts += 1
+                    flow {
+                        emit(AppUpdateInstallState.Preparing)
+                        gate.await()
+                        emit(AppUpdateInstallState.Completed)
+                    }
                 }
 
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
 
-            manager.startInAppUpdate(sampleDialogState())
-            advanceUntilIdle()
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
 
-            manager.cancelInAppUpdate()
-            advanceUntilIdle()
+                (starts) shouldBe (1)
 
-            assertEquals(null, manager.progressDialogState.value)
-            verify(exactly = 1) { cancelUseCase.invoke() }
-            gate.complete(Unit)
+                gate.complete(Unit)
+                advanceUntilIdle()
+            }
         }
+    }
+
+    init {
+        test("cancelInAppUpdate clears progress state and dispatches repository cancellation") {
+            runTest(dispatcher.scheduler) {
+                val gate = CompletableDeferred<Unit>()
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns
+                    flow {
+                        emit(AppUpdateInstallState.Preparing)
+                        gate.await()
+                    }
+
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+
+                manager.startInAppUpdate(sampleDialogState())
+                advanceUntilIdle()
+
+                manager.cancelInAppUpdate()
+                advanceUntilIdle()
+
+                (manager.progressDialogState.value) shouldBe (null)
+                verify(exactly = 1) { cancelUseCase.invoke() }
+                gate.complete(Unit)
+            }
+        }
+    }
 
     private fun sampleDialogState(): AppUpdateDialogState =
         AppUpdateDialogState(

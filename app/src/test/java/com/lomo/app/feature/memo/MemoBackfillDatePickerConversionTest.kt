@@ -1,11 +1,7 @@
 package com.lomo.app.feature.memo
 
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -23,88 +19,87 @@ import java.util.TimeZone
  *   conversion reads DatePicker UTC dates through the system default zone.
  * - Excludes: Compose dialog rendering, TimePicker UI behavior, and memo persistence.
  */
-class MemoBackfillDatePickerConversionTest {
+class MemoBackfillDatePickerConversionTest : AppFunSpec() {
     private lateinit var originalTimeZone: TimeZone
 
-    @Before
-    fun setUp() {
-        originalTimeZone = TimeZone.getDefault()
+    init {
+        beforeTest {
+            originalTimeZone = TimeZone.getDefault()
+        }
     }
 
-    @After
-    fun tearDown() {
-        TimeZone.setDefault(originalTimeZone)
+    init {
+        afterTest {
+            TimeZone.setDefault(originalTimeZone)
+        }
     }
 
-    @Test
-    fun `date picker millis are anchored to utc date instead of device time zone`() {
-        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
-        val date = LocalDate.of(2026, 5, 5)
+    init {
+        test("date picker millis are anchored to utc date instead of device time zone") {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+            val date = LocalDate.of(2026, 5, 5)
 
-        val millis = date.toMemoBackfillDatePickerMillis()
+            val millis = date.toMemoBackfillDatePickerMillis()
 
-        assertEquals(
-            date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
-            millis,
-        )
-        assertEquals(date, millis.toMemoBackfillLocalDate())
+            (millis) shouldBe (date.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+            (millis.toMemoBackfillLocalDate()) shouldBe (date)
+        }
     }
 
-    @Test
-    fun `date picker selected date does not shift back one day in negative offsets`() {
-        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
-        val selectedDateMillis =
-            LocalDate
-                .of(2026, 1, 1)
-                .atStartOfDay(ZoneOffset.UTC)
-                .toInstant()
-                .toEpochMilli()
+    init {
+        test("date picker selected date does not shift back one day in negative offsets") {
+            TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+            val selectedDateMillis =
+                LocalDate
+                    .of(2026, 1, 1)
+                    .atStartOfDay(ZoneOffset.UTC)
+                    .toInstant()
+                    .toEpochMilli()
 
-        assertEquals(LocalDate.of(2026, 1, 1), selectedDateMillis.toMemoBackfillLocalDate())
+            (selectedDateMillis.toMemoBackfillLocalDate()) shouldBe (LocalDate.of(2026, 1, 1))
+        }
     }
 
-    @Test
-    fun `backfill click opens picker for new memo regardless of current text`() {
-        assertTrue(shouldOpenMemoBackfillDialog(isEditingExistingMemo = false))
-        assertFalse(shouldOpenMemoBackfillDialog(isEditingExistingMemo = true))
+    init {
+        test("backfill click opens picker for new memo regardless of current text") {
+            ((shouldOpenMemoBackfillDialog(isEditingExistingMemo = false))) shouldBe true
+            ((shouldOpenMemoBackfillDialog(isEditingExistingMemo = true))) shouldBe false
+        }
     }
 
-    @Test
-    fun `backfill date time conversion preserves selected seconds`() {
-        val zone = ZoneId.of("Asia/Shanghai")
-        val timestamp =
-            combineMemoBackfillDateTimeMillis(
-                date = LocalDate.of(2026, 5, 5),
-                time = LocalTime.of(7, 8, 9),
-                zone = zone,
-            )
+    init {
+        test("backfill date time conversion preserves selected seconds") {
+            val zone = ZoneId.of("Asia/Shanghai")
+            val timestamp =
+                combineMemoBackfillDateTimeMillis(
+                    date = LocalDate.of(2026, 5, 5),
+                    time = LocalTime.of(7, 8, 9),
+                    zone = zone,
+                )
 
-        assertEquals(
-            ZonedDateTime
-                .of(2026, 5, 5, 7, 8, 9, 0, zone)
-                .toInstant()
-                .toEpochMilli(),
-            timestamp,
-        )
+            (timestamp) shouldBe (ZonedDateTime
+                    .of(2026, 5, 5, 7, 8, 9, 0, zone)
+                    .toInstant()
+                    .toEpochMilli())
+        }
     }
 
-    @Test
-    fun `backfill badge formatter includes seconds even when app time format omits them`() {
-        val zone = ZoneId.of("Asia/Shanghai")
-        val timestamp =
-            ZonedDateTime
-                .of(2026, 5, 5, 7, 8, 9, 0, zone)
-                .toInstant()
-                .toEpochMilli()
+    init {
+        test("backfill badge formatter includes seconds even when app time format omits them") {
+            val zone = ZoneId.of("Asia/Shanghai")
+            val timestamp =
+                ZonedDateTime
+                    .of(2026, 5, 5, 7, 8, 9, 0, zone)
+                    .toInstant()
+                    .toEpochMilli()
 
-        assertEquals(
-            "2026-05-05 07:08:09",
-            formatMemoBackfillBadgeText(
-                timestampMillis = timestamp,
-                dateFormat = "yyyy-MM-dd",
-                timeFormat = "HH:mm",
-                zone = zone,
-            ),
-        )
+            (formatMemoBackfillBadgeText(
+                    timestampMillis = timestamp,
+                    dateFormat = "yyyy-MM-dd",
+                    timeFormat = "HH:mm",
+                    zone = zone,
+                )) shouldBe ("2026-05-05 07:08:09")
+        }
     }
+
 }

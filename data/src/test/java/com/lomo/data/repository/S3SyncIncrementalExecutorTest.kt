@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -30,10 +31,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -43,7 +44,50 @@ import org.junit.Test
  * - Red phase: Fails before the fix because sync still probes the retired manifest protocol, cannot execute fast paths or targeted destructive verification without touching manifest-specific remote objects, and treats multipart-etag memo updates as conflicts instead of resolving them via content fingerprints.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
-class S3SyncIncrementalExecutorTest {
+class S3SyncIncrementalExecutorTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("performSync skips remote probing when cached index is fresh and journal is empty") { `performSync skips remote probing when cached index is fresh and journal is empty`() }
+
+        test("performSync uploads local journal change from cached index without full remote scan") { `performSync uploads local journal change from cached index without full remote scan`() }
+
+        test("performSync rolls back metadata, remote index, and journal when final protocol commit fails") { `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() }
+
+        test("performSync falls back to full remote reconciliation when cached index is stale") { `performSync falls back to full remote reconciliation when cached index is stale`() }
+
+        test("performSync verifies cached remote deletion candidate without whole bucket scan") { `performSync verifies cached remote deletion candidate without whole bucket scan`() }
+
+        test("performSync deletes remote journal target from remote index when metadata snapshot is missing") { `performSync deletes remote journal target from remote index when metadata snapshot is missing`() }
+
+        test("performSync downloads remotely updated file before applying cached delete intent") { `performSync downloads remotely updated file before applying cached delete intent`() }
+
+        test("performSync surfaces conflict when upload candidate changed remotely during fast path") { `performSync surfaces conflict when upload candidate changed remotely during fast path`() }
+
+        test("performSync suppresses tracked memo conflict when local and remote content still match baseline") { `performSync suppresses tracked memo conflict when local and remote content still match baseline`() }
+
+        test("performSync uploads tracked memo when remote matches baseline but local fingerprint changed") { `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() }
+
+        test("performSync resolves tracked memo from head metadata md5 without downloading remote bytes") { `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() }
+
+        test("performSync heads metadata only upload target before overwrite during reconcile fast path") { `performSync heads metadata only upload target before overwrite during reconcile fast path`() }
+
+        test("performSync trusts full snapshot when deleting local file after remote disappearance") { `performSync trusts full snapshot when deleting local file after remote disappearance`() }
+
+        test("repository sync discovers externally added remote file from reconcile page while baseline index is fresh") { `repository sync discovers externally added remote file from reconcile page while baseline index is fresh`() }
+
+        test("repository sync can miss cold external add during fast sync but finds it after reconcile") { `repository sync can miss cold external add during fast sync but finds it after reconcile`() }
+
+        test("repository sync rotates incremental reconcile across bucket prefixes") { `repository sync rotates incremental reconcile across bucket prefixes`() }
+
+        test("repository sync covers all legacy prefixes once without degrading into continuous scans") { `repository sync covers all legacy prefixes once without degrading into continuous scans`() }
+
+        test("performSync streams full reconcile pages into remote index before next page loads") { `performSync streams full reconcile pages into remote index before next page loads`() }
+    }
+
+
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -66,8 +110,7 @@ class S3SyncIncrementalExecutorTest {
     private lateinit var journalStore: InMemoryS3LocalChangeJournalStore
     private lateinit var remoteIndexStore: InMemoryS3RemoteIndexStore
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
 
         every { dataStore.s3SyncEnabled } returns flowOf(true)
@@ -104,8 +147,7 @@ class S3SyncIncrementalExecutorTest {
         remoteIndexStore = InMemoryS3RemoteIndexStore()
     }
 
-    @Test
-    fun `performSync skips remote probing when cached index is fresh and journal is empty`() =
+    private fun `performSync skips remote probing when cached index is fresh and journal is empty`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -126,16 +168,12 @@ class S3SyncIncrementalExecutorTest {
 
             val result = executor.performSync()
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals(0, client.listCalls)
-            assertEquals(0, client.headCalls)
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.listCalls shouldBe 0
+            client.headCalls shouldBe 0
         }
 
-    @Test
-    fun `performSync uploads local journal change from cached index without full remote scan`() =
+    private fun `performSync uploads local journal change from cached index without full remote scan`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -173,20 +211,16 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf("lomo/memo/note.md"), client.putKeys)
-            assertEquals(0, client.listCalls)
-            assertEquals(0, client.headCalls)
-            assertTrue("journal should be drained after successful upload", journalStore.read().isEmpty())
-            assertEquals(listOf("lomo/memo/note.md"), metadataDao.paths())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            client.putKeys shouldBe listOf("lomo/memo/note.md")
+            client.listCalls shouldBe 0
+            client.headCalls shouldBe 0
+            withClue("journal should be drained after successful upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
+            metadataDao.paths() shouldBe listOf("lomo/memo/note.md")
         }
 
-    @Test
-    fun `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() =
+    private fun `performSync rolls back metadata, remote index, and journal when final protocol commit fails`() =
         runTest {
             val initialProtocolState =
                 S3SyncProtocolState(
@@ -234,15 +268,14 @@ class S3SyncIncrementalExecutorTest {
 
             val result = executor.performSync()
 
-            assertTrue(result is S3SyncResult.Error)
-            assertEquals(emptyList<String>(), metadataDao.paths())
-            assertTrue(journalStore.read().containsKey("MEMO:note.md"))
-            assertEquals(emptyList<String>(), remoteIndexStore.readAllRelativePaths())
-            assertEquals(initialProtocolState, failingProtocolStateStore.read())
+            (result is S3SyncResult.Error).shouldBeTrue()
+            metadataDao.paths() shouldBe emptyList<String>()
+            (journalStore.read().containsKey("MEMO:note.md")).shouldBeTrue()
+            remoteIndexStore.readAllRelativePaths() shouldBe emptyList<String>()
+            failingProtocolStateStore.read() shouldBe initialProtocolState
         }
 
-    @Test
-    fun `performSync falls back to full remote reconciliation when cached index is stale`() =
+    private fun `performSync falls back to full remote reconciliation when cached index is stale`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -262,17 +295,13 @@ class S3SyncIncrementalExecutorTest {
 
             val result = executor.performSync()
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals(3, client.listPageCalls)
-            assertEquals(3, client.listCalls)
-            assertEquals(0, client.headCalls)
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.listPageCalls shouldBe 3
+            client.listCalls shouldBe 3
+            client.headCalls shouldBe 0
         }
 
-    @Test
-    fun `performSync verifies cached remote deletion candidate without whole bucket scan`() =
+    private fun `performSync verifies cached remote deletion candidate without whole bucket scan`() =
         runTest {
             val path = "lomo/memo/note.md"
             protocolStateStore.write(
@@ -299,7 +328,7 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted delete verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "etag-1", lastModified = 10L, metadata = emptyMap())
                     },
                 )
@@ -315,19 +344,15 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(listOf(path), client.deletedKeys)
-            assertEquals(0, client.listCalls)
-            assertTrue("journal should be drained after successful remote delete", journalStore.read().isEmpty())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
+            client.headKeys shouldBe listOf(path)
+            client.deletedKeys shouldBe listOf(path)
+            client.listCalls shouldBe 0
+            withClue("journal should be drained after successful remote delete") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync deletes remote journal target from remote index when metadata snapshot is missing`() =
+    private fun `performSync deletes remote journal target from remote index when metadata snapshot is missing`() =
         runTest {
             val path = "lomo/memo/note.md"
             protocolStateStore.write(
@@ -368,7 +393,7 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("remote-index fast delete should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals("opaque/remote-note", key)
+                        key shouldBe "opaque/remote-note"
                         S3RemoteObject(key = key, eTag = "etag-1", lastModified = 10L, metadata = emptyMap())
                     },
                 )
@@ -378,18 +403,14 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf("opaque/remote-note"), client.headKeys)
-            assertEquals(listOf("opaque/remote-note"), client.deletedKeys)
-            assertTrue("journal should be drained after successful remote delete", journalStore.read().isEmpty())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_REMOTE to S3SyncReason.LOCAL_DELETED)
+            client.headKeys shouldBe listOf("opaque/remote-note")
+            client.deletedKeys shouldBe listOf("opaque/remote-note")
+            withClue("journal should be drained after successful remote delete") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync downloads remotely updated file before applying cached delete intent`() =
+    private fun `performSync downloads remotely updated file before applying cached delete intent`() =
         runTest {
             val path = "lomo/memo/note.md"
             protocolStateStore.write(
@@ -431,11 +452,11 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "etag-remote", lastModified = 20L, metadata = emptyMap())
                     },
                     onGetObject = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-remote",
@@ -457,18 +478,14 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_NEWER),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(emptyList<String>(), client.deletedKeys)
-            assertTrue("journal should be drained after successful download", journalStore.read().isEmpty())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_NEWER)
+            client.headKeys shouldBe listOf(path)
+            client.deletedKeys shouldBe emptyList<String>()
+            withClue("journal should be drained after successful download") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync surfaces conflict when upload candidate changed remotely during fast path`() =
+    private fun `performSync surfaces conflict when upload candidate changed remotely during fast path`() =
         runTest {
             val path = "lomo/memo/note.md"
             protocolStateStore.write(
@@ -500,11 +517,11 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "etag-remote", lastModified = 20L, metadata = emptyMap())
                     },
                     onGetObject = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-remote",
@@ -526,20 +543,16 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
             val conflict = result as S3SyncResult.Conflict
-            assertEquals(1, conflict.conflicts.files.size)
-            assertEquals(path, conflict.conflicts.files.single().relativePath)
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(emptyList<String>(), client.putKeys)
+            conflict.conflicts.files.size shouldBe 1
+            conflict.conflicts.files.single().relativePath shouldBe path
+            client.headKeys shouldBe listOf(path)
+            client.putKeys shouldBe emptyList<String>()
             val retainedIndexEntry = remoteIndexStore.readByRelativePaths(listOf(path)).single()
-            assertTrue(
-                "conflict paths should stay hot for follow-up reconcile",
-                retainedIndexEntry.scanPriority > defaultScanPriority(path),
-            )
-            assertTrue("journal should be retained while conflict is unresolved", journalStore.read().isNotEmpty())
+            withClue("conflict paths should stay hot for follow-up reconcile") { (retainedIndexEntry.scanPriority > defaultScanPriority(path)).shouldBeTrue() }
+            withClue("journal should be retained while conflict is unresolved") { (journalStore.read().isNotEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync suppresses tracked memo conflict when local and remote content still match baseline`() =
+    private fun `performSync suppresses tracked memo conflict when local and remote content still match baseline`() =
         runTest {
             val path = "lomo/memo/note.md"
             val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
@@ -572,11 +585,11 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
                     },
                     onGetObject = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "multipart-2",
@@ -602,18 +615,14 @@ class S3SyncIncrementalExecutorTest {
 
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(listOf(path), client.getKeys)
-            assertEquals(emptyList<String>(), client.putKeys)
-            assertTrue("journal should be drained after content-equivalent sync", journalStore.read().isEmpty())
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.headKeys shouldBe listOf(path)
+            client.getKeys shouldBe listOf(path)
+            client.putKeys shouldBe emptyList<String>()
+            withClue("journal should be drained after content-equivalent sync") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() =
+    private fun `performSync uploads tracked memo when remote matches baseline but local fingerprint changed`() =
         runTest {
             val path = "lomo/memo/note.md"
             val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
@@ -647,11 +656,11 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "multipart-2", lastModified = 20L, metadata = emptyMap())
                     },
                     onGetObject = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "multipart-2",
@@ -678,21 +687,17 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertTrue("content comparison should fetch the tracked remote memo", client.getKeys.isNotEmpty())
-            assertTrue("content comparison should only fetch the targeted memo", client.getKeys.all { it == path })
-            assertEquals(listOf(path), client.putKeys)
-            assertEquals(localBytes.md5Hex(), metadataDao.getAll().single().localFingerprint)
-            assertTrue("journal should be drained after fingerprint-backed upload", journalStore.read().isEmpty())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_NEWER)
+            client.headKeys shouldBe listOf(path)
+            withClue("content comparison should fetch the tracked remote memo") { (client.getKeys.isNotEmpty()).shouldBeTrue() }
+            withClue("content comparison should only fetch the targeted memo") { (client.getKeys.all { it == path }).shouldBeTrue() }
+            client.putKeys shouldBe listOf(path)
+            metadataDao.getAll().single().localFingerprint shouldBe localBytes.md5Hex()
+            withClue("journal should be drained after fingerprint-backed upload") { (journalStore.read().isEmpty()).shouldBeTrue() }
         }
 
-    @Test
-    fun `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() =
+    private fun `performSync resolves tracked memo from head metadata md5 without downloading remote bytes`() =
         runTest {
             val path = "lomo/memo/note.md"
             val baseline = "# baseline".toByteArray(StandardCharsets.UTF_8)
@@ -725,7 +730,7 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { throw AssertionError("targeted fingerprint verification should not list the whole bucket") },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(
                             key = key,
                             eTag = "multipart-2",
@@ -753,17 +758,13 @@ class S3SyncIncrementalExecutorTest {
 
             val result = executor.performSync(S3SyncScanPolicy.FAST_ONLY)
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(emptyList<String>(), client.getKeys)
-            assertEquals(emptyList<String>(), client.putKeys)
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.headKeys shouldBe listOf(path)
+            client.getKeys shouldBe emptyList<String>()
+            client.putKeys shouldBe emptyList<String>()
         }
 
-    @Test
-    fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
+    private fun `performSync heads metadata only upload target before overwrite during reconcile fast path`() =
         runTest {
             val path = "lomo/memo/note.md"
             protocolStateStore.write(
@@ -800,7 +801,7 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { emptyList() },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(
                             key = key,
                             eTag = "etag-1",
@@ -814,17 +815,13 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(listOf(path), client.headKeys)
-            assertEquals(listOf(path), client.putKeys)
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            client.headKeys shouldBe listOf(path)
+            client.putKeys shouldBe listOf(path)
         }
 
-    @Test
-    fun `performSync trusts full snapshot when deleting local file after remote disappearance`() =
+    private fun `performSync trusts full snapshot when deleting local file after remote disappearance`() =
         runTest {
             val path = "lomo/memo/note.md"
             coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns
@@ -833,7 +830,7 @@ class S3SyncIncrementalExecutorTest {
                 ProbeS3Client(
                     onList = { emptyList() },
                     onGetObjectMetadata = { key ->
-                        assertEquals(path, key)
+                        key shouldBe path
                         S3RemoteObject(key = key, eTag = "etag-1", lastModified = 10L, metadata = emptyMap())
                     },
                 )
@@ -849,17 +846,13 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync()
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DELETE_LOCAL to S3SyncReason.REMOTE_DELETED),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertTrue(client.headKeys.isEmpty())
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DELETE_LOCAL to S3SyncReason.REMOTE_DELETED)
+            (client.headKeys.isEmpty()).shouldBeTrue()
             coVerify(exactly = 1) { markdownStorageDataSource.deleteFileIn(MemoDirectoryType.MAIN, "note.md") }
         }
 
-    @Test
-    fun `repository sync discovers externally added remote file from reconcile page while baseline index is fresh`() =
+    private fun `repository sync discovers externally added remote file from reconcile page while baseline index is fresh`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -882,7 +875,7 @@ class S3SyncIncrementalExecutorTest {
                         )
                     },
                     onGetObject = { key ->
-                        assertEquals("lomo/memo/remote.md", key)
+                        key shouldBe "lomo/memo/remote.md"
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-remote",
@@ -909,16 +902,12 @@ class S3SyncIncrementalExecutorTest {
             val result = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(1, client.listCalls)
+            success.message shouldBe "S3 sync completed"
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
+            client.listCalls shouldBe 1
         }
 
-    @Test
-    fun `repository sync can miss cold external add during fast sync but finds it after reconcile`() =
+    private fun `repository sync can miss cold external add during fast sync but finds it after reconcile`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -941,7 +930,7 @@ class S3SyncIncrementalExecutorTest {
                         )
                     },
                     onGetObject = { key ->
-                        assertEquals("lomo/memo/cold-remote.md", key)
+                        key shouldBe "lomo/memo/cold-remote.md"
                         S3RemoteObjectPayload(
                             key = key,
                             eTag = "etag-cold",
@@ -968,21 +957,14 @@ class S3SyncIncrementalExecutorTest {
             val fastOnly = repository.sync(S3SyncScanPolicy.FAST_ONLY)
             val reconcile = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                fastOnly,
-            )
+            fastOnly shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
             val reconcileSuccess = reconcile as S3SyncResult.Success
-            assertEquals("S3 sync completed", reconcileSuccess.message)
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                reconcileSuccess.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals("fast sync should not discover the cold remote add", 1, client.listCalls)
+            reconcileSuccess.message shouldBe "S3 sync completed"
+            reconcileSuccess.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
+            withClue("fast sync should not discover the cold remote add") { client.listCalls shouldBe 1 }
         }
 
-    @Test
-    fun `repository sync rotates incremental reconcile across bucket prefixes`() =
+    private fun `repository sync rotates incremental reconcile across bucket prefixes`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -998,7 +980,7 @@ class S3SyncIncrementalExecutorTest {
                     onList = { throw AssertionError("incremental reconcile should use paged list calls") },
                     onListPage = { prefix, continuationToken, _ ->
                         listedPrefixes += prefix
-                        assertEquals(null, continuationToken)
+                        continuationToken shouldBe null
                         S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
                     },
                 )
@@ -1007,14 +989,13 @@ class S3SyncIncrementalExecutorTest {
             val first = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
             val second = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
 
-            assertTrue(first is S3SyncResult.Success)
-            assertTrue(second is S3SyncResult.Success)
-            assertEquals(listOf("lomo/memo/", "lomo/images/"), listedPrefixes)
-            assertTrue(protocolStateStore.read()?.remoteScanCursor?.contains("voice") == true)
+            (first is S3SyncResult.Success).shouldBeTrue()
+            (second is S3SyncResult.Success).shouldBeTrue()
+            listedPrefixes shouldBe listOf("lomo/memo/", "lomo/images/")
+            (protocolStateStore.read()?.remoteScanCursor?.contains("voice") == true).shouldBeTrue()
         }
 
-    @Test
-    fun `repository sync covers all legacy prefixes once without degrading into continuous scans`() =
+    private fun `repository sync covers all legacy prefixes once without degrading into continuous scans`() =
         runTest {
             protocolStateStore.write(
                 S3SyncProtocolState(
@@ -1030,7 +1011,7 @@ class S3SyncIncrementalExecutorTest {
                     onList = { throw AssertionError("incremental reconcile should use paged list calls") },
                     onListPage = { prefix, continuationToken, _ ->
                         listedPrefixes += prefix
-                        assertEquals(null, continuationToken)
+                        continuationToken shouldBe null
                         S3RemoteListPage(objects = emptyList(), nextContinuationToken = null)
                     },
                 )
@@ -1038,19 +1019,15 @@ class S3SyncIncrementalExecutorTest {
 
             repeat(3) {
                 val result = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
-                assertTrue(result is S3SyncResult.Success)
+                (result is S3SyncResult.Success).shouldBeTrue()
             }
             val steadyState = repository.sync(S3SyncScanPolicy.FAST_THEN_RECONCILE)
 
-            assertEquals(
-                listOf("lomo/memo/", "lomo/images/", "lomo/voice/"),
-                listedPrefixes,
-            )
-            assertTrue(steadyState is S3SyncResult.Success)
+            listedPrefixes shouldBe listOf("lomo/memo/", "lomo/images/", "lomo/voice/")
+            (steadyState is S3SyncResult.Success).shouldBeTrue()
         }
 
-    @Test
-    fun `performSync streams full reconcile pages into remote index before next page loads`() =
+    private fun `performSync streams full reconcile pages into remote index before next page loads`() =
         runTest {
             val firstPageIndexed = CompletableDeferred<Unit>()
             val remoteIndexStore =
@@ -1072,7 +1049,7 @@ class S3SyncIncrementalExecutorTest {
                     onList = { throw AssertionError("full reconcile should use paged list calls") },
                     onListPage = { prefix, continuationToken, _ ->
                         if (prefix != "lomo/memo/") {
-                            assertEquals(null, continuationToken)
+                            continuationToken shouldBe null
                             S3RemoteListPage(
                                 objects = emptyList(),
                                 nextContinuationToken = null,
@@ -1155,12 +1132,9 @@ class S3SyncIncrementalExecutorTest {
             val result = executor.performSync(S3SyncScanPolicy.FULL_RECONCILE)
 
             val success = result as S3SyncResult.Success
-            assertEquals("S3 sync completed", success.message)
-            assertTrue(firstPageIndexed.isCompleted)
-            assertEquals(
-                setOf("lomo/memo/first.md", "lomo/memo/second.md"),
-                remoteIndexStore.readAll().map(S3RemoteIndexEntry::relativePath).toSet(),
-            )
+            success.message shouldBe "S3 sync completed"
+            (firstPageIndexed.isCompleted).shouldBeTrue()
+            remoteIndexStore.readAll().map(S3RemoteIndexEntry::relativePath).toSet() shouldBe setOf("lomo/memo/first.md", "lomo/memo/second.md")
         }
 
     private fun createExecutor(

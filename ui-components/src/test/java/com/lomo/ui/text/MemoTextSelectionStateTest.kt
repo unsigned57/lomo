@@ -1,59 +1,48 @@
 package com.lomo.ui.text
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
- * - Unit under test: MemoTextSelectionState and memo link activation policy.
- * - Behavior focus: Compose-native memo text selection must preserve source-text offsets for
- *   copying and prevent link taps while a selection is active.
- * - Observable outcomes: normalized selected range, copied plain text, cleared selection state,
- *   and link activation decisions.
- * - Red phase: Fails before the fix because memo body copy selection is delegated to TextView and
- *   has no Compose-native selection state contract.
- * - Excludes: Android clipboard service, floating toolbar placement, drag gesture dispatch, and
- *   rendered selection handle pixels.
+ * - Unit under test: MemoTextSelectionState — the per-paragraph selection state holder used
+ *   by the compose-native memo body text renderer.
+ * - Behavior focus: selection ranges resolve against the original (un-normalized) source
+ *   text offsets, drag direction is normalized so the returned range always reads forward,
+ *   and a collapsed or cleared selection yields no copied text.
+ * - Observable outcomes: normalized selected range, copied plain text, cleared selection
+ *   state.
+ * - Red phase: Fails before the fix because memo body copy selection is delegated to
+ *   TextView and has no Compose-native selection state contract.
+ * - Excludes: Android clipboard service, floating toolbar placement, drag gesture dispatch,
+ *   rendered selection handle pixels, and link activation policy (now covered by
+ *   MemoParagraphTapOutcomeTest).
  */
-class MemoTextSelectionStateTest {
-    @Test
-    fun `selected text uses original offsets without layout spacing`() {
-        val text = "中文 review memo"
-        val state = MemoTextSelectionState(anchorOffset = 0, focusOffset = 9)
+class MemoTextSelectionStateTest : UiComponentsFunSpec() {
+    init {
+        test("selected text uses original offsets without layout spacing") {
+            val text = "中文 review memo"
+            val state = MemoTextSelectionState(anchorOffset = 0, focusOffset = 9)
 
-        assertEquals(0 until 9, state.selectedRange)
-        assertEquals("中文 review", state.selectedText(text))
-    }
+            state.selectedRange shouldBe (0 until 9)
+            state.selectedText(text) shouldBe "中文 review"
+        }
 
-    @Test
-    fun `selection normalizes reversed drag direction`() {
-        val text = "今天 review memo"
-        val state = MemoTextSelectionState(anchorOffset = 10, focusOffset = 3)
+        test("selection normalizes reversed drag direction") {
+            val text = "今天 review memo"
+            val state = MemoTextSelectionState(anchorOffset = 10, focusOffset = 3)
 
-        assertEquals(3 until 10, state.selectedRange)
-        assertEquals("review ", state.selectedText(text))
-    }
+            state.selectedRange shouldBe (3 until 10)
+            state.selectedText(text) shouldBe "review "
+        }
 
-    @Test
-    fun `collapsed and cleared selections copy no text`() {
-        val text = "不会复制"
-        val collapsed = MemoTextSelectionState(anchorOffset = 2, focusOffset = 2)
+        test("collapsed and cleared selections copy no text") {
+            val text = "不会复制"
+            val collapsed = MemoTextSelectionState(anchorOffset = 2, focusOffset = 2)
 
-        assertTrue(collapsed.isCollapsed)
-        assertEquals("", collapsed.selectedText(text))
-        assertFalse(collapsed.clear().hasSelection)
-    }
-
-    @Test
-    fun `active selection suppresses link activation`() {
-        val activeSelection = MemoTextSelectionState(anchorOffset = 0, focusOffset = 2)
-        val noSelection = MemoTextSelectionState.None
-        val link = MemoTextLinkRange(start = 3, end = 9, url = "https://example.com")
-
-        assertFalse(shouldActivateMemoTextLink(activeSelection, offset = 4, links = listOf(link)))
-        assertTrue(shouldActivateMemoTextLink(noSelection, offset = 4, links = listOf(link)))
-        assertFalse(shouldActivateMemoTextLink(noSelection, offset = 9, links = listOf(link)))
+            collapsed.isCollapsed shouldBe true
+            collapsed.selectedText(text) shouldBe ""
+            collapsed.clear().hasSelection shouldBe false
+        }
     }
 }

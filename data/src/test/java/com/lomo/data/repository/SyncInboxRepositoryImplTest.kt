@@ -6,34 +6,54 @@ import com.lomo.data.source.MarkdownStorageDataSource
 import com.lomo.data.source.MemoDirectoryType
 import com.lomo.data.source.StorageRootType
 import com.lomo.data.source.WorkspaceConfigSource
+import com.lomo.data.testing.DataFunSpec
 import com.lomo.domain.model.SyncBackendType
+import com.lomo.domain.model.SyncConflictFile
+import com.lomo.domain.model.SyncConflictFileReviewState.BLOCKED
+import com.lomo.domain.model.SyncConflictFileReviewState.CONTENT_DIFFERENCE
+import com.lomo.domain.model.SyncConflictFileReviewState.READY_TO_IMPORT
+import com.lomo.domain.model.SyncConflictResolution
+import com.lomo.domain.model.SyncConflictResolutionChoice.KEEP_REMOTE
+import com.lomo.domain.model.SyncConflictSessionKind
+import com.lomo.domain.model.SyncConflictSet
 import com.lomo.domain.model.UnifiedSyncOperation
 import com.lomo.domain.model.UnifiedSyncResult
 import com.lomo.domain.repository.PreferencesRepository
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.shouldBe
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.runTest
 
 /*
  * Test Contract:
  * - Unit under test: SyncInboxRepositoryImpl
- * - Behavior focus: inbox conflict detection, safe auto-merge before surfacing a conflict, and pending-conflict persistence.
- * - Observable outcomes: returned UnifiedSyncResult, saved merged memo content, refresh invocation, and pending-conflict store contents.
- * - Red phase: Fails before the fix when same-name inbox/local memos contain disjoint multi-line content because the inbox path raises a conflict instead of auto-merging safely.
- * - Excludes: Compose dialog rendering, SAF transport behavior, and attachment import edge cases unrelated to conflict decisions.
+ * - Owning layer: data
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: sync returns review conflicts for inbox files and persists them for later resolution.
+ * - Boundary: an already pending inbox review is surfaced again without rescanning inbox files.
+ * - Failure: a per-file inspection exception becomes a blocked review item while later files still appear in the batch.
+ * - Must-not-happen: resolving multiple accepted review files refreshes imported sync once and clears pending conflicts.
+ *
+ * Observable outcomes:
+ * - returned UnifiedSyncResult, review states and messages, pending-conflict store contents, saved memo content, refresh invocation, and source cleanup.
+ *
+ * Red phase:
+ * - Fails before behavior changes or migration are applied.
+ *
+ * Excludes:
+ * - SAF transport behavior, UI rendering, and attachment path variants covered by SyncInboxRepositoryStructureTest.
  */
-class SyncInboxRepositoryImplTest {
+class SyncInboxRepositoryImplTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var context: Context
 
@@ -47,24 +67,56 @@ class SyncInboxRepositoryImplTest {
     private lateinit var markdownStorageDataSource: MarkdownStorageDataSource
 
     @MockK(relaxed = true)
-    private lateinit var workspaceMediaAccess: WorkspaceMediaAccess
-
-    @MockK(relaxed = true)
     private lateinit var refreshEngine: MemoRefreshEngine
 
     @MockK(relaxed = true)
     private lateinit var mutationHandler: MemoMutationHandler
 
+    private val savedFiles = linkedMapOf<String, String>()
     private lateinit var memoSynchronizer: MemoSynchronizer
     private lateinit var pendingConflictStore: PendingSyncConflictStore
     private lateinit var repository: SyncInboxRepositoryImpl
 
-    @Before
-    fun setUp() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("sync surfaces content difference review for disjoint inbox memo content") {
+            runTest { verifyContentDifferenceReview() }
+        }
+
+        test("sync batches review files from one scan and preserves review states") {
+            runTest { verifyBatchReviewFiles() }
+        }
+
+        test("sync returns pending inbox review without rescanning inbox files") {
+            runTest { verifyPendingReviewIsReturned() }
+        }
+
+        test("sync surfaces sanitized sample shaped like reported inbox conflict as review") {
+            runTest { verifySanitizedSampleReview() }
+        }
+
+        test("sync keeps later review files when one markdown file throws during inspection") {
+            runTest { verifyInspectionFailureBecomesBlockedReview() }
+        }
+
+        test("resolveConflicts refreshes imported files once after multiple successful resolutions") {
+            runTest { verifyResolveConflictsRefreshesOnce() }
+        }
+    }
+
+    private fun setUp() {
         MockKAnnotations.init(this)
+        savedFiles.clear()
         every { preferencesRepository.isSyncInboxEnabled() } returns flowOf(true)
         coEvery { mutationHandler.nextMemoFileOutbox() } returns null
         coEvery { mutationHandler.hasPendingMemoFileOutbox() } returns false
+        coEvery { markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any()) } answers {
+            savedFiles[secondArg<String>()] = thirdArg<String>()
+            null
+        }
 
         memoSynchronizer =
             MemoSynchronizer(
@@ -79,233 +131,192 @@ class SyncInboxRepositoryImplTest {
                 preferencesRepository = preferencesRepository,
                 workspaceConfigSource = workspaceConfigSource,
                 markdownStorageDataSource = markdownStorageDataSource,
-                workspaceMediaAccess = workspaceMediaAccess,
+                workspaceMediaAccess = NoOpWorkspaceMediaAccess,
                 memoSynchronizer = memoSynchronizer,
                 pendingConflictStore = pendingConflictStore,
             )
     }
 
-    @Test
-    fun `sync auto merges disjoint inbox memo content before surfacing a conflict`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox").toFile()
-            val inboxFile = File(inboxRoot, "2026_04_15.md")
-            inboxFile.writeText("remote idea\nremote detail")
+    private suspend fun verifyContentDifferenceReview() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox").toFile()
+        val inboxFile = File(inboxRoot, "2026_04_15.md").apply { writeText("remote idea\nremote detail") }
+        configureInboxRoot(inboxRoot)
+        coEvery {
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_15.md")
+        } returns "local idea\nlocal detail"
+        coEvery {
+            markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_04_15.md")
+        } returns FileMetadata(filename = "2026_04_15.md", lastModified = 0L)
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_15.md")
-            } returns "local idea\nlocal detail"
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_04_15.md")
-            } returns FileMetadata(filename = "2026_04_15.md", lastModified = 0L)
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
+        result.message shouldBe "Sync inbox review required"
+        result.conflicts.sessionKind shouldBe SyncConflictSessionKind.SYNC_INBOX_REVIEW
+        result.conflicts.files shouldBe
+            listOf(
+                SyncConflictFile(
+                    relativePath = "inbox/2026_04_15.md",
+                    localContent = "local idea\nlocal detail",
+                    remoteContent = "remote idea\nremote detail",
+                    isBinary = false,
+                    localLastModified = 0L,
+                    remoteLastModified = inboxFile.lastModified(),
+                    reviewState = CONTENT_DIFFERENCE,
                 ),
-                result,
             )
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_15.md",
-                    content = "local idea\nlocal detail\n\nremote idea\nremote detail",
-                    append = false,
-                    uri = null,
-                )
-            }
-            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
-            assertTrue("Inbox source file should be deleted after import", !inboxFile.exists())
-            assertNull(pendingConflictStore.read(SyncBackendType.INBOX))
-        }
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        savedFiles shouldBe emptyMap()
+        coVerify(exactly = 0) { refreshEngine.refreshImportedSync(any()) }
+        inboxFile.exists().shouldBeTrue()
+    }
 
-    @Test
-    fun `sync batches all unresolved inbox conflicts from one scan`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-conflicts").toFile()
-            val firstInboxFile = File(inboxRoot, "2026_04_15.md").apply { writeText("start\nremote first\nend") }
-            val secondInboxFile = File(inboxRoot, "2026_04_16.md").apply { writeText("start\nremote second\nend") }
+    private suspend fun verifyBatchReviewFiles() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-conflicts").toFile()
+        File(inboxRoot, "2026_04_15.md").writeText("start\nremote first\nend")
+        File(inboxRoot, "2026_04_16.md").writeText("ready to import")
+        configureInboxRoot(inboxRoot)
+        coEvery {
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_15.md")
+        } returns "start\nlocal first\nend"
+        coEvery {
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_16.md")
+        } returns null
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_15.md")
-            } returns "start\nlocal first\nend"
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_16.md")
-            } returns "start\nlocal second\nend"
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, any())
-            } returns null
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertTrue(result is UnifiedSyncResult.Conflict)
-            val conflicts = (result as UnifiedSyncResult.Conflict).conflicts
-            assertEquals(SyncBackendType.INBOX, conflicts.source)
-            assertEquals(
-                listOf("inbox/2026_04_15.md", "inbox/2026_04_16.md"),
-                conflicts.files.map { it.relativePath },
+        result.conflicts.source shouldBe SyncBackendType.INBOX
+        result.conflicts.sessionKind shouldBe SyncConflictSessionKind.SYNC_INBOX_REVIEW
+        result.conflicts.files.map { it.relativePath to it.reviewState } shouldBe
+            listOf(
+                "inbox/2026_04_15.md" to CONTENT_DIFFERENCE,
+                "inbox/2026_04_16.md" to READY_TO_IMPORT,
             )
-            assertEquals(
-                conflicts,
-                pendingConflictStore.read(SyncBackendType.INBOX),
+        result.conflicts.files.map { it.remoteContent } shouldBe
+            listOf(
+                "start\nremote first\nend",
+                "ready to import",
             )
-            assertTrue(firstInboxFile.exists())
-            assertTrue(secondInboxFile.exists())
-            coVerify(exactly = 0) {
-                markdownStorageDataSource.saveFileIn(any(), any(), any(), any(), any())
-            }
-            coVerify(exactly = 0) { refreshEngine.refreshImportedSync(any()) }
-        }
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        savedFiles shouldBe emptyMap()
+        coVerify(exactly = 0) { refreshEngine.refreshImportedSync(any()) }
+    }
 
-    @Test
-    fun `sync reprocesses pending inbox conflicts that are now safe to auto merge`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-pending").toFile()
-            val inboxFile = File(inboxRoot, "2026_04_17.md").apply { writeText("remote-only note") }
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_17.md")
-            } returns "local-only note"
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_04_17.md")
-            } returns FileMetadata(filename = "2026_04_17.md", lastModified = 20L)
-            pendingConflictStore.write(
-                com.lomo.domain.model.SyncConflictSet(
-                    source = SyncBackendType.INBOX,
-                    files =
-                        listOf(
-                            com.lomo.domain.model.SyncConflictFile(
-                                relativePath = "inbox/2026_04_17.md",
-                                localContent = "local-only note",
-                                remoteContent = "remote-only note",
-                                isBinary = false,
-                                localLastModified = 20L,
-                                remoteLastModified = 10L,
-                            ),
+    private suspend fun verifyPendingReviewIsReturned() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-pending").toFile()
+        configureInboxRoot(inboxRoot)
+        val pendingConflict =
+            SyncConflictSet(
+                source = SyncBackendType.INBOX,
+                files =
+                    listOf(
+                        SyncConflictFile(
+                            relativePath = "inbox/2026_04_17.md",
+                            localContent = "local-only note",
+                            remoteContent = "remote-only note",
+                            isBinary = false,
+                            reviewState = CONTENT_DIFFERENCE,
                         ),
-                    timestamp = 123L,
-                ),
+                    ),
+                timestamp = 123L,
             )
+        pendingConflictStore.write(pendingConflict)
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
 
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
-            )
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_17.md",
-                    content = "remote-only note\n\nlocal-only note",
-                    append = false,
-                    uri = null,
+        result.message shouldBe "Pending sync inbox review"
+        result.conflicts shouldBe pendingConflict.copy(sessionKind = SyncConflictSessionKind.SYNC_INBOX_REVIEW)
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe pendingConflict
+        coVerify(exactly = 0) { markdownStorageDataSource.readFileIn(any(), any()) }
+        savedFiles shouldBe emptyMap()
+    }
+
+    private suspend fun verifySanitizedSampleReview() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-sanitized").toFile()
+        val inboxFile =
+            File(inboxRoot, "2026_04_13.md").apply {
+                writeText(
+                    "\n- 21:02:55 这是一段脱敏后的长文本，用来模拟用户描述的单段笔记内容，它与另一侧的条目型内容不重叠。",
                 )
             }
-            assertNull(pendingConflictStore.read(SyncBackendType.INBOX))
-            assertTrue(!inboxFile.exists())
-        }
+        configureInboxRoot(inboxRoot)
+        coEvery {
+            markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_13.md")
+        } returns "- 20:13:50\n简短条目一\n\n- 07:26:18 简短条目二\n![image](img_sample.png)"
+        coEvery {
+            markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_04_13.md")
+        } returns FileMetadata(filename = "2026_04_13.md", lastModified = 20L)
 
-    @Test
-    fun `sync auto merges sanitized sample shaped like reported inbox conflict`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-sanitized").toFile()
-            val inboxFile =
-                File(inboxRoot, "2026_04_13.md").apply {
-                    writeText(
-                        "\n- 21:02:55 这是一段脱敏后的长文本，用来模拟用户描述的单段笔记内容，它与另一侧的条目型内容不重叠。",
-                    )
-                }
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val conflictFile = result.conflicts.files.single()
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery {
-                markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_13.md")
-            } returns "- 20:13:50\n简短条目一\n\n- 07:26:18 简短条目二\n![image](img_sample.png)"
-            coEvery {
-                markdownStorageDataSource.getFileMetadataIn(MemoDirectoryType.MAIN, "2026_04_13.md")
-            } returns FileMetadata(filename = "2026_04_13.md", lastModified = 20L)
+        conflictFile.relativePath shouldBe "inbox/2026_04_13.md"
+        conflictFile.reviewState shouldBe CONTENT_DIFFERENCE
+        conflictFile.localContent shouldBe "- 20:13:50\n简短条目一\n\n- 07:26:18 简短条目二\n![image](img_sample.png)"
+        conflictFile.remoteContent shouldBe "\n- 21:02:55 这是一段脱敏后的长文本，用来模拟用户描述的单段笔记内容，它与另一侧的条目型内容不重叠。"
+        conflictFile.localLastModified shouldBe 20L
+        conflictFile.remoteLastModified shouldBe inboxFile.lastModified()
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        savedFiles shouldBe emptyMap()
+        inboxFile.exists().shouldBeTrue()
+    }
 
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+    private suspend fun verifyInspectionFailureBecomesBlockedReview() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-exception-batch").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        File(memoDirectory, "2026_04_27.md").writeText("broken memo")
+        File(memoDirectory, "2026_04_28.md").writeText("healthy memo")
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_27.md") } throws
+            IllegalStateException("boom")
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_28.md") } returns null
 
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
+        val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val blockedFile = result.conflicts.files.first { it.relativePath == "inbox/memo/2026_04_27.md" }
+        val readyFile = result.conflicts.files.first { it.relativePath == "inbox/memo/2026_04_28.md" }
+
+        blockedFile.reviewState shouldBe BLOCKED
+        blockedFile.reviewMessage shouldBe "boom"
+        blockedFile.remoteContent.shouldBeNull()
+        readyFile.reviewState shouldBe READY_TO_IMPORT
+        readyFile.remoteContent shouldBe "healthy memo"
+        pendingConflictStore.read(SyncBackendType.INBOX) shouldBe result.conflicts
+        savedFiles shouldBe emptyMap()
+        coVerify(exactly = 0) { refreshEngine.refreshImportedSync(any()) }
+    }
+
+    private suspend fun verifyResolveConflictsRefreshesOnce() {
+        val inboxRoot = Files.createTempDirectory("sync-inbox-batch-refresh").toFile()
+        val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
+        val firstInboxFile = File(memoDirectory, "2026_04_29.md").apply { writeText("first") }
+        val secondInboxFile = File(memoDirectory, "2026_04_30.md").apply { writeText("second") }
+        configureInboxRoot(inboxRoot)
+        coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
+
+        val review = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES) as UnifiedSyncResult.Conflict
+        val resolution =
+            SyncConflictResolution(
+                perFileChoices = review.conflicts.files.associate { it.relativePath to KEEP_REMOTE },
             )
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_13.md",
-                    content =
-                        "- 20:13:50\n简短条目一\n\n- 07:26:18 简短条目二\n![image](img_sample.png)\n\n" +
-                            "- 21:02:55 这是一段脱敏后的长文本，用来模拟用户描述的单段笔记内容，它与另一侧的条目型内容不重叠。",
-                    append = false,
-                    uri = null,
-                )
-            }
-            assertNull(pendingConflictStore.read(SyncBackendType.INBOX))
-            assertTrue(!inboxFile.exists())
-        }
 
-    @Test
-    fun `sync keeps importing later files when one markdown file throws during processing`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-exception-batch").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(memoDirectory, "2026_04_27.md").writeText("broken memo")
-            File(memoDirectory, "2026_04_28.md").writeText("healthy memo")
+        val result = repository.resolveConflicts(resolution, review.conflicts)
 
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_27.md") } throws
-                IllegalStateException("boom")
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "2026_04_28.md") } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertTrue(result is UnifiedSyncResult.Error || result is UnifiedSyncResult.Conflict)
-            coVerify(exactly = 1) {
-                markdownStorageDataSource.saveFileIn(
-                    directory = MemoDirectoryType.MAIN,
-                    filename = "2026_04_28.md",
-                    content = "healthy memo",
-                    append = false,
-                    uri = null,
-                )
-            }
-        }
-
-    @Test
-    fun `sync refreshes imported files once after multiple successful imports`() =
-        runTest {
-            val inboxRoot = Files.createTempDirectory("sync-inbox-batch-refresh").toFile()
-            val memoDirectory = File(inboxRoot, "memo").apply { mkdirs() }
-            File(memoDirectory, "2026_04_29.md").writeText("first")
-            File(memoDirectory, "2026_04_30.md").writeText("second")
-
-            every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, any()) } returns null
-
-            val result = repository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-
-            assertEquals(
-                UnifiedSyncResult.Success(
-                    provider = SyncBackendType.INBOX,
-                    message = "Sync inbox processed",
-                ),
-                result,
+        result shouldBe
+            UnifiedSyncResult.Success(
+                provider = SyncBackendType.INBOX,
+                message = "Sync inbox conflicts resolved",
             )
-            coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
-            coVerify(exactly = 0) { refreshEngine.refreshImportedSync("2026_04_29.md") }
-            coVerify(exactly = 0) { refreshEngine.refreshImportedSync("2026_04_30.md") }
-        }
+        savedFiles shouldBe
+            linkedMapOf(
+                "2026_04_29.md" to "first",
+                "2026_04_30.md" to "second",
+            )
+        coVerify(exactly = 1) { refreshEngine.refreshImportedSync() }
+        firstInboxFile.exists() shouldBe false
+        secondInboxFile.exists() shouldBe false
+        pendingConflictStore.read(SyncBackendType.INBOX).shouldBeNull()
+    }
+
+    private fun configureInboxRoot(inboxRoot: File) {
+        every { workspaceConfigSource.getRootFlow(StorageRootType.SYNC_INBOX) } returns flowOf(inboxRoot.absolutePath)
+    }
 }

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
 import com.lomo.data.local.dao.S3SyncRemoteMetadataSnapshot
@@ -26,12 +27,11 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.assertions.withClue
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -41,9 +41,36 @@ import org.junit.rules.TemporaryFolder
  * - Red phase: Fails before the fix because initial sync treats every overlapping path without metadata as a conflict, so identical files do not seed metadata, clear newer-side changes do not auto-sync, and the initial overlap path never reaches the optimized fast path.
  * - Excludes: AWS SDK transport internals, Room generated code, WorkManager scheduling, and UI rendering.
  */
-class S3InitialSyncOptimizationTest {
-    @get:Rule val tempFolder = TemporaryFolder()
+class S3InitialSyncOptimizationTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+            setUp()
+        }
 
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("performSync downloads remote files immediately when local vault is empty") { `performSync downloads remote files immediately when local vault is empty`() }
+
+        test("performSync treats initial overlapping identical memo as up to date and seeds metadata") { `performSync treats initial overlapping identical memo as up to date and seeds metadata`() }
+
+        test("performSync uploads clearly newer local overlap instead of raising initial conflict") { `performSync uploads clearly newer local overlap instead of raising initial conflict`() }
+
+        test("performSync downloads clearly newer remote overlap instead of raising initial conflict") { `performSync downloads clearly newer remote overlap instead of raising initial conflict`() }
+
+        test("performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side") { `performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side`() }
+
+        test("performSync treats identical memo with unusable etag as up to date by reading content on demand") { `performSync treats identical memo with unusable etag as up to date by reading content on demand`() }
+
+        test("performSync uploads newer memo when etag is unusable but content comparison proves drift") { `performSync uploads newer memo when etag is unusable but content comparison proves drift`() }
+
+        test("performSync avoids fetching every remote memo body for high-conflict initial preview") { `performSync avoids fetching every remote memo body for high-conflict initial preview`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
     @MockK(relaxed = true)
     private lateinit var dataStore: LomoDataStore
 
@@ -64,7 +91,6 @@ class S3InitialSyncOptimizationTest {
 
     private lateinit var vaultRoot: File
 
-    @Before
     fun setUp() {
         MockKAnnotations.init(this)
 
@@ -104,8 +130,7 @@ class S3InitialSyncOptimizationTest {
         coEvery { memoSynchronizer.refresh() } returns Unit
     }
 
-    @Test
-    fun `performSync downloads remote files immediately when local vault is empty`() =
+    private fun `performSync downloads remote files immediately when local vault is empty`() =
         runTest {
             val remoteBytes = "# remote".toByteArray(StandardCharsets.UTF_8)
             val client =
@@ -122,20 +147,16 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue("Expected success, got $result", result is S3SyncResult.Success)
+            withClue("Expected success, got $result") { (result is S3SyncResult.Success).shouldBeTrue() }
             val success = result as S3SyncResult.Success
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals("# remote", File(vaultRoot, "memo/remote.md").readText())
-            assertEquals(1, client.getObjectCalls)
-            assertEquals(0, client.putObjectCalls)
-            assertEquals(0, client.headCalls)
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
+            File(vaultRoot, "memo/remote.md").readText() shouldBe "# remote"
+            client.getObjectCalls shouldBe 1
+            client.putObjectCalls shouldBe 0
+            client.headCalls shouldBe 0
         }
 
-    @Test
-    fun `performSync treats initial overlapping identical memo as up to date and seeds metadata`() =
+    private fun `performSync treats initial overlapping identical memo as up to date and seeds metadata`() =
         runTest {
             val sharedBytes = "# same".toByteArray(StandardCharsets.UTF_8)
             val localFile = writeLocalFile("memo/note.md", sharedBytes, lastModified = 120L)
@@ -154,24 +175,20 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = metadataDao).performSync()
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals("# same", localFile.readText())
-            assertEquals(0, client.getObjectCalls)
-            assertEquals(0, client.putObjectCalls)
-            assertEquals(0, client.deleteObjectCalls)
-            assertEquals(0, client.headCalls)
-            assertEquals(listOf("memo/note.md"), metadataDao.paths())
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            localFile.readText() shouldBe "# same"
+            client.getObjectCalls shouldBe 0
+            client.putObjectCalls shouldBe 0
+            client.deleteObjectCalls shouldBe 0
+            client.headCalls shouldBe 0
+            metadataDao.paths() shouldBe listOf("memo/note.md")
             val persisted = metadataDao.getAll().single()
-            assertEquals(sharedBytes.size.toLong(), persisted.localSize)
-            assertEquals(sharedBytes.size.toLong(), persisted.remoteSize)
-            assertEquals(md5Hex(sharedBytes), persisted.localFingerprint)
+            persisted.localSize shouldBe sharedBytes.size.toLong()
+            persisted.remoteSize shouldBe sharedBytes.size.toLong()
+            persisted.localFingerprint shouldBe md5Hex(sharedBytes)
         }
 
-    @Test
-    fun `performSync uploads clearly newer local overlap instead of raising initial conflict`() =
+    private fun `performSync uploads clearly newer local overlap instead of raising initial conflict`() =
         runTest {
             val localBytes = "# local newer".toByteArray(StandardCharsets.UTF_8)
             writeLocalFile("memo/note.md", localBytes, lastModified = 200L)
@@ -190,19 +207,15 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue("Expected success, got $result", result is S3SyncResult.Success)
+            withClue("Expected success, got $result") { (result is S3SyncResult.Success).shouldBeTrue() }
             val success = result as S3SyncResult.Success
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(1, client.putObjectCalls)
-            assertEquals(listOf("memo/note.md"), client.putKeys)
-            assertEquals(0, client.getObjectCalls)
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            client.putObjectCalls shouldBe 1
+            client.putKeys shouldBe listOf("memo/note.md")
+            client.getObjectCalls shouldBe 0
         }
 
-    @Test
-    fun `performSync downloads clearly newer remote overlap instead of raising initial conflict`() =
+    private fun `performSync downloads clearly newer remote overlap instead of raising initial conflict`() =
         runTest {
             writeLocalFile(
                 relativePath = "memo/note.md",
@@ -224,19 +237,15 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue("Expected success, got $result", result is S3SyncResult.Success)
+            withClue("Expected success, got $result") { (result is S3SyncResult.Success).shouldBeTrue() }
             val success = result as S3SyncResult.Success
-            assertEquals(
-                listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals("# remote newer", File(vaultRoot, "memo/note.md").readText())
-            assertEquals(1, client.getObjectCalls)
-            assertEquals(0, client.putObjectCalls)
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.DOWNLOAD to S3SyncReason.REMOTE_ONLY)
+            File(vaultRoot, "memo/note.md").readText() shouldBe "# remote newer"
+            client.getObjectCalls shouldBe 1
+            client.putObjectCalls shouldBe 0
         }
 
-    @Test
-    fun `performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side`() =
+    private fun `performSync keeps initial overlap in conflict when same-size content disagrees without a clear newer side`() =
         runTest {
             writeLocalFile(
                 relativePath = "memo/note.md",
@@ -258,11 +267,10 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue(result is S3SyncResult.Conflict)
+            (result is S3SyncResult.Conflict).shouldBeTrue()
         }
 
-    @Test
-    fun `performSync treats identical memo with unusable etag as up to date by reading content on demand`() =
+    private fun `performSync treats identical memo with unusable etag as up to date by reading content on demand`() =
         runTest {
             val sharedBytes = "# same".toByteArray(StandardCharsets.UTF_8)
             writeLocalFile("memo/note.md", sharedBytes, lastModified = 100L)
@@ -282,21 +290,17 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = metadataDao).performSync()
 
-            assertEquals(
-                S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList()),
-                result,
-            )
-            assertEquals(1, client.getObjectCalls)
-            assertEquals(0, client.putObjectCalls)
-            assertEquals(listOf("memo/note.md"), metadataDao.paths())
+            result shouldBe S3SyncResult.Success(message = "S3 already up to date", outcomes = emptyList())
+            client.getObjectCalls shouldBe 1
+            client.putObjectCalls shouldBe 0
+            metadataDao.paths() shouldBe listOf("memo/note.md")
             val persisted = metadataDao.getAll().single()
-            assertEquals(sharedBytes.size.toLong(), persisted.localSize)
-            assertEquals(sharedBytes.size.toLong(), persisted.remoteSize)
-            assertEquals(md5Hex(sharedBytes), persisted.localFingerprint)
+            persisted.localSize shouldBe sharedBytes.size.toLong()
+            persisted.remoteSize shouldBe sharedBytes.size.toLong()
+            persisted.localFingerprint shouldBe md5Hex(sharedBytes)
         }
 
-    @Test
-    fun `performSync uploads newer memo when etag is unusable but content comparison proves drift`() =
+    private fun `performSync uploads newer memo when etag is unusable but content comparison proves drift`() =
         runTest {
             writeLocalFile(
                 relativePath = "memo/note.md",
@@ -318,18 +322,14 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue("Expected success, got $result", result is S3SyncResult.Success)
+            withClue("Expected success, got $result") { (result is S3SyncResult.Success).shouldBeTrue() }
             val success = result as S3SyncResult.Success
-            assertEquals(
-                listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY),
-                success.outcomes.map { it.direction to it.reason },
-            )
-            assertEquals(1, client.getObjectCalls)
-            assertEquals(1, client.putObjectCalls)
+            success.outcomes.map { it.direction to it.reason } shouldBe listOf(S3SyncDirection.UPLOAD to S3SyncReason.LOCAL_ONLY)
+            client.getObjectCalls shouldBe 1
+            client.putObjectCalls shouldBe 1
         }
 
-    @Test
-    fun `performSync avoids fetching every remote memo body for high-conflict initial preview`() =
+    private fun `performSync avoids fetching every remote memo body for high-conflict initial preview`() =
         runTest {
             val remoteFixtures =
                 (0 until 10).map { index ->
@@ -350,12 +350,12 @@ class S3InitialSyncOptimizationTest {
 
             val result = createExecutor(client = client, metadataDao = RecordingInitialMetadataDao()).performSync()
 
-            assertTrue("Expected conflict, got $result", result is S3SyncResult.Conflict)
+            withClue("Expected conflict, got $result") { (result is S3SyncResult.Conflict).shouldBeTrue() }
             val conflict = result as S3SyncResult.Conflict
-            assertEquals(10, conflict.conflicts.files.size)
-            assertTrue(conflict.conflicts.files.all { file -> file.localContent == null && file.remoteContent == null })
-            assertEquals(0, client.getObjectCalls)
-            assertEquals(0, client.putObjectCalls)
+            conflict.conflicts.files.size shouldBe 10
+            (conflict.conflicts.files.all { file -> file.localContent == null && file.remoteContent == null }).shouldBeTrue()
+            client.getObjectCalls shouldBe 0
+            client.putObjectCalls shouldBe 0
         }
 
     private fun createExecutor(

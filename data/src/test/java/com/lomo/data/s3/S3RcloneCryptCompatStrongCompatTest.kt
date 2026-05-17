@@ -1,11 +1,11 @@
 package com.lomo.data.s3
 
+
 import com.lomo.domain.model.S3RcloneCryptConfig
 import com.lomo.domain.model.S3RcloneFilenameEncoding
 import com.lomo.domain.model.S3RcloneFilenameEncryption
-import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,7 +15,24 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the codec only supports standard filename encryption with base64/base32 and has no password2, base32768, obfuscate, or filename-off behavior.
  * - Excludes: AWS transport, sync orchestration, and settings UI.
  */
-class S3RcloneCryptCompatStrongCompatTest {
+class S3RcloneCryptCompatStrongCompatTest : DataFunSpec() {
+    init {
+        test("standard base32768 filename vector matches rclone") { `standard base32768 filename vector matches rclone`() }
+
+        test("standard filename encryption can keep directories plaintext") { `standard filename encryption can keep directories plaintext`() }
+
+        test("obfuscate filename vector matches rclone") { `obfuscate filename vector matches rclone`() }
+
+        test("filename encryption off appends suffix and decodes back") { `filename encryption off appends suffix and decodes back`() }
+
+        test("filename encryption off supports suffix none") { `filename encryption off supports suffix none`() }
+
+        test("password2 changes filename derivation to match rclone") { `password2 changes filename derivation to match rclone`() }
+
+        test("password2 decrypts official rclone ciphertext") { `password2 decrypts official rclone ciphertext`() }
+    }
+
+
     private val codec =
         S3RcloneCryptCompatCodec(
             nonceGenerator = {
@@ -57,8 +74,7 @@ class S3RcloneCryptCompatStrongCompatTest {
             encryptedSuffix = ".bin",
         )
 
-    @Test
-    fun `standard base32768 filename vector matches rclone`() {
+    private fun `standard base32768 filename vector matches rclone`() {
         val config = standardConfig.copy(filenameEncoding = S3RcloneFilenameEncoding.BASE32768)
 
         val encrypted =
@@ -69,20 +85,16 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = config,
             )
 
-        assertEquals("堜鹛蔃㺓ꊈ袠ᦈ䃢租/ꁪ殁㲯㧢浀龹耵㭴鳟/ꈚ負畇秜豐渷葊粆敟", encrypted)
-        assertEquals(
-            "lomo/memo/note.md",
-            codec.decryptKey(
+        encrypted shouldBe "堜鹛蔃㺓ꊈ袠ᦈ䃢租/ꁪ殁㲯㧢浀龹耵㭴鳟/ꈚ負畇秜豐渷葊粆敟"
+        codec.decryptKey(
                 encryptedKey = encrypted,
                 password = "secret-pass",
                 password2 = "",
                 config = config,
-            ),
-        )
+            ) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `standard filename encryption can keep directories plaintext`() {
+    private fun `standard filename encryption can keep directories plaintext`() {
         val config = standardConfig.copy(directoryNameEncryption = false)
 
         val encrypted =
@@ -93,20 +105,16 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = config,
             )
 
-        assertEquals("attachments/screenshots/WYGqdZq0CGWonT5SwE77fw", encrypted)
-        assertEquals(
-            "attachments/screenshots/shot.png",
-            codec.decryptKey(
+        encrypted shouldBe "attachments/screenshots/WYGqdZq0CGWonT5SwE77fw"
+        codec.decryptKey(
                 encryptedKey = encrypted,
                 password = "secret-pass",
                 password2 = "",
                 config = config,
-            ),
-        )
+            ) shouldBe "attachments/screenshots/shot.png"
     }
 
-    @Test
-    fun `obfuscate filename vector matches rclone`() {
+    private fun `obfuscate filename vector matches rclone`() {
         val config = standardConfig.copy(filenameEncryption = S3RcloneFilenameEncryption.OBFUSCATE)
 
         val encrypted =
@@ -117,20 +125,16 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = config,
             )
 
-        assertEquals("183.BECE/174.tltv/181.BCHs.Ar", encrypted)
-        assertEquals(
-            "lomo/memo/note.md",
-            codec.decryptKey(
+        encrypted shouldBe "183.BECE/174.tltv/181.BCHs.Ar"
+        codec.decryptKey(
                 encryptedKey = encrypted,
                 password = "secret-pass",
                 password2 = "",
                 config = config,
-            ),
-        )
+            ) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `filename encryption off appends suffix and decodes back`() {
+    private fun `filename encryption off appends suffix and decodes back`() {
         val config = standardConfig.copy(filenameEncryption = S3RcloneFilenameEncryption.OFF)
 
         val encrypted =
@@ -141,20 +145,16 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = config,
             )
 
-        assertEquals("lomo/memo/note.md.bin", encrypted)
-        assertEquals(
-            "lomo/memo/note.md",
-            codec.decryptKey(
+        encrypted shouldBe "lomo/memo/note.md.bin"
+        codec.decryptKey(
                 encryptedKey = encrypted,
                 password = "secret-pass",
                 password2 = "",
                 config = config,
-            ),
-        )
+            ) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `filename encryption off supports suffix none`() {
+    private fun `filename encryption off supports suffix none`() {
         val config =
             standardConfig.copy(
                 filenameEncryption = S3RcloneFilenameEncryption.OFF,
@@ -169,20 +169,16 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = config,
             )
 
-        assertEquals("lomo/memo/note.md", encrypted)
-        assertEquals(
-            "lomo/memo/note.md",
-            codec.decryptKey(
+        encrypted shouldBe "lomo/memo/note.md"
+        codec.decryptKey(
                 encryptedKey = encrypted,
                 password = "secret-pass",
                 password2 = "",
                 config = config,
-            ),
-        )
+            ) shouldBe "lomo/memo/note.md"
     }
 
-    @Test
-    fun `password2 changes filename derivation to match rclone`() {
+    private fun `password2 changes filename derivation to match rclone`() {
         val encrypted =
             codec.encryptKey(
                 key = "lomo/memo/note.md",
@@ -191,19 +187,15 @@ class S3RcloneCryptCompatStrongCompatTest {
                 config = standardConfig,
             )
 
-        assertEquals("aN64pKS2-EEzrQ3FmeCN1w/8QRhr5B4sqeo7vJHhbAl9w/Y0fzQO6pGEg_6_jF1V4IzQ", encrypted)
+        encrypted shouldBe "aN64pKS2-EEzrQ3FmeCN1w/8QRhr5B4sqeo7vJHhbAl9w/Y0fzQO6pGEg_6_jF1V4IzQ"
     }
 
-    @Test
-    fun `password2 decrypts official rclone ciphertext`() {
-        assertArrayEquals(
-            "hello".toByteArray(),
-            codec.decryptBytes(
+    private fun `password2 decrypts official rclone ciphertext`() {
+        codec.decryptBytes(
                 encrypted = password2HelloPayload,
                 password = "secret-pass",
                 password2 = "secret-salt",
-            ),
-        )
+            ) shouldBe "hello".toByteArray()
     }
 
     private companion object {

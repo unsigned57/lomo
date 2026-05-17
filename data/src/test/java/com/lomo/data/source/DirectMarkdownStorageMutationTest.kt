@@ -1,61 +1,93 @@
 package com.lomo.data.source
 
+
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
- * - Unit under test: direct markdown delete helpers
- * - Behavior focus: delete paths only invoke secure wipe when the overwrite-before-unlink option is enabled.
- * - Observable outcomes: target file removal plus injected secure-wipe callback invocation.
- * - Red phase: Fails before the fix because directDeleteFile/directDeleteTrashFile do not accept or honor an overwrite-before-unlink option.
- * - Excludes: SAF-backed deletion and low-level overwrite byte patterns.
+ * - Unit under test: direct markdown delete helpers (directDeleteFile, directDeleteTrashFile).
+ * - Behavior focus: permanent delete on direct-storage Markdown files always invokes the
+ *   secure wipe pass before unlinking — the previous "skip wipe when the user opted out"
+ *   path is gone. Hard delete is irreversible, and the in-app trash already provides the
+ *   non-destructive recovery surface, so wiping is now a non-configurable application
+ *   invariant rather than a settings toggle.
+ * - Observable outcomes: target file removal plus injected secure-wipe callback invocation
+ *   for both the main directory and the trash directory.
+ * - Red phase: Fails before the internalization because the helpers still accept an
+ *   `overwriteBeforeUnlink` parameter and can skip the wipe when it is `false`.
+ * - Excludes: SAF-backed deletion, low-level overwrite byte patterns, and the legacy
+ *   "skip wipe" path.
  */
-class DirectMarkdownStorageMutationTest {
-    @get:Rule
-    val tempFolder: TemporaryFolder = TemporaryFolder()
+class DirectMarkdownStorageMutationTest : DataFunSpec() {
+    private lateinit var tempFolder: KotestTemporaryFolder
 
-    @Test
-    fun `directDeleteFile skips secure wipe when overwrite-before-unlink is disabled`() =
-        runTest {
-            val root = tempFolder.newFolder("lomo-direct-delete")
-            val target = root.resolve("2026_04_20.md").apply { writeText("secret") }
-            var secureWipeInvoked = false
-
-            directDeleteFile(
-                rootDir = root,
-                filename = target.name,
-                overwriteBeforeUnlink = false,
-                secureWipe = { secureWipeInvoked = true },
-            )
-
-            assertFalse(target.exists())
-            assertFalse(secureWipeInvoked)
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
         }
 
-    @Test
-    fun `directDeleteTrashFile invokes secure wipe before unlink when enabled`() =
-        runTest {
-            val root = tempFolder.newFolder("lomo-direct-trash-delete")
-            val trashDir = root.resolve(".trash").apply { mkdirs() }
-            val target = trashDir.resolve("2026_04_20.md").apply { writeText("secret") }
-            var secureWipeInvoked = false
-
-            directDeleteTrashFile(
-                rootDir = root,
-                filename = target.name,
-                overwriteBeforeUnlink = true,
-                secureWipe = { file ->
-                    secureWipeInvoked = true
-                    assertTrue(file.exists())
-                },
-            )
-
-            assertTrue(secureWipeInvoked)
-            assertFalse(target.exists())
+        afterTest {
+            tempFolder.cleanup()
         }
+
+        test("directDeleteFile always invokes secure wipe before unlinking the file") {
+            runTest {
+                val root = tempFolder.newFolder("lomo-direct-delete")
+                val target = root.resolve("2026_04_20.md").apply { writeText("secret") }
+                var secureWipeInvoked = false
+
+                directDeleteFile(
+                    rootDir = root,
+                    filename = target.name,
+                    secureWipe = { file ->
+                        secureWipeInvoked = true
+                        file.exists().shouldBeTrue()
+                    },
+                )
+
+                secureWipeInvoked.shouldBeTrue()
+                target.exists().shouldBeFalse()
+            }
+        }
+
+        test("directDeleteTrashFile always invokes secure wipe before unlinking the trash entry") {
+            runTest {
+                val root = tempFolder.newFolder("lomo-direct-trash-delete")
+                val trashDir = root.resolve(".trash").apply { mkdirs() }
+                val target = trashDir.resolve("2026_04_20.md").apply { writeText("secret") }
+                var secureWipeInvoked = false
+
+                directDeleteTrashFile(
+                    rootDir = root,
+                    filename = target.name,
+                    secureWipe = { file ->
+                        secureWipeInvoked = true
+                        file.exists().shouldBeTrue()
+                    },
+                )
+
+                secureWipeInvoked.shouldBeTrue()
+                target.exists().shouldBeFalse()
+            }
+        }
+
+        test("delete helpers no-op the wipe when the file does not exist") {
+            runTest {
+                val root = tempFolder.newFolder("lomo-direct-delete-missing")
+                var secureWipeInvoked = false
+
+                directDeleteFile(
+                    rootDir = root,
+                    filename = "missing.md",
+                    secureWipe = { secureWipeInvoked = true },
+                )
+
+                secureWipeInvoked.shouldBeFalse()
+            }
+        }
+    }
 }

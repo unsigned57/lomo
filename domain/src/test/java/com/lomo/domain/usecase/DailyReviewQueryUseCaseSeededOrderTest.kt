@@ -2,11 +2,11 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -16,21 +16,22 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the use case always reseeds from volatile time and exposes no way to replay the same random walk.
  * - Excludes: session date rollover, UI pager restoration, and repository paging correctness already covered elsewhere.
  */
-class DailyReviewQueryUseCaseSeededOrderTest {
+class DailyReviewQueryUseCaseSeededOrderTest : DomainFunSpec() {
     private val repository: MemoRepository = mockk()
     private val useCase = DailyReviewQueryUseCase(repository)
+    init {
+        test("invoke returns the same memo order when called with the same seed") {
+            runTest {
+                        val memos = (0 until 30).map(::memo)
+                        stubPagedMemos(memos)
 
-    @Test
-    fun `invoke returns the same memo order when called with the same seed`() =
-        runTest {
-            val memos = (0 until 30).map(::memo)
-            stubPagedMemos(memos)
+                        val first = useCase(seed = 42L).map { it.id }
+                        val second = useCase(seed = 42L).map { it.id }
 
-            val first = useCase(seed = 42L).map { it.id }
-            val second = useCase(seed = 42L).map { it.id }
-
-            assertEquals(first, second)
+                        second shouldBe first
+                    }
         }
+    }
 
     private fun stubPagedMemos(memos: List<Memo>) {
         coEvery { repository.getMemoCount() } returns memos.size

@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import android.content.Context
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.worker.GitSyncScheduler
@@ -14,8 +15,8 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -25,7 +26,26 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the S3 backend cannot be persisted or rescheduled, so remote sync policy never activates the S3 scheduler.
  * - Excludes: WorkManager request construction and Android context-driven worker registration.
  */
-class SyncPolicyRepositoryImplTest {
+class SyncPolicyRepositoryImplTest : DataFunSpec() {
+    init {
+        test("observeRemoteSyncBackend maps persisted preference and falls back to NONE") { `observeRemoteSyncBackend maps persisted preference and falls back to NONE`() }
+
+        test("setRemoteSyncBackend writes all four keys atomically for git backend") { `setRemoteSyncBackend writes all four keys atomically for git backend`() }
+
+        test("setRemoteSyncBackend writes all four keys atomically for NONE backend") { `setRemoteSyncBackend writes all four keys atomically for NONE backend`() }
+
+        test("setRemoteSyncBackend writes all four keys atomically for s3 backend") { `setRemoteSyncBackend writes all four keys atomically for s3 backend`() }
+
+        test("applyRemoteSyncPolicy cancels both schedulers when backend is NONE") { `applyRemoteSyncPolicy cancels both schedulers when backend is NONE`() }
+
+        test("applyRemoteSyncPolicy reschedules git and cancels webdav when backend is GIT") { `applyRemoteSyncPolicy reschedules git and cancels webdav when backend is GIT`() }
+
+        test("applyRemoteSyncPolicy reschedules webdav and cancels git when backend is WEBDAV") { `applyRemoteSyncPolicy reschedules webdav and cancels git when backend is WEBDAV`() }
+
+        test("applyRemoteSyncPolicy reschedules s3 and cancels git webdav when backend is S3") { `applyRemoteSyncPolicy reschedules s3 and cancels git webdav when backend is S3`() }
+    }
+
+
     private val context: Context = mockk(relaxed = true)
     private val dataStore: LomoDataStore = mockk(relaxed = true)
     private val gitSyncScheduler: GitSyncScheduler = mockk(relaxed = true)
@@ -41,16 +61,14 @@ class SyncPolicyRepositoryImplTest {
             s3SyncScheduler = s3SyncScheduler,
         )
 
-    @Test
-    fun `observeRemoteSyncBackend maps persisted preference and falls back to NONE`() =
+    private fun `observeRemoteSyncBackend maps persisted preference and falls back to NONE`() =
         runTest {
             every { dataStore.syncBackendType } returns flowOf("unexpected")
 
-            assertEquals(SyncBackendType.NONE, repository.observeRemoteSyncBackend().first())
+            repository.observeRemoteSyncBackend().first() shouldBe SyncBackendType.NONE
         }
 
-    @Test
-    fun `setRemoteSyncBackend writes all four keys atomically for git backend`() =
+    private fun `setRemoteSyncBackend writes all four keys atomically for git backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.GIT)
 
@@ -61,8 +79,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { dataStore.updateS3SyncEnabled(any()) }
         }
 
-    @Test
-    fun `setRemoteSyncBackend writes all four keys atomically for NONE backend`() =
+    private fun `setRemoteSyncBackend writes all four keys atomically for NONE backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.NONE)
 
@@ -71,8 +88,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { dataStore.updateGitSyncEnabled(any()) }
         }
 
-    @Test
-    fun `setRemoteSyncBackend writes all four keys atomically for s3 backend`() =
+    private fun `setRemoteSyncBackend writes all four keys atomically for s3 backend`() =
         runTest {
             repository.setRemoteSyncBackend(SyncBackendType.S3)
 
@@ -81,8 +97,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { dataStore.updateS3SyncEnabled(any()) }
         }
 
-    @Test
-    fun `applyRemoteSyncPolicy cancels both schedulers when backend is NONE`() =
+    private fun `applyRemoteSyncPolicy cancels both schedulers when backend is NONE`() =
         runTest {
             every { dataStore.syncBackendType } returns flowOf("none")
 
@@ -96,8 +111,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { s3SyncScheduler.reschedule() }
         }
 
-    @Test
-    fun `applyRemoteSyncPolicy reschedules git and cancels webdav when backend is GIT`() =
+    private fun `applyRemoteSyncPolicy reschedules git and cancels webdav when backend is GIT`() =
         runTest {
             every { dataStore.syncBackendType } returns flowOf("git")
             coEvery { gitSyncScheduler.reschedule() } returns Unit
@@ -111,8 +125,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { s3SyncScheduler.reschedule() }
         }
 
-    @Test
-    fun `applyRemoteSyncPolicy reschedules webdav and cancels git when backend is WEBDAV`() =
+    private fun `applyRemoteSyncPolicy reschedules webdav and cancels git when backend is WEBDAV`() =
         runTest {
             every { dataStore.syncBackendType } returns flowOf("webdav")
             coEvery { webDavSyncScheduler.reschedule() } returns Unit
@@ -125,8 +138,7 @@ class SyncPolicyRepositoryImplTest {
             coVerify(exactly = 0) { gitSyncScheduler.reschedule() }
         }
 
-    @Test
-    fun `applyRemoteSyncPolicy reschedules s3 and cancels git webdav when backend is S3`() =
+    private fun `applyRemoteSyncPolicy reschedules s3 and cancels git webdav when backend is S3`() =
         runTest {
             every { dataStore.syncBackendType } returns flowOf("s3")
             coEvery { s3SyncScheduler.reschedule() } returns Unit

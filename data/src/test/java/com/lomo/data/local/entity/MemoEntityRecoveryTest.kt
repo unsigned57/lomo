@@ -1,13 +1,14 @@
 package com.lomo.data.local.entity
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -17,9 +18,19 @@ import java.time.ZoneId
  * - Red phase: Fails before the fix when a stale entity created from `- <zero-width>HH:mm:ss` storage text still surfaces midnight timestamp and raw header text in the UI, or when a plain-markdown entity with blank stored content still drops its raw URL body.
  * - Excludes: Room queries, markdown rendering widgets, and sync refresh scheduling.
  */
-class MemoEntityRecoveryTest {
-    @Test
-    fun `toDomain recovers stale midnight memo from raw content with zero width separator`() {
+class MemoEntityRecoveryTest : DataFunSpec() {
+    init {
+        test("toDomain recovers stale midnight memo from raw content with zero width separator") { `toDomain recovers stale midnight memo from raw content with zero width separator`() }
+
+        test("toDomain keeps plain markdown fallback content when raw content has no storage header") { `toDomain keeps plain markdown fallback content when raw content has no storage header`() }
+
+        test("toDomain keeps stored content when raw storage header has no recovered body") { `toDomain keeps stored content when raw storage header has no recovered body`() }
+
+        test("toDomain recovers plain markdown raw content when stored content is blank") { `toDomain recovers plain markdown raw content when stored content is blank`() }
+    }
+
+
+    private fun `toDomain recovers stale midnight memo from raw content with zero width separator`() {
         val domain =
             MemoEntity(
                 id = "2022_08_18_00:00:00_bad",
@@ -45,15 +56,14 @@ class MemoEntityRecoveryTest {
                 imageUrls = "",
             ).toDomain()
 
-        assertEquals(LocalDate.of(2022, 8, 18), Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalDate())
-        assertEquals(LocalTime.of(21, 0, 33), Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
-        assertTrue(domain.content.contains("贫穷问答歌"))
-        assertTrue(domain.content.contains("山上忆良"))
-        assertFalse(domain.content.contains("- ​21:00:33"))
+        Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalDate() shouldBe LocalDate.of(2022, 8, 18)
+        Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime() shouldBe LocalTime.of(21, 0, 33)
+        (domain.content.contains("贫穷问答歌")).shouldBeTrue()
+        (domain.content.contains("山上忆良")).shouldBeTrue()
+        (domain.content.contains("- ​21:00:33")).shouldBeFalse()
     }
 
-    @Test
-    fun `toDomain keeps plain markdown fallback content when raw content has no storage header`() {
+    private fun `toDomain keeps plain markdown fallback content when raw content has no storage header`() {
         val content =
             """
             # Title
@@ -72,12 +82,11 @@ class MemoEntityRecoveryTest {
                 imageUrls = "",
             ).toDomain()
 
-        assertEquals(content, domain.content)
-        assertEquals(midnightTimestampOf(2026, 3, 25), domain.timestamp)
+        domain.content shouldBe content
+        domain.timestamp shouldBe midnightTimestampOf(2026, 3, 25)
     }
 
-    @Test
-    fun `toDomain keeps stored content when raw storage header has no recovered body`() {
+    private fun `toDomain keeps stored content when raw storage header has no recovered body`() {
         val storedContent = "still visible body"
 
         val domain =
@@ -91,12 +100,11 @@ class MemoEntityRecoveryTest {
                 imageUrls = "",
             ).toDomain()
 
-        assertEquals(storedContent, domain.content)
-        assertEquals(LocalTime.of(21, 0), Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime())
+        domain.content shouldBe storedContent
+        Instant.ofEpochMilli(domain.timestamp).atZone(ZoneId.systemDefault()).toLocalTime() shouldBe LocalTime.of(21, 0)
     }
 
-    @Test
-    fun `toDomain recovers plain markdown raw content when stored content is blank`() {
+    private fun `toDomain recovers plain markdown raw content when stored content is blank`() {
         val rawContent = "https://example.com/url-only"
 
         val domain =
@@ -110,8 +118,8 @@ class MemoEntityRecoveryTest {
                 imageUrls = "",
             ).toDomain()
 
-        assertEquals(rawContent, domain.content)
-        assertEquals(midnightTimestampOf(2026, 3, 25), domain.timestamp)
+        domain.content shouldBe rawContent
+        domain.timestamp shouldBe midnightTimestampOf(2026, 3, 25)
     }
 
     private fun midnightTimestampOf(

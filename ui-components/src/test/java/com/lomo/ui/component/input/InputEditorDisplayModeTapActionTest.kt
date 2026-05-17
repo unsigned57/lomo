@@ -1,7 +1,7 @@
 package com.lomo.ui.component.input
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,40 +13,40 @@ import org.junit.Test
  *   and never resolve a collapse action for repeated taps.
  * - Excludes: Compose click handling, animation timing, and controller persistence.
  */
-class InputEditorDisplayModeTapActionTest {
-    @Test
-    fun `repeated tap on current edit mode collapses`() {
+class InputEditorDisplayModeTapActionTest : UiComponentsFunSpec() {
+    init {
+        test("repeated tap on current edit mode collapses") {
         val action =
             resolveInputEditorDisplayModeTapAction(
                 currentMode = InputEditorDisplayMode.Edit,
                 tappedMode = InputEditorDisplayMode.Edit,
             )
 
-        assertEquals(InputEditorDisplayModeTapAction.Collapse, action)
+        (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
+        }
     }
 
-    @Test
-    fun `repeated tap on current preview mode collapses`() {
+    init {
+        test("repeated tap on current preview mode collapses") {
         val action =
             resolveInputEditorDisplayModeTapAction(
                 currentMode = InputEditorDisplayMode.Preview,
                 tappedMode = InputEditorDisplayMode.Preview,
             )
 
-        assertEquals(InputEditorDisplayModeTapAction.Collapse, action)
+        (action) shouldBe (InputEditorDisplayModeTapAction.Collapse)
+        }
     }
 
-    @Test
-    fun `tapping the other mode switches without collapsing`() {
+    init {
+        test("tapping the other mode switches without collapsing") {
         val action =
             resolveInputEditorDisplayModeTapAction(
                 currentMode = InputEditorDisplayMode.Edit,
                 tappedMode = InputEditorDisplayMode.Preview,
             )
 
-        assertEquals(
-            InputEditorDisplayModeTapAction.ChangeMode(InputEditorDisplayMode.Preview),
-            action,
-        )
+        (action) shouldBe (InputEditorDisplayModeTapAction.ChangeMode(InputEditorDisplayMode.Preview))
+        }
     }
 }

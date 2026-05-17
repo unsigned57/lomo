@@ -1,72 +1,84 @@
 package com.lomo.data.util
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
  * - Unit under test: SearchTokenizer
  * - Behavior focus: ASCII, CJK, and mixed-text tokenization plus query-term normalization for search input.
  * - Observable outcomes: emitted tokenized string content and query-term list contents/order.
- * - Red phase: Not applicable - test-only coverage metadata addition; no production change.
+ * - Red phase: Fails before behavior changes or migration are applied.
  * - Excludes: Room/FTS integration, DAO query execution, and UI search-state behavior.
  */
-class SearchTokenizerTest {
-    @Test
-    fun `tokenize ASCII text`() {
-        val input = "Hello World"
-        val expected = "Hello World" // Tokenizer space splits
-        assertEquals(expected, SearchTokenizer.tokenize(input))
+class SearchTokenizerTest : DataFunSpec() {
+    init {
+        test("tokenize ASCII text") { `tokenize ASCII text`() }
+
+        test("tokenize CJK text") { `tokenize CJK text`() }
+
+        test("tokenize Mixed text") { `tokenize Mixed text`() }
+
+        test("tokenize CJK with spaces") { `tokenize CJK with spaces`() }
+
+        test("tokenizeQueryTerms uses CJK bigrams for multi-char phrase") { `tokenizeQueryTerms uses CJK bigrams for multi-char phrase`() }
+
+        test("tokenizeQueryTerms keeps CJK unigram for single-char query") { `tokenizeQueryTerms keeps CJK unigram for single-char query`() }
+
+        test("tokenizeQueryTerms handles mixed alnum and CJK") { `tokenizeQueryTerms handles mixed alnum and CJK`() }
+
+        test("tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal") { `tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal`() }
     }
 
-    @Test
-    fun `tokenize CJK text`() {
+
+    private fun `tokenize ASCII text`() {
+        val input = "Hello World"
+        val expected = "Hello World" // Tokenizer space splits
+        SearchTokenizer.tokenize(input) shouldBe expected
+    }
+
+    private fun `tokenize CJK text`() {
         val input = "你好世界"
         // 你, 你好, 好, 好世, 世, 世界, 界
         val expected = "你 你好 好 好世 世 世界 界"
-        assertEquals(expected, SearchTokenizer.tokenize(input))
+        SearchTokenizer.tokenize(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenize Mixed text`() {
+    private fun `tokenize Mixed text`() {
         val input = "Hello你好"
         val expected = "Hello 你 你好 好"
-        assertEquals(expected, SearchTokenizer.tokenize(input))
+        SearchTokenizer.tokenize(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenize CJK with spaces`() {
+    private fun `tokenize CJK with spaces`() {
         val input = "我 爱 编程"
         val expected = "我 爱 编 编程 程"
-        assertEquals(expected, SearchTokenizer.tokenize(input))
+        SearchTokenizer.tokenize(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenizeQueryTerms uses CJK bigrams for multi-char phrase`() {
+    private fun `tokenizeQueryTerms uses CJK bigrams for multi-char phrase`() {
         val input = "苏格拉底"
         val expected = listOf("苏格", "格拉", "拉底")
-        assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
+        SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenizeQueryTerms keeps CJK unigram for single-char query`() {
+    private fun `tokenizeQueryTerms keeps CJK unigram for single-char query`() {
         val input = "苏"
         val expected = listOf("苏")
-        assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
+        SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenizeQueryTerms handles mixed alnum and CJK`() {
+    private fun `tokenizeQueryTerms handles mixed alnum and CJK`() {
         val input = "AI苏格拉底 2026"
         val expected = listOf("AI", "苏格", "格拉", "拉底", "2026")
-        assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
+        SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
     }
 
-    @Test
-    fun `tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal`() {
+    private fun `tokenizeQueryTerms lowercases uppercase FTS operator words so they stay literal`() {
         val input = "OR AND NOT"
         val expected = listOf("or", "and", "not")
 
-        assertEquals(expected, SearchTokenizer.tokenizeQueryTerms(input))
+        SearchTokenizer.tokenizeQueryTerms(input) shouldBe expected
     }
 }

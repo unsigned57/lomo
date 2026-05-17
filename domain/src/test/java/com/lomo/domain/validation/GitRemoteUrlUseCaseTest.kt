@@ -1,32 +1,48 @@
+/*
+ * Test Contract:
+ * - Unit under test: GitRemoteUrlUseCaseTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for GitRemoteUrlUseCaseTest.
+ * - Boundary: boundary and edge cases for GitRemoteUrlUseCaseTest.
+ * - Failure: failure and error scenarios for GitRemoteUrlUseCaseTest.
+ * - Must-not-happen: invariants are never violated for GitRemoteUrlUseCaseTest.
+ *
+ * - Behavior focus: test behavioral outcomes of GitRemoteUrlUseCaseTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.usecase
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
-class GitRemoteUrlUseCaseTest {
+class GitRemoteUrlUseCaseTest : DomainFunSpec() {
     private val policy = GitRemoteUrlUseCase()
-
-    @Test
-    fun `isValid accepts blank for clearing config`() {
-        assertTrue(policy.isValid(""))
-        assertTrue(policy.isValid("   "))
+    init {
+        test("isValid accepts blank for clearing config") {
+            (policy.isValid("")) shouldBe true
+            (policy.isValid("   ")) shouldBe true
+        }
     }
-
-    @Test
-    fun `isValid accepts https remote with repository path`() {
-        assertTrue(policy.isValid("https://github.com/unsigned57/lomo.git"))
+    init {
+        test("isValid accepts https remote with repository path") {
+            (policy.isValid("https://github.com/unsigned57/lomo.git")) shouldBe true
+        }
     }
-
-    @Test
-    fun `isValid rejects non-https or missing repo path`() {
-        assertFalse(policy.isValid("http://github.com/unsigned57/lomo.git"))
-        assertFalse(policy.isValid("https://github.com"))
+    init {
+        test("isValid rejects non-https or missing repo path") {
+            (policy.isValid("http://github.com/unsigned57/lomo.git")) shouldBe false
+            (policy.isValid("https://github.com")) shouldBe false
+        }
     }
-
-    @Test
-    fun `normalize trims and removes trailing slash`() {
-        assertEquals("https://example.com/org/repo.git", policy.normalize(" https://example.com/org/repo.git/ "))
+    init {
+        test("normalize trims and removes trailing slash") {
+            policy.normalize(" https://example.com/org/repo.git/ ") shouldBe "https://example.com/org/repo.git"
+        }
     }
 }

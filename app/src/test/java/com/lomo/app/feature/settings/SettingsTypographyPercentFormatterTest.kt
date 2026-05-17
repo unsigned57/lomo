@@ -1,7 +1,7 @@
 package com.lomo.app.feature.settings
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -15,29 +15,35 @@ import org.junit.Test
  *   values like 1.0999998f to "109%" instead of rounding to "110%".
  * - Excludes: Slider composable wiring, datastore persistence, preview card layout.
  */
-class SettingsTypographyPercentFormatterTest {
-    @Test
-    fun `integer scale formats as exact percent`() {
-        assertEquals("100%", formatTypographyScalePercent(1.0f))
+class SettingsTypographyPercentFormatterTest : AppFunSpec() {
+    init {
+        test("integer scale formats as exact percent") {
+            (formatTypographyScalePercent(1.0f)) shouldBe ("100%")
+        }
     }
 
-    @Test
-    fun `value slightly below tick rounds to nearest percent`() {
-        assertEquals("110%", formatTypographyScalePercent(1.0999998f))
+    init {
+        test("value slightly below tick rounds to nearest percent") {
+            (formatTypographyScalePercent(1.0999998f)) shouldBe ("110%")
+        }
     }
 
-    @Test
-    fun `value slightly above tick rounds to nearest percent`() {
-        assertEquals("110%", formatTypographyScalePercent(1.1000001f))
+    init {
+        test("value slightly above tick rounds to nearest percent") {
+            (formatTypographyScalePercent(1.1000001f)) shouldBe ("110%")
+        }
     }
 
-    @Test
-    fun `range minimum formats as fifty percent`() {
-        assertEquals("50%", formatTypographyScalePercent(0.5f))
+    init {
+        test("range minimum formats as fifty percent") {
+            (formatTypographyScalePercent(0.5f)) shouldBe ("50%")
+        }
     }
 
-    @Test
-    fun `range maximum formats as three hundred percent`() {
-        assertEquals("300%", formatTypographyScalePercent(3.0f))
+    init {
+        test("range maximum formats as three hundred percent") {
+            (formatTypographyScalePercent(3.0f)) shouldBe ("300%")
+        }
     }
+
 }

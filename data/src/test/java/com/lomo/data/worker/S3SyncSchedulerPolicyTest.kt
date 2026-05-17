@@ -1,13 +1,14 @@
 package com.lomo.data.worker
 
+
 import com.lomo.data.repository.S3EndpointProfile
 import com.lomo.data.repository.S3RemoteShardState
 import com.lomo.data.repository.S3SyncProtocolState
 import com.lomo.domain.model.S3SyncScanPolicy
 import java.time.Duration
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.nulls.shouldBeNull
 
 /*
  * Test Contract:
@@ -17,9 +18,35 @@ import org.junit.Test
  * - Red phase: Fails before the fix because scheduling only emits two fixed periodic works and never upgrades catch-up policy from shard telemetry such as elevated change rate or verification-failure risk.
  * - Excludes: WorkManager request wiring, Android context access, and repository sync execution.
  */
-class S3SyncSchedulerPolicyTest {
-    @Test
-    fun `catch-up policy requests full reconcile when no full remote scan exists`() {
+class S3SyncSchedulerPolicyTest : DataFunSpec() {
+    init {
+        test("catch-up policy requests full reconcile when no full remote scan exists") { `catch-up policy requests full reconcile when no full remote scan exists`() }
+
+        test("effective reconcile interval uses endpoint profile floor") { `effective reconcile interval uses endpoint profile floor`() }
+
+        test("catch-up policy treats moderate change pressure differently by endpoint profile") { `catch-up policy treats moderate change pressure differently by endpoint profile`() }
+
+        test("catch-up policy continues rolling reconcile when shard cursor is pending") { `catch-up policy continues rolling reconcile when shard cursor is pending`() }
+
+        test("catch-up policy stays idle when recent deep scan is still fresh") { `catch-up policy stays idle when recent deep scan is still fresh`() }
+
+        test("catch-up policy requests rolling reconcile when a shard is stale even if full scan is recent") { `catch-up policy requests rolling reconcile when a shard is stale even if full scan is recent`() }
+
+        test("catch-up policy requests full reconcile when shard state is missing") { `catch-up policy requests full reconcile when shard state is missing`() }
+
+        test("catch-up policy requests rolling reconcile when shard change rate spikes despite recent deep scan") { `catch-up policy requests rolling reconcile when shard change rate spikes despite recent deep scan`() }
+
+        test("catch-up policy escalates to full reconcile when shard verification failures imply high uncertainty") { `catch-up policy escalates to full reconcile when shard verification failures imply high uncertainty`() }
+
+        test("refresh plan prefers fast foreground sync and full reconcile catch-up on first opening") { `refresh plan prefers fast foreground sync and full reconcile catch-up on first opening`() }
+
+        test("refresh plan escalates foreground sync to full reconcile under high verification uncertainty") { `refresh plan escalates foreground sync to full reconcile under high verification uncertainty`() }
+
+        test("refresh plan keeps foreground fast and schedules rolling catch-up when cold shards need coverage") { `refresh plan keeps foreground fast and schedules rolling catch-up when cold shards need coverage`() }
+    }
+
+
+    private fun `catch-up policy requests full reconcile when no full remote scan exists`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState = S3SyncProtocolState(lastSuccessfulSyncAt = 10L),
@@ -28,29 +55,21 @@ class S3SyncSchedulerPolicyTest {
                 incrementalEnabled = true,
             )
 
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FULL_RECONCILE
     }
 
-    @Test
-    fun `effective reconcile interval uses endpoint profile floor`() {
-        assertEquals(
-            Duration.ofHours(4),
-            effectiveS3ReconcileInterval(
+    private fun `effective reconcile interval uses endpoint profile floor`() {
+        effectiveS3ReconcileInterval(
                 requestedInterval = Duration.ofHours(1),
                 endpointProfile = com.lomo.data.repository.S3EndpointProfile.AWS_S3,
-            ),
-        )
-        assertEquals(
-            Duration.ofHours(12),
-            effectiveS3ReconcileInterval(
+            ) shouldBe Duration.ofHours(4)
+        effectiveS3ReconcileInterval(
                 requestedInterval = Duration.ofHours(6),
                 endpointProfile = com.lomo.data.repository.S3EndpointProfile.MINIO_COMPAT,
-            ),
-        )
+            ) shouldBe Duration.ofHours(12)
     }
 
-    @Test
-    fun `catch-up policy treats moderate change pressure differently by endpoint profile`() {
+    private fun `catch-up policy treats moderate change pressure differently by endpoint profile`() {
         val shardState =
             S3RemoteShardState(
                 bucketId = "memo",
@@ -93,12 +112,11 @@ class S3SyncSchedulerPolicyTest {
                 endpointProfile = S3EndpointProfile.MINIO_COMPAT,
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, awsPolicy)
-        assertNull(minioPolicy)
+        awsPolicy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
+        minioPolicy.shouldBeNull()
     }
 
-    @Test
-    fun `catch-up policy continues rolling reconcile when shard cursor is pending`() {
+    private fun `catch-up policy continues rolling reconcile when shard cursor is pending`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -112,11 +130,10 @@ class S3SyncSchedulerPolicyTest {
                 incrementalEnabled = true,
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
     }
 
-    @Test
-    fun `catch-up policy stays idle when recent deep scan is still fresh`() {
+    private fun `catch-up policy stays idle when recent deep scan is still fresh`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -129,11 +146,10 @@ class S3SyncSchedulerPolicyTest {
                 incrementalEnabled = true,
             )
 
-        assertEquals(null, policy)
+        policy shouldBe null
     }
 
-    @Test
-    fun `catch-up policy requests rolling reconcile when a shard is stale even if full scan is recent`() {
+    private fun `catch-up policy requests rolling reconcile when a shard is stale even if full scan is recent`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -157,11 +173,10 @@ class S3SyncSchedulerPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
     }
 
-    @Test
-    fun `catch-up policy requests full reconcile when shard state is missing`() {
+    private fun `catch-up policy requests full reconcile when shard state is missing`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -175,11 +190,10 @@ class S3SyncSchedulerPolicyTest {
                 shardStates = emptyList(),
             )
 
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FULL_RECONCILE
     }
 
-    @Test
-    fun `catch-up policy requests rolling reconcile when shard change rate spikes despite recent deep scan`() {
+    private fun `catch-up policy requests rolling reconcile when shard change rate spikes despite recent deep scan`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -207,11 +221,10 @@ class S3SyncSchedulerPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
     }
 
-    @Test
-    fun `catch-up policy escalates to full reconcile when shard verification failures imply high uncertainty`() {
+    private fun `catch-up policy escalates to full reconcile when shard verification failures imply high uncertainty`() {
         val policy =
             resolveCatchUpPolicy(
                 protocolState =
@@ -239,11 +252,10 @@ class S3SyncSchedulerPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, policy)
+        policy shouldBe S3SyncScanPolicy.FULL_RECONCILE
     }
 
-    @Test
-    fun `refresh plan prefers fast foreground sync and full reconcile catch-up on first opening`() {
+    private fun `refresh plan prefers fast foreground sync and full reconcile catch-up on first opening`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState = S3SyncProtocolState(lastSuccessfulSyncAt = 10L),
@@ -252,12 +264,11 @@ class S3SyncSchedulerPolicyTest {
                 incrementalEnabled = true,
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_ONLY, plan.foregroundPolicy)
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FAST_ONLY
+        plan.catchUpPolicy shouldBe S3SyncScanPolicy.FULL_RECONCILE
     }
 
-    @Test
-    fun `refresh plan escalates foreground sync to full reconcile under high verification uncertainty`() {
+    private fun `refresh plan escalates foreground sync to full reconcile under high verification uncertainty`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState =
@@ -285,12 +296,11 @@ class S3SyncSchedulerPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FULL_RECONCILE, plan.foregroundPolicy)
-        assertNull(plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FULL_RECONCILE
+        plan.catchUpPolicy.shouldBeNull()
     }
 
-    @Test
-    fun `refresh plan keeps foreground fast and schedules rolling catch-up when cold shards need coverage`() {
+    private fun `refresh plan keeps foreground fast and schedules rolling catch-up when cold shards need coverage`() {
         val plan =
             buildS3RefreshSyncPlan(
                 protocolState =
@@ -314,7 +324,7 @@ class S3SyncSchedulerPolicyTest {
                     ),
             )
 
-        assertEquals(S3SyncScanPolicy.FAST_ONLY, plan.foregroundPolicy)
-        assertEquals(S3SyncScanPolicy.FAST_THEN_RECONCILE, plan.catchUpPolicy)
+        plan.foregroundPolicy shouldBe S3SyncScanPolicy.FAST_ONLY
+        plan.catchUpPolicy shouldBe S3SyncScanPolicy.FAST_THEN_RECONCILE
     }
 }

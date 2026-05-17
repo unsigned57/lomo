@@ -1,13 +1,13 @@
 package com.lomo.ui.text
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
-import org.junit.Assert.assertEquals
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -17,71 +17,70 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the project has no shared raw memo presentation spec, so editor text and rendered memo body text cannot be proven to share the same paragraph policy.
  * - Excludes: Compose widget-tree rendering, TextView/EditText measurement internals, IME integration, and markdown semantic parsing.
  */
-class MemoPlainTextPresentationTest {
+class MemoPlainTextPresentationTest : UiComponentsFunSpec() {
     private val typography = Typography()
     private val defaultScales = TypographyScales()
 
-    @Test
-    fun `raw memo paragraph splitter keeps intra paragraph line breaks and splits only on blank lines`() {
+    init {
+        test("raw memo paragraph splitter keeps intra paragraph line breaks and splits only on blank lines") {
         val result =
             splitRawMemoParagraphs(
                 "第一行\n第二行\n\n# 标题语法仍是普通文本\n- 列表语法也只是字符\n\n最后一段",
             )
 
-        assertEquals(
-            listOf(
+        (result.map(RawMemoParagraph::text)) shouldBe (listOf(
                 "第一行\n第二行",
                 "# 标题语法仍是普通文本\n- 列表语法也只是字符",
                 "最后一段",
-            ),
-            result.map(RawMemoParagraph::text),
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `raw memo paragraph splitter drops whitespace only gaps without inventing markdown structure`() {
+    init {
+        test("raw memo paragraph splitter drops whitespace only gaps without inventing markdown structure") {
         val result =
             splitRawMemoParagraphs(
                 "alpha\n \n\t\n> quote marker stays literal\n\n  \nplain tail",
             )
 
-        assertEquals(
-            listOf(
+        (result.map(RawMemoParagraph::text)) shouldBe (listOf(
                 "alpha",
                 "> quote marker stays literal",
                 "plain tail",
-            ),
-            result.map(RawMemoParagraph::text),
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `shared plain text memo style keeps editor and rendered memo body visually identical`() {
+    init {
+        test("shared plain text memo style keeps editor and rendered memo body visually identical") {
         val text = "今天 review memo"
 
         val resolved = resolveRawMemoPlainTextStyle(typography = typography, text = text, scales = defaultScales)
 
-        assertEquals(typography.memoBodyTextStyle(defaultScales).fontSize, resolved.fontSize)
-        assertEquals(typography.memoBodyTextStyle(defaultScales).lineHeight, resolved.lineHeight)
-        assertEquals(typography.memoBodyTextStyle(defaultScales).letterSpacing, resolved.letterSpacing)
-        assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
-        assertEquals(typography.memoBodyTextStyle(defaultScales).scriptAwareFor(text), resolved)
+        (resolved.fontSize) shouldBe (typography.memoBodyTextStyle(defaultScales).fontSize)
+        (resolved.lineHeight) shouldBe (typography.memoBodyTextStyle(defaultScales).lineHeight)
+        (resolved.letterSpacing) shouldBe (typography.memoBodyTextStyle(defaultScales).letterSpacing)
+        (resolved.platformStyle) shouldBe (PlatformTextStyle(includeFontPadding = false))
+        (resolved) shouldBe (typography.memoBodyTextStyle(defaultScales).scriptAwareFor(text))
+        }
     }
 
-    @Test
-    fun `shared plain text memo style preserves configured letter spacing for cjk mixed text`() {
+    init {
+        test("shared plain text memo style preserves configured letter spacing for cjk mixed text") {
         val text = "今天 review memo"
         val adjustedScales = TypographyScales(letterSpacingScale = 1.5f)
 
         val resolved = resolveRawMemoPlainTextStyle(typography = typography, text = text, scales = adjustedScales)
 
-        assertEquals(0.6.sp, typography.memoBodyTextStyle(adjustedScales).letterSpacing)
-        assertEquals(typography.memoBodyTextStyle(adjustedScales).letterSpacing, resolved.letterSpacing)
-        assertEquals(PlatformTextStyle(includeFontPadding = false), resolved.platformStyle)
+        (typography.memoBodyTextStyle(adjustedScales).letterSpacing) shouldBe (0.6.sp)
+        (resolved.letterSpacing) shouldBe (typography.memoBodyTextStyle(adjustedScales).letterSpacing)
+        (resolved.platformStyle) shouldBe (PlatformTextStyle(includeFontPadding = false))
+        }
     }
 
-    @Test
-    fun `shared raw memo paragraph spacing matches rendered memo block rhythm`() {
-        assertEquals(8.dp, rawMemoParagraphSpacing(defaultScales))
+    init {
+        test("shared raw memo paragraph spacing matches rendered memo block rhythm") {
+        (rawMemoParagraphSpacing(defaultScales)) shouldBe (8.dp)
+        }
     }
 }

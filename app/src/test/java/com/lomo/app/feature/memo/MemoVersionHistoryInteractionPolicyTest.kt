@@ -1,10 +1,10 @@
 package com.lomo.app.feature.memo
 
+import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionLifecycleState
 import com.lomo.domain.model.MemoRevisionOrigin
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,62 +14,67 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the sheet relies on a disabled clickable Card for current or restoring items, which mutes the current highlight and keeps all behavior buried in Compose wiring instead of an explicit policy.
  * - Excludes: ModalBottomSheet host behavior, Markdown rendering internals, and repository restore execution.
  */
-class MemoVersionHistoryInteractionPolicyTest {
-    @Test
-    fun `current revision uses a static highlighted card`() {
-        val presentation =
-            resolveVersionHistoryCardPresentation(
-                version = revision(id = "current", isCurrent = true),
-                isRestoreInProgress = false,
-                restoringRevisionId = null,
-            )
+class MemoVersionHistoryInteractionPolicyTest : AppFunSpec() {
+    init {
+        test("current revision uses a static highlighted card") {
+            val presentation =
+                resolveVersionHistoryCardPresentation(
+                    version = revision(id = "current", isCurrent = true),
+                    isRestoreInProgress = false,
+                    restoringRevisionId = null,
+                )
 
-        assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
-        assertEquals(VersionHistoryCardHighlight.Current, presentation.highlight)
-        assertEquals(false, presentation.isBusy)
+            (presentation.interaction) shouldBe (VersionHistoryCardInteraction.Static)
+            (presentation.highlight) shouldBe (VersionHistoryCardHighlight.Current)
+            (presentation.isBusy) shouldBe (false)
+        }
     }
 
-    @Test
-    fun `historical revision uses tappable restore card when idle`() {
-        val presentation =
-            resolveVersionHistoryCardPresentation(
-                version = revision(id = "historical", isCurrent = false),
-                isRestoreInProgress = false,
-                restoringRevisionId = null,
-            )
+    init {
+        test("historical revision uses tappable restore card when idle") {
+            val presentation =
+                resolveVersionHistoryCardPresentation(
+                    version = revision(id = "historical", isCurrent = false),
+                    isRestoreInProgress = false,
+                    restoringRevisionId = null,
+                )
 
-        assertEquals(VersionHistoryCardInteraction.Restore, presentation.interaction)
-        assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
-        assertEquals(false, presentation.isBusy)
+            (presentation.interaction) shouldBe (VersionHistoryCardInteraction.Restore)
+            (presentation.highlight) shouldBe (VersionHistoryCardHighlight.Standard)
+            (presentation.isBusy) shouldBe (false)
+        }
     }
 
-    @Test
-    fun `restore in progress turns non-target historical revisions into static cards`() {
-        val presentation =
-            resolveVersionHistoryCardPresentation(
-                version = revision(id = "historical", isCurrent = false),
-                isRestoreInProgress = true,
-                restoringRevisionId = "another",
-            )
+    init {
+        test("restore in progress turns non-target historical revisions into static cards") {
+            val presentation =
+                resolveVersionHistoryCardPresentation(
+                    version = revision(id = "historical", isCurrent = false),
+                    isRestoreInProgress = true,
+                    restoringRevisionId = "another",
+                )
 
-        assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
-        assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
-        assertEquals(false, presentation.isBusy)
+            (presentation.interaction) shouldBe (VersionHistoryCardInteraction.Static)
+            (presentation.highlight) shouldBe (VersionHistoryCardHighlight.Standard)
+            (presentation.isBusy) shouldBe (false)
+        }
     }
 
-    @Test
-    fun `restore target is marked busy while restore is in progress`() {
-        val presentation =
-            resolveVersionHistoryCardPresentation(
-                version = revision(id = "historical", isCurrent = false),
-                isRestoreInProgress = true,
-                restoringRevisionId = "historical",
-            )
+    init {
+        test("restore target is marked busy while restore is in progress") {
+            val presentation =
+                resolveVersionHistoryCardPresentation(
+                    version = revision(id = "historical", isCurrent = false),
+                    isRestoreInProgress = true,
+                    restoringRevisionId = "historical",
+                )
 
-        assertEquals(VersionHistoryCardInteraction.Static, presentation.interaction)
-        assertEquals(VersionHistoryCardHighlight.Standard, presentation.highlight)
-        assertEquals(true, presentation.isBusy)
+            (presentation.interaction) shouldBe (VersionHistoryCardInteraction.Static)
+            (presentation.highlight) shouldBe (VersionHistoryCardHighlight.Standard)
+            (presentation.isBusy) shouldBe (true)
+        }
     }
+
 }
 
 private fun revision(

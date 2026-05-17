@@ -1,9 +1,8 @@
 package com.lomo.ui.component.common
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -20,116 +19,102 @@ import org.junit.Test
  *   scrollbar or to the underlying memo card.
  * - Excludes: Compose pointer input dispatch, LazyList measurement accuracy, and fade animation.
  */
-class DraggableScrollbarInteractionPolicyTest {
-    @Test
-    fun `dragging displays local thumb offset instead of external scroll offset`() {
-        assertEquals(
-            132f,
-            resolveDisplayedThumbOffsetPx(
+class DraggableScrollbarInteractionPolicyTest : UiComponentsFunSpec() {
+    init {
+        test("dragging displays local thumb offset instead of external scroll offset") {
+        (resolveDisplayedThumbOffsetPx(
                 isThumbDragged = true,
                 draggedThumbOffsetPx = 132f,
                 settledThumbOffsetPx = 84f,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((132f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `idle state displays settled thumb offset`() {
-        assertEquals(
-            84f,
-            resolveDisplayedThumbOffsetPx(
+    init {
+        test("idle state displays settled thumb offset") {
+        (resolveDisplayedThumbOffsetPx(
                 isThumbDragged = false,
                 draggedThumbOffsetPx = 132f,
                 settledThumbOffsetPx = 84f,
-            ),
-            0.001f,
-        )
+            )) shouldBe ((84f) plusOrMinus (0.001f))
+        }
     }
 
-    @Test
-    fun `external sync stays disabled while drag is active`() {
-        assertFalse(
-            shouldSyncDraggedThumbOffsetFromExternal(
+    init {
+        test("external sync stays disabled while drag is active") {
+        (shouldSyncDraggedThumbOffsetFromExternal(
                 visible = true,
                 isThumbDragged = true,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
-    @Test
-    fun `external sync resumes after drag ends`() {
-        assertTrue(
-            shouldSyncDraggedThumbOffsetFromExternal(
+    init {
+        test("external sync resumes after drag ends") {
+        (shouldSyncDraggedThumbOffsetFromExternal(
                 visible = true,
                 isThumbDragged = false,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 
-    @Test
-    fun `point inside end-aligned touch zone is detected`() {
-        assertTrue(
-            isPointInScrollbarTouchZone(
+    init {
+        test("point inside end-aligned touch zone is detected") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = 980f,
                 canvasWidthPx = 1000f,
                 touchTargetWidthPx = 96f,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 
-    @Test
-    fun `point on touch-zone start boundary is included`() {
-        assertTrue(
-            isPointInScrollbarTouchZone(
+    init {
+        test("point on touch-zone start boundary is included") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = 904f,
                 canvasWidthPx = 1000f,
                 touchTargetWidthPx = 96f,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 
-    @Test
-    fun `point left of touch zone is rejected so memo cards keep gestures`() {
-        assertFalse(
-            isPointInScrollbarTouchZone(
+    init {
+        test("point left of touch zone is rejected so memo cards keep gestures") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = 800f,
                 canvasWidthPx = 1000f,
                 touchTargetWidthPx = 96f,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
-    @Test
-    fun `negative pointer x is rejected`() {
-        assertFalse(
-            isPointInScrollbarTouchZone(
+    init {
+        test("negative pointer x is rejected") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = -10f,
                 canvasWidthPx = 1000f,
                 touchTargetWidthPx = 96f,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
-    @Test
-    fun `zero canvas width yields no touch zone so all presses are rejected`() {
-        assertFalse(
-            isPointInScrollbarTouchZone(
+    init {
+        test("zero canvas width yields no touch zone so all presses are rejected") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = 0f,
                 canvasWidthPx = 0f,
                 touchTargetWidthPx = 96f,
-            ),
-        )
+            )) shouldBe false
+        }
     }
 
-    @Test
-    fun `touch target wider than canvas falls back to whole canvas`() {
-        assertTrue(
-            isPointInScrollbarTouchZone(
+    init {
+        test("touch target wider than canvas falls back to whole canvas") {
+        (isPointInScrollbarTouchZone(
                 pointerXPx = 5f,
                 canvasWidthPx = 80f,
                 touchTargetWidthPx = 200f,
-            ),
-        )
+            )) shouldBe true
+        }
     }
 }

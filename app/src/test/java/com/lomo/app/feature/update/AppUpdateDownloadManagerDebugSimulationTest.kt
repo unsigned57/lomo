@@ -1,25 +1,21 @@
 package com.lomo.app.feature.update
 
 import android.content.Context
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.usecase.CancelAppUpdateDownloadUseCase
 import com.lomo.domain.usecase.DownloadAndInstallAppUpdateUseCase
+import io.kotest.matchers.shouldBe
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Before
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -30,71 +26,63 @@ import org.junit.Test
  * - Excludes: Compose dialog rendering, settings item visibility wiring, and actual APK transport or installer behavior.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class AppUpdateDownloadManagerDebugSimulationTest {
+class AppUpdateDownloadManagerDebugSimulationTest : AppFunSpec() {
     private val dispatcher = StandardTestDispatcher()
 
-    @Before
-    fun setUp() {
-        Dispatchers.setMain(dispatcher)
+    init {
+        extension(MainDispatcherExtension(dispatcher))
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+    init {
+        test("startInAppUpdate completes a debug success simulation without invoking the real downloader") {
+            runTest(dispatcher.scheduler) {
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns emptyFlow()
+
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+                val update = sampleDialogState(debugSimulationScenario = DebugAppUpdateScenario.Success)
+
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
+
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = com.lomo.domain.model.AppUpdateInstallState.Completed,
+                    ))
+                verify(exactly = 0) { downloadUseCase.invoke(any()) }
+            }
+        }
     }
 
-    @Test
-    fun `startInAppUpdate completes a debug success simulation without invoking the real downloader`() =
-        runTest(dispatcher.scheduler) {
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
+    init {
+        test("startInAppUpdate exposes a failed state for debug failure simulation") {
+            runTest(dispatcher.scheduler) {
+                val context = mockk<Context>(relaxed = true)
+                val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
+                val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
 
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns emptyFlow()
+                every { cancelUseCase.invoke() } just runs
+                every { downloadUseCase.invoke(any()) } returns emptyFlow()
+                every { context.getString(com.lomo.app.R.string.debug_update_simulation_failed) } returns "Simulated failure"
 
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-            val update = sampleDialogState(debugSimulationScenario = DebugAppUpdateScenario.Success)
+                val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
+                val update = sampleDialogState(debugSimulationScenario = DebugAppUpdateScenario.Failure)
 
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
+                manager.startInAppUpdate(update)
+                advanceUntilIdle()
 
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = com.lomo.domain.model.AppUpdateInstallState.Completed,
-                ),
-                manager.progressDialogState.value,
-            )
-            verify(exactly = 0) { downloadUseCase.invoke(any()) }
+                (manager.progressDialogState.value) shouldBe (AppUpdateProgressDialogState(
+                        update = update,
+                        installState = com.lomo.domain.model.AppUpdateInstallState.Failed("Simulated failure"),
+                    ))
+                verify(exactly = 0) { downloadUseCase.invoke(any()) }
+            }
         }
-
-    @Test
-    fun `startInAppUpdate exposes a failed state for debug failure simulation`() =
-        runTest(dispatcher.scheduler) {
-            val context = mockk<Context>(relaxed = true)
-            val downloadUseCase = mockk<DownloadAndInstallAppUpdateUseCase>()
-            val cancelUseCase = mockk<CancelAppUpdateDownloadUseCase>()
-
-            every { cancelUseCase.invoke() } just runs
-            every { downloadUseCase.invoke(any()) } returns emptyFlow()
-            every { context.getString(com.lomo.app.R.string.debug_update_simulation_failed) } returns "Simulated failure"
-
-            val manager = AppUpdateDownloadManager(context, downloadUseCase, cancelUseCase)
-            val update = sampleDialogState(debugSimulationScenario = DebugAppUpdateScenario.Failure)
-
-            manager.startInAppUpdate(update)
-            advanceUntilIdle()
-
-            assertEquals(
-                AppUpdateProgressDialogState(
-                    update = update,
-                    installState = com.lomo.domain.model.AppUpdateInstallState.Failed("Simulated failure"),
-                ),
-                manager.progressDialogState.value,
-            )
-            verify(exactly = 0) { downloadUseCase.invoke(any()) }
-        }
+    }
 
     private fun sampleDialogState(debugSimulationScenario: DebugAppUpdateScenario): AppUpdateDialogState =
         AppUpdateDialogState(

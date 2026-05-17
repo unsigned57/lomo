@@ -1,7 +1,7 @@
 package com.lomo.ui.component.navigation
 
-import org.junit.Assert.assertEquals
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -13,9 +13,9 @@ import org.junit.Test
  *   so there is no flattened row model for the LazyColumn to measure.
  * - Excludes: pixel rendering, drag gestures, Material3 row colors, and full drawer navigation.
  */
-class SidebarDrawerVisibleTagRowsTest {
-    @Test
-    fun `expanded descendants are flattened into independent visible rows`() {
+class SidebarDrawerVisibleTagRowsTest : UiComponentsFunSpec() {
+    init {
+        test("expanded descendants are flattened into independent visible rows") {
         val tagTree =
             buildTagTree(
                 listOf(
@@ -33,19 +33,17 @@ class SidebarDrawerVisibleTagRowsTest {
                 expandedNodePaths = setOf("work", "work/android"),
             )
 
-        assertEquals(
-            listOf(
+        (rows.map { row -> row.node.fullPath to row.level }) shouldBe (listOf(
                 "work" to 0,
                 "work/android" to 1,
                 "work/android/ui" to 2,
                 "personal" to 0,
-            ),
-            rows.map { row -> row.node.fullPath to row.level },
-        )
+            ))
+        }
     }
 
-    @Test
-    fun `collapsed descendants stay out of the measured row list`() {
+    init {
+        test("collapsed descendants stay out of the measured row list") {
         val tagTree =
             buildTagTree(
                 listOf(
@@ -61,12 +59,10 @@ class SidebarDrawerVisibleTagRowsTest {
                 expandedNodePaths = setOf("work"),
             )
 
-        assertEquals(
-            listOf(
+        (rows.map { row -> row.node.fullPath to row.level }) shouldBe (listOf(
                 "work" to 0,
                 "work/android" to 1,
-            ),
-            rows.map { row -> row.node.fullPath to row.level },
-        )
+            ))
+        }
     }
 }

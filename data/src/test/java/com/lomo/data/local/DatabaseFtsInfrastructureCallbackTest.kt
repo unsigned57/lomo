@@ -1,10 +1,11 @@
 package com.lomo.data.local
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+
 import java.sql.DriverManager
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
+import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
  * Test Contract:
@@ -16,50 +17,53 @@ import java.sql.DriverManager
  *   schema and trigger infrastructure to be created and rebuild command issued.
  * - Excludes: Room validation and app-layer repository wiring.
  */
-class DatabaseFtsInfrastructureCallbackTest {
-    @Test
-    fun `rebuildMemoFtsExternalContentInfrastructure creates external content fts5 table`() {
+class DatabaseFtsInfrastructureCallbackTest : DataFunSpec() {
+    init {
+        test("rebuildMemoFtsExternalContentInfrastructure creates external content fts5 table") { `rebuildMemoFtsExternalContentInfrastructure creates external content fts5 table`() }
+
+        test("rebuildMemoFtsExternalContentInfrastructure creates insert update delete triggers") { `rebuildMemoFtsExternalContentInfrastructure creates insert update delete triggers`() }
+
+        test("rebuildMemoFtsExternalContentInfrastructure runs rebuild command after creating infrastructure") { `rebuildMemoFtsExternalContentInfrastructure runs rebuild command after creating infrastructure`() }
+
+        test("rebuildMemoFtsExternalContentInfrastructure rebuilds external content index from lomo rows") { `rebuildMemoFtsExternalContentInfrastructure rebuilds external content index from lomo rows`() }
+    }
+
+
+    private fun `rebuildMemoFtsExternalContentInfrastructure creates external content fts5 table`() {
         val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
 
         rebuildMemoFtsExternalContentInfrastructure(db)
 
-        assertTrue(
-            db.executedStatements.any { statement ->
+        (db.executedStatements.any { statement ->
                 statement.sql.contains("USING fts5", ignoreCase = true) &&
                     statement.sql.contains("content='Lomo'", ignoreCase = true) &&
                     statement.sql.contains("content_rowid='rowid'", ignoreCase = true) &&
                     statement.sql.contains(COLUMN_SEARCH_CONTENT)
-            },
-        )
-        assertFalse(db.executedStatements.any { it.sql.contains("USING FTS4", ignoreCase = true) })
+            }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("USING FTS4", ignoreCase = true) }).shouldBeFalse()
     }
 
-    @Test
-    fun `rebuildMemoFtsExternalContentInfrastructure creates insert update delete triggers`() {
+    private fun `rebuildMemoFtsExternalContentInfrastructure creates insert update delete triggers`() {
         val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
 
         rebuildMemoFtsExternalContentInfrastructure(db)
 
-        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") })
-        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_au`") })
-        assertTrue(db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ad`") })
+        (db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ai`") }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_au`") }).shouldBeTrue()
+        (db.executedStatements.any { it.sql.contains("CREATE TRIGGER IF NOT EXISTS `lomo_fts_ad`") }).shouldBeTrue()
     }
 
-    @Test
-    fun `rebuildMemoFtsExternalContentInfrastructure runs rebuild command after creating infrastructure`() {
+    private fun `rebuildMemoFtsExternalContentInfrastructure runs rebuild command after creating infrastructure`() {
         val db = RecordingSQLiteConnection { _, _ -> SQLiteQueryResult.EMPTY }
 
         rebuildMemoFtsExternalContentInfrastructure(db)
 
-        assertTrue(
-            db.executedStatements.any { statement ->
+        (db.executedStatements.any { statement ->
                 statement.sql == "INSERT INTO `lomo_fts`(`lomo_fts`) VALUES ('rebuild')"
-            },
-        )
+            }).shouldBeTrue()
     }
 
-    @Test
-    fun `rebuildMemoFtsExternalContentInfrastructure rebuilds external content index from lomo rows`() {
+    private fun `rebuildMemoFtsExternalContentInfrastructure rebuilds external content index from lomo rows`() {
         Class.forName("org.sqlite.JDBC")
         DriverManager.getConnection("jdbc:sqlite::memory:").use { connection ->
             connection.createStatement().execute(
@@ -83,8 +87,8 @@ class DatabaseFtsInfrastructureCallbackTest {
             rebuildMemoFtsExternalContentInfrastructure(JdbcSQLiteConnection(connection))
 
             connection.createStatement().executeQuery("SELECT COUNT(*) FROM `$FTS_TABLE`").use { resultSet ->
-                assertTrue(resultSet.next())
-                assertEquals(1, resultSet.getInt(1))
+                (resultSet.next()).shouldBeTrue()
+                resultSet.getInt(1) shouldBe 1
             }
         }
     }

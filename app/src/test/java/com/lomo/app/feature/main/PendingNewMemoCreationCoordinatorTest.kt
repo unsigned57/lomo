@@ -1,8 +1,7 @@
 package com.lomo.app.feature.main
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
-import org.junit.Test
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -12,76 +11,72 @@ import org.junit.Test
  * - Red phase: Fails before the fix because the main-screen flow has no durable pending-create state, so submitted content cannot survive the top-scroll wait as an explicit request.
  * - Excludes: Compose recomposition, LazyList animation internals, and repository persistence.
  */
-class PendingNewMemoCreationCoordinatorTest {
-    @Test
-    fun `submit stores first request and rejects overlap until consumed`() {
-        val coordinator = PendingNewMemoCreationCoordinator()
+class PendingNewMemoCreationCoordinatorTest : AppFunSpec() {
+    init {
+        test("submit stores first request and rejects overlap until consumed") {
+            val coordinator = PendingNewMemoCreationCoordinator()
 
-        val firstRequest = coordinator.submit("first memo")
-        val secondRequest = coordinator.submit("second memo")
+            val firstRequest = coordinator.submit("first memo")
+            val secondRequest = coordinator.submit("second memo")
 
-        assertEquals(
-            PendingNewMemoCreationRequest(
-                requestId = 1L,
-                content = "first memo",
-            ),
-            firstRequest,
-        )
-        assertEquals(firstRequest, coordinator.pendingRequest)
-        assertNull(secondRequest)
-        assertEquals(firstRequest, coordinator.pendingRequest)
+            (firstRequest) shouldBe (PendingNewMemoCreationRequest(
+                    requestId = 1L,
+                    content = "first memo",
+                ))
+            (coordinator.pendingRequest) shouldBe (firstRequest)
+            (secondRequest) shouldBe null
+            (coordinator.pendingRequest) shouldBe (firstRequest)
+        }
     }
 
-    @Test
-    fun `consume clears only the matching pending request`() {
-        val coordinator = PendingNewMemoCreationCoordinator()
-        val firstRequest = checkNotNull(coordinator.submit("first memo"))
+    init {
+        test("consume clears only the matching pending request") {
+            val coordinator = PendingNewMemoCreationCoordinator()
+            val firstRequest = checkNotNull(coordinator.submit("first memo"))
 
-        assertNull(coordinator.consume(requestId = firstRequest.requestId + 1L))
-        assertEquals(firstRequest, coordinator.pendingRequest)
-        assertEquals(firstRequest, coordinator.consume(requestId = firstRequest.requestId))
-        assertNull(coordinator.pendingRequest)
+            (coordinator.consume(requestId = firstRequest.requestId + 1L)) shouldBe null
+            (coordinator.pendingRequest) shouldBe (firstRequest)
+            (coordinator.consume(requestId = firstRequest.requestId)) shouldBe (firstRequest)
+            (coordinator.pendingRequest) shouldBe null
+        }
     }
 
-    @Test
-    fun `submit stores optional geo location and backfill timestamp`() {
-        val coordinator = PendingNewMemoCreationCoordinator()
+    init {
+        test("submit stores optional geo location and backfill timestamp") {
+            val coordinator = PendingNewMemoCreationCoordinator()
 
-        val request =
-            coordinator.submit(
-                content = "backfilled memo",
-                geoLocation = "geo:31.2304,121.4737",
-                timestampMillis = 1_777_777_777_000L,
-            )
+            val request =
+                coordinator.submit(
+                    content = "backfilled memo",
+                    geoLocation = "geo:31.2304,121.4737",
+                    timestampMillis = 1_777_777_777_000L,
+                )
 
-        assertEquals(
-            PendingNewMemoCreationRequest(
-                requestId = 1L,
-                content = "backfilled memo",
-                geoLocation = "geo:31.2304,121.4737",
-                timestampMillis = 1_777_777_777_000L,
-            ),
-            request,
-        )
-        assertEquals(request, coordinator.pendingRequest)
+            (request) shouldBe (PendingNewMemoCreationRequest(
+                    requestId = 1L,
+                    content = "backfilled memo",
+                    geoLocation = "geo:31.2304,121.4737",
+                    timestampMillis = 1_777_777_777_000L,
+                ))
+            (coordinator.pendingRequest) shouldBe (request)
+        }
     }
 
-    @Test
-    fun `cancel clears the matching request and allows the next submit`() {
-        val coordinator = PendingNewMemoCreationCoordinator()
-        val firstRequest = checkNotNull(coordinator.submit("first memo"))
+    init {
+        test("cancel clears the matching request and allows the next submit") {
+            val coordinator = PendingNewMemoCreationCoordinator()
+            val firstRequest = checkNotNull(coordinator.submit("first memo"))
 
-        coordinator.cancel(requestId = firstRequest.requestId)
+            coordinator.cancel(requestId = firstRequest.requestId)
 
-        val secondRequest = coordinator.submit("second memo")
+            val secondRequest = coordinator.submit("second memo")
 
-        assertEquals(
-            PendingNewMemoCreationRequest(
-                requestId = firstRequest.requestId + 1L,
-                content = "second memo",
-            ),
-            secondRequest,
-        )
-        assertEquals(secondRequest, coordinator.pendingRequest)
+            (secondRequest) shouldBe (PendingNewMemoCreationRequest(
+                    requestId = firstRequest.requestId + 1L,
+                    content = "second memo",
+                ))
+            (coordinator.pendingRequest) shouldBe (secondRequest)
+        }
     }
+
 }

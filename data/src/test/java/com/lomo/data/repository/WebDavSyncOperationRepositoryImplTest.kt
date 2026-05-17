@@ -1,5 +1,6 @@
 package com.lomo.data.repository
 
+
 import com.lomo.domain.model.WebDavSyncResult
 import com.lomo.domain.model.WebDavSyncStatus
 import com.lomo.domain.model.SyncBackendType
@@ -12,10 +13,9 @@ import io.mockk.impl.annotations.MockK
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Before
-import org.junit.Test
+import com.lomo.data.testing.DataFunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
  * Test Contract:
@@ -25,7 +25,26 @@ import org.junit.Test
  * - Red phase: Fails before the fix when pending WebDAV conflicts are not restored ahead of a new sync attempt.
  * - Excludes: WebDAV file-bridge planning logic, conflict modeling internals, and network client behavior.
  */
-class WebDavSyncOperationRepositoryImplTest {
+class WebDavSyncOperationRepositoryImplTest : DataFunSpec() {
+    init {
+        beforeTest {
+            setUp()
+        }
+
+        test("sync propagates not-configured result from executor") { `sync propagates not-configured result from executor`() }
+
+        test("sync short-circuits when another webdav sync is in progress") { `sync short-circuits when another webdav sync is in progress`() }
+
+        test("sync releases guard after failure so a later sync can run") { `sync releases guard after failure so a later sync can run`() }
+
+        test("getStatus delegates to status tester") { `getStatus delegates to status tester`() }
+
+        test("testConnection delegates to status tester") { `testConnection delegates to status tester`() }
+
+        test("sync restores pending webdav conflicts from store before invoking executor") { `sync restores pending webdav conflicts from store before invoking executor`() }
+    }
+
+
     /*
      * Test Change Justification:
      * - Reason category: mechanical reshaping after adding pending-conflict persistence.
@@ -47,8 +66,7 @@ class WebDavSyncOperationRepositoryImplTest {
 
     private lateinit var repository: WebDavSyncOperationRepositoryImpl
 
-    @Before
-    fun setUp() {
+    private fun setUp() {
         MockKAnnotations.init(this)
         stateHolder = WebDavSyncStateHolder()
         coEvery { pendingConflictStore.read(SyncBackendType.WEBDAV) } returns null
@@ -61,19 +79,17 @@ class WebDavSyncOperationRepositoryImplTest {
             )
     }
 
-    @Test
-    fun `sync propagates not-configured result from executor`() =
+    private fun `sync propagates not-configured result from executor`() =
         runTest {
             coEvery { syncExecutor.performSync() } returns WebDavSyncResult.NotConfigured
 
             val result = repository.sync()
 
-            assertEquals(WebDavSyncResult.NotConfigured, result)
+            result shouldBe WebDavSyncResult.NotConfigured
             coVerify(exactly = 1) { syncExecutor.performSync() }
         }
 
-    @Test
-    fun `sync short-circuits when another webdav sync is in progress`() =
+    private fun `sync short-circuits when another webdav sync is in progress`() =
         runTest {
             val gate = CompletableDeferred<Unit>()
             coEvery { syncExecutor.performSync() } coAnswers {
@@ -85,15 +101,14 @@ class WebDavSyncOperationRepositoryImplTest {
             kotlinx.coroutines.yield()
             val secondCall = repository.sync()
 
-            assertEquals(WebDavSyncResult.Success("WebDAV sync already in progress"), secondCall)
+            secondCall shouldBe WebDavSyncResult.Success("WebDAV sync already in progress")
 
             gate.complete(Unit)
-            assertEquals(WebDavSyncResult.Success("sync done"), firstCall.await())
+            firstCall.await() shouldBe WebDavSyncResult.Success("sync done")
             coVerify(exactly = 1) { syncExecutor.performSync() }
         }
 
-    @Test
-    fun `sync releases guard after failure so a later sync can run`() =
+    private fun `sync releases guard after failure so a later sync can run`() =
         runTest {
             coEvery { syncExecutor.performSync() } throws IllegalStateException("sync failed") andThen WebDavSyncResult.Success("recovered")
 
@@ -103,14 +118,13 @@ class WebDavSyncOperationRepositoryImplTest {
                 }.exceptionOrNull()
             val secondResult = repository.sync()
 
-            assertTrue(firstFailure is IllegalStateException)
-            assertEquals("sync failed", firstFailure?.message)
-            assertEquals(WebDavSyncResult.Success("recovered"), secondResult)
+            (firstFailure is IllegalStateException).shouldBeTrue()
+            firstFailure?.message shouldBe "sync failed"
+            secondResult shouldBe WebDavSyncResult.Success("recovered")
             coVerify(exactly = 2) { syncExecutor.performSync() }
         }
 
-    @Test
-    fun `getStatus delegates to status tester`() =
+    private fun `getStatus delegates to status tester`() =
         runTest {
             val expected =
                 WebDavSyncStatus(
@@ -123,24 +137,22 @@ class WebDavSyncOperationRepositoryImplTest {
 
             val result = repository.getStatus()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             coVerify(exactly = 1) { statusTester.getStatus() }
         }
 
-    @Test
-    fun `testConnection delegates to status tester`() =
+    private fun `testConnection delegates to status tester`() =
         runTest {
             val expected = WebDavSyncResult.Error("connection failed")
             coEvery { statusTester.testConnection() } returns expected
 
             val result = repository.testConnection()
 
-            assertEquals(expected, result)
+            result shouldBe expected
             coVerify(exactly = 1) { statusTester.testConnection() }
         }
 
-    @Test
-    fun `sync restores pending webdav conflicts from store before invoking executor`() =
+    private fun `sync restores pending webdav conflicts from store before invoking executor`() =
         runTest {
             val pending =
                 SyncConflictSet(
@@ -160,7 +172,7 @@ class WebDavSyncOperationRepositoryImplTest {
 
             val result = repository.sync()
 
-            assertEquals(WebDavSyncResult.Conflict("Pending conflicts remain", pending), result)
+            result shouldBe WebDavSyncResult.Conflict("Pending conflicts remain", pending)
             coVerify(exactly = 0) { syncExecutor.performSync() }
         }
 }

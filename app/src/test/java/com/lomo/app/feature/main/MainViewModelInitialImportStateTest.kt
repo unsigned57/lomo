@@ -4,10 +4,12 @@ import androidx.lifecycle.ViewModel
 import com.lomo.app.BuildConfig
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
+import com.lomo.app.media.AudioPlayerManager
 import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.repository.AppWidgetRepository
-import com.lomo.app.media.AudioPlayerManager
+import com.lomo.app.testing.AppFunSpec
+import com.lomo.app.testing.MainDispatcherExtension
 import com.lomo.domain.model.Memo
 import com.lomo.domain.model.MemoRevision
 import com.lomo.domain.model.MemoRevisionPage
@@ -28,8 +30,8 @@ import com.lomo.domain.repository.SyncPolicyRepository
 import com.lomo.domain.repository.WebDavSyncRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.GitUnifiedSyncProvider
-import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.InboxUnifiedSyncProvider
+import com.lomo.domain.usecase.InitializeWorkspaceUseCase
 import com.lomo.domain.usecase.LoadMemoRevisionHistoryUseCase
 import com.lomo.domain.usecase.RefreshMemosUseCase
 import com.lomo.domain.usecase.RestoreMemoRevisionUseCase
@@ -41,31 +43,26 @@ import com.lomo.domain.usecase.SyncProviderRegistry
 import com.lomo.domain.usecase.ToggleMemoCheckboxUseCase
 import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import com.lomo.domain.usecase.WebDavUnifiedSyncProvider
+import io.kotest.matchers.shouldBe
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import java.time.LocalDate
+import java.time.ZoneId
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
-import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Before
-import org.junit.Test
-import java.time.LocalDate
-import java.time.ZoneId
+import kotlinx.coroutines.test.runTest
 
 /*
  * Test Contract:
@@ -81,8 +78,12 @@ import java.time.ZoneId
  *   actual filesystem scanning.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainViewModelInitialImportStateTest {
+class MainViewModelInitialImportStateTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
+
+    init {
+        extension(MainDispatcherExtension(testDispatcher))
+    }
 
     private lateinit var repository: MemoRepository
     private lateinit var sidebarStateHolder: MainSidebarStateHolder
@@ -102,253 +103,260 @@ class MainViewModelInitialImportStateTest {
     private lateinit var rootLocationFlow: MutableStateFlow<StorageLocation?>
     private lateinit var allMemosFlow: MutableStateFlow<List<Memo>>
 
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
+    init {
+        beforeTest {
+repository = mockk(relaxed = true)
+            sidebarStateHolder = MainSidebarStateHolder()
+            appConfigRepository = mockk(relaxed = true)
+            gitSyncRepo = mockk(relaxed = true)
+            mediaRepository = mockk(relaxed = true)
+            webDavSyncRepository = mockk(relaxed = true)
+            s3SyncRepository = mockk(relaxed = true)
+            syncInboxRepository = mockk(relaxed = true)
+            syncPolicyRepository = mockk(relaxed = true)
+            appVersionRepository = mockk(relaxed = true)
+            memoVersionRepository = mockk(relaxed = true)
+            appWidgetRepository = mockk(relaxed = true)
+            imageMapProvider = emptyImageMapProvider()
+            audioPlayerManager = mockk(relaxed = true)
+            switchRootStorageUseCase = mockk(relaxed = true)
+            rootLocationFlow = MutableStateFlow(null)
+            allMemosFlow = MutableStateFlow(emptyList())
 
-        repository = mockk(relaxed = true)
-        sidebarStateHolder = MainSidebarStateHolder()
-        appConfigRepository = mockk(relaxed = true)
-        gitSyncRepo = mockk(relaxed = true)
-        mediaRepository = mockk(relaxed = true)
-        webDavSyncRepository = mockk(relaxed = true)
-        s3SyncRepository = mockk(relaxed = true)
-        syncInboxRepository = mockk(relaxed = true)
-        syncPolicyRepository = mockk(relaxed = true)
-        appVersionRepository = mockk(relaxed = true)
-        memoVersionRepository = mockk(relaxed = true)
-        appWidgetRepository = mockk(relaxed = true)
-        imageMapProvider = emptyImageMapProvider()
-        audioPlayerManager = mockk(relaxed = true)
-        switchRootStorageUseCase = mockk(relaxed = true)
-        rootLocationFlow = MutableStateFlow(null)
-        allMemosFlow = MutableStateFlow(emptyList())
-
-        every { repository.isSyncing() } returns flowOf(false)
-        every { repository.getAllMemosList() } returns allMemosFlow
-        every { repository.searchMemosList(any()) } returns allMemosFlow
-        every { repository.getMainListCountFlow(any(), any()) } returns flowOf(0)
-        every { repository.getMemosByTagList(any()) } returns flowOf(emptyList())
-        every { repository.getMemoCountFlow() } returns flowOf(0)
-        every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
-        every { repository.getMemoCountByDateFlow() } returns flowOf(emptyMap())
-        every { repository.getTagCountsFlow() } returns flowOf(emptyList())
-        every { repository.getActiveDayCount() } returns flowOf(0)
-        every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
-        every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(false)
-        every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
-        every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
-        every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
-        coEvery {
-            syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
-        } returns UnifiedSyncResult.Success(
-            provider = SyncBackendType.INBOX,
-            message = "processed",
-        )
-        every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns rootLocationFlow
-        coEvery { appConfigRepository.currentRootLocation() } coAnswers { rootLocationFlow.value }
-        every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
-        every { appConfigRepository.observeLocation(StorageArea.VOICE) } returns flowOf(null)
-        every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-        every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
-        every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-        every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
-        every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-        every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
-        every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-        every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
-        every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
-        every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
-        every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-        every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-        every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
-        every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
-        every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
-        coEvery { appVersionRepository.getLastAppVersionOnce() } returns
-            "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
-        coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
-        coEvery { memoVersionRepository.listMemoRevisions(any(), any(), any()) } returns
-            MemoRevisionPage(
-                items = emptyList<MemoRevision>(),
-                nextCursor = null,
+            every { repository.isSyncing() } returns flowOf(false)
+            every { repository.getAllMemosList() } returns allMemosFlow
+            every { repository.searchMemosList(any()) } returns allMemosFlow
+            every { repository.getMainListCountFlow(any(), any()) } returns flowOf(0)
+            every { repository.getMemosByTagList(any()) } returns flowOf(emptyList())
+            every { repository.getMemoCountFlow() } returns flowOf(0)
+            every { repository.getMemoTimestampsFlow() } returns flowOf(emptyList())
+            every { repository.getMemoCountByDateFlow() } returns flowOf(emptyMap())
+            every { repository.getTagCountsFlow() } returns flowOf(emptyList())
+            every { repository.getActiveDayCount() } returns flowOf(0)
+            every { gitSyncRepo.isGitSyncEnabled() } returns flowOf(false)
+            every { gitSyncRepo.getSyncOnRefreshEnabled() } returns flowOf(false)
+            every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(false)
+            every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
+            every { s3SyncRepository.isS3SyncEnabled() } returns flowOf(false)
+            every { s3SyncRepository.getSyncOnRefreshEnabled() } returns flowOf(false)
+            every { syncPolicyRepository.observeRemoteSyncBackend() } returns flowOf(SyncBackendType.NONE)
+            coEvery {
+                syncInboxRepository.sync(UnifiedSyncOperation.PROCESS_PENDING_CHANGES)
+            } returns UnifiedSyncResult.Success(
+                provider = SyncBackendType.INBOX,
+                message = "processed",
             )
-        coEvery { memoVersionRepository.restoreMemoRevision(any(), any()) } returns Unit
-        coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
-            rootLocationFlow.value = firstArg()
+            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns rootLocationFlow
+            coEvery { appConfigRepository.currentRootLocation() } coAnswers { rootLocationFlow.value }
+            every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
+            every { appConfigRepository.observeLocation(StorageArea.VOICE) } returns flowOf(null)
+            every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
+            every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
+            every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
+            every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
+            every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
+            every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
+            every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
+            every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
+            every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
+            every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
+            every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
+            every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
+            every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
+            every { appConfigRepository.isAppLockEnabled() } returns flowOf(false)
+            every { appConfigRepository.isCheckUpdatesOnStartupEnabled() } returns flowOf(false)
+            coEvery { appVersionRepository.getLastAppVersionOnce() } returns
+                "${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE})"
+            coEvery { appVersionRepository.updateLastAppVersion(any()) } returns Unit
+            coEvery { memoVersionRepository.listMemoRevisions(any(), any(), any()) } returns
+                MemoRevisionPage(
+                    items = emptyList<MemoRevision>(),
+                    nextCursor = null,
+                )
+            coEvery { memoVersionRepository.restoreMemoRevision(any(), any()) } returns Unit
+            coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
+                rootLocationFlow.value = firstArg()
+            }
         }
     }
 
-    @After
-    fun tearDown() {
-        settleMainDispatcher()
-        Dispatchers.resetMain()
+    init {
+        afterTest {
+            settleMainDispatcher()
+}
     }
 
-    @Test
-    fun `uiState is initial-importing while first refresh after root selection is running and no memos exist`() =
-        runTest {
-            val refreshStarted = CompletableDeferred<Unit>()
-            val allowRefreshToFinish = CompletableDeferred<Unit>()
-            val refreshFinished = CompletableDeferred<Unit>()
-            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
-                refreshStarted.complete(Unit)
-                allowRefreshToFinish.await()
-                refreshFinished.complete(Unit)
-            }
-            val viewModel = createViewModel()
-            try {
-                advanceUntilIdle()
-                rootLocationFlow.value = StorageLocation("/tmp/large-root")
-                runCurrent()
-
-                refreshStarted.await()
-
-                assertEquals(MainViewModel.MainScreenState.InitialImporting, viewModel.uiState.value)
-
-                allowRefreshToFinish.complete(Unit)
-                refreshFinished.await()
-                advanceUntilIdle()
-            } finally {
-                clearViewModel(viewModel)
-            }
-        }
-
-    @Test
-    fun `root change does not emit ready before initial-importing while first refresh is pending`() =
-        runTest {
-            val refreshStarted = CompletableDeferred<Unit>()
-            val allowRefreshToFinish = CompletableDeferred<Unit>()
-            val refreshFinished = CompletableDeferred<Unit>()
-            val observedStates = mutableListOf<MainViewModel.MainScreenState>()
-            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
-                refreshStarted.complete(Unit)
-                allowRefreshToFinish.await()
-                refreshFinished.complete(Unit)
-            }
-            val viewModel = createViewModel()
-            try {
-                advanceUntilIdle()
-                val collectJob =
-                    backgroundScope.launch {
-                        viewModel.uiState.drop(1).collect { state ->
-                            observedStates += state
-                        }
-                    }
-
+    init {
+        test("uiState is initial-importing while first refresh after root selection is running and no memos exist") {
+            runTest {
+                val refreshStarted = CompletableDeferred<Unit>()
+                val allowRefreshToFinish = CompletableDeferred<Unit>()
+                val refreshFinished = CompletableDeferred<Unit>()
+                coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
+                    refreshStarted.complete(Unit)
+                    allowRefreshToFinish.await()
+                    refreshFinished.complete(Unit)
+                }
+                val viewModel = createViewModel()
                 try {
+                    advanceUntilIdle()
                     rootLocationFlow.value = StorageLocation("/tmp/large-root")
                     runCurrent()
+
                     refreshStarted.await()
 
-                    assertFalse(observedStates.contains(MainViewModel.MainScreenState.Ready))
-                    assertEquals(MainViewModel.MainScreenState.InitialImporting, viewModel.uiState.value)
+                    (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.InitialImporting)
 
                     allowRefreshToFinish.complete(Unit)
                     refreshFinished.await()
                     advanceUntilIdle()
                 } finally {
-                    collectJob.cancelAndJoin()
-                }
-            } finally {
-                clearViewModel(viewModel)
-            }
-        }
-
-    @Test
-    fun `uiState returns to ready after first refresh completes with empty memo list`() =
-        runTest {
-            val refreshStarted = CompletableDeferred<Unit>()
-            val allowRefreshToFinish = CompletableDeferred<Unit>()
-            val refreshFinished = CompletableDeferred<Unit>()
-            coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
-                refreshStarted.complete(Unit)
-                allowRefreshToFinish.await()
-                refreshFinished.complete(Unit)
-            }
-            val viewModel = createViewModel()
-            try {
-                advanceUntilIdle()
-                rootLocationFlow.value = StorageLocation("/tmp/large-root")
-                refreshStarted.await()
-
-                allowRefreshToFinish.complete(Unit)
-                refreshFinished.await()
-                awaitUiState(viewModel, MainViewModel.MainScreenState.Ready)
-            } finally {
-                clearViewModel(viewModel)
-            }
-        }
-
-    @Test
-    fun `uiState switches to initial-importing during root refresh when previous directory had memos`() =
-        runTest {
-            allMemosFlow.value = listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9))
-            rootLocationFlow.value = StorageLocation("/tmp/old-root")
-            coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
-                val location = firstArg<StorageLocation>()
-                rootLocationFlow.value = location
-                if (location.raw == "/tmp/new-root") {
-                    awaitCancellation()
+                    clearViewModel(viewModel)
                 }
             }
-            val viewModel = createViewModel()
-            try {
-                advanceUntilIdle()
-                viewModel.onDirectorySelected("/tmp/new-root")
-                runCurrent()
-
-                awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
-            } finally {
-                clearViewModel(viewModel)
-            }
         }
+    }
 
-    @Test
-    fun `populated-directory switch does not emit ready before initial-importing while refresh is pending`() =
-        runTest {
-            val observedStates = mutableListOf<MainViewModel.MainScreenState>()
-            allMemosFlow.value = listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9))
-            rootLocationFlow.value = StorageLocation("/tmp/old-root")
-            coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
-                val location = firstArg<StorageLocation>()
-                rootLocationFlow.value = location
-                if (location.raw == "/tmp/new-root") {
-                    awaitCancellation()
+    init {
+        test("root change does not emit ready before initial-importing while first refresh is pending") {
+            runTest {
+                val refreshStarted = CompletableDeferred<Unit>()
+                val allowRefreshToFinish = CompletableDeferred<Unit>()
+                val refreshFinished = CompletableDeferred<Unit>()
+                val observedStates = mutableListOf<MainViewModel.MainScreenState>()
+                coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
+                    refreshStarted.complete(Unit)
+                    allowRefreshToFinish.await()
+                    refreshFinished.complete(Unit)
                 }
-            }
-            val viewModel = createViewModel()
-            try {
-                advanceUntilIdle()
-                val collectJob =
-                    backgroundScope.launch {
-                        viewModel.uiState.drop(1).collect { state ->
-                            observedStates += state
-                        }
-                    }
-
+                val viewModel = createViewModel()
                 try {
+                    advanceUntilIdle()
+                    val collectJob =
+                        backgroundScope.launch {
+                            viewModel.uiState.drop(1).collect { state ->
+                                observedStates += state
+                            }
+                        }
+
+                    try {
+                        rootLocationFlow.value = StorageLocation("/tmp/large-root")
+                        runCurrent()
+                        refreshStarted.await()
+
+                        ((observedStates.contains(MainViewModel.MainScreenState.Ready))) shouldBe false
+                        (viewModel.uiState.value) shouldBe (MainViewModel.MainScreenState.InitialImporting)
+
+                        allowRefreshToFinish.complete(Unit)
+                        refreshFinished.await()
+                        advanceUntilIdle()
+                    } finally {
+                        collectJob.cancelAndJoin()
+                    }
+                } finally {
+                    clearViewModel(viewModel)
+                }
+            }
+        }
+    }
+
+    init {
+        test("uiState returns to ready after first refresh completes with empty memo list") {
+            runTest {
+                val refreshStarted = CompletableDeferred<Unit>()
+                val allowRefreshToFinish = CompletableDeferred<Unit>()
+                val refreshFinished = CompletableDeferred<Unit>()
+                coEvery { switchRootStorageUseCase.rebuildCurrentWorkspace() } coAnswers {
+                    refreshStarted.complete(Unit)
+                    allowRefreshToFinish.await()
+                    refreshFinished.complete(Unit)
+                }
+                val viewModel = createViewModel()
+                try {
+                    advanceUntilIdle()
+                    rootLocationFlow.value = StorageLocation("/tmp/large-root")
+                    refreshStarted.await()
+
+                    allowRefreshToFinish.complete(Unit)
+                    refreshFinished.await()
+                    awaitUiState(viewModel, MainViewModel.MainScreenState.Ready)
+                } finally {
+                    clearViewModel(viewModel)
+                }
+            }
+        }
+    }
+
+    init {
+        test("uiState switches to initial-importing during root refresh when previous directory had memos") {
+            runTest {
+                allMemosFlow.value = listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9))
+                rootLocationFlow.value = StorageLocation("/tmp/old-root")
+                coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
+                    val location = firstArg<StorageLocation>()
+                    rootLocationFlow.value = location
+                    if (location.raw == "/tmp/new-root") {
+                        awaitCancellation()
+                    }
+                }
+                val viewModel = createViewModel()
+                try {
+                    advanceUntilIdle()
                     viewModel.onDirectorySelected("/tmp/new-root")
                     runCurrent()
-                    awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
 
-                    assertFalse(observedStates.contains(MainViewModel.MainScreenState.Ready))
-                    assertEquals(
-                        MainViewModel.MainScreenState.InitialImporting,
-                        observedStates.firstOrNull(),
-                    )
+                    awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
                 } finally {
-                    collectJob.cancelAndJoin()
+                    clearViewModel(viewModel)
                 }
-            } finally {
-                clearViewModel(viewModel)
             }
         }
+    }
+
+    init {
+        test("populated-directory switch does not emit ready before initial-importing while refresh is pending") {
+            runTest {
+                val observedStates = mutableListOf<MainViewModel.MainScreenState>()
+                allMemosFlow.value = listOf(memo("memo-1", LocalDate.of(2026, 3, 31), 9))
+                rootLocationFlow.value = StorageLocation("/tmp/old-root")
+                coEvery { switchRootStorageUseCase.updateRootLocation(any()) } coAnswers {
+                    val location = firstArg<StorageLocation>()
+                    rootLocationFlow.value = location
+                    if (location.raw == "/tmp/new-root") {
+                        awaitCancellation()
+                    }
+                }
+                val viewModel = createViewModel()
+                try {
+                    advanceUntilIdle()
+                    val collectJob =
+                        backgroundScope.launch {
+                            viewModel.uiState.drop(1).collect { state ->
+                                observedStates += state
+                            }
+                        }
+
+                    try {
+                        viewModel.onDirectorySelected("/tmp/new-root")
+                        runCurrent()
+                        awaitUiState(viewModel, MainViewModel.MainScreenState.InitialImporting)
+
+                        ((observedStates.contains(MainViewModel.MainScreenState.Ready))) shouldBe false
+                        (observedStates.firstOrNull()) shouldBe (MainViewModel.MainScreenState.InitialImporting)
+                    } finally {
+                        collectJob.cancelAndJoin()
+                    }
+                } finally {
+                    clearViewModel(viewModel)
+                }
+            }
+        }
+    }
 
     private fun createViewModel(): MainViewModel =
         MainViewModel(
             memoUiCoordinator = MemoUiCoordinator(repository),
+            appConfigStateProvider = createAppConfigStateProvider(),
             appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
             sidebarStateHolder = sidebarStateHolder,
             versionHistoryCoordinator =
@@ -394,9 +402,16 @@ class MainViewModelInitialImportStateTest {
                             appVersionRepository = appVersionRepository,
                             syncInboxRepository = syncInboxRepository,
                         ),
-                    appConfigUiCoordinator = AppConfigUiCoordinator(appConfigRepository),
+                    appConfigStateProvider =
+                        createAppConfigStateProvider(),
                     audioPlayerManager = audioPlayerManager,
                 ),
+        )
+
+    private fun createAppConfigStateProvider(): com.lomo.app.feature.common.AppConfigStateProvider =
+        com.lomo.app.feature.common.AppConfigStateProvider(
+            AppConfigUiCoordinator(appConfigRepository),
+            CoroutineScope(SupervisorJob() + testDispatcher),
         )
 
     private fun syncProviderRegistry(): SyncProviderRegistry =
@@ -439,7 +454,7 @@ class MainViewModelInitialImportStateTest {
             testDispatcher.scheduler.advanceUntilIdle()
             Thread.sleep(10)
         }
-        assertEquals(expected, viewModel.uiState.value)
+        (viewModel.uiState.value) shouldBe (expected)
     }
 
     private fun clearViewModel(viewModel: MainViewModel) {

@@ -1,11 +1,9 @@
 package com.lomo.ui.component.navigation
 
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.shouldBe
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
 
 /*
  * Test Contract:
@@ -19,12 +17,12 @@ import org.junit.Test
  * - Red phase: Verified by asserting move operations fail when logic is stripped.
  * - Excludes: library drag dispatch, LazyList measurement, pointer input.
  */
-class ApplyReorderableTagMoveTest {
+class ApplyReorderableTagMoveTest : UiComponentsFunSpec() {
     private fun tree(vararg paths: String): SnapshotStateList<TagNode> =
         paths.map { path -> TagNode(name = path, fullPath = path) }.toMutableStateList()
 
-    @Test
-    fun `swaps two tags by fullPath and reports applied`() {
+    init {
+        test("swaps two tags by fullPath and reports applied") {
         val tagTree = tree("work", "personal", "travel")
 
         val applied =
@@ -34,12 +32,13 @@ class ApplyReorderableTagMoveTest {
                 toKey = "work",
             )
 
-        assertTrue(applied)
-        assertEquals(listOf("travel", "work", "personal"), tagTree.map { it.fullPath })
+        (applied) shouldBe true
+        (tagTree.map { it.fullPath }) shouldBe (listOf("travel", "work", "personal"))
+        }
     }
 
-    @Test
-    fun `rejects move when from key is not in tree`() {
+    init {
+        test("rejects move when from key is not in tree") {
         val tagTree = tree("work", "personal")
 
         val applied =
@@ -49,12 +48,13 @@ class ApplyReorderableTagMoveTest {
                 toKey = "work",
             )
 
-        assertFalse(applied)
-        assertEquals(listOf("work", "personal"), tagTree.map { it.fullPath })
+        (applied) shouldBe false
+        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+        }
     }
 
-    @Test
-    fun `rejects move when to key is not in tree`() {
+    init {
+        test("rejects move when to key is not in tree") {
         val tagTree = tree("work", "personal")
 
         val applied =
@@ -64,21 +64,23 @@ class ApplyReorderableTagMoveTest {
                 toKey = "sidebar_tags_header",
             )
 
-        assertFalse(applied)
-        assertEquals(listOf("work", "personal"), tagTree.map { it.fullPath })
+        (applied) shouldBe false
+        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+        }
     }
 
-    @Test
-    fun `rejects move when either key is null`() {
+    init {
+        test("rejects move when either key is null") {
         val tagTree = tree("work", "personal")
 
-        assertFalse(applyReorderableTagMove(tagTree, fromKey = null, toKey = "work"))
-        assertFalse(applyReorderableTagMove(tagTree, fromKey = "work", toKey = null))
-        assertEquals(listOf("work", "personal"), tagTree.map { it.fullPath })
+        (applyReorderableTagMove(tagTree, fromKey = null, toKey = "work")) shouldBe false
+        (applyReorderableTagMove(tagTree, fromKey = "work", toKey = null)) shouldBe false
+        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+        }
     }
 
-    @Test
-    fun `no-op when from equals to`() {
+    init {
+        test("no-op when from equals to") {
         val tagTree = tree("work", "personal")
 
         val applied =
@@ -88,7 +90,8 @@ class ApplyReorderableTagMoveTest {
                 toKey = "work",
             )
 
-        assertFalse(applied)
-        assertEquals(listOf("work", "personal"), tagTree.map { it.fullPath })
+        (applied) shouldBe false
+        (tagTree.map { it.fullPath }) shouldBe (listOf("work", "personal"))
+        }
     }
 }

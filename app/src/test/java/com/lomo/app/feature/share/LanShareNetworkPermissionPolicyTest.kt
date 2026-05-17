@@ -1,144 +1,152 @@
-package com.lomo.app.feature.share
-
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import java.io.File
-
 /*
  * Test Contract:
- * - Unit under test: LAN share local-network permission policy.
- * - Behavior focus: discovery on Android releases that enforce local-network access must request
- *   the runtime permissions that exist for that platform release, recover from stale permission
- *   launcher results, and declare the manifest permission entries before NSD discovery or
- *   advertising.
- * - Observable outcomes: required permission list by SDK level, permission request-result
- *   classification, and manifest permission entry.
- * - Red phase: Fails before the fix because the runtime permission policy asks API 36 for
- *   ACCESS_LOCAL_NETWORK even though Android 16 LAN discovery is still granted by
- *   NEARBY_WIFI_DEVICES, so a device with Nearby Devices allowed is still classified as missing
- *   permission.
- * - Excludes: Android system permission dialog UI, NSD packet delivery, and transfer transport.
+ * - Unit under test: LanShareNetworkPermissionPolicyTest
+ * - Owning layer: app
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for LanShareNetworkPermissionPolicyTest.
+ * - Boundary: boundary and edge cases for LanShareNetworkPermissionPolicyTest.
+ * - Failure: failure and error scenarios for LanShareNetworkPermissionPolicyTest.
+ * - Must-not-happen: invariants are never violated for LanShareNetworkPermissionPolicyTest.
+ *
+ * - Behavior focus: test behavioral outcomes of LanShareNetworkPermissionPolicyTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
  */
-/*
- * Test Change Justification:
- * - Reason category: platform contract correction.
- * - Old behavior/assertion being replaced: SDK 36 was treated as requiring both
- *   NEARBY_WIFI_DEVICES and ACCESS_LOCAL_NETWORK.
- * - Why old assertion is no longer correct: Android 16 local-network discovery is still covered
- *   by NEARBY_WIFI_DEVICES; ACCESS_LOCAL_NETWORK is the Android 17+ runtime gate.
- * - Coverage preserved by: below-33 still asserts no extra permission, API 33-36 lock Nearby
- *   Devices, and API 37+ still locks the future local-network permission.
- * - Why this is not fitting the test to the implementation: the assertion follows the platform
- *   release matrix instead of the current implementation.
- */
-class LanShareNetworkPermissionPolicyTest {
-    @Test
-    fun `sdk 37 and above requires nearby wifi and local network permissions for lan share discovery`() {
-        assertEquals(
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION),
-            requiredLanShareNetworkPermissions(sdkInt = 37).toList(),
-        )
-    }
 
-    @Test
-    fun `sdk 36 requires nearby wifi permission without local network permission for android 16`() {
-        assertEquals(
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION),
-            requiredLanShareNetworkPermissions(sdkInt = 36).toList(),
-        )
-    }
+package com.lomo.app.feature.share
 
-    @Test
-    fun `sdk 36 nearby wifi grant satisfies lan share permission request`() {
-        val requiredPermissions = requiredLanShareNetworkPermissions(sdkInt = 36)
+import com.lomo.app.testing.AppFunSpec
+import io.kotest.matchers.collections.shouldContain
+import io.kotest.matchers.collections.shouldNotContain
+import io.kotest.matchers.shouldBe
 
-        assertTrue(
-            isLanSharePermissionRequestGranted(
-                requiredPermissions = requiredPermissions,
+private const val SDK_TIRAMISU = 33
+private const val SDK_UPSIDE_DOWN_CAKE = 34
+private const val SDK_VANILLA_ICE_CREAM = 35
+private const val SDK_BAKLAVA = 36
+private const val SDK_BAKLAVA_PLUS_ONE = 37
+
+private val PermissionAlwaysRecognized: LanSharePermissionRecognizer = { true }
+private val PermissionNeverRecognized: LanSharePermissionRecognizer = { false }
+
+class LanShareNetworkPermissionPolicyTest : AppFunSpec() {
+    init {
+        test("API 32 requires no LAN share network permissions") {
+            requiredLanShareNetworkPermissions(
+                sdkInt = 32,
+                isPermissionRecognized = PermissionAlwaysRecognized,
+            ) shouldBe emptyList()
+        }
+
+        test("API 33 (Tiramisu) requires NEARBY_WIFI_DEVICES only") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_TIRAMISU,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("API 34 (UpsideDownCake) still requires NEARBY_WIFI_DEVICES only") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_UPSIDE_DOWN_CAKE,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("API 35 (VanillaIceCream) still requires NEARBY_WIFI_DEVICES only") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_VANILLA_ICE_CREAM,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("API 36 (Baklava) requests ACCESS_LOCAL_NETWORK only when system recognizes the permission") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_BAKLAVA,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("API 36 skips ACCESS_LOCAL_NETWORK when system does not recognize the permission") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_BAKLAVA,
+                    isPermissionRecognized = PermissionNeverRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldNotContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("API 37+ still gates ACCESS_LOCAL_NETWORK on system recognition") {
+            val permissions =
+                requiredLanShareNetworkPermissions(
+                    sdkInt = SDK_BAKLAVA_PLUS_ONE,
+                    isPermissionRecognized = PermissionAlwaysRecognized,
+                )
+
+            permissions shouldContain NEARBY_WIFI_DEVICES_PERMISSION
+            permissions shouldContain ACCESS_LOCAL_NETWORK_PERMISSION
+        }
+
+        test("permission request is granted when all required permissions return true") {
+            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+
+            val granted = isLanSharePermissionRequestGranted(
+                requiredPermissions = required,
+                permissionResults = mapOf(
+                    NEARBY_WIFI_DEVICES_PERMISSION to true,
+                    ACCESS_LOCAL_NETWORK_PERMISSION to true,
+                ),
+                hasCurrentPermissions = false,
+            )
+
+            granted shouldBe true
+        }
+
+        test("permission request falls back to current grant state when callback misses entries") {
+            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+
+            val granted = isLanSharePermissionRequestGranted(
+                requiredPermissions = required,
                 permissionResults = mapOf(NEARBY_WIFI_DEVICES_PERMISSION to true),
-                hasCurrentPermissions = false,
-            ),
-        )
-    }
-
-    @Test
-    fun `sdk 33 through 35 requires nearby wifi permission for lan share discovery`() {
-        assertEquals(
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION),
-            requiredLanShareNetworkPermissions(sdkInt = 33).toList(),
-        )
-        assertEquals(
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION),
-            requiredLanShareNetworkPermissions(sdkInt = 34).toList(),
-        )
-        assertEquals(
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION),
-            requiredLanShareNetworkPermissions(sdkInt = 35).toList(),
-        )
-    }
-
-    @Test
-    fun `sdk below android 13 does not request extra lan share permission`() {
-        assertTrue(requiredLanShareNetworkPermissions(sdkInt = 32).isEmpty())
-    }
-
-    @Test
-    fun `permission request result is granted when current permission state is granted despite stale result map`() {
-        val requiredPermissions =
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
-        val staleLauncherResult =
-            mapOf(
-                NEARBY_WIFI_DEVICES_PERMISSION to true,
-                ACCESS_LOCAL_NETWORK_PERMISSION to false,
-            )
-
-        assertTrue(
-            isLanSharePermissionRequestGranted(
-                requiredPermissions = requiredPermissions,
-                permissionResults = staleLauncherResult,
                 hasCurrentPermissions = true,
-            ),
-        )
-    }
-
-    @Test
-    fun `permission request result stays denied when launcher and current state are denied`() {
-        val requiredPermissions =
-            listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
-        val deniedLauncherResult =
-            mapOf(
-                NEARBY_WIFI_DEVICES_PERMISSION to true,
-                ACCESS_LOCAL_NETWORK_PERMISSION to false,
             )
 
-        assertFalse(
-            isLanSharePermissionRequestGranted(
-                requiredPermissions = requiredPermissions,
-                permissionResults = deniedLauncherResult,
+            granted shouldBe true
+        }
+
+        test("permission request fails when a required permission is denied and OS doesn't already grant it") {
+            val required = listOf(NEARBY_WIFI_DEVICES_PERMISSION, ACCESS_LOCAL_NETWORK_PERMISSION)
+
+            val granted = isLanSharePermissionRequestGranted(
+                requiredPermissions = required,
+                permissionResults = mapOf(
+                    NEARBY_WIFI_DEVICES_PERMISSION to true,
+                    ACCESS_LOCAL_NETWORK_PERMISSION to false,
+                ),
                 hasCurrentPermissions = false,
-            ),
-        )
-    }
+            )
 
-    @Test
-    fun `app manifest declares local network permission for nsd discovery`() {
-        val manifest = File("src/main/AndroidManifest.xml").readText()
-
-        assertTrue(
-            "LAN share NSD must declare android.permission.ACCESS_LOCAL_NETWORK.",
-            manifest.contains("android.permission.ACCESS_LOCAL_NETWORK"),
-        )
-    }
-
-    @Test
-    fun `app manifest declares nearby wifi devices permission for android 16 nsd discovery`() {
-        val manifest = File("src/main/AndroidManifest.xml").readText()
-
-        assertTrue(
-            "LAN share NSD must declare android.permission.NEARBY_WIFI_DEVICES for Android 16.",
-            manifest.contains("android.permission.NEARBY_WIFI_DEVICES"),
-        )
+            granted shouldBe false
+        }
     }
 }

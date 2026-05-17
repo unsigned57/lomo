@@ -1,9 +1,8 @@
 package com.lomo.ui.text
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.ui.testing.UiComponentsFunSpec
+import io.kotest.matchers.floats.plusOrMinus
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -18,205 +17,195 @@ import org.junit.Test
  * - Excludes: OEM glyph rasterization, Canvas drawing pixels, Android TextView internals, and
  *   Compose semantics tree inspection.
  */
-class MemoTextLayoutEngineTest {
+class MemoTextLayoutEngineTest : UiComponentsFunSpec() {
     private val measurer = FakeMemoTextMeasurer()
     private val engine = MemoTextLayoutEngine(measurer)
 
-    @Test
-    fun `pure cjk non-final line expands cjk character slots to container width`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "中文中文中文中文",
-                    maxWidthPx = 44f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
+    init {
+        test("pure cjk non-final line expands cjk character slots to container width") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文",
+                        maxWidthPx = 44f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
 
-        val firstLine = layout.lines.first()
-        assertTrue(firstLine.isJustified)
-        assertEquals(44f, firstLine.visualWidthPx, FLOAT_DELTA)
-        assertTrue(firstLine.expansionSlots.all { it.kind == MemoTextExpansionSlotKind.CjkCharacter })
-        assertTrue(firstLine.expansionSlots.all { it.extraWidthPx > 0f })
-        assertFalse(layout.lines.last().isJustified)
-    }
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe true
+            (firstLine.visualWidthPx) shouldBe ((44f) plusOrMinus (FLOAT_DELTA))
+            (firstLine.expansionSlots.all { it.kind == MemoTextExpansionSlotKind.CjkCharacter }) shouldBe true
+            (firstLine.expansionSlots.all { it.extraWidthPx > 0f }) shouldBe true
+            (layout.lines.last().isJustified) shouldBe false
+        }
 
-    @Test
-    fun `cjk dominant mixed cjk latin justifies without expanding inside latin words`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "今天设计中文 review 中文排版内容",
-                    maxWidthPx = 110f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
+        test("cjk dominant mixed cjk latin justifies without expanding inside latin words") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "今天设计中文 review 中文排版内容",
+                        maxWidthPx = 110f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
 
-        val firstLine = layout.lines.first()
-        assertTrue(firstLine.isJustified)
-        assertEquals(110f, firstLine.visualWidthPx, FLOAT_DELTA)
-        assertTrue(firstLine.runs.any { it.text == "review" })
-        assertTrue(firstLine.expansionSlots.none { slot -> slot.leftText == "rev" || slot.rightText == "iew" })
-        assertTrue(firstLine.expansionSlots.isNotEmpty())
-    }
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe true
+            (firstLine.visualWidthPx) shouldBe ((110f) plusOrMinus (FLOAT_DELTA))
+            (firstLine.runs.any { it.text == "review" }) shouldBe true
+            (firstLine.expansionSlots.none { slot -> slot.leftText == "rev" || slot.rightText == "iew" }) shouldBe true
+            (firstLine.expansionSlots.isNotEmpty()) shouldBe true
+        }
 
-    @Test
-    fun `pure english prose keeps ragged right spacing instead of justifying spaces`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "alpha beta gamma delta",
-                    maxWidthPx = 60f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
+        test("pure english prose keeps ragged right spacing instead of justifying spaces") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "alpha beta gamma delta",
+                        maxWidthPx = 60f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
 
-        val firstLine = layout.lines.first()
-        assertFalse(firstLine.isJustified)
-        assertTrue(firstLine.expansionSlots.isEmpty())
-        assertEquals(firstLine.naturalWidthPx, firstLine.visualWidthPx, FLOAT_DELTA)
-    }
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe false
+            (firstLine.expansionSlots.isEmpty()) shouldBe true
+            (firstLine.visualWidthPx) shouldBe ((firstLine.naturalWidthPx) plusOrMinus (FLOAT_DELTA))
+        }
 
-    @Test
-    fun `english dominant mixed prose keeps ragged right spacing`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "today review memo 设计",
-                    maxWidthPx = 80f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
+        test("english dominant mixed prose keeps ragged right spacing") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "today review memo 设计",
+                        maxWidthPx = 80f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
 
-        val firstLine = layout.lines.first()
-        assertFalse(firstLine.isJustified)
-        assertTrue(firstLine.expansionSlots.isEmpty())
-        assertEquals(firstLine.naturalWidthPx, firstLine.visualWidthPx, FLOAT_DELTA)
-    }
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe false
+            (firstLine.expansionSlots.isEmpty()) shouldBe true
+            (firstLine.visualWidthPx) shouldBe ((firstLine.naturalWidthPx) plusOrMinus (FLOAT_DELTA))
+        }
 
-    @Test
-    fun `configured letter spacing participates in natural width without disabling justification`() {
-        val withoutSpacing =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "中文中文中文中文中文",
-                    maxWidthPx = 44f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
-        val withSpacing =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "中文中文中文中文中文",
-                    maxWidthPx = 44f,
-                    baseLetterSpacingPx = 1f,
-                ),
-            )
+        test("configured letter spacing participates in natural width without disabling justification") {
+            val withoutSpacing =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文中文",
+                        maxWidthPx = 44f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
+            val withSpacing =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文中文",
+                        maxWidthPx = 44f,
+                        baseLetterSpacingPx = 1f,
+                    ),
+                )
 
-        assertTrue(withSpacing.lines.first().isJustified)
-        assertEquals(44f, withSpacing.lines.first().visualWidthPx, FLOAT_DELTA)
-        assertTrue(withSpacing.lines.first().naturalWidthPx > withoutSpacing.lines.first().naturalWidthPx)
-    }
+            (withSpacing.lines.first().isJustified) shouldBe true
+            (withSpacing.lines.first().visualWidthPx) shouldBe ((44f) plusOrMinus (FLOAT_DELTA))
+            (withSpacing.lines.first().naturalWidthPx > withoutSpacing.lines.first().naturalWidthPx) shouldBe true
+        }
 
-    @Test
-    fun `punctuation and protected ranges are not used as expansion interiors`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "中文「链接文本」中文",
-                    maxWidthPx = 74f,
-                    baseLetterSpacingPx = 0f,
-                    protectedRanges = listOf(MemoTextProtectedRange(start = 3, end = 7)),
-                ),
-            )
+        test("punctuation and protected ranges are not used as expansion interiors") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文「链接文本」中文",
+                        maxWidthPx = 74f,
+                        baseLetterSpacingPx = 0f,
+                        protectedRanges = listOf(MemoTextProtectedRange(start = 3, end = 7)),
+                    ),
+                )
 
-        val firstLine = layout.lines.first()
-        assertTrue(firstLine.isJustified)
-        assertTrue(firstLine.expansionSlots.none { it.leftText == "「" || it.rightText == "」" })
-        assertTrue(firstLine.expansionSlots.none { it.boundaryOffset in 4..6 })
-    }
+            val firstLine = layout.lines.first()
+            (firstLine.isJustified) shouldBe true
+            (firstLine.expansionSlots.none { it.leftText == "「" || it.rightText == "」" }) shouldBe true
+            (firstLine.expansionSlots.none { it.boundaryOffset in 4..6 }) shouldBe true
+        }
 
-    @Test
-    fun `oversized latin token uses forced character breaks instead of overflowing indefinitely`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "supercalifragilistic",
-                    maxWidthPx = 25f,
-                    baseLetterSpacingPx = 0f,
-                ),
-            )
+        test("oversized latin token uses forced character breaks instead of overflowing indefinitely") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "supercalifragilistic",
+                        maxWidthPx = 25f,
+                        baseLetterSpacingPx = 0f,
+                    ),
+                )
 
-        assertTrue(layout.lines.size > 1)
-        assertTrue(layout.lines.any { it.wasForcedBreak })
-        assertTrue(layout.lines.all { it.visualWidthPx <= 25f + FLOAT_DELTA })
-    }
+            (layout.lines.size > 1) shouldBe true
+            (layout.lines.any { it.wasForcedBreak }) shouldBe true
+            (layout.lines.all { it.visualWidthPx <= 25f + FLOAT_DELTA }) shouldBe true
+        }
 
-    @Test
-    fun `ellipsis replaces hidden content on final visible line`() {
-        val layout =
-            engine.layout(
-                MemoTextLayoutInput(
-                    text = "中文中文中文中文中文中文",
-                    maxWidthPx = 44f,
-                    maxLines = 1,
-                    ellipsizeLastVisibleLine = true,
-                ),
-            )
+        test("ellipsis replaces hidden content on final visible line") {
+            val layout =
+                engine.layout(
+                    MemoTextLayoutInput(
+                        text = "中文中文中文中文中文中文",
+                        maxWidthPx = 44f,
+                        maxLines = 1,
+                        ellipsizeLastVisibleLine = true,
+                    ),
+                )
 
-        val line = layout.lines.single()
-        assertFalse(line.isJustified)
-        assertTrue(line.runs.joinToString(separator = "") { it.text }.length < layout.text.length)
-        assertEquals(5f, line.ellipsis?.widthPx ?: 0f, FLOAT_DELTA)
-        assertTrue(line.visualWidthPx <= 44f + FLOAT_DELTA)
-    }
+            val line = layout.lines.single()
+            (line.isJustified) shouldBe false
+            (line.runs.joinToString(separator = "") { it.text }.length < layout.text.length) shouldBe true
+            (line.ellipsis?.widthPx ?: 0f) shouldBe ((5f) plusOrMinus (FLOAT_DELTA))
+            (line.visualWidthPx <= 44f + FLOAT_DELTA) shouldBe true
+        }
 
-    @Test
-    fun `finite parent height caps collapsed preview layout lines`() {
-        val resolved =
-            resolveMemoTextLayoutMaxLines(
-                requestedMaxLines = Int.MAX_VALUE,
-                maxHeightPx = 72,
-                lineHeightPx = 24f,
-            )
+        test("finite parent height caps collapsed preview layout lines") {
+            val resolved =
+                resolveMemoTextLayoutMaxLines(
+                    requestedMaxLines = Int.MAX_VALUE,
+                    maxHeightPx = 72,
+                    lineHeightPx = 24f,
+                )
 
-        assertEquals(3, resolved)
-    }
+            (resolved) shouldBe (3)
+        }
 
-    @Test
-    fun `finite parent height never expands explicit max lines`() {
-        val resolved =
-            resolveMemoTextLayoutMaxLines(
-                requestedMaxLines = 2,
-                maxHeightPx = 240,
-                lineHeightPx = 24f,
-            )
+        test("finite parent height never expands explicit max lines") {
+            val resolved =
+                resolveMemoTextLayoutMaxLines(
+                    requestedMaxLines = 2,
+                    maxHeightPx = 240,
+                    lineHeightPx = 24f,
+                )
 
-        assertEquals(2, resolved)
-    }
+            (resolved) shouldBe (2)
+        }
 
-    @Test
-    fun `unbounded parent height keeps requested max lines`() {
-        val resolved =
-            resolveMemoTextLayoutMaxLines(
-                requestedMaxLines = Int.MAX_VALUE,
-                maxHeightPx = Int.MAX_VALUE,
-                lineHeightPx = 24f,
-            )
+        test("unbounded parent height keeps requested max lines") {
+            val resolved =
+                resolveMemoTextLayoutMaxLines(
+                    requestedMaxLines = Int.MAX_VALUE,
+                    maxHeightPx = Int.MAX_VALUE,
+                    lineHeightPx = 24f,
+                )
 
-        assertEquals(Int.MAX_VALUE, resolved)
-    }
+            (resolved) shouldBe (Int.MAX_VALUE)
+        }
 
-    @Test
-    fun `tiny finite parent height keeps one reachable line`() {
-        val resolved =
-            resolveMemoTextLayoutMaxLines(
-                requestedMaxLines = Int.MAX_VALUE,
-                maxHeightPx = 1,
-                lineHeightPx = 24f,
-            )
+        test("tiny finite parent height keeps one reachable line") {
+            val resolved =
+                resolveMemoTextLayoutMaxLines(
+                    requestedMaxLines = Int.MAX_VALUE,
+                    maxHeightPx = 1,
+                    lineHeightPx = 24f,
+                )
 
-        assertEquals(1, resolved)
+            (resolved) shouldBe (1)
+        }
     }
 
     private companion object {

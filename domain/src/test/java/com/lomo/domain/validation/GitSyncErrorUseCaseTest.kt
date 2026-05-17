@@ -1,47 +1,64 @@
+/*
+ * Test Contract:
+ * - Unit under test: GitSyncErrorUseCaseTest
+ * - Owning layer: domain
+ * - Priority tier: P0
+ *
+ * Scenario matrix:
+ * - Happy: standard happy path for GitSyncErrorUseCaseTest.
+ * - Boundary: boundary and edge cases for GitSyncErrorUseCaseTest.
+ * - Failure: failure and error scenarios for GitSyncErrorUseCaseTest.
+ * - Must-not-happen: invariants are never violated for GitSyncErrorUseCaseTest.
+ *
+ * - Behavior focus: test behavioral outcomes of GitSyncErrorUseCaseTest.
+ * - Observable outcomes: assertions verify expected outcomes.
+ * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - Excludes: none.
+ */
+
 package com.lomo.domain.usecase
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
-import org.junit.Test
+import com.lomo.domain.testing.DomainFunSpec
+import io.kotest.matchers.shouldBe
 
-class GitSyncErrorUseCaseTest {
+class GitSyncErrorUseCaseTest : DomainFunSpec() {
     private val policy = GitSyncErrorUseCase()
+    init {
+        test("sanitize keeps conflict message") {
+            val raw = "rebase STOPPED: resolve conflicts manually"
 
-    @Test
-    fun `sanitize keeps conflict message`() {
-        val raw = "rebase STOPPED: resolve conflicts manually"
+            val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
 
-        val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
-
-        assertEquals(raw, sanitized)
-        assertTrue(policy.isConflictMessage(raw))
+            sanitized shouldBe raw
+            (policy.isConflictMessage(raw)) shouldBe true
+        }
     }
+    init {
+        test("sanitize keeps direct-path-required message") {
+            val raw = "Git sync requires direct path mode to run"
 
-    @Test
-    fun `sanitize keeps direct-path-required message`() {
-        val raw = "Git sync requires direct path mode to run"
+            val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
 
-        val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
-
-        assertEquals(raw, sanitized)
-        assertEquals(GitSyncErrorUseCase.ErrorKind.DIRECT_PATH_REQUIRED, policy.classify(raw))
+            sanitized shouldBe raw
+            policy.classify(raw) shouldBe GitSyncErrorUseCase.ErrorKind.DIRECT_PATH_REQUIRED
+        }
     }
+    init {
+        test("sanitize falls back for technical details") {
+            val raw = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute"
 
-    @Test
-    fun `sanitize falls back for technical details`() {
-        val raw = "java.net.SocketTimeoutException: timeout\n\tat okhttp3.RealCall.execute"
+            val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
 
-        val sanitized = policy.sanitizeUserFacingMessage(raw, fallbackMessage = "fallback")
-
-        assertEquals("fallback", sanitized)
-        assertTrue(policy.looksTechnicalMessage(raw))
-        assertEquals(GitSyncErrorUseCase.ErrorKind.TECHNICAL, policy.classify(raw))
+            sanitized shouldBe "fallback"
+            (policy.looksTechnicalMessage(raw)) shouldBe true
+            policy.classify(raw) shouldBe GitSyncErrorUseCase.ErrorKind.TECHNICAL
+        }
     }
+    init {
+        test("classify returns user-facing for simple message") {
+            val raw = "Push rejected: remote ref was updated during push."
 
-    @Test
-    fun `classify returns user-facing for simple message`() {
-        val raw = "Push rejected: remote ref was updated during push."
-
-        assertEquals(GitSyncErrorUseCase.ErrorKind.USER_FACING, policy.classify(raw))
+            policy.classify(raw) shouldBe GitSyncErrorUseCase.ErrorKind.USER_FACING
+        }
     }
 }

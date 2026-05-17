@@ -1,10 +1,10 @@
 package com.lomo.data.source
 
+
 import kotlinx.coroutines.test.runTest
-import org.junit.Assert.assertEquals
-import org.junit.Rule
-import org.junit.Test
-import org.junit.rules.TemporaryFolder
+import com.lomo.data.testing.DataFunSpec
+import com.lomo.data.testing.KotestTemporaryFolder
+import io.kotest.matchers.shouldBe
 
 /*
  * Test Contract:
@@ -14,12 +14,22 @@ import org.junit.rules.TemporaryFolder
  * - Red phase: "directListMetadata returns metadata for nested markdown files" fails before the fix because the listing only called rootDir.listFiles() at the top level.
  * - Excludes: SAF-backed listing, UI rendering, sync engine behavior.
  */
-class DirectMarkdownStorageListingTest {
-    @get:Rule
-    val tempFolder: TemporaryFolder = TemporaryFolder()
+class DirectMarkdownStorageListingTest : DataFunSpec() {
+    init {
+        beforeTest {
+            tempFolder = KotestTemporaryFolder()
+        }
 
-    @Test
-    fun `directListMetadata returns metadata for nested markdown files`() =
+        afterTest {
+            tempFolder.cleanup()
+        }
+
+        test("directListMetadata returns metadata for nested markdown files") { `directListMetadata returns metadata for nested markdown files`() }
+    }
+
+
+    private lateinit var tempFolder: KotestTemporaryFolder
+    private fun `directListMetadata returns metadata for nested markdown files`() =
         runTest {
             val root = tempFolder.newFolder("lomo-metadata")
             root.resolve("a.md").writeText("x")
@@ -30,6 +40,6 @@ class DirectMarkdownStorageListingTest {
             val metadata = directListMetadata(root)
 
             val names = metadata.map { it.filename }.toSet()
-            assertEquals(setOf("a.md", "sub/b.md"), names)
+            names shouldBe setOf("a.md", "sub/b.md")
         }
 }
