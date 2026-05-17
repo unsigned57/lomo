@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -43,11 +44,10 @@ import coil3.request.ImageRequest
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
 import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
+import com.lomo.ui.util.SynchronizedLruStore
 import com.lomo.ui.util.LocalAnimatedVisibilityScope
 import com.lomo.ui.util.LocalSharedTransitionScope
-import org.commonmark.node.Image
 
-private const val IMAGE_CACHE_LOAD_FACTOR = 0.75f
 private val MARKDOWN_IMAGE_CORNER_RADIUS = 8.dp
 private val MARKDOWN_IMAGE_VERTICAL_PADDING = 4.dp
 private val MARKDOWN_IMAGE_INDICATOR_ACTIVE_SIZE = 8.dp
@@ -58,24 +58,15 @@ private const val MARKDOWN_IMAGE_INDICATOR_INACTIVE_ALPHA = 0.65f
 
 internal object MarkdownImageCache {
     private const val MAX_CACHE_SIZE = 200
-    private val lock = Any()
-    private val cache =
-        object : LinkedHashMap<String, Float>(MAX_CACHE_SIZE, IMAGE_CACHE_LOAD_FACTOR, true) {
-            override fun removeEldestEntry(eldest: Map.Entry<String, Float>): Boolean = size > MAX_CACHE_SIZE
-        }
+    private val cache = SynchronizedLruStore<String, Float>(MAX_CACHE_SIZE)
 
-    fun get(url: String): Float? =
-        synchronized(lock) {
-            cache[url]
-        }
+    fun get(url: String): Float? = cache.get(url)
 
     fun put(
         url: String,
         ratio: Float,
     ) {
-        synchronized(lock) {
-            cache[url] = ratio
-        }
+        cache.put(url, ratio)
     }
 }
 
@@ -97,7 +88,7 @@ internal fun resolveMarkdownImageSharedElementKey(
 
 @Composable
 internal fun MarkdownImageBlock(
-    image: Image,
+    image: ModernMarkdownImage,
     onImageClick: ((String) -> Unit)? = null,
     sharedElementKey: String? =
         resolveMarkdownImageSharedElementKey(
@@ -138,8 +129,10 @@ internal fun MarkdownImageBlock(
 
     val painter = rememberAsyncImagePainter(model)
     val state by painter.state.collectAsState()
+    var retainedSuccessPainter by remember(destination) { mutableStateOf<Painter?>(null) }
 
     val newAspectRatio = state.resolvedAspectRatio()
+    val successPainter = state.successPainter()
 
     LaunchedEffect(destination, newAspectRatio) {
         if (newAspectRatio != null && newAspectRatio != aspectRatio) {
@@ -147,30 +140,51 @@ internal fun MarkdownImageBlock(
             aspectRatio = newAspectRatio
         }
     }
+    LaunchedEffect(destination, successPainter) {
+        if (successPainter != null) {
+            retainedSuccessPainter = successPainter
+        }
+    }
 
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
-        when (state) {
-            is AsyncImagePainter.State.Loading -> {
+        when (
+            resolveMarkdownImagePresentation(
+                loadState = state.toMarkdownImageLoadState(),
+                hasRetainedSuccess = retainedSuccessPainter != null,
+            )
+        ) {
+            MarkdownImagePresentation.LoadingPlaceholder -> {
                 ImageLoadingPlaceholder(Modifier.fillMaxSize())
             }
 
-            is AsyncImagePainter.State.Success -> {
+            MarkdownImagePresentation.Success -> {
                 Image(
-                    painter = painter,
+                    painter = successPainter ?: painter,
                     contentDescription = image.title ?: defaultContentDescription,
                     contentScale = ContentScale.FillWidth,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
 
-            is AsyncImagePainter.State.Error -> {
+            MarkdownImagePresentation.RetainedSuccess -> {
+                retainedSuccessPainter?.let { retainedPainter ->
+                    Image(
+                        painter = retainedPainter,
+                        contentDescription = image.title ?: defaultContentDescription,
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } ?: ImageLoadingPlaceholder(Modifier.fillMaxSize())
+            }
+
+            MarkdownImagePresentation.ErrorPlaceholder -> {
                 ImageErrorPlaceholder(Modifier.fillMaxSize())
             }
 
-            else -> {
+            MarkdownImagePresentation.EmptyPlaceholder -> {
                 ImageEmptyPlaceholder(Modifier.fillMaxSize())
             }
         }
@@ -179,7 +193,7 @@ internal fun MarkdownImageBlock(
 
 @Composable
 internal fun MarkdownImagePager(
-    images: ImmutableList<Image>,
+    images: ImmutableList<ModernMarkdownImage>,
     onImageClick: ((String) -> Unit)? = null,
 ) {
     if (images.isEmpty()) return
