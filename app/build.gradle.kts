@@ -151,8 +151,8 @@ android {
         targetSdk {
             version = release(37)
         }
-        versionCode = 41
-        versionName = "1.4.1"
+        versionCode = 42
+        versionName = "1.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -295,6 +295,7 @@ dependencies {
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.appcompat)
@@ -323,9 +324,13 @@ dependencies {
     // WorkManager
     runtimeOnly(libs.androidx.profileinstaller)
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.kotest.assertions.core)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.framework.engine)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
@@ -365,4 +370,8 @@ kotlin {
             "-Xno-receiver-assertions",
         )
     }
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    useJUnitPlatform()
 }

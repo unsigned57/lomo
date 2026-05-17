@@ -77,6 +77,7 @@ dependencies {
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.okio)
 
     // Git sync
     api(libs.jgit)
@@ -87,9 +88,14 @@ dependencies {
     // Logging
     implementation(libs.timber)
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.kotest.assertions.core)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.framework.engine)
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
+    testImplementation(libs.ktor.client.mock)
     testRuntimeOnly(libs.sqlite.jdbc)
     androidTestImplementation(libs.androidx.junit)
 }
@@ -110,4 +116,8 @@ kover {
             add("debug")
         }
     }
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    useJUnitPlatform()
 }

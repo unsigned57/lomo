@@ -14,9 +14,13 @@ dependencies {
     implementation(libs.androidx.paging.common)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:${libs.versions.coroutines.get()}")
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.kotest.assertions.core)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.framework.engine)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockk)
+    testImplementation(libs.turbine)
 }
 
 kotlin {
@@ -35,4 +39,8 @@ kover {
             add("jvm")
         }
     }
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    useJUnitPlatform()
 }

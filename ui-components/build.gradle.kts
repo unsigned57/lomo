@@ -62,20 +62,18 @@ dependencies {
     api(libs.markdown.renderer.android)
     implementation(libs.reorderable)
 
-    // CommonMark
-    api(libs.commonmark)
-    implementation(libs.commonmark.strikethrough)
-    implementation(libs.commonmark.tables)
-    implementation(libs.commonmark.autolink)
-    implementation(libs.commonmark.tasklist)
-
     debugImplementation(libs.androidx.ui.tooling)
     debugRuntimeOnly(libs.androidx.ui.test.manifest)
 
     // Media3 (Voice Memo)
     implementation(libs.androidx.media3.exoplayer)
 
-    testImplementation(libs.junit)
+    testImplementation(libs.kotest.runner.junit5)
+    testImplementation(libs.kotest.assertions.core)
+    testImplementation(libs.kotest.property)
+    testImplementation(libs.kotest.framework.engine)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.turbine)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
@@ -97,4 +95,8 @@ kover {
             add("debug")
         }
     }
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    useJUnitPlatform()
 }
