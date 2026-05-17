@@ -30,14 +30,14 @@ HSPL androidx/compose/material3/**
 
 # 5. Navigation / Paging
 HSPL androidx/navigation/compose/**
-PL androidx/paging/**
+SPL androidx/paging/**
 
 # 6. Coroutines
 HSPL kotlinx/coroutines/flow/**
 SPL kotlinx/coroutines/**
 
 # 7. Coil
-PL coil3/compose/**
+SPL coil3/compose/**
 PL coil3/**
 
 # 8. Lomo UI component cold paths
@@ -48,7 +48,10 @@ HSPL com/lomo/ui/theme/**
 SPL com/lomo/ui/component/**
 
 # 9. Lomo feature cold paths
+HSPL com/lomo/app/provider/**
+HSPL com/lomo/app/feature/common/**
 HSPL com/lomo/app/feature/main/**
+SPL com/lomo/app/feature/gallery/**
 SPL com/lomo/app/feature/memo/**
 PL com/lomo/app/feature/search/**
 PL com/lomo/app/feature/preferences/**

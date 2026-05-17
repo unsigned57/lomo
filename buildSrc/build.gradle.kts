@@ -6,9 +6,13 @@ dependencies {
     implementation("org.ow2.asm:asm:9.8")
 
     testImplementation(gradleTestKit())
-    testImplementation(kotlin("test"))
-    testImplementation("junit:junit:4.13.2")
+    testImplementation("io.kotest:kotest-runner-junit5:6.1.11")
+    testImplementation("io.kotest:kotest-assertions-core:6.1.11")
     testImplementation("org.ow2.asm:asm:9.8")
+}
+
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    useJUnitPlatform()
 }
 
 gradlePlugin {

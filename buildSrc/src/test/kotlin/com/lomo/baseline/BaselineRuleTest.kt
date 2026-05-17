@@ -1,10 +1,9 @@
 package com.lomo.baseline
 
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
-import org.junit.Test
-import kotlin.test.assertFailsWith
+import io.kotest.assertions.throwables.shouldThrow
+import io.kotest.core.spec.style.FunSpec
+import io.kotest.matchers.shouldBe
+import io.kotest.matchers.string.shouldContain
 
 /*
  * Test Contract:
@@ -17,9 +16,8 @@ import kotlin.test.assertFailsWith
  *   matching behavior is missing or incorrect.
  * - Excludes: Gradle variant wiring, classpath scanning, and profile-file generation.
  */
-class BaselineRuleTest {
-    @Test
-    fun `parse strips comments blank lines and derives class flags`() {
+class BaselineRuleTest : FunSpec({
+    test("parse strips comments blank lines and derives class flags") {
         val rules =
             BaselineRule.parse(
                 """
@@ -30,45 +28,41 @@ class BaselineRuleTest {
                 """.trimIndent(),
             )
 
-        assertEquals(2, rules.size)
-        assertEquals("L", rules[0].classFlags)
-        assertEquals("HSPL", rules[0].methodFlags)
-        assertEquals("", rules[1].classFlags)
-        assertEquals("SP", rules[1].methodFlags)
-        assertTrue(rules[0].matches("com/example/Foo"))
-        assertTrue(rules[1].matches("com/example/ui/Feature"))
+        rules.size shouldBe 2
+        rules[0].classFlags shouldBe "L"
+        rules[0].methodFlags shouldBe "HSPL"
+        rules[1].classFlags shouldBe ""
+        rules[1].methodFlags shouldBe "SP"
+        rules[0].matches("com/example/Foo") shouldBe true
+        rules[1].matches("com/example/ui/Feature") shouldBe true
     }
 
-    @Test
-    fun `parse rejects invalid flags`() {
+    test("parse rejects invalid flags") {
         val error =
-            assertFailsWith<IllegalArgumentException> {
+            shouldThrow<IllegalArgumentException> {
                 BaselineRule.parse("HX com/example/Foo")
             }
 
-        assertTrue(error.message.orEmpty().contains("Invalid flags"))
+        error.message.orEmpty() shouldContain "Invalid flags"
     }
 
-    @Test
-    fun `double star matches across package depth`() {
+    test("double star matches across package depth") {
         val rule = BaselineRule.parse("HSPL com/example/**").single()
 
-        assertTrue(rule.matches("com/example/Foo"))
-        assertTrue(rule.matches("com/example/deep/nested/Foo"))
+        rule.matches("com/example/Foo") shouldBe true
+        rule.matches("com/example/deep/nested/Foo") shouldBe true
     }
 
-    @Test
-    fun `single star matches one path segment only`() {
+    test("single star matches one path segment only") {
         val rule = BaselineRule.parse("HSPL com/example/*/Feature").single()
 
-        assertTrue(rule.matches("com/example/ui/Feature"))
-        assertFalse(rule.matches("com/example/ui/deep/Feature"))
+        rule.matches("com/example/ui/Feature") shouldBe true
+        rule.matches("com/example/ui/deep/Feature") shouldBe false
     }
 
-    @Test
-    fun `matches returns false when internal name does not satisfy pattern`() {
+    test("matches returns false when internal name does not satisfy pattern") {
         val rule = BaselineRule.parse("HSPL com/example/Foo").single()
 
-        assertFalse(rule.matches("com/example/Bar"))
+        rule.matches("com/example/Bar") shouldBe false
     }
-}
+})
