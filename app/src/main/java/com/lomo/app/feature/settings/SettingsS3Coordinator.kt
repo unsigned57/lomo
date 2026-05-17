@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 
 sealed interface SettingsS3ConnectionTestState {
     data object Idle : SettingsS3ConnectionTestState
@@ -41,72 +40,72 @@ class SettingsS3Coordinator(
     val s3SyncEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeS3SyncEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_SYNC_ENABLED)
+            .settingsStateIn(scope, PreferenceDefaults.S3_SYNC_ENABLED)
 
     val s3EndpointUrl: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeEndpointUrl()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val s3Region: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeRegion()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val s3Bucket: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeBucket()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val s3Prefix: StateFlow<String> =
         s3SyncSettingsUseCase
             .observePrefix()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val s3LocalSyncDirectory: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeLocalSyncDirectory()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val s3PathStyle: StateFlow<S3PathStyle> =
         s3SyncSettingsUseCase
             .observePathStyle()
-            .stateIn(scope, settingsWhileSubscribed(), S3PathStyle.AUTO)
+            .settingsStateIn(scope, S3PathStyle.AUTO)
 
     val s3EncryptionMode: StateFlow<S3EncryptionMode> =
         s3SyncSettingsUseCase
             .observeEncryptionMode()
-            .stateIn(scope, settingsWhileSubscribed(), S3EncryptionMode.NONE)
+            .settingsStateIn(scope, S3EncryptionMode.NONE)
 
     val s3RcloneFilenameEncryption: StateFlow<S3RcloneFilenameEncryption> =
         s3SyncSettingsUseCase
             .observeRcloneFilenameEncryption()
-            .stateIn(scope, settingsWhileSubscribed(), S3RcloneFilenameEncryption.STANDARD)
+            .settingsStateIn(scope, S3RcloneFilenameEncryption.STANDARD)
 
     val s3RcloneFilenameEncoding: StateFlow<S3RcloneFilenameEncoding> =
         s3SyncSettingsUseCase
             .observeRcloneFilenameEncoding()
-            .stateIn(scope, settingsWhileSubscribed(), S3RcloneFilenameEncoding.BASE64)
+            .settingsStateIn(scope, S3RcloneFilenameEncoding.BASE64)
 
     val s3RcloneDirectoryNameEncryption: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeRcloneDirectoryNameEncryption()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
+            .settingsStateIn(scope, PreferenceDefaults.S3_RCLONE_DIRECTORY_NAME_ENCRYPTION)
 
     val s3RcloneDataEncryptionEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeRcloneDataEncryptionEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
+            .settingsStateIn(scope, PreferenceDefaults.S3_RCLONE_DATA_ENCRYPTION_ENABLED)
 
     val s3RcloneEncryptedSuffix: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeRcloneEncryptedSuffix()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
+            .settingsStateIn(scope, PreferenceDefaults.S3_RCLONE_ENCRYPTED_SUFFIX)
 
     private val _accessKeyConfigured = MutableStateFlow(false)
     val accessKeyConfigured: StateFlow<Boolean> = _accessKeyConfigured.asStateFlow()
@@ -126,29 +125,29 @@ class SettingsS3Coordinator(
     val s3AutoSyncEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeAutoSyncEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_AUTO_SYNC_ENABLED)
+            .settingsStateIn(scope, PreferenceDefaults.S3_AUTO_SYNC_ENABLED)
 
     val s3AutoSyncInterval: StateFlow<String> =
         s3SyncSettingsUseCase
             .observeAutoSyncInterval()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_AUTO_SYNC_INTERVAL)
+            .settingsStateIn(scope, PreferenceDefaults.S3_AUTO_SYNC_INTERVAL)
 
     val s3SyncOnRefreshEnabled: StateFlow<Boolean> =
         s3SyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.S3_SYNC_ON_REFRESH)
+            .settingsStateIn(scope, PreferenceDefaults.S3_SYNC_ON_REFRESH)
 
     val s3LastSyncTime: StateFlow<Long> =
         s3SyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { it ?: 0L }
-            .stateIn(scope, settingsWhileSubscribed(), 0L)
+            .settingsStateIn(scope, 0L)
 
     val s3SyncState: StateFlow<UnifiedSyncState> =
         s3SyncSettingsUseCase
             .observeSyncState()
             .map { state -> state.toUnifiedState(SyncBackendType.S3) }
-            .stateIn(scope, settingsWhileSubscribed(), UnifiedSyncState.Idle)
+            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsS3ConnectionTestState>(SettingsS3ConnectionTestState.Idle)
@@ -333,10 +332,11 @@ class SettingsS3Coordinator(
 
     val testS3Connection: suspend () -> SettingsOperationError? =
         {
-            runCatching {
-                _connectionTestState.value = SettingsS3ConnectionTestState.Testing
-                val result = s3SyncSettingsUseCase.testConnection()
-                _connectionTestState.value =
+            runConnectionTest(
+                state = _connectionTestState,
+                testingState = SettingsS3ConnectionTestState.Testing,
+                execute = s3SyncSettingsUseCase::testConnection,
+                mapSuccess = { result ->
                     when (result) {
                         is S3SyncResult.Success -> SettingsS3ConnectionTestState.Success(result.message)
                         is S3SyncResult.Error ->
@@ -348,17 +348,13 @@ class SettingsS3Coordinator(
                                 result.message.ifBlank { "S3 sync conflict detected" },
                             )
                     }
-                null
-            }.getOrElse { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
-                _connectionTestState.value =
+                },
+                mapFailure = { throwable ->
                     SettingsS3ConnectionTestState.Error(
                         throwable.toUserMessage("Failed to test S3 connection"),
                     )
-                null
-            }
+                },
+            )
         }
 
     override fun resetConnectionTestState() {
@@ -374,14 +370,5 @@ class SettingsS3Coordinator(
     private suspend fun runWithError(
         fallbackMessage: String,
         action: suspend () -> Unit,
-    ): SettingsOperationError? =
-        runCatching {
-            action()
-            null
-        }.getOrElse { throwable ->
-            if (throwable is CancellationException) {
-                throw throwable
-            }
-            SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
-        }
+    ): SettingsOperationError? = runSettingsOperation(fallbackMessage, { null }, action)
 }

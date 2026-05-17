@@ -330,7 +330,6 @@ private fun FooterSettingsSections(
         onToggleAppLock = interactionFeature::updateAppLockEnabled,
         onToggleQuickSaveOnBack = interactionFeature::updateQuickSaveOnBackEnabled,
         onToggleScrollbar = interactionFeature::updateScrollbarEnabled,
-        onToggleSecureWipeBeforeDelete = interactionFeature::updateSecureWipeBeforeDeleteEnabled,
     )
     AboutSettingsSection(
         state = aboutState,

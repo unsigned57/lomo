@@ -252,10 +252,6 @@ class SettingsInteractionFeatureViewModel(
         scope.launch { appConfigCoordinator.updateScrollbarEnabled(enabled) }
     }
 
-    fun updateSecureWipeBeforeDeleteEnabled(enabled: Boolean) {
-        scope.launch { appConfigCoordinator.updateSecureWipeBeforeDeleteEnabled(enabled) }
-    }
-
     fun updateAppLockEnabled(enabled: Boolean) {
         scope.launch { appConfigCoordinator.updateAppLockEnabled(enabled) }
     }
