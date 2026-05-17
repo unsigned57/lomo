@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 
 sealed interface SettingsGitConnectionTestState {
     data object Idle : SettingsGitConnectionTestState
@@ -37,17 +36,13 @@ class SettingsGitCoordinator(
     val gitSyncEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeGitSyncEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_SYNC_ENABLED,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_SYNC_ENABLED)
 
     val gitRemoteUrl: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeRemoteUrl()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     private val _gitPatConfigured = MutableStateFlow(false)
     val gitPatConfigured: StateFlow<Boolean> = _gitPatConfigured.asStateFlow()
@@ -55,62 +50,38 @@ class SettingsGitCoordinator(
     val gitAuthorName: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeAuthorName()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_AUTHOR_NAME,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_AUTHOR_NAME)
 
     val gitAuthorEmail: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeAuthorEmail()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_AUTHOR_EMAIL,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_AUTHOR_EMAIL)
 
     val gitAutoSyncEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeAutoSyncEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_AUTO_SYNC_ENABLED,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_AUTO_SYNC_ENABLED)
 
     val gitAutoSyncInterval: StateFlow<String> =
         gitSyncSettingsUseCase
             .observeAutoSyncInterval()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_AUTO_SYNC_INTERVAL,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_AUTO_SYNC_INTERVAL)
 
     val gitSyncOnRefreshEnabled: StateFlow<Boolean> =
         gitSyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.GIT_SYNC_ON_REFRESH,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.GIT_SYNC_ON_REFRESH)
 
     val gitLastSyncTime: StateFlow<Long> =
         gitSyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { value -> value ?: 0L }
-            .stateIn(scope, settingsWhileSubscribed(), 0L)
+            .settingsStateIn(scope, 0L)
 
     val gitSyncState: StateFlow<UnifiedSyncState> =
         gitSyncSettingsUseCase
             .observeSyncState()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                UnifiedSyncState.Idle,
-            )
+            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsGitConnectionTestState>(SettingsGitConnectionTestState.Idle)
@@ -208,48 +179,35 @@ class SettingsGitCoordinator(
 
     val testGitConnection: suspend () -> SettingsOperationError? =
         {
-            runCatching {
-                _connectionTestState.value = SettingsGitConnectionTestState.Testing
-                val result = gitSyncSettingsUseCase.testConnection()
-                _connectionTestState.value =
+            runConnectionTest(
+                state = _connectionTestState,
+                testingState = SettingsGitConnectionTestState.Testing,
+                execute = gitSyncSettingsUseCase::testConnection,
+                mapSuccess = { result ->
                     when (result) {
-                        is GitSyncResult.Success -> {
-                            SettingsGitConnectionTestState.Success(result.message)
-                        }
-
-                        is GitSyncResult.Error -> {
-                            SettingsGitConnectionTestState.Error(result.code, result.message)
-                        }
-
-                        GitSyncResult.NotConfigured -> {
+                        is GitSyncResult.Success -> SettingsGitConnectionTestState.Success(result.message)
+                        is GitSyncResult.Error -> SettingsGitConnectionTestState.Error(result.code, result.message)
+                        GitSyncResult.NotConfigured ->
                             SettingsGitConnectionTestState.Error(
                                 code = GitSyncErrorCode.NOT_CONFIGURED,
                                 detail = "Git sync is not configured",
                             )
-                        }
-
-                        GitSyncResult.DirectPathRequired -> {
+                        GitSyncResult.DirectPathRequired ->
                             SettingsGitConnectionTestState.Error(
                                 code = GitSyncErrorCode.DIRECT_PATH_REQUIRED,
                                 detail = "Git sync requires a direct local directory path",
                             )
-                        }
-
                         is GitSyncResult.Conflict ->
                             SettingsGitConnectionTestState.Error(
                                 code = GitSyncErrorCode.CONFLICT,
                                 detail = result.message,
                             )
                     }
-                null
-            }.getOrElse { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
-                val operationError =
-                    throwable.toGitOperationErrorOrNull()
-                        ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to test Git connection"))
-                _connectionTestState.value =
+                },
+                mapFailure = { throwable ->
+                    val operationError =
+                        throwable.toGitOperationErrorOrNull()
+                            ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to test Git connection"))
                     when (operationError) {
                         is SettingsOperationError.GitSync ->
                             SettingsGitConnectionTestState.Error(operationError.code, operationError.detail)
@@ -258,8 +216,8 @@ class SettingsGitCoordinator(
                         is SettingsOperationError.WebDavSync ->
                             SettingsGitConnectionTestState.Error(GitSyncErrorCode.UNKNOWN, operationError.detail)
                     }
-                null
-            }
+                },
+            )
         }
 
     val resetGitRepository: suspend () -> SettingsOperationError? =
@@ -287,16 +245,11 @@ class SettingsGitCoordinator(
         fallbackMessage: String,
         action: suspend () -> Unit,
     ): SettingsOperationError? =
-        runCatching {
-            action()
-            null
-        }.getOrElse { throwable ->
-            if (throwable is CancellationException) {
-                throw throwable
-            }
-            throwable.toGitOperationErrorOrNull()
-                ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
-        }
+        runSettingsOperation(
+            fallbackMessage = fallbackMessage,
+            specificError = { throwable -> throwable.toGitOperationErrorOrNull() },
+            action = action,
+        )
 }
 
 private fun GitSyncResult.Error.toOperationError(): SettingsOperationError.GitSync =

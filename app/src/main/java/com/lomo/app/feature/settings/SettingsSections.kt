@@ -212,7 +212,6 @@ fun InteractionSettingsSection(
     onToggleAppLock: (Boolean) -> Unit,
     onToggleQuickSaveOnBack: (Boolean) -> Unit,
     onToggleScrollbar: (Boolean) -> Unit,
-    onToggleSecureWipeBeforeDelete: (Boolean) -> Unit,
 ) {
     SettingsGroup(title = stringResource(R.string.settings_group_interaction)) {
         SwitchPreferenceItem(
@@ -277,14 +276,6 @@ fun InteractionSettingsSection(
             icon = Icons.Outlined.Info,
             checked = state.scrollbarEnabled,
             onCheckedChange = onToggleScrollbar,
-        )
-        SettingsDivider()
-        SwitchPreferenceItem(
-            title = stringResource(R.string.settings_secure_wipe_before_delete),
-            subtitle = stringResource(R.string.settings_secure_wipe_before_delete_subtitle),
-            icon = Icons.Outlined.Delete,
-            checked = state.secureWipeBeforeDeleteEnabled,
-            onCheckedChange = onToggleSecureWipeBeforeDelete,
         )
     }
 }

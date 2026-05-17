@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 
 sealed interface SettingsWebDavConnectionTestState {
     data object Idle : SettingsWebDavConnectionTestState
@@ -41,34 +40,30 @@ class SettingsWebDavCoordinator(
     val webDavSyncEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeWebDavSyncEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.WEBDAV_SYNC_ENABLED,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.WEBDAV_SYNC_ENABLED)
 
     val webDavProvider: StateFlow<WebDavProvider> =
         webDavSyncSettingsUseCase
             .observeProvider()
-            .stateIn(scope, settingsWhileSubscribed(), WebDavProvider.NUTSTORE)
+            .settingsStateIn(scope, WebDavProvider.NUTSTORE)
 
     val webDavBaseUrl: StateFlow<String> =
         webDavSyncSettingsUseCase
             .observeBaseUrl()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val webDavEndpointUrl: StateFlow<String> =
         webDavSyncSettingsUseCase
             .observeEndpointUrl()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     val webDavUsername: StateFlow<String> =
         webDavSyncSettingsUseCase
             .observeUsername()
             .map { it ?: "" }
-            .stateIn(scope, settingsWhileSubscribed(), "")
+            .settingsStateIn(scope, "")
 
     private val _passwordConfigured = MutableStateFlow(false)
     val passwordConfigured: StateFlow<Boolean> = _passwordConfigured.asStateFlow()
@@ -76,41 +71,29 @@ class SettingsWebDavCoordinator(
     val webDavAutoSyncEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeAutoSyncEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.WEBDAV_AUTO_SYNC_ENABLED,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.WEBDAV_AUTO_SYNC_ENABLED)
 
     val webDavAutoSyncInterval: StateFlow<String> =
         webDavSyncSettingsUseCase
             .observeAutoSyncInterval()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.WEBDAV_AUTO_SYNC_INTERVAL,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.WEBDAV_AUTO_SYNC_INTERVAL)
 
     val webDavSyncOnRefreshEnabled: StateFlow<Boolean> =
         webDavSyncSettingsUseCase
             .observeSyncOnRefreshEnabled()
-            .stateIn(
-                scope,
-                settingsWhileSubscribed(),
-                PreferenceDefaults.WEBDAV_SYNC_ON_REFRESH,
-            )
+            .settingsStateIn(scope, PreferenceDefaults.WEBDAV_SYNC_ON_REFRESH)
 
     val webDavLastSyncTime: StateFlow<Long> =
         webDavSyncSettingsUseCase
             .observeLastSyncTimeMillis()
             .map { it ?: 0L }
-            .stateIn(scope, settingsWhileSubscribed(), 0L)
+            .settingsStateIn(scope, 0L)
 
     val webDavSyncState: StateFlow<UnifiedSyncState> =
         webDavSyncSettingsUseCase
             .observeSyncState()
             .map { state -> state.toUnifiedState(SyncBackendType.WEBDAV) }
-            .stateIn(scope, settingsWhileSubscribed(), UnifiedSyncState.Idle)
+            .settingsStateIn(scope, UnifiedSyncState.Idle)
 
     private val _connectionTestState =
         MutableStateFlow<SettingsWebDavConnectionTestState>(SettingsWebDavConnectionTestState.Idle)
@@ -196,42 +179,33 @@ class SettingsWebDavCoordinator(
 
     val testWebDavConnection: suspend () -> SettingsOperationError? =
         {
-            runCatching {
-                _connectionTestState.value = SettingsWebDavConnectionTestState.Testing
-                val result = webDavSyncSettingsUseCase.testConnection()
-                _connectionTestState.value =
+            runConnectionTest(
+                state = _connectionTestState,
+                testingState = SettingsWebDavConnectionTestState.Testing,
+                execute = webDavSyncSettingsUseCase::testConnection,
+                mapSuccess = { result ->
                     when (result) {
-                        is WebDavSyncResult.Success -> {
-                            SettingsWebDavConnectionTestState.Success(result.message)
-                        }
-
-                        is WebDavSyncResult.Error -> {
+                        is WebDavSyncResult.Success -> SettingsWebDavConnectionTestState.Success(result.message)
+                        is WebDavSyncResult.Error ->
                             SettingsWebDavConnectionTestState.Error(result.code, result.message)
-                        }
-
-                        is WebDavSyncResult.Conflict -> {
+                        is WebDavSyncResult.Conflict ->
                             SettingsWebDavConnectionTestState.Error(
                                 code = WebDavSyncErrorCode.UNKNOWN,
                                 detail = "WebDAV sync conflict detected",
                             )
-                        }
-
-                        WebDavSyncResult.NotConfigured -> {
+                        WebDavSyncResult.NotConfigured ->
                             SettingsWebDavConnectionTestState.Error(
                                 code = WebDavSyncErrorCode.NOT_CONFIGURED,
                                 detail = "WebDAV sync is not configured",
                             )
-                        }
                     }
-                null
-            }.getOrElse { throwable ->
-                if (throwable is CancellationException) {
-                    throw throwable
-                }
-                val operationError =
-                    throwable.toWebDavOperationErrorOrNull()
-                        ?: SettingsOperationError.Message(throwable.toUserMessage("Failed to test WebDAV connection"))
-                _connectionTestState.value =
+                },
+                mapFailure = { throwable ->
+                    val operationError =
+                        throwable.toWebDavOperationErrorOrNull()
+                            ?: SettingsOperationError.Message(
+                                throwable.toUserMessage("Failed to test WebDAV connection"),
+                            )
                     when (operationError) {
                         is SettingsOperationError.WebDavSync ->
                             SettingsWebDavConnectionTestState.Error(operationError.code, operationError.detail)
@@ -240,8 +214,8 @@ class SettingsWebDavCoordinator(
                         is SettingsOperationError.GitSync ->
                             SettingsWebDavConnectionTestState.Error(WebDavSyncErrorCode.UNKNOWN, operationError.detail)
                     }
-                null
-            }
+                },
+            )
         }
 
     override fun resetConnectionTestState() {
@@ -258,16 +232,11 @@ class SettingsWebDavCoordinator(
         fallbackMessage: String,
         action: suspend () -> Unit,
     ): SettingsOperationError? =
-        runCatching {
-            action()
-            null
-        }.getOrElse { throwable ->
-            if (throwable is CancellationException) {
-                throw throwable
-            }
-            throwable.toWebDavOperationErrorOrNull()
-                ?: SettingsOperationError.Message(throwable.toUserMessage(fallbackMessage))
-        }
+        runSettingsOperation(
+            fallbackMessage = fallbackMessage,
+            specificError = { throwable -> throwable.toWebDavOperationErrorOrNull() },
+            action = action,
+        )
 }
 
 private fun Throwable.toWebDavOperationErrorOrNull(): SettingsOperationError.WebDavSync? =

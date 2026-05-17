@@ -120,11 +120,6 @@ class SettingsAppConfigCoordinator(
             .isScrollbarEnabled()
             .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SCROLLBAR_ENABLED)
 
-    val secureWipeBeforeDeleteEnabled: StateFlow<Boolean> =
-        appConfigRepository
-            .isSecureWipeBeforeDeleteEnabled()
-            .stateIn(scope, settingsWhileSubscribed(), PreferenceDefaults.SECURE_WIPE_BEFORE_DELETE_ENABLED)
-
     val appLockEnabled: StateFlow<Boolean> =
         appConfigRepository
             .isAppLockEnabled()
@@ -286,20 +281,10 @@ class SettingsAppConfigCoordinator(
         { enabled -> appConfigRepository.setShowInputHintsEnabled(enabled) }
 
     val updateDoubleTapEditEnabled: suspend (Boolean) -> Unit =
-        { enabled ->
-            appConfigRepository.setDoubleTapEditEnabled(enabled)
-            if (enabled) {
-                appConfigRepository.setFreeTextCopyEnabled(false)
-            }
-        }
+        { enabled -> appConfigRepository.setDoubleTapEditEnabled(enabled) }
 
     val updateFreeTextCopyEnabled: suspend (Boolean) -> Unit =
-        { enabled ->
-            appConfigRepository.setFreeTextCopyEnabled(enabled)
-            if (enabled) {
-                appConfigRepository.setDoubleTapEditEnabled(false)
-            }
-        }
+        { enabled -> appConfigRepository.setFreeTextCopyEnabled(enabled) }
 
     val updateMemoActionAutoReorderEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setMemoActionAutoReorderEnabled(enabled) }
@@ -309,9 +294,6 @@ class SettingsAppConfigCoordinator(
 
     val updateScrollbarEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setScrollbarEnabled(enabled) }
-
-    val updateSecureWipeBeforeDeleteEnabled: suspend (Boolean) -> Unit =
-        { enabled -> appConfigRepository.setSecureWipeBeforeDeleteEnabled(enabled) }
 
     val updateAppLockEnabled: suspend (Boolean) -> Unit =
         { enabled -> appConfigRepository.setAppLockEnabled(enabled) }
