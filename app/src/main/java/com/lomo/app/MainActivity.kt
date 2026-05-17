@@ -34,7 +34,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.withResumed
 import com.lomo.app.feature.main.MainViewModel
 import com.lomo.app.feature.preferences.AppPreferencesState
 import com.lomo.app.theme.applyAppNightMode
@@ -53,6 +57,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -66,6 +72,7 @@ class MainActivity : AppCompatActivity() {
     private var nextPendingLaunchCommandId = 0L
     private var pendingLaunchCommands by
         mutableStateOf<ImmutableList<PendingLaunchCommand>>(persistentListOf())
+    private val shareServicesStarted = AtomicBoolean(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
@@ -78,9 +85,20 @@ class MainActivity : AppCompatActivity() {
             handleIntent(intent)
         }
         setMainContent()
+        lifecycleScope.launch {
+            lifecycle.withResumed {
+                lifecycleScope.launch {
+                    viewModel.runDeferredStartupTasksIfNeeded()
+                }
+            }
+        }
         // Network service bootstrap is not required for first frame rendering.
-        window.decorView.post {
-            shareServiceManager.startServices()
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                if (shareServicesStarted.compareAndSet(false, true)) {
+                    shareServiceManager.startServices()
+                }
+            }
         }
     }
 
@@ -126,7 +144,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun shouldKeepSplashScreenVisible(): Boolean =
-        viewModel.uiState.value is MainViewModel.MainScreenState.Loading || viewModel.appLockEnabled.value == null
+        viewModel.uiState.value is MainViewModel.MainScreenState.Loading
 
     private fun setMainContent() {
         setContent {
@@ -348,29 +366,38 @@ private fun MainActivityRoot(
     ) {
         androidx.activity.compose.ReportDrawnWhen { !appLockUiState.isGateVisible }
         com.lomo.ui.util.ProvideAppHapticFeedback(enabled = appPreferences.hapticFeedbackEnabled) {
-            AnimatedContent(
-                targetState = appLockUiState.isGateVisible,
-                label = "AppLockGateTransition",
-                transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
-            ) { isLockGateVisible ->
-                if (isLockGateVisible) {
-                    AppLockGate(
-                        isConfigLoading = false,
-                        isUnlockInProgress = appLockUiState.isUnlockInProgress,
-                        errorMessage = appLockUiState.errorMessage,
-                        onRetry = {
-                            if (appLockEnabled == true && !appLockUiState.isUnlockInProgress) {
-                                appLockUiState.requestUnlock()
-                            }
-                        },
-                    )
-                } else {
-                    UnlockedAppRoot(
-                        pendingLaunchCommands = pendingLaunchCommands,
-                        onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
-                        audioPlayerController = audioPlayerController,
-                        shareServiceManager = shareServiceManager,
-                    )
+            if (!appLockUiState.isGateVisible && appLockEnabled == false) {
+                UnlockedAppRoot(
+                    pendingLaunchCommands = pendingLaunchCommands,
+                    onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+                    audioPlayerController = audioPlayerController,
+                    shareServiceManager = shareServiceManager,
+                )
+            } else {
+                AnimatedContent(
+                    targetState = appLockUiState.isGateVisible,
+                    label = "AppLockGateTransition",
+                    transitionSpec = { MotionTokens.enterContent togetherWith MotionTokens.exitContent },
+                ) { isLockGateVisible ->
+                    if (isLockGateVisible) {
+                        AppLockGate(
+                            isConfigLoading = false,
+                            isUnlockInProgress = appLockUiState.isUnlockInProgress,
+                            errorMessage = appLockUiState.errorMessage,
+                            onRetry = {
+                                if (appLockEnabled == true && !appLockUiState.isUnlockInProgress) {
+                                    appLockUiState.requestUnlock()
+                                }
+                            },
+                        )
+                    } else {
+                        UnlockedAppRoot(
+                            pendingLaunchCommands = pendingLaunchCommands,
+                            onPendingLaunchCommandsConsumed = onPendingLaunchCommandsConsumed,
+                            audioPlayerController = audioPlayerController,
+                            shareServiceManager = shareServiceManager,
+                        )
+                    }
                 }
             }
         }

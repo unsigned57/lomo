@@ -3,10 +3,22 @@ package com.lomo.app
 import android.app.Application
 import android.content.res.Configuration as AndroidConfiguration
 import androidx.hilt.work.HiltWorkerFactory
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.Configuration
+import coil3.ImageLoader
+import coil3.SingletonImageLoader
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
+import coil3.serviceLoaderEnabled
 import com.lomo.app.BuildConfig
 import com.lomo.app.theme.ThemeResyncPolicy
 import com.lomo.app.theme.applyAppNightMode
+import com.lomo.app.theme.resolvePlatformNightMode
+import com.lomo.app.theme.toAppCompatNightMode
+import com.lomo.domain.repository.DatabaseInitializationRepository
 import com.lomo.domain.model.ThemeMode
 import com.lomo.domain.repository.AppConfigRepository
 import com.lomo.domain.repository.SyncPolicyRepository
@@ -18,24 +30,44 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+
+private const val IMAGE_LOADER_MEMORY_CACHE_PERCENT = 0.25
+private const val IMAGE_LOADER_IO_PARALLELISM = 4
 
 @HiltAndroidApp
 class LomoApplication :
     Application(),
-    Configuration.Provider {
+    Configuration.Provider,
+    SingletonImageLoader.Factory {
     @Inject lateinit var workerFactory: HiltWorkerFactory
 
     @Inject lateinit var syncPolicyRepository: SyncPolicyRepository
 
     @Inject lateinit var appConfigRepository: AppConfigRepository
+    @Inject lateinit var databaseInitializationRepository: DatabaseInitializationRepository
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val syncStartupRegistered = AtomicBoolean(false)
     @Volatile
     private var currentThemeMode: ThemeMode = ThemeMode.SYSTEM
     private var lastKnownUiMode: Int? = null
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder().setWorkerFactory(workerFactory).build()
+
+    override fun newImageLoader(context: android.content.Context): ImageLoader =
+        ImageLoader
+            .Builder(context)
+            .memoryCache(
+                MemoryCache
+                    .Builder()
+                    .maxSizePercent(context, IMAGE_LOADER_MEMORY_CACHE_PERCENT)
+                    .build(),
+            ).diskCachePolicy(CachePolicy.DISABLED)
+            .interceptorCoroutineContext(Dispatchers.IO.limitedParallelism(IMAGE_LOADER_IO_PARALLELISM))
+            .serviceLoaderEnabled(false)
+            .build()
 
     override fun onCreate() {
         super.onCreate()
@@ -48,20 +80,36 @@ class LomoApplication :
 
         observeThemeMode()
 
-        // Defer non-critical worker registration off the main thread.
-        appScope.launch {
+        appScope.launch(Dispatchers.IO) {
             runCatching {
-                syncPolicyRepository.ensureCoreSyncActive()
+                databaseInitializationRepository.ensureReady()
             }.onFailure { error ->
-                Timber.e(error, "Failed to schedule sync")
-            }
-
-            runCatching {
-                syncPolicyRepository.applyRemoteSyncPolicy()
-            }.onFailure { error ->
-                Timber.e(error, "Failed to schedule remote sync")
+                Timber.e(error, "Failed to warm memo database")
             }
         }
+
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) {
+                    if (!syncStartupRegistered.compareAndSet(false, true)) {
+                        return
+                    }
+                    appScope.launch {
+                        runCatching {
+                            syncPolicyRepository.ensureCoreSyncActive()
+                        }.onFailure { error ->
+                            Timber.e(error, "Failed to schedule sync")
+                        }
+
+                        runCatching {
+                            syncPolicyRepository.applyRemoteSyncPolicy()
+                        }.onFailure { error ->
+                            Timber.e(error, "Failed to schedule remote sync")
+                        }
+                    }
+                }
+            },
+        )
     }
 
     override fun onConfigurationChanged(newConfig: AndroidConfiguration) {
@@ -84,24 +132,36 @@ class LomoApplication :
         appScope.launch {
             runCatching {
                 appConfigRepository.getThemeMode().collectLatest { themeMode ->
-                    currentThemeMode = themeMode
-                    withContext(Dispatchers.Main.immediate) {
-                        applyAppNightMode(
-                            context = this@LomoApplication,
-                            themeMode = themeMode,
-                        )
-                    }
+                    applyThemeIfChanged(themeMode)
                 }
             }.onFailure { error ->
                 Timber.w(error, "Failed to observe persisted theme mode, fallback to system")
-                currentThemeMode = ThemeMode.SYSTEM
-                withContext(Dispatchers.Main.immediate) {
-                    applyAppNightMode(
-                        context = this@LomoApplication,
-                        themeMode = ThemeMode.SYSTEM,
-                    )
+                applyThemeIfChanged(ThemeMode.SYSTEM)
+            }
+        }
+    }
+
+    private suspend fun applyThemeIfChanged(themeMode: ThemeMode) {
+        currentThemeMode = themeMode
+        val targetCompatMode = themeMode.toAppCompatNightMode()
+        val targetPlatformMode = resolvePlatformNightMode(themeMode)
+        val alreadyAppliedCompatMode = AppCompatDelegate.getDefaultNightMode() == targetCompatMode
+        val alreadyAppliedPlatformMode =
+            targetPlatformMode == null || resources.configuration.uiMode.let {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    getSystemService(android.app.UiModeManager::class.java)?.nightMode == targetPlatformMode
+                } else {
+                    true
                 }
             }
+        if (alreadyAppliedCompatMode && alreadyAppliedPlatformMode) {
+            return
+        }
+        withContext(Dispatchers.Main.immediate) {
+            applyAppNightMode(
+                context = this@LomoApplication,
+                themeMode = themeMode,
+            )
         }
     }
 }

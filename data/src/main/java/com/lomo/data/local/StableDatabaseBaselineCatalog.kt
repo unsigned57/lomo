@@ -14,7 +14,8 @@ internal object StableDatabaseBaselineCatalog {
     // falls outside the retained window.
     private val stableReleasesNewestFirst =
         listOf(
-            StableDatabaseRelease(appVersion = "1.4.0", databaseVersion = 53),
+            StableDatabaseRelease(appVersion = "1.5.0", databaseVersion = 55),
+            StableDatabaseRelease(appVersion = "1.4.0", databaseVersion = 54),
             StableDatabaseRelease(appVersion = "1.3.0", databaseVersion = 46),
             StableDatabaseRelease(appVersion = "1.2.1", databaseVersion = 45),
             StableDatabaseRelease(appVersion = "1.2.0", databaseVersion = 45),
