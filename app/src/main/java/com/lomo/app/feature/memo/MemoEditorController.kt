@@ -223,6 +223,8 @@ fun MemoEditorSheetHost(
     if (!controller.isVisible) return
 
     var showBackfillDialog by remember { mutableStateOf(false) }
+    var showReminderDialog by remember { mutableStateOf(false) }
+    val onReminderRequested = rememberReminderInsertGate(onReady = { showReminderDialog = true })
     val isRecordingValue = isRecordingFlow?.collectAsStateWithLifecycle()?.value ?: isRecording
     val recordingDurationValue = recordingDurationFlow?.collectAsStateWithLifecycle()?.value ?: recordingDuration
     val recordingAmplitudeValue = recordingAmplitudeFlow?.collectAsStateWithLifecycle()?.value ?: recordingAmplitude
@@ -273,6 +275,7 @@ fun MemoEditorSheetHost(
             onLocationClick = onLocationClick,
             onClearLocation = onClearLocation,
             onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
+            onReminderRequested = onReminderRequested,
         ) {
             if (shouldOpenMemoBackfillDialog(isEditingExistingMemo = controller.editingMemo != null)) {
                 showBackfillDialog = true
@@ -297,6 +300,16 @@ fun MemoEditorSheetHost(
                     isEditingExistingMemo = controller.editingMemo != null,
                 )
                 showBackfillDialog = false
+            },
+        )
+    }
+
+    if (showReminderDialog) {
+        ReminderInsertDialog(
+            onDismiss = { showReminderDialog = false },
+            onConfirm = { token ->
+                controller.updateInputValue(buildReminderInsertionValue(controller.inputValue, token))
+                showReminderDialog = false
             },
         )
     }
@@ -355,6 +368,7 @@ private fun buildMemoEditorSheetCallbacks(
     onLocationClick: () -> Unit,
     onClearLocation: () -> Unit,
     onInputToolbarToolOrderChanged: (List<String>) -> Unit,
+    onReminderRequested: () -> Unit,
     onBackfillRequested: () -> Unit,
 ): com.lomo.ui.component.input.InputSheetCallbacks =
     com.lomo.ui.component.input.InputSheetCallbacks(
@@ -392,6 +406,7 @@ private fun buildMemoEditorSheetCallbacks(
         onClearLocation = onClearLocation,
         onBackfillClick = onBackfillRequested,
         onBackfillBadgeClick = controller::cancelBackfillSelection,
+        onInsertReminder = onReminderRequested,
         onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
     )
 
