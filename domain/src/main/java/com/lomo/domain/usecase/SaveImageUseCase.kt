@@ -16,10 +16,10 @@ sealed interface SaveImageResult {
     ) : SaveImageResult
 }
 
-class SaveImageUseCase
+open class SaveImageUseCase
 (
         private val mediaRepository: MediaRepository,
     ) {
-        suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult =
+        open suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult =
             SaveImageResult.SavedAndCacheSynced(mediaRepository.importImage(source))
     }

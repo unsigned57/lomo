@@ -31,7 +31,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -42,6 +41,7 @@ import coil3.compose.rememberAsyncImagePainter
 import kotlinx.collections.immutable.ImmutableList
 import coil3.request.ImageRequest
 import com.lomo.ui.component.common.ExpressiveLoadingIndicator
+import com.lomo.ui.component.image.rememberRetainedSuccessPainter
 import com.lomo.ui.R
 import com.lomo.ui.theme.LomoTheme
 import com.lomo.ui.util.SynchronizedLruStore
@@ -129,7 +129,7 @@ internal fun MarkdownImageBlock(
 
     val painter = rememberAsyncImagePainter(model)
     val state by painter.state.collectAsState()
-    var retainedSuccessPainter by remember(destination) { mutableStateOf<Painter?>(null) }
+    val retainedSuccessPainter = rememberRetainedSuccessPainter(modelKey = destination, state = state)
 
     val newAspectRatio = state.resolvedAspectRatio()
     val successPainter = state.successPainter()
@@ -138,11 +138,6 @@ internal fun MarkdownImageBlock(
         if (newAspectRatio != null && newAspectRatio != aspectRatio) {
             MarkdownImageCache.put(destination, newAspectRatio)
             aspectRatio = newAspectRatio
-        }
-    }
-    LaunchedEffect(destination, successPainter) {
-        if (successPainter != null) {
-            retainedSuccessPainter = successPainter
         }
     }
 
