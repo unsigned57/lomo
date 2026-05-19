@@ -12,8 +12,13 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
+import coil3.request.crossfade
 import coil3.serviceLoaderEnabled
 import com.lomo.app.BuildConfig
+import com.lomo.app.feature.image.LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT
+import com.lomo.app.feature.image.lomoImageDecoderCoroutineContext
+import com.lomo.app.feature.image.lomoImageDiskCache
+import com.lomo.app.feature.image.lomoImageFetcherCoroutineContext
 import com.lomo.app.theme.ThemeResyncPolicy
 import com.lomo.app.theme.applyAppNightMode
 import com.lomo.app.theme.resolvePlatformNightMode
@@ -32,9 +37,6 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
-
-private const val IMAGE_LOADER_MEMORY_CACHE_PERCENT = 0.25
-private const val IMAGE_LOADER_IO_PARALLELISM = 4
 
 @HiltAndroidApp
 class LomoApplication :
@@ -62,10 +64,13 @@ class LomoApplication :
             .memoryCache(
                 MemoryCache
                     .Builder()
-                    .maxSizePercent(context, IMAGE_LOADER_MEMORY_CACHE_PERCENT)
+                    .maxSizePercent(context, LOMO_IMAGE_LOADER_MEMORY_CACHE_PERCENT)
                     .build(),
-            ).diskCachePolicy(CachePolicy.DISABLED)
-            .interceptorCoroutineContext(Dispatchers.IO.limitedParallelism(IMAGE_LOADER_IO_PARALLELISM))
+            ).diskCache(lomoImageDiskCache(context.cacheDir))
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .fetcherCoroutineContext(lomoImageFetcherCoroutineContext)
+            .decoderCoroutineContext(lomoImageDecoderCoroutineContext)
+            .crossfade(true)
             .serviceLoaderEnabled(false)
             .build()
 
