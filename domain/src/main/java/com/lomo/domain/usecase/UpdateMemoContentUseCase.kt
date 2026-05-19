@@ -3,14 +3,14 @@ package com.lomo.domain.usecase
 import com.lomo.domain.model.Memo
 import com.lomo.domain.repository.MemoRepository
 
-class UpdateMemoContentUseCase
+open class UpdateMemoContentUseCase
 (
         private val repository: MemoRepository,
         private val validator: ValidateMemoContentUseCase,
         private val resolveMemoUpdateActionUseCase: ResolveMemoUpdateActionUseCase,
         private val deleteMemoUseCase: DeleteMemoUseCase,
     ) {
-        suspend operator fun invoke(
+        open suspend operator fun invoke(
             memo: Memo,
             newContent: String,
         ) {

@@ -4,4 +4,11 @@
     <string name="app_update_http_failed">Update download failed: HTTP %1$d</string>
     <string name="app_update_empty_file">Downloaded APK file is empty.</string>
     <string name="app_update_no_installer">No package installer is available on this device.</string>
+    <string name="reminder_channel_name">Reminders</string>
+    <string name="reminder_channel_description">Memo reminder alerts</string>
+    <string name="reminder_notification_title">Memo reminder</string>
+    <string name="reminder_notification_default_body">It\'s time.</string>
+    <string name="reminder_action_open">Open</string>
+    <string name="reminder_action_snooze">Snooze</string>
+    <string name="reminder_action_done">Done</string>
 </resources>

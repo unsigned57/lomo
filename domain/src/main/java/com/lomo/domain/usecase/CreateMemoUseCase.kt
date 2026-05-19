@@ -2,13 +2,13 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.repository.MemoRepository
 
-class CreateMemoUseCase
+open class CreateMemoUseCase
 (
         private val memoRepository: MemoRepository,
         private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase,
         private val validator: ValidateMemoContentUseCase,
     ) {
-        suspend operator fun invoke(
+        open suspend operator fun invoke(
             content: String,
             timestampMillis: Long = System.currentTimeMillis(),
             geoLocation: String? = null,

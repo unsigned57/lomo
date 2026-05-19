@@ -2,10 +2,10 @@ package com.lomo.domain.usecase
 
 import com.lomo.domain.repository.PreferencesRepository
 
-class SetDraftTextUseCase(
+open class SetDraftTextUseCase(
     private val preferencesRepository: PreferencesRepository,
 ) {
-    suspend operator fun invoke(text: String?) {
+    open suspend operator fun invoke(text: String?) {
         preferencesRepository.setDraftText(text)
     }
 }

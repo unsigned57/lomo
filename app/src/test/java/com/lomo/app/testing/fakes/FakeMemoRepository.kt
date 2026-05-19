@@ -49,6 +49,14 @@ class FakeMemoRepository(
     var clearTrashCallCount: Int = 0
         private set
 
+    fun resetCallCounts() {
+        saveMemoCallCount = 0
+        updateMemoCallCount = 0
+        deleteMemoCallCount = 0
+        refreshMemosCallCount = 0
+        clearTrashCallCount = 0
+    }
+
     fun setActiveMemos(memos: List<Memo>) {
         activeMemos.value = memos
     }
@@ -81,7 +89,18 @@ class FakeMemoRepository(
     override suspend fun getRecentMemos(limit: Int): List<Memo> =
         activeMemos.value.sortedByDescending(Memo::timestamp).take(limit)
 
-    override suspend fun getMemoCount(): Int = activeMemos.value.size
+    override suspend fun getMemosPage(limit: Int, offset: Int): List<Memo> {
+        val list = activeMemos.value
+        if (offset < 0 || offset >= list.size || limit <= 0) return emptyList()
+        return list.subList(offset, (offset + limit).coerceAtMost(list.size))
+    }
+
+    var getMemoCountFailure: Throwable? = null
+
+    override suspend fun getMemoCount(): Int {
+        getMemoCountFailure?.let { throw it }
+        return activeMemos.value.size
+    }
 
     override fun getMainListPagingSource(
         query: String,
@@ -118,10 +137,14 @@ class FakeMemoRepository(
         activeMemos.value = activeMemos.value + memo
     }
 
+    var deleteMemoFailure: Throwable? = null
+    var updateMemoFailure: Throwable? = null
+
     override suspend fun updateMemo(
         memo: Memo,
         newContent: String,
     ) {
+        updateMemoFailure?.let { throw it }
         updateMemoCallCount += 1
         activeMemos.value =
             activeMemos.value.map { existing ->
@@ -130,6 +153,7 @@ class FakeMemoRepository(
     }
 
     override suspend fun deleteMemo(memo: Memo) {
+        deleteMemoFailure?.let { throw it }
         deleteMemoCallCount += 1
         activeMemos.value = activeMemos.value.filterNot { it.id == memo.id }
         deletedMemos.value = deletedMemos.value + memo.copy(isDeleted = true)
@@ -143,8 +167,14 @@ class FakeMemoRepository(
             activeMemos.value.map { memo -> if (memo.id == memoId) memo.copy(isPinned = pinned) else memo }
     }
 
-    override fun searchMemosList(query: String): Flow<List<Memo>> =
-        activeMemos.map { memos -> memos.filter { it.content.contains(query, ignoreCase = true) } }
+    val searchQueriesCalled = mutableListOf<String>()
+    var searchMemosListFlowOverride: ((String) -> Flow<List<Memo>>)? = null
+
+    override fun searchMemosList(query: String): Flow<List<Memo>> {
+        searchQueriesCalled.add(query)
+        searchMemosListFlowOverride?.let { return it(query) }
+        return activeMemos.map { memos -> memos.filter { it.content.contains(query, ignoreCase = true) } }
+    }
 
     override fun getMemosByTagList(tag: String): Flow<List<Memo>> =
         activeMemos.map { memos -> memos.filter { tag in it.tags } }
@@ -169,13 +199,20 @@ class FakeMemoRepository(
 
     override fun getDeletedMemosList(): Flow<List<Memo>> = deletedMemos.asStateFlow()
 
+    var deletePermanentlyOverride: (suspend (Memo) -> Unit)? = null
+    var restoreMemoOverride: (suspend (Memo) -> Unit)? = null
+
     override suspend fun restoreMemo(memo: Memo) {
-        deletedMemos.value = deletedMemos.value.filterNot { it.id == memo.id }
-        activeMemos.value = activeMemos.value + memo.copy(isDeleted = false)
+        restoreMemoOverride?.invoke(memo) ?: run {
+            deletedMemos.value = deletedMemos.value.filterNot { it.id == memo.id }
+            activeMemos.value = activeMemos.value + memo.copy(isDeleted = false)
+        }
     }
 
     override suspend fun deletePermanently(memo: Memo) {
-        deletedMemos.value = deletedMemos.value.filterNot { it.id == memo.id }
+        deletePermanentlyOverride?.invoke(memo) ?: run {
+            deletedMemos.value = deletedMemos.value.filterNot { it.id == memo.id }
+        }
     }
 
     override suspend fun clearTrash() {
