@@ -1,199 +1,98 @@
 # AI Meaningful Tests
 
-This repository does not treat raw line coverage as the goal. The goal is to raise coverage by proving behavior in code that carries product, sync, or state risk.
+This repository does not treat raw line coverage as the goal. Tests must prove behavior that can regress product, sync, state, persistence, parsing, or error handling.
 
-Default AI workflow is test-first. When a task adds a feature, changes production behavior, fixes a bug, or tightens a contract, the AI must write or update the test before touching production code and must prove the test is red before the fix.
+The default AI workflow is **BDD + TDD**:
 
-## Coverage Ratchet
-
-`qualityCheck` enforces a fixed merged Kover minimum of `70%`.
+- BDD states the externally visible behavior before code changes.
+- TDD proves that behavior with a red-green-refactor loop.
+- Static checks enforce the repeatable shape; this document explains the intent.
 
 ## Target Order
 
-- `P0`: `domain` use cases and `data` sync or repository orchestration that decides ordering, fallback, conflict handling, cancellation, DB or file reconciliation, or error mapping.
+- `P0`: `domain` use cases and `data` sync or repository orchestration that decides ordering, fallback, conflict handling, cancellation, DB/file reconciliation, or error mapping.
 - `P1`: `app` ViewModel or coordinator state machines with user-visible state transitions or command dispatch.
 - `P2`: utility classes that normalize, parse, or transform user data in a way that can regress behavior.
 
-Avoid spending AI time on:
+Avoid spending AI time on pure rendering/previews, DI glue, generated code, trivial delegation, or tests that only mirror implementation details. If a rendering or wiring file hides real branching, extract the policy first and test that unit.
 
-- pure Compose rendering and previews
-- activity or navigation wiring with no branch-heavy behavior
-- generated code, DI glue, and trivial delegation
-- tests that only mirror implementation details or mocked call counts without an externally visible outcome
+## BDD + TDD Loop
 
-If a file is mostly rendering or wiring but hides real branching, extract the branching logic first and test the extracted unit.
+For features, bug fixes, behavior changes, and contract changes:
 
-## Default Test-First Policy
+1. Write the `Behavior Contract` before production edits.
+2. Add or update the test for the relevant Given/When/Then scenario.
+3. Run the narrowest relevant test and confirm RED.
+4. Implement the minimum production change to turn the scenario GREEN.
+5. Refactor only while the scenario remains GREEN.
 
-- For new features, bug fixes, and contract changes, AI must write or modify the relevant test before related production code.
-- For new features, bug fixes, and contract changes, AI must establish red proof with the narrowest relevant command before the production fix.
-- Red proof must include:
-  - the command that ran
-  - the failing assertion, exception, or observable symptom
-  - why the failure proves the target behavior is currently broken or missing
-- If the request is truly test-only and no production code should change, the AI must state that explicitly and keep production files untouched.
+Red proof must include the command, the failing assertion/exception/symptom, and why that failure proves the behavior is missing or broken. A green first run means the test is too weak.
 
-## Authoring Style
+For pure test migrations that do not change production behavior, keep production files untouched and record `Not applicable - test-only migration; no production change.` in the TDD proof.
 
-After reading this policy, read `quality/testing/ai-kotlin-test-style.md` before writing Kotlin tests. It pins the approved Kotest/FunSpec stack, coroutine scaffolding, Turbine patterns, and the repository preference for `Fake*` collaborators over stateful mocks.
+## Behavior Contract
 
-## Locked Existing Tests Policy
-
-Pre-existing tests are behavior locks by default, not disposable scaffolding.
-
-- Prefer adding a new reproducer or contract test over rewriting an old test that already protects adjacent behavior.
-- When an existing test fails after a production edit, assume the implementation is wrong first. Do not rewrite the test to match the implementation by default.
-- AI must not:
-  - delete an existing failing test to unblock a change
-  - weaken assertions to broader or vaguer outcomes without proving the contract changed
-  - remove boundary, failure, cancellation, or conflict coverage that previously existed
-  - replace business-result assertions with collaborator-call-only assertions
-  - change test inputs purely to avoid the scenario the old test covered
-  - convert a behavior-changing task to `Red phase: Not applicable`
-- AI may modify an existing test only when at least one of these is true:
-  - the product or domain contract explicitly changed
-  - the old assertion is factually incorrect
-  - the old test is nondeterministic or coupled to an invalid environment assumption
-  - the production code is being mechanically refactored with no behavior change and the test shape must follow
-- If AI modifies an existing test, it must emit a `Test Change Justification` that includes:
-  - reason category
-  - the old behavior or assertion being replaced
-  - why the old assertion is no longer correct
-  - which retained or new test preserves the original risk coverage
-  - why this is not “changing the test to fit the implementation”
-- For bug fixes and contract changes, if a historical regression test already exists, keep it whenever possible. Add a new test for the new contract instead of overwriting the old risk boundary.
-
-## Required AI Preflight
-
-Before AI writes, edits, or proposes any test file in this repository, it must read this document first.
-
-The AI response must begin with a short preflight summary covering:
-
-1. target class and owning layer
-2. why the target is meaningful under the `P0` / `P1` / `P2` priority model
-3. what will not be tested
-4. whether the task is test-only or will require a production change and, if so, where red proof will come from
-5. whether any existing tests are likely contract locks that must be preserved unchanged
-6. whether any new or changed production branch needs explicit reachability proof
-
-If the AI cannot explain those points after reading this file, it must stop and ask for a better target instead of writing tests.
-
-## Required AI Workflow
-
-After the required preflight, and before AI writes a new or modified test file, it must produce a scenario matrix for the target class:
-
-1. Happy path
-2. Boundary path
-3. Failure, cancellation, or conflict path
-4. Must-not-happen path
-
-After the scenario matrix, AI must perform an existing-test impact check:
-
-1. which current tests already protect the same or adjacent behavior
-2. whether each test will stay unchanged, gain a companion test, or require justified correction
-3. whether any planned test edit risks weakening an existing contract
-4. whether `Test Change Justification` is required
-
-After the scenario matrix, follow this sequence:
-
-1. Write or modify the reproducer test before any related production edit.
-2. Add the required `Test Contract` metadata, including the structured `Scenario matrix` block and `Red phase`.
-3. If changing an existing test, write `Test Change Justification` before editing it and prefer adding a companion test first.
-4. If the task requires a production change:
-   - run the narrowest relevant test task
-   - capture the red-phase command and failure
-   - stop and tighten the test if it does not fail for the expected reason
-5. Only after red proof may AI modify production code.
-6. Re-run the reproducer to green, then broaden validation if the change surface justifies it.
-7. If no production change is required, state that the task is a test-only coverage lock-in and do not edit production code.
-
-Sample walkthroughs live in:
-
-- `quality/testing/samples/usecase-golden-sample.md`
-- `quality/testing/samples/viewmodel-golden-sample.md`
-- `quality/testing/samples/property-based-golden-sample.md`
-
-When a production change adds or reshapes branching (`if`, `when`, `catch`, Elvis fallback, early-return guard), the red proof must show why the branch is reachable or why removing it preserves reachable behavior. Do not accept tests that merely compile the branch or assert collaborator calls without proving an observable outcome.
-
-Every generated test must prove one of the following:
-
-- a business rule
-- a state transition
-- a side-effect ordering rule
-- an error classification or propagation rule
-- a parser or formatter contract with observable output
-
-Reject the test if it only proves:
-
-- that a mock was called without any meaningful outcome
-- that private implementation detail exists
-- that a Compose tree contains a constant without a product contract
-- that a trivial getter or setter returns the value just assigned
-- that the AI skipped the required preflight and went straight to code
-- that the AI changed production code before establishing red proof for a behavior-changing task
-- that a newly added production branch has no scenario proving it is reachable
-- that the red phase is omitted, hand-waved, or marked not applicable even though production behavior changed
-- that an old failing test was deleted or weakened so the new implementation could pass
-- that a regression test was rewritten into a happy-path test without preserving the original risk boundary
-
-## Required Contract Metadata
-
-Every changed test file must contain either a file header comment or an adjacent markdown contract file.
-
-Preferred in-file header format for newly added tests:
+Every changed Kotlin test file must contain an in-file header comment or adjacent `*.contract.md` file with these sections:
 
 ```kotlin
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SyncAndRebuildUseCase
  * - Owning layer: domain
  * - Priority tier: P0
+ * - Capability: refresh local memo state after remote sync decisions.
  *
- * Scenario matrix:
- * - Happy: refresh runs after a successful sync and returns normally.
- * - Boundary: best-effort sync still refreshes memo state when no remote work is needed.
- * - Failure: sync exception is propagated after the refresh contract is evaluated.
- * - Must-not-happen: refresh is never skipped silently after a reachable sync path.
+ * Scenarios:
+ * - Given remote sync succeeds, when rebuild runs, then local memo state is refreshed.
+ * - Given no remote work is needed, when rebuild runs, then local memo state is still refreshed.
+ * - Given sync fails, when rebuild runs, then the failure is observable and refresh behavior is explicit.
+ * - Given an unreachable sync branch would skip refresh silently, when tests run, then the branch is exposed.
  *
  * Observable outcomes:
- * - thrown exception type, refresh execution, collaborator call ordering.
+ * - returned value, thrown exception type, emitted state/event, persisted state, or explicit ordering contract.
  *
- * Red phase:
- * - Fails before the fix when refresh is skipped after a sync exception.
+ * TDD proof:
+ * - Fails before the fix when refresh is skipped after a successful sync.
  *
  * Excludes:
  * - repository internals, transport implementation details, UI rendering.
  */
-class SyncAndRebuildUseCaseTest : FunSpec({
-    test("refresh runs after a successful sync") {
-        // ...
-    }
-})
 ```
-
-Accepted adjacent file format: `MyTest.contract.md`
 
 Required sections:
 
-- `Test Contract`
-- `Scenario matrix`
+- `Behavior Contract`
+- `Scenarios`
 - `Observable outcomes`
-- `Red phase`
+- `TDD proof`
 - `Excludes`
 
-Rules:
+Existing legacy `Test Contract` headers are migration debt. When a test file is touched, upgrade the header to `Behavior Contract` unless the change is a narrow mechanical format pass already covered by a dedicated migration.
 
-- Newly added test files must use the structured header shape above, including `Scenario matrix` with `Happy`, `Boundary`, `Failure`, and `Must-not-happen`.
-- Newly added Kotlin `src/test` files should use Kotest `FunSpec` and Kotest assertions such as `shouldBe` / `shouldThrow` per `ai-kotlin-test-style.md`.
-- Existing tests that already carry the legacy four-section metadata remain valid until they are touched, but any touched contract should be upgraded to the structured form when practical.
-- Adjacent `*.contract.md` files must carry the same sections when used instead of an in-file header.
+## Meaningful Assertions
 
-Use `Red phase` to record one of:
+Every generated or touched test must prove at least one observable outcome:
 
-- how the test fails before the fix for behavior-changing work
-- `Not applicable - test-only coverage addition; no production change.`
+- business rule
+- state transition
+- side-effect ordering rule
+- error classification or propagation rule
+- parser/formatter result
+- persisted file, database, or preference state
 
-When AI edits an existing test file for any reason other than adding a new independent scenario, the response must also include a `Test Change Justification` section. The section may live in the response or in an adjacent markdown note, but it must contain:
+Reject tests that only prove a private helper exists, a mock was called, a constant is present in Compose output, a getter returns the value just assigned, or a Kotlin source token appears in a file.
+
+When production code adds or reshapes branching (`if`, `when`, `catch`, Elvis fallback, early return), the tests must prove that the branch is reachable or that removing it preserves reachable behavior.
+
+## Locked Existing Tests
+
+Pre-existing tests are behavior locks by default.
+
+- Prefer adding a companion behavior test over rewriting an old regression test.
+- When an old test fails after a production edit, assume the implementation is wrong first.
+- Do not delete, weaken, or narrow old assertions unless the product/domain contract changed, the old assertion is factually wrong, the old test is nondeterministic, or a mechanical refactor requires a shape change.
+
+If a touched test changes an existing assertion or scenario, include a `Test Change Justification` in the response or adjacent note:
 
 - `Reason category`
 - `Old behavior/assertion being replaced`
@@ -201,26 +100,27 @@ When AI edits an existing test file for any reason other than adding a new indep
 - `Coverage preserved by`
 - `Why this is not fitting the test to the implementation`
 
-CI and pre-commit now enforce the base contract metadata sections for changed test files, require `Scenario matrix` on newly added tests, reject new source-string tests outside the architecture-boundary exception, block `Red phase: Not applicable` when production code changed, and reject half-migrated JUnit/Kotest assertion files. `Test Change Justification` is still a repository policy requirement even when it is not yet machine-enforced.
+## Automation Boundary
 
-## Forbidden Test Shape
+Static checks should carry the detailed anti-pattern burden. Current and planned checks cover:
 
-Do not read Kotlin source files at test time and assert on their string contents as a substitute for behavior coverage. Tests such as `File(...).readText()` plus `assertTrue(content.contains(...))` or `content shouldContain "token"` lock tokens, not runtime behavior.
+- missing behavior contract metadata
+- production changes with `TDD proof: Not applicable`
+- multiple Kotest `init` blocks
+- forbidden JUnit/Mockito/AssertK/Strikt imports
+- direct `Dispatchers.setMain/resetMain`
+- source-string behavior tests outside architecture-boundary exceptions
+- `mockk(relaxed = true)` and stateful collaborators mocked instead of faked
+- interaction-only tests with no observable assertion
 
-Allowed exceptions are limited to architecture-boundary checks that live under `**/src/test/**/architecture/**` or files marked near the top with `// architectural-boundary-check`.
+When a static check fails, fix the code or test shape. Do not suppress the rule.
 
-If a test wants to assert source tokens for real behavior, stop and extract the production policy into a smaller unit instead. Then assert the observable outcome of that unit.
+## Samples
 
-## Review Standard
+Use the samples for shape, not as extra required reading:
 
-When reviewing AI-authored tests, reject the change if any of these are true:
+- `quality/testing/samples/usecase-golden-sample.md`
+- `quality/testing/samples/viewmodel-golden-sample.md`
+- `quality/testing/samples/property-based-golden-sample.md`
 
-- the AI did not show evidence that it read this document before writing tests
-- the assertion could stay green after breaking the user-facing behavior
-- the test could stay green before the claimed fix for a behavior-changing task
-- the test only validates current implementation structure
-- no failure or edge-path coverage was added for a branch-heavy target
-- the red phase is undocumented or unconvincing for work that changed behavior
-- the target class is low-signal and logic extraction would have been the better move
-- an existing test was modified without a convincing `Test Change Justification`
-- a behavior change was expressed only by rewriting old tests instead of adding or preserving an independent contract test
+`qualityCheck` enforces the repository coverage floor and quality gates. The meaningful-test policy decides whether the coverage is worth having.

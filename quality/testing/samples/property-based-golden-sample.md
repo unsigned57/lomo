@@ -11,12 +11,12 @@ scenario matrix.
 - Layer: `domain`
 - Priority: `P2`
 
-## Scenario matrix
+## Behavior Contract
 
-- Happy: any non-empty ASCII title round-trips through encode -> decode unchanged.
-- Boundary: the maximum-length title (64 chars) still round-trips.
-- Failure: titles containing forbidden path separators are rejected with `IllegalArgumentException`.
-- Must-not-happen: encoded output must never reintroduce a path separator.
+- Given the happy path, when the behavior runs, then any non-empty ASCII title round-trips through encode -> decode unchanged.
+- Given the boundary path, when the behavior runs, then the maximum-length title (64 chars) still round-trips.
+- Given the failure path, when the behavior runs, then titles containing forbidden path separators are rejected with `IllegalArgumentException`.
+- Given the must-not-happen risk, when tests run, then encoded output must never reintroduce a path separator.
 
 ## Red
 
@@ -24,22 +24,22 @@ Write the failing property-based reproducer first:
 
 ```kotlin
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StorageFilenameFormats
  * - Owning layer: domain
  * - Priority tier: P2
  *
- * Scenario matrix:
- * - Happy: arbitrary non-empty ASCII titles round-trip encode -> decode.
- * - Boundary: 64-char titles still round-trip.
- * - Failure: titles with '/' or '\\' raise IllegalArgumentException.
- * - Must-not-happen: encoded output never contains '/' or '\\'.
+ * Scenarios:
+ * - Given the happy path, when the behavior runs, then arbitrary non-empty ASCII titles round-trip encode -> decode.
+ * - Given the boundary path, when the behavior runs, then 64-char titles still round-trip.
+ * - Given the failure path, when the behavior runs, then titles with '/' or '\\' raise IllegalArgumentException.
+ * - Given the must-not-happen risk, when tests run, then encoded output never contains '/' or '\\'.
  *
  * Observable outcomes:
  * - decode(encode(title)) equals title; encode rejects separators; encoded
  *   output excludes separators.
  *
- * Red phase:
+ * TDD proof:
  * - Fails before the fix because encode does not strip an interior backslash,
  *   so decode produces a string that differs from the input.
  *

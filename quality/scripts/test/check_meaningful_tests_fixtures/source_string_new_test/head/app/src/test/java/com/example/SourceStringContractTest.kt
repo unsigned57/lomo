@@ -1,26 +1,43 @@
 package com.example
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 import java.io.File
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ExamplePolicy
  * - Owning layer: app
  * - Priority tier: P1
  *
- * Scenario matrix:
- * - Happy: the file contains the documented token.
- * - Boundary: repeated reads return the same token.
- * - Failure: token lookup fails if the source disappears.
- * - Must-not-happen: the contract must not rely on runtime behavior.
+ * Scenarios:
+ * - Given the happy path, when the behavior runs, then the file contains the documented token.
+ * - Given the boundary path, when the behavior runs, then repeated reads return the same token.
+ * - Given the failure path, when the behavior runs, then token lookup fails if the source disappears.
+ * - Given the must-not-happen risk, when tests run, then the contract must not rely on runtime behavior.
  *
  * Observable outcomes:
  * - source token visibility.
  *
- * Red phase:
- * - Not applicable - test-only coverage addition; no production change.
+ * TDD proof:
+ * - Not applicable - test-only migration; no production change.
  *
  * Excludes:
  * - runtime observable behavior.

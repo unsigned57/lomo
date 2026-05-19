@@ -1,0 +1,36 @@
+package com.lomo.detektrules
+
+import dev.detekt.api.Config
+import org.jetbrains.kotlin.psi.KtCallExpression
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtProperty
+
+internal class MockedStatefulCollaboratorRule(
+    config: Config,
+) : LomoBaseRule(
+    config,
+    "MockK is forbidden for stateful collaborators (Dao / Repository / DataSource). Prefer hand-written Fake* under app/src/test/.../testing/fakes/.",
+) {
+    override fun visitCallExpression(expression: KtCallExpression) {
+        super.visitCallExpression(expression)
+        if (!expression.containingKtFile.isTestFile()) return
+        if (expression.calleeExpression?.text != "mockk") return
+
+        val typeArgText = expression.typeArguments.singleOrNull()?.typeReference?.text?.trim()
+        val typeText = typeArgText ?: (expression.parent as? KtProperty)?.typeReference?.text?.trim()
+        if (typeText == null) return
+
+        val simpleName = typeText.substringAfterLast('.').trimEnd('?').takeWhile { it != '<' }
+        if (BANNED_SUFFIXES.none { simpleName.endsWith(it) }) return
+
+        reportElement(
+            expression,
+            "Stateful collaborator '$simpleName' must be a hand-written Fake*, not a mockk(). " +
+                "See quality/testing/ai-kotlin-test-style.md (Prefer Fake* Collaborators) and app/src/test/java/com/lomo/app/testing/fakes/.",
+        )
+    }
+
+    private companion object {
+        val BANNED_SUFFIXES = listOf("Dao", "Repository", "DataSource")
+    }
+}

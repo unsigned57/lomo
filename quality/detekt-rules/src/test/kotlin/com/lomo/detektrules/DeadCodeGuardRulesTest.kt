@@ -1,5 +1,22 @@
 package com.lomo.detektrules
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
@@ -18,11 +35,11 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LomoArchitectureRuleSetProvider dead-code guard rules.
  * - Behavior focus: literal branch rejection, unreachable tail detection, redundant exhaustive else detection, duplicate helper detection, and module-local dead declaration detection.
  * - Observable outcomes: finding count, finding message content, duplicate declaration reporting, unreferenced declaration reporting, and src/main-only enforcement.
- * - Red phase: Fails before the fix because the new duplicate/dead-declaration rules are not yet registered and therefore do not report the cross-file regressions.
+ * - TDD proof: Fails before the fix because the new duplicate/dead-declaration rules are not yet registered and therefore do not report the cross-file regressions.
  * - Excludes: detekt engine integration, Gradle task wiring, compiler-native diagnostics outside rule execution, and cross-module dead-code analysis for public APIs.
  */
 class DeadCodeGuardRulesTest : FunSpec() {

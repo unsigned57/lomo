@@ -9,12 +9,12 @@ Use this walkthrough when converting an `app` ViewModel test to Kotest `FunSpec`
 - Layer: `app`
 - Priority: `P1`
 
-## Scenario matrix
+## Behavior Contract
 
-- Happy: sharing statistics persists the PNG and emits a one-off event with the saved path.
-- Boundary: consuming the current event clears it but does not touch a different event id.
-- Failure: share persistence errors surface a user-visible error message.
-- Must-not-happen: screenshot share work must not bypass `PersistShareImageUseCase`.
+- Given the happy path, when the behavior runs, then sharing statistics persists the PNG and emits a one-off event with the saved path.
+- Given the boundary path, when the behavior runs, then consuming the current event clears it but does not touch a different event id.
+- Given the failure path, when the behavior runs, then share persistence errors surface a user-visible error message.
+- Given the must-not-happen risk, when tests run, then screenshot share work must not bypass `PersistShareImageUseCase`.
 
 ## Red
 
@@ -44,21 +44,21 @@ private class FakePersistShareImageUseCase(
 }
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StatisticsViewModel
  * - Owning layer: app
  * - Priority tier: P1
  *
- * Scenario matrix:
- * - Happy: share requests emit a file-path event after persistence succeeds.
- * - Boundary: consuming the current event clears only that event.
- * - Failure: persistence failures expose a user-visible share error.
- * - Must-not-happen: the ViewModel must not invent a file path without calling the use case.
+ * Scenarios:
+ * - Given the happy path, when the behavior runs, then share requests emit a file-path event after persistence succeeds.
+ * - Given the boundary path, when the behavior runs, then consuming the current event clears only that event.
+ * - Given the failure path, when the behavior runs, then persistence failures expose a user-visible share error.
+ * - Given the must-not-happen risk, when tests run, then the ViewModel must not invent a file path without calling the use case.
  *
  * Observable outcomes:
  * - shareImageEvent, shareErrorMessage, and persisted filename prefix.
  *
- * Red phase:
+ * TDD proof:
  * - Fails before the fix because StatisticsViewModel could not persist the PNG and emitted no share event.
  *
  * Excludes:

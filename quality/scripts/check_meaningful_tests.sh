@@ -11,9 +11,11 @@ has_contract_comment() {
   local snippet
 
   snippet="$(sed -n '1,200p' "$file")"
-  [[ "$snippet" == *"Test Contract:"* ]] &&
+  [[ "$snippet" == *"Behavior Contract:"* ]] &&
+    [[ "$snippet" == *"Capability:"* ]] &&
+    [[ "$snippet" == *"Scenarios:"* ]] &&
     [[ "$snippet" == *"Observable outcomes:"* ]] &&
-    [[ "$snippet" == *"Red phase:"* ]] &&
+    [[ "$snippet" == *"TDD proof:"* ]] &&
     [[ "$snippet" == *"Excludes:"* ]]
 }
 
@@ -45,48 +47,62 @@ markdown_has_contract() {
 
   [ -f "$file" ] || return 1
   snippet="$(sed -n '1,220p' "$file")"
-  [[ "$snippet" == *"Test Contract"* ]] &&
+  [[ "$snippet" == *"Behavior Contract"* ]] &&
+    [[ "$snippet" == *"Capability"* ]] &&
+    [[ "$snippet" == *"Scenarios"* ]] &&
     [[ "$snippet" == *"Observable outcomes"* ]] &&
-    [[ "$snippet" == *"Red phase"* ]] &&
+    [[ "$snippet" == *"TDD proof"* ]] &&
     [[ "$snippet" == *"Excludes"* ]]
 }
 
-has_scenario_matrix_block() {
+has_behavior_scenarios_block() {
   local file="$1"
 
   [ -f "$file" ] || return 1
 
   awk '
     NR <= 250 {
-      if ($0 ~ /Scenario matrix:/) {
-        matrix_seen = 1
+      if ($0 ~ /Scenarios:/) {
+        scenarios_seen = 1
         window = 30
       }
 
       if (window > 0) {
-        if ($0 ~ /- Happy:/) happy = 1
-        if ($0 ~ /- Boundary:/) boundary = 1
-        if ($0 ~ /- Failure:/) failure = 1
-        if ($0 ~ /- Must-not-happen:/) must_not_happen = 1
+        if ($0 ~ /Given/ || $0 ~ /given/) given = 1
+        if ($0 ~ /when/) when_seen = 1
+        if ($0 ~ /then/) then_seen = 1
         window--
       }
     }
 
     END {
-      exit !(matrix_seen && happy && boundary && failure && must_not_happen)
+      exit !(scenarios_seen && given && when_seen && then_seen)
     }
   ' "$file"
 }
 
-red_phase_is_not_applicable() {
+has_test_change_justification() {
+  local file="$1"
+  local snippet
+
+  snippet="$(sed -n '1,250p' "$file")"
+  [[ "$snippet" == *"Test Change Justification:"* ]] &&
+    [[ "$snippet" == *"Reason category:"* ]] &&
+    [[ "$snippet" == *"Old behavior/assertion being replaced:"* ]] &&
+    [[ "$snippet" == *"Why old assertion is no longer correct:"* ]] &&
+    [[ "$snippet" == *"Coverage preserved by:"* ]] &&
+    [[ "$snippet" == *"Why this is not fitting the test to the implementation:"* ]]
+}
+
+tdd_proof_is_not_applicable() {
   local file="$1"
 
   [ -f "$file" ] || return 1
 
   awk '
     NR <= 250 {
-      if ($0 ~ /Red phase:/) {
-        red_phase_seen = 1
+      if ($0 ~ /TDD proof:/) {
+        proof_seen = 1
         window = 10
       }
 
@@ -100,7 +116,7 @@ red_phase_is_not_applicable() {
     }
 
     END {
-      exit !(red_phase_seen && not_applicable)
+      exit !(proof_seen && not_applicable)
     }
   ' "$file"
 }
@@ -216,48 +232,69 @@ collect_changed_statuses() {
   fi
 }
 
-mapfile -t changed_files < <(collect_changed_files | sort -u)
-mapfile -t changed_statuses < <(collect_changed_statuses)
+all_mode=false
+for arg in "$@"; do
+  if [ "$arg" = "--all" ]; then
+    all_mode=true
+  fi
+done
 
 declare -A changed_file_statuses=()
-for entry in "${changed_statuses[@]}"; do
-  IFS=$'\t' read -r raw_status old_path new_path <<<"$entry"
-  status="${raw_status%%[0-9]*}"
-  path="$old_path"
-
-  if [ -n "${new_path:-}" ]; then
-    path="$new_path"
-  fi
-
-  if is_fixture_support_path "$path" || is_test_support_path "$path"; then
-    continue
-  fi
-
-  changed_file_statuses["$path"]="$status"
-done
-
-production_source_changed=false
-for file in "${changed_files[@]}"; do
-  if is_fixture_support_path "$file" || is_test_support_path "$file"; then
-    continue
-  fi
-  if [[ "$file" =~ /src/main/.*\.(kt|java)$ ]]; then
-    production_source_changed=true
-    break
-  fi
-done
-
 test_files=()
-for file in "${changed_files[@]}"; do
-  if is_fixture_support_path "$file" || is_test_support_path "$file"; then
-    continue
-  fi
-  case "$file" in
-    */src/test/*.kt|*/src/test/*.kts|*/src/androidTest/*.kt|*/src/androidTest/*.kts)
-      [ -f "$file" ] && test_files+=("$file")
-      ;;
-  esac
-done
+production_source_changed=false
+
+if [ "$all_mode" = true ] || [ "${MEANINGFUL_TEST_CHECK_ALL:-}" = "true" ]; then
+  # Scan all test files
+  mapfile -t all_candidates < <(find app domain data ui-components -type f \( -name "*Test.kt" -o -name "*Test.kts" \) | grep -v "/build/" | sort -u)
+  for file in "${all_candidates[@]}"; do
+    if is_fixture_support_path "$file" || is_test_support_path "$file"; then
+      continue
+    fi
+    test_files+=("$file")
+    changed_file_statuses["$file"]="M"
+  done
+else
+  # Default to changed files mode
+  mapfile -t changed_files < <(collect_changed_files | sort -u)
+  mapfile -t changed_statuses < <(collect_changed_statuses)
+
+  for entry in "${changed_statuses[@]}"; do
+    IFS=$'\t' read -r raw_status old_path new_path <<<"$entry"
+    status="${raw_status%%[0-9]*}"
+    path="$old_path"
+
+    if [ -n "${new_path:-}" ]; then
+      path="$new_path"
+    fi
+
+    if is_fixture_support_path "$path" || is_test_support_path "$path"; then
+      continue
+    fi
+
+    changed_file_statuses["$path"]="$status"
+  done
+
+  for file in "${changed_files[@]}"; do
+    if is_fixture_support_path "$file" || is_test_support_path "$file"; then
+      continue
+    fi
+    if [[ "$file" =~ /src/main/.*\.(kt|java)$ ]]; then
+      production_source_changed=true
+      break
+    fi
+  done
+
+  for file in "${changed_files[@]}"; do
+    if is_fixture_support_path "$file" || is_test_support_path "$file"; then
+      continue
+    fi
+    case "$file" in
+      */src/test/*.kt|*/src/test/*.kts|*/src/androidTest/*.kt|*/src/androidTest/*.kts)
+        [ -f "$file" ] && test_files+=("$file")
+        ;;
+    esac
+  done
+fi
 
 vintage_enabled=false
 if vintage_dependency_enabled; then
@@ -282,16 +319,15 @@ for file in "${test_files[@]}"; do
   fi
 
   if [ -z "$contract_source" ]; then
-    failures+=("$file: missing test contract or TDD red-phase metadata.")
+    failures+=("$file: missing Behavior Contract or TDD proof metadata.")
     continue
   fi
 
-  if [ "$file_status" = "A" ] && ! has_scenario_matrix_block "$contract_source"; then
-    failures+=("$file: Scenario matrix is required for newly added test files.")
+  if ! has_behavior_scenarios_block "$contract_source"; then
+    failures+=("$file: Behavior Contract scenarios must use Given/When/Then.")
   fi
 
-  if [ "$file_status" = "A" ] &&
-    is_source_string_assertion_test "$file" &&
+  if is_source_string_assertion_test "$file" &&
     ! is_architecture_allowlisted_path "$file" &&
     ! has_architecture_boundary_marker "$file"; then
     failures+=("$file: Source-string assertion test forbidden. Extract the production logic into a testable unit and assert observable outcomes. To allow an architecture-boundary file, add the \`// architectural-boundary-check\` marker.")
@@ -301,8 +337,12 @@ for file in "${test_files[@]}"; do
     failures+=("$file: Half-migrated test file. Convert all assertions in this file in one PR; do not mix styles.")
   fi
 
-  if [ "$production_source_changed" = true ] && red_phase_is_not_applicable "$contract_source"; then
-    failures+=("$file: Red phase cannot be 'Not applicable' when production code changed. State how the new test fails before the fix, or split the change.")
+  if [ "$production_source_changed" = true ] && tdd_proof_is_not_applicable "$contract_source"; then
+    failures+=("$file: TDD proof cannot be 'Not applicable' when production code changed. State how the new test fails before the fix, or split the change.")
+  fi
+
+  if [ "$production_source_changed" = true ] && [ "$file_status" = "M" ] && ! has_test_change_justification "$file"; then
+    failures+=("$file: Test Change Justification is required when modifying existing tests alongside production code changes. Include Reason category, Old behavior/assertion being replaced, Why old assertion is no longer correct, Coverage preserved by, and Why this is not fitting the test to the implementation.")
   fi
 done
 
@@ -320,13 +360,13 @@ cat >&2 <<'EOF'
 
 Add one of the following before merging:
 1. A comment within the first 200 lines containing:
-   - Test Contract:
-   - Scenario matrix:
+   - Behavior Contract:
+   - Scenarios:
    - Observable outcomes:
-   - Red phase:
+   - TDD proof:
    - Excludes:
 2. Or an adjacent markdown file named <TestFile>.contract.md with the same sections.
-Newly added test files must include the Scenario matrix entries for Happy, Boundary, Failure, and Must-not-happen.
+Newly added test files must include Given/When/Then scenarios.
 EOF
 
 exit 1

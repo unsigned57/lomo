@@ -9,12 +9,12 @@ Use this walkthrough when converting a small `domain` use case to Kotest `FunSpe
 - Layer: `domain`
 - Priority: `P0`
 
-## Scenario matrix
+## Behavior Contract
 
-- Happy: current-year memo timestamps produce the correct earliest and latest daily memo times.
-- Boundary: when the current year has no memos, both daily time bounds stay `null`.
-- Failure: a timezone-shifted instant must still count toward the current year after local conversion.
-- Must-not-happen: previous-year memos must not leak into current-year time bounds.
+- Given the happy path, when the behavior runs, then current-year memo timestamps produce the correct earliest and latest daily memo times.
+- Given the boundary path, when the behavior runs, then when the current year has no memos, both daily time bounds stay `null`.
+- Given the failure path, when the behavior runs, then a timezone-shifted instant must still count toward the current year after local conversion.
+- Given the must-not-happen risk, when tests run, then previous-year memos must not leak into current-year time bounds.
 
 ## Red
 
@@ -22,21 +22,21 @@ Write the failing Kotest reproducer first:
 
 ```kotlin
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoStatisticsUseCase
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
- * - Happy: current-year memos set both daily time bounds.
- * - Boundary: missing current-year memos leave both bounds empty.
- * - Failure: UTC timestamps must be converted into the local year before filtering.
- * - Must-not-happen: last-year memos must not influence current-year daily bounds.
+ * Scenarios:
+ * - Given the happy path, when the behavior runs, then current-year memos set both daily time bounds.
+ * - Given the boundary path, when the behavior runs, then missing current-year memos leave both bounds empty.
+ * - Given the failure path, when the behavior runs, then UTC timestamps must be converted into the local year before filtering.
+ * - Given the must-not-happen risk, when tests run, then last-year memos must not influence current-year daily bounds.
  *
  * Observable outcomes:
  * - earliestDailyMemoTime and latestDailyMemoTime values on MemoStatistics.
  *
- * Red phase:
+ * TDD proof:
  * - Fails before the fix because MemoStatisticsUseCase did not populate current-year daily time bounds.
  *
  * Excludes:

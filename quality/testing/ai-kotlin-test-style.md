@@ -1,6 +1,6 @@
 # AI Kotlin Test Style
 
-Use this guide after reading `quality/testing/ai-meaningful-tests.md`. It narrows the approved Kotlin test stack and the default authoring patterns for this repository.
+Use this guide after reading `quality/testing/ai-meaningful-tests.md`. It narrows the approved Kotlin test stack and the default authoring patterns for BDD+TDD tests in this repository.
 
 ## Stack
 
@@ -50,16 +50,16 @@ class XTest : DomainFunSpec() {
 When the spec needs shared `lateinit var` or extension registration, declare
 them inside the single `init` block alongside `beforeTest`/`afterTest`.
 
-## Default Spec Style
+## Default BDD Spec Style
 
-Use `FunSpec` unless the task explicitly needs a different Kotest style:
+Use `FunSpec` unless the task explicitly needs a different Kotest style. Keep the BDD shape in the test name and assertion, not in a new framework:
 
 ```kotlin
 class MemoStatisticsUseCaseTest : FunSpec({
     val expectedStats = MemoStatistics(totalMemos = 3, totalWords = 12, totalCharacters = 48)
     val fakeRepository = FakeMemoRepository(statistics = expectedStats)
 
-    test("aggregates memo counts by status") {
+    test("given stored memos when statistics are requested then counts are returned by status") {
         val useCase = MemoStatisticsUseCase(repository = fakeRepository)
 
         useCase() shouldBe expectedStats
@@ -67,21 +67,24 @@ class MemoStatisticsUseCaseTest : FunSpec({
 })
 ```
 
-## Prefer `Fake*` Collaborators Over Stateful Mocks
+## Fake-First Collaborators
 
-Use hand-written `Fake*` implementations for collaborators that hold meaningful state or emulate storage:
+Use hand-written `Fake*` implementations for collaborators that hold meaningful state, emulate storage, expose flows, or would otherwise need repeated stubbing:
 
 - DAOs
 - Repositories
 - DataSources
 - file-system providers
+- preference stores
+- stateful use cases or coordinators
 
-The fake's in-memory behavior is part of the contract. Prefer MockK only for pure no-state collaborators such as loggers, one-shot publishers, or coordinator-boundary ordering checks.
+The fake's in-memory behavior is part of the contract. Prefer MockK only for stateless collaborators such as loggers, one-shot publishers, Android/framework wrappers, external SDK seams, failure injection, or coordinator-boundary ordering checks where ordering is itself the behavior.
 
 Reject tests that only call `verify { ... }` without also asserting an observable outcome.
 
-Shared fakes live under `app/src/test/java/com/lomo/app/testing/fakes/`. Before
-writing a new fake, check that directory and its README.
+Shared fakes live in each owning module's test tree, usually under `.../testing/fakes/`. Before writing a new fake, search the owning module and app/domain shared test helpers.
+
+Avoid `mockk(relaxed = true)`. A relaxed mock hides missing behavior and often turns a BDD scenario into a scripted interaction. If MockK is retained, the test should make the allowed reason obvious from the collaborator type or local setup.
 
 ## Coroutine Scaffolding
 
@@ -147,7 +150,7 @@ viewModel.uiState.test {
 }
 ```
 
-Do not stop at `flow.first()` when later emissions are part of the user-visible contract.
+Do not stop at `flow.first()` when later emissions are part of the user-visible contract. Use `first()` only when the behavior is explicitly the initial value or a single-shot flow.
 
 ## Property-Based Testing
 
@@ -182,6 +185,7 @@ matrix tests there instead.
 - `domain` UseCase: returned value, thrown error type, ordering only when ordering is part of the contract
 - `app` ViewModel: emitted `StateFlow` state or one-off event at the user-observable boundary
 - parser/util code: input-to-output mapping, including malformed-input failure mode
+- `data` repository/sync code: persisted DB/file/preference state, mapped result, propagated cancellation, conflict classification, or explicit operation ordering
 
 ## Type-Narrowing Assertions
 
@@ -209,6 +213,7 @@ subclasses); `shouldBeInstanceOf<T>` accepts subclasses.
 - mock call counts without an outcome assertion
 - private fields or helper structure
 - mixed `org.junit.Assert.*` and `io.kotest.matchers.*` imports in the same file
+- implementation-only helper calls that could change without user-visible behavior changing
 
 ## Multi-Property Assertions
 
@@ -239,8 +244,8 @@ extension or listener.
 
 ## Naming
 
-Use Kotest `test("...")` strings. Keep names imperative and behavior-focused; CJK and punctuation are fine when they improve clarity.
+Use Kotest `test("...")` strings. Keep names behavior-focused and compatible with the Behavior Contract. Given/when/then naming is preferred for branch-heavy behavior; concise imperative names are fine for pure parser or policy utilities. CJK and punctuation are fine when they improve clarity.
 
 ```kotlin
-test("tokenize CJK with spaces") { ... }
+test("given CJK text with spaces when tokenized then words remain searchable") { ... }
 ```

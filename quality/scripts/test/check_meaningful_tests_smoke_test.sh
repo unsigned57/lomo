@@ -128,14 +128,14 @@ run_working_tree_case() {
   rm -rf "$temp_dir"
 }
 
-run_case "prod_diff_not_applicable" 1 "Red phase cannot be 'Not applicable' when production code changed."
-run_case "missing_scenario_matrix" 1 "Scenario matrix is required for newly added test files."
+run_case "prod_diff_not_applicable" 1 "TDD proof cannot be 'Not applicable' when production code changed."
+run_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then for newly added test files."
 run_case "source_string_new_test" 1 "Source-string assertion test forbidden."
 run_case "boundary_marker_allowed" 0 "validated 1 changed test file(s)"
 run_case "architecture_path_allowed" 0 "validated 1 changed test file(s)"
 run_case "testing_support_helper" 0 "no changed test files to validate"
 run_case "test_only_not_applicable" 0 "validated 1 changed test file(s)"
 run_case "half_migrated" 1 "Half-migrated test file. Convert all assertions in this file in one PR; do not mix styles."
-run_working_tree_case "missing_scenario_matrix" 1 "Scenario matrix is required for newly added test files."
+run_working_tree_case "missing_scenario_matrix" 1 "Behavior Contract scenarios must use Given/When/Then for newly added test files."
 
 echo "check_meaningful_tests smoke tests passed"
