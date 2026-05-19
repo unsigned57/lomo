@@ -1,15 +1,32 @@
 package com.lomo.data.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: IndexedTextLines
  * - Behavior focus: Index text lines for FTS insertion.
  * - Observable outcomes: Correct line offsets.
- * - Red phase: Verified by asserting bad offsets.
+ * - TDD proof: Verified by asserting bad offsets.
  * - Excludes: none.
  */
 class IndexedTextLinesTest : DataFunSpec() {

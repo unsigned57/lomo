@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -18,11 +35,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncRepositorySupport
  * - Behavior focus: connection-test error mapping should promote nested transport diagnostics over generic wrapper failures.
  * - Observable outcomes: returned S3SyncResult.Error code and user-visible message.
- * - Red phase: Fails before the fix because a generic "S3 sync failed" wrapper stays UNKNOWN and hides the nested timeout detail.
+ * - TDD proof: Fails before the fix because a generic "S3 sync failed" wrapper stays UNKNOWN and hides the nested timeout detail.
  * - Excludes: AWS SDK transport execution, sync planning, credential persistence, and UI rendering.
  */
 class S3SyncRepositorySupportErrorMappingTest : DataFunSpec() {

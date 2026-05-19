@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -29,11 +46,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncExecutor
  * - Behavior focus: sync execution should avoid redundant remote rescans after remote mutations and should scope memo refresh work to only the affected memo files.
  * - Observable outcomes: returned S3SyncResult outcomes, remote list invocation count, and memo refresh targets issued after sync.
- * - Red phase: Fails before the fix because remote-changing syncs re-list S3 during metadata persistence, attachment-only downloads trigger full memo refreshes, and memo downloads refresh the whole cache instead of the touched file.
+ * - TDD proof: Fails before the fix because remote-changing syncs re-list S3 during metadata persistence, attachment-only downloads trigger full memo refreshes, and memo downloads refresh the whole cache instead of the touched file.
  * - Excludes: AWS SDK transport internals, Room implementation details, and UI rendering.
  */
 class S3SyncExecutorPerformancePolicyTest : DataFunSpec() {

@@ -158,6 +158,7 @@ val coverageExcludedClasses =
 val coverageExcludedClassPatterns =
     (coverageExcludedClasses + coverageExcludedClasses.map { pattern -> pattern.replace('.', '/') }).distinct()
 val formattingConfig = rootProject.file("quality/detekt/config/formatting.yml")
+val testStyleDetektConfig = rootProject.file("quality/detekt/config/test-style.yml")
 val meaningfulTestCheckScript = rootProject.file("quality/scripts/check_meaningful_tests.sh")
 val detektConfigByProject =
     mapOf(
@@ -177,6 +178,7 @@ val stagedDetektFiles =
         .orEmpty()
 
 dependencies {
+    add("detektPlugins", project(":detekt-rules"))
     add("detektPlugins", "dev.detekt:detekt-rules-ktlint-wrapper:$detektVersion")
     koverProjects.forEach { projectName ->
         add("kover", project(":$projectName"))
@@ -318,6 +320,37 @@ subprojects {
     }
 }
 
+val testStyleTasks =
+    detektProjects.map { projectName ->
+        tasks.register("${projectName}TestStyleDetekt", dev.detekt.gradle.Detekt::class.java) {
+            group = "verification"
+            description = "Runs Lomo test-style Detekt rules for :$projectName test sources."
+            dependsOn(":detekt-rules:assemble")
+            setSource(
+                files(
+                    "$projectName/src/test/java",
+                    "$projectName/src/test/kotlin",
+                    "$projectName/src/androidTest/java",
+                    "$projectName/src/androidTest/kotlin",
+                ),
+            )
+            include("**/*.kt", "**/*.kts")
+            exclude("**/build/**")
+            buildUponDefaultConfig.set(false)
+            allRules.set(false)
+            disableDefaultRuleSets.set(true)
+            ignoreFailures.set(false)
+            config.setFrom(testStyleDetektConfig)
+            basePath.set(rootProject.projectDir.absolutePath)
+            reports {
+                checkstyle.required.set(false)
+                html.required.set(true)
+                markdown.required.set(false)
+                sarif.required.set(false)
+            }
+        }
+    }
+
 tasks.register("architectureCheck") {
     group = "verification"
     description = "Runs architecture guardrail checks for layer boundaries, forbidden imports, and naming rules."
@@ -327,6 +360,12 @@ tasks.register("architectureCheck") {
         ":data:detekt",
         ":ui-components:detekt",
     )
+}
+
+tasks.register("testStyleCheck") {
+    group = "verification"
+    description = "Runs AI-enforced test-style guardrails for BDD+TDD test code."
+    dependsOn(testStyleTasks)
 }
 
 tasks.register("androidLintCheck") {
@@ -422,7 +461,7 @@ tasks.register("coverageCheck") {
 tasks.register("staticQualityCheck") {
     group = "verification"
     description = "Runs compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage."
-    dependsOn("compileGateCheck", "architectureCheck", "androidLintCheck", "meaningfulTestCheck")
+    dependsOn("compileGateCheck", "architectureCheck", "testStyleCheck", "androidLintCheck", "meaningfulTestCheck")
     mustRunAfter("unitTestCheck")
 }
 

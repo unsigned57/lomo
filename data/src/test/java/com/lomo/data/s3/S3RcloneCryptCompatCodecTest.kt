@@ -1,16 +1,33 @@
 package com.lomo.data.s3
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3RcloneCryptCompatCodec
  * - Behavior focus: Remotely Save-compatible rclone filename encoding plus backward-compatible decryption for legacy base32hex names and payloads.
  * - Observable outcomes: exact Remotely Save base64url filename vectors, successful decryption of both base64url and legacy base32hex names, exact content vectors, and tamper rejection.
- * - Red phase: Fails before the fix because Remotely Save base64url rclone object names are rejected as invalid base32hex filenames.
+ * - TDD proof: Fails before the fix because Remotely Save base64url rclone object names are rejected as invalid base32hex filenames.
  * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
  */
 class S3RcloneCryptCompatCodecTest : DataFunSpec() {

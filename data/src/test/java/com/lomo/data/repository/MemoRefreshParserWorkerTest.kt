@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.MemoDao
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -22,13 +39,13 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoRefreshParserWorker
  * - Behavior focus: main/trash parse routing, stable memo-id preservation across refresh reparse, metadata replacement
  *   output, null-content skipping, and filtering trash memos already active in the main DB.
  * - Observable outcomes: produced MemoEntity/TrashMemoEntity lists, LocalFileStateEntity metadata, date-replacement
  *   sets, and collaborator inputs.
- * - Red phase: Fails before the fix when refresh reparses an edited memo with a content-derived parser id and replaces
+ * - TDD proof: Fails before the fix when refresh reparses an edited memo with a content-derived parser id and replaces
  *   the existing stable memo id, which splits version history across different memo ids after refresh.
  * - Excludes: MarkdownParser parsing internals, Room implementation details, and file-storage backend transport behavior.
  */

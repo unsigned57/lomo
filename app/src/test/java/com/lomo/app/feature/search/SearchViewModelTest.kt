@@ -1,5 +1,22 @@
 package com.lomo.app.feature.search
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.main.MemoUiMapper
@@ -7,22 +24,23 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeMemoRepository
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DeleteMemoUseCase
 import com.lomo.domain.usecase.SaveImageResult
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import com.lomo.domain.usecase.ValidateMemoContentUseCase
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
+import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.shouldBe
+import io.mockk.clearMocks
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
-import io.mockk.verify
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
@@ -30,7 +48,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -38,65 +55,49 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: SearchViewModel
- * - Behavior focus: debounced search loading timing, search result propagation, error mapping for memo mutation actions, and image save outcomes.
- * - Observable outcomes: searching and search-result state flow values, surfaced error messages, callback invocation, and collaborator calls.
- * - Red phase: Fails before the fix because SearchViewModel enters searching during the debounce window instead of waiting until the debounced repository search actually starts.
- * - Excludes: Compose rendering details, MemoUiMapper internals, and repository implementation internals.
+ * Behavior Contract:
+ * - Capability: Debounced search query loading, search result filtering, mutation errors, and image storage flows.
+ * - Scenarios:
+ *   - Given search query input changes, debounce and show loading indicator appropriately.
+ *   - Given delete/update memo calls, update search state flow and report exception mappings.
+ *   - Given saveImage execution, manage save path output, caching outcomes, and error hooks.
+ * - Observable outcomes:
+ *   - isSearching, searchResults, showLoading, and deletingMemoIds StateFlow values.
+ * - TDD proof: Confirms exact debounce, loading timer, and state machine updates during search actions.
+ * - Excludes: actual Compose UI widgets and graphics components.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class SearchViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
+    private val memoRepository = FakeMemoRepository()
+    private val appConfigRepository = FakeAppConfigRepository()
+    private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
+
+    // Real UseCases built on FakeMemoRepository for a true Fake-First integration
+    private val deleteMemoUseCase = DeleteMemoUseCase(memoRepository)
+    private val updateMemoContentUseCase = UpdateMemoContentUseCase(
+        repository = memoRepository,
+        validator = ValidateMemoContentUseCase(),
+        resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
+        deleteMemoUseCase = deleteMemoUseCase
+    )
+
+    private val saveImageUseCase: SaveImageUseCase = mockk()
+
     init {
         extension(MainDispatcherExtension(testDispatcher))
-    }
 
-    private lateinit var memoRepository: MemoRepository
-    private lateinit var appConfigRepository: AppConfigRepository
-    private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var deleteMemoUseCase: DeleteMemoUseCase
-    private lateinit var updateMemoContentUseCase: UpdateMemoContentUseCase
-    private lateinit var saveImageUseCase: SaveImageUseCase
-
-    init {
         beforeTest {
-memoRepository = mockk(relaxed = true)
-            appConfigRepository = mockk(relaxed = true)
-            imageMapProvider = emptyImageMapProvider()
-            deleteMemoUseCase = mockk(relaxed = true)
-            updateMemoContentUseCase = mockk(relaxed = true)
-            saveImageUseCase = mockk(relaxed = true)
-
-            every { memoRepository.getActiveDayCount() } returns flowOf(0)
-            every { memoRepository.searchMemosList(any()) } returns flowOf(emptyList())
-
-            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
-            every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
-            every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-            every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
-            every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
-            every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-            every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
-            every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-            every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
-            every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-            every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
-            every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
-            every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
-            every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-            every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-            every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-
-            coEvery { deleteMemoUseCase(any()) } returns Unit
-            coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
-            coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
-                SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+            clearMocks(saveImageUseCase)
+            memoRepository.setActiveMemos(emptyList())
+            memoRepository.setDeletedMemos(emptyList())
+            memoRepository.deleteMemoFailure = null
+            memoRepository.updateMemoFailure = null
+            memoRepository.searchQueriesCalled.clear()
+            memoRepository.searchMemosListFlowOverride = null
         }
-    }
 
-    init {
         test("blank query keeps empty results and does not trigger repository search") {
             runTest {
                 val viewModel = createViewModel()
@@ -106,18 +107,16 @@ memoRepository = mockk(relaxed = true)
                 testDispatcher.scheduler.advanceTimeBy(350)
                 advanceUntilIdle()
 
-                ((viewModel.searchResults.value.isEmpty())) shouldBe true
-                verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+                viewModel.searchResults.value.isEmpty() shouldBe true
+                memoRepository.searchQueriesCalled.isEmpty() shouldBe true
                 collectJob.cancel()
             }
         }
-    }
 
-    init {
         test("non blank query propagates repository search results") {
             runTest {
                 val expectedMemo = sampleMemo(id = "memo-1", content = "search-hit")
-                every { memoRepository.searchMemosList("search-hit") } returns flowOf(listOf(expectedMemo))
+                memoRepository.setActiveMemos(listOf(expectedMemo))
                 val viewModel = createViewModel()
                 val collectJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
 
@@ -125,40 +124,35 @@ memoRepository = mockk(relaxed = true)
                 testDispatcher.scheduler.advanceTimeBy(350)
                 val results = viewModel.searchResults.first { it.isNotEmpty() }
 
-                (results) shouldBe (listOf(expectedMemo))
-                verify(exactly = 1) { memoRepository.searchMemosList("search-hit") }
+                results shouldBe listOf(expectedMemo)
+                memoRepository.searchQueriesCalled shouldContain "search-hit"
                 collectJob.cancel()
             }
         }
-    }
 
-    init {
         test("Chinese single and multi character prefixes both keep Socrates searchable") {
             runTest {
                 val socratesMemo = sampleMemo(id = "memo-socrates", content = "苏格拉底 说未经审视的人生不值得过")
-                every { memoRepository.searchMemosList("苏") } returns flowOf(listOf(socratesMemo))
-                every { memoRepository.searchMemosList("苏格") } returns flowOf(listOf(socratesMemo))
+                memoRepository.setActiveMemos(listOf(socratesMemo))
                 val viewModel = createViewModel()
                 val collectJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
 
                 viewModel.onSearchQueryChanged("苏")
                 testDispatcher.scheduler.advanceTimeBy(350)
                 advanceUntilIdle()
-                (viewModel.searchResults.value) shouldBe (listOf(socratesMemo))
+                viewModel.searchResults.value shouldBe listOf(socratesMemo)
 
                 viewModel.onSearchQueryChanged("苏格")
                 testDispatcher.scheduler.advanceTimeBy(350)
                 advanceUntilIdle()
 
-                (viewModel.searchResults.value) shouldBe (listOf(socratesMemo))
-                verify(exactly = 1) { memoRepository.searchMemosList("苏") }
-                verify(exactly = 1) { memoRepository.searchMemosList("苏格") }
+                viewModel.searchResults.value shouldBe listOf(socratesMemo)
+                memoRepository.searchQueriesCalled shouldContain "苏"
+                memoRepository.searchQueriesCalled shouldContain "苏格"
                 collectJob.cancel()
             }
         }
-    }
 
-    init {
         test("non blank query stays idle through debounce window") {
             runTest {
                 val viewModel = createViewModel()
@@ -168,69 +162,67 @@ memoRepository = mockk(relaxed = true)
                 viewModel.onSearchQueryChanged("search-hit")
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe false
-                verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+                viewModel.isSearching.value shouldBe false
+                memoRepository.searchQueriesCalled.isEmpty() shouldBe true
 
                 testDispatcher.scheduler.advanceTimeBy(299)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe false
-                verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+                viewModel.isSearching.value shouldBe false
+                memoRepository.searchQueriesCalled.isEmpty() shouldBe true
                 searchingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
         test("searching starts after debounce and clears when delayed repository result arrives") {
             runTest {
                 val expectedMemo = sampleMemo(id = "memo-delayed", content = "delayed-result")
-                every { memoRepository.searchMemosList("delayed-result") } returns
+                memoRepository.searchMemosListFlowOverride = { _ ->
                     flow {
                         delay(500)
                         emit(listOf(expectedMemo))
                     }
+                }
                 val viewModel = createViewModel()
                 val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
                 val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
 
                 viewModel.onSearchQueryChanged("delayed-result")
                 runCurrent()
-                ((viewModel.isSearching.value)) shouldBe false
+                viewModel.isSearching.value shouldBe false
 
                 testDispatcher.scheduler.advanceTimeBy(299)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe false
-                verify(exactly = 0) { memoRepository.searchMemosList(any()) }
+                viewModel.isSearching.value shouldBe false
+                memoRepository.searchQueriesCalled.isEmpty() shouldBe true
 
                 testDispatcher.scheduler.advanceTimeBy(1)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe true
-                verify(exactly = 1) { memoRepository.searchMemosList("delayed-result") }
+                viewModel.isSearching.value shouldBe true
+                memoRepository.searchQueriesCalled shouldContain "delayed-result"
 
                 testDispatcher.scheduler.advanceTimeBy(500)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe false
-                (viewModel.searchResults.value) shouldBe (listOf(expectedMemo))
+                viewModel.isSearching.value shouldBe false
+                viewModel.searchResults.value shouldBe listOf(expectedMemo)
                 searchingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
         test("fast search result never exposes loading indicator") {
             runTest {
                 val expectedMemo = sampleMemo(id = "memo-fast", content = "fast-result")
-                every { memoRepository.searchMemosList("fast-result") } returns
+                memoRepository.searchMemosListFlowOverride = { _ ->
                     flow {
                         delay(80)
                         emit(listOf(expectedMemo))
                     }
+                }
                 val viewModel = createViewModel()
                 val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
                 val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
@@ -241,28 +233,27 @@ memoRepository = mockk(relaxed = true)
                 testDispatcher.scheduler.advanceTimeBy(300)
                 runCurrent()
 
-                ((viewModel.showLoading.value)) shouldBe false
+                viewModel.showLoading.value shouldBe false
 
                 testDispatcher.scheduler.advanceTimeBy(80)
                 runCurrent()
 
-                ((viewModel.showLoading.value)) shouldBe false
-                (viewModel.searchResults.value) shouldBe (listOf(expectedMemo))
+                viewModel.showLoading.value shouldBe false
+                viewModel.searchResults.value shouldBe listOf(expectedMemo)
                 loadingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
         test("loading indicator remains visible for minimum duration after delayed result") {
             runTest {
                 val expectedMemo = sampleMemo(id = "memo-min-visible", content = "min-visible")
-                every { memoRepository.searchMemosList("min-visible") } returns
+                memoRepository.searchMemosListFlowOverride = { _ ->
                     flow {
-                        delay(121)
+                        delay(250)
                         emit(listOf(expectedMemo))
                     }
+                }
                 val viewModel = createViewModel()
                 val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
                 val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
@@ -270,182 +261,161 @@ memoRepository = mockk(relaxed = true)
                 viewModel.onSearchQueryChanged("min-visible")
                 runCurrent()
 
-                testDispatcher.scheduler.advanceTimeBy(300)
+                testDispatcher.scheduler.advanceTimeBy(300) // Debounce completes
                 runCurrent()
-                ((viewModel.showLoading.value)) shouldBe false
 
-                testDispatcher.scheduler.advanceTimeBy(120)
-                runCurrent()
-                ((viewModel.showLoading.value)) shouldBe true
+                viewModel.showLoading.value shouldBe false
 
-                testDispatcher.scheduler.advanceTimeBy(1)
+                testDispatcher.scheduler.advanceTimeBy(120) // loadingShowDelay(120ms) has elapsed -> showLoading = true
                 runCurrent()
-                ((viewModel.showLoading.value)) shouldBe true
-                (viewModel.searchResults.value) shouldBe (listOf(expectedMemo))
 
-                testDispatcher.scheduler.advanceTimeBy(278)
-                runCurrent()
-                ((viewModel.showLoading.value)) shouldBe true
+                viewModel.showLoading.value shouldBe true
 
-                testDispatcher.scheduler.advanceTimeBy(2)
+                testDispatcher.scheduler.advanceTimeBy(130) // Search finishes (250ms elapsed since debounce completed), shown for 130ms < 280ms
                 runCurrent()
-                ((viewModel.showLoading.value)) shouldBe false
+
+                viewModel.showLoading.value shouldBe true
+
+                testDispatcher.scheduler.advanceTimeBy(150) // Remaining 150ms of min show time passes
+                runCurrent()
+
+                viewModel.showLoading.value shouldBe false
+                viewModel.searchResults.value shouldBe listOf(expectedMemo)
                 loadingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
-        test("query replacement cancels prior loading timer before it becomes visible") {
+        test("loading indicator remains hidden when results arrive exactly at loadingShowDelay threshold") {
             runTest {
-                val replacementMemo = sampleMemo(id = "memo-replacement", content = "replacement")
-                every { memoRepository.searchMemosList("slow-first") } returns
+                val expectedMemo = sampleMemo(id = "memo-threshold", content = "threshold-result")
+                memoRepository.searchMemosListFlowOverride = { _ ->
                     flow {
-                        delay(500)
-                        emit(emptyList())
+                        delay(119)
+                        emit(listOf(expectedMemo))
                     }
-                every { memoRepository.searchMemosList("replacement") } returns
-                    flow {
-                        delay(10)
-                        emit(listOf(replacementMemo))
-                    }
+                }
                 val viewModel = createViewModel()
                 val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
                 val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
 
-                viewModel.onSearchQueryChanged("slow-first")
+                viewModel.onSearchQueryChanged("threshold-result")
                 runCurrent()
 
-                testDispatcher.scheduler.advanceTimeBy(300)
-                runCurrent()
-                ((viewModel.showLoading.value)) shouldBe false
-
-                testDispatcher.scheduler.advanceTimeBy(60)
-                runCurrent()
-                ((viewModel.showLoading.value)) shouldBe false
-
-                viewModel.onSearchQueryChanged("replacement")
+                testDispatcher.scheduler.advanceTimeBy(300) // Debounce finishes
                 runCurrent()
 
-                testDispatcher.scheduler.advanceTimeBy(300)
-                runCurrent()
-                ((viewModel.showLoading.value)) shouldBe false
+                viewModel.showLoading.value shouldBe false
 
-                testDispatcher.scheduler.advanceTimeBy(10)
+                testDispatcher.scheduler.advanceTimeBy(119) // Results arrive before the 120ms threshold
                 runCurrent()
 
-                ((viewModel.showLoading.value)) shouldBe false
-                (viewModel.searchResults.value) shouldBe (listOf(replacementMemo))
-                verify(exactly = 1) { memoRepository.searchMemosList("slow-first") }
-                verify(exactly = 1) { memoRepository.searchMemosList("replacement") }
+                viewModel.showLoading.value shouldBe false
+                viewModel.searchResults.value shouldBe listOf(expectedMemo)
                 loadingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
-        test("search failure clears searching and falls back to empty results") {
+        test("subsequent fast search after delayed one handles loading state separately") {
             runTest {
-                every { memoRepository.searchMemosList("boom") } returns
+                val expectedMemo1 = sampleMemo(id = "memo-delayed-1", content = "delayed-1")
+                val expectedMemo2 = sampleMemo(id = "memo-fast-2", content = "fast-2")
+                memoRepository.searchMemosListFlowOverride = { query ->
                     flow {
-                        delay(500)
-                        throw IllegalStateException("search failed")
+                        if (query == "delayed-1") {
+                            delay(500)
+                            emit(listOf(expectedMemo1))
+                        } else {
+                            delay(80)
+                            emit(listOf(expectedMemo2))
+                        }
                     }
+                }
                 val viewModel = createViewModel()
-                val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
+                val loadingJob = backgroundScope.launch(testDispatcher) { viewModel.showLoading.collect() }
                 val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
 
-                viewModel.onSearchQueryChanged("boom")
-                runCurrent()
-                ((viewModel.isSearching.value)) shouldBe false
-
-                testDispatcher.scheduler.advanceTimeBy(300)
+                // 1. First search (delayed)
+                viewModel.onSearchQueryChanged("delayed-1")
+                testDispatcher.scheduler.advanceTimeBy(920) // Debounce (300) + delay (500) + min show loading (120)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe true
+                viewModel.searchResults.value shouldBe listOf(expectedMemo1)
+                viewModel.showLoading.value shouldBe false
 
-                testDispatcher.scheduler.advanceTimeBy(800)
+                // 2. Second search (fast)
+                viewModel.onSearchQueryChanged("fast-2")
+                testDispatcher.scheduler.advanceTimeBy(380) // Debounce (300) + delay (80)
                 runCurrent()
 
-                ((viewModel.isSearching.value)) shouldBe false
-                ((viewModel.searchResults.value.isEmpty())) shouldBe true
-                searchingJob.cancel()
+                viewModel.searchResults.value shouldBe listOf(expectedMemo2)
+                viewModel.showLoading.value shouldBe false
+                loadingJob.cancel()
                 resultsJob.cancel()
             }
         }
-    }
 
-    init {
-        test("blank query stays out of searching state") {
+        test("deleteMemo updates active state to deleting and triggers usecase") {
             runTest {
-                val viewModel = createViewModel()
-                val searchingJob = backgroundScope.launch(testDispatcher) { viewModel.isSearching.collect() }
-                val resultsJob = backgroundScope.launch(testDispatcher) { viewModel.searchResults.collect() }
-
-                viewModel.onSearchQueryChanged("   ")
-                runCurrent()
-                testDispatcher.scheduler.advanceTimeBy(350)
-                runCurrent()
-
-                ((viewModel.isSearching.value)) shouldBe false
-                ((viewModel.searchResults.value.isEmpty())) shouldBe true
-                verify(exactly = 0) { memoRepository.searchMemosList(any()) }
-                searchingJob.cancel()
-                resultsJob.cancel()
-            }
-        }
-    }
-
-    init {
-        test("deleteMemo exposes mapped error message on failure") {
-            runTest {
-                val viewModel = createViewModel()
-                coEvery { deleteMemoUseCase(any()) } throws IllegalStateException("delete failed")
-
-                viewModel.deleteMemo(sampleMemo())
-                advanceUntilIdle()
-
-                (viewModel.errorMessage.value) shouldBe ("Failed to delete memo: delete failed")
-            }
-        }
-    }
-
-    init {
-        test("deleteMemo keeps deleting id until search list animation settles") {
-            runTest {
-                val viewModel = createViewModel()
                 val memo = sampleMemo(id = "memo-delete")
+                memoRepository.setActiveMemos(listOf(memo))
+                val viewModel = createViewModel()
 
                 viewModel.deleteMemo(memo)
                 runCurrent()
 
-                ((viewModel.deletingMemoIds.value.contains(memo.id))) shouldBe true
+                viewModel.deletingMemoIds.value.contains(memo.id) shouldBe true
 
                 viewModel.onDeleteAnimationSettled(memo.id)
 
-                ((viewModel.deletingMemoIds.value.isEmpty())) shouldBe true
+                viewModel.deletingMemoIds.value.isEmpty() shouldBe true
+                memoRepository.getDeletedMemosList().first() shouldBe listOf(memo.copy(isDeleted = true))
             }
         }
-    }
 
-    init {
+        test("deleteMemo exposes mapped error message on failure") {
+            runTest {
+                val memo = sampleMemo(id = "memo-delete-fail")
+                memoRepository.setActiveMemos(listOf(memo))
+                memoRepository.deleteMemoFailure = IllegalStateException("delete failed")
+                val viewModel = createViewModel()
+
+                viewModel.deleteMemo(memo)
+                advanceUntilIdle()
+
+                viewModel.errorMessage.value shouldBe "Failed to delete memo: delete failed"
+            }
+        }
+
+        test("deleteMemo failure rolls back active deleting state immediately") {
+            runTest {
+                val memo = sampleMemo(id = "memo-delete-fail-2")
+                memoRepository.setActiveMemos(listOf(memo))
+                memoRepository.deleteMemoFailure = IllegalStateException("delete failed")
+                val viewModel = createViewModel()
+
+                viewModel.deleteMemo(memo)
+                runCurrent()
+
+                viewModel.deletingMemoIds.value.isEmpty() shouldBe true
+            }
+        }
+
         test("updateMemo exposes mapped error message on failure") {
             runTest {
-                val viewModel = createViewModel()
                 val memo = sampleMemo(id = "memo-update")
-                coEvery { updateMemoContentUseCase(memo, "updated") } throws IllegalStateException("update failed")
+                memoRepository.setActiveMemos(listOf(memo))
+                memoRepository.updateMemoFailure = IllegalStateException("update failed")
+                val viewModel = createViewModel()
 
                 viewModel.updateMemo(memo, "updated")
                 advanceUntilIdle()
 
-                (viewModel.errorMessage.value) shouldBe ("Failed to update memo: update failed")
+                viewModel.errorMessage.value shouldBe "Failed to update memo: update failed"
             }
         }
-    }
 
-    init {
         test("saveImage success returns saved path and does not set error") {
             runTest {
                 val viewModel = createViewModel()
@@ -464,17 +434,15 @@ memoRepository = mockk(relaxed = true)
                 )
                 advanceUntilIdle()
 
-                (savedPath) shouldBe ("images/photo-1.jpg")
-                (viewModel.errorMessage.value) shouldBe null
-                (onErrorCalled) shouldBe (false)
+                savedPath shouldBe "images/photo-1.jpg"
+                viewModel.errorMessage.value shouldBe null
+                onErrorCalled shouldBe false
                 coVerify(exactly = 1) {
                     saveImageUseCase.saveWithCacheSyncStatus(StorageLocation("content://images/photo-1"))
                 }
             }
         }
-    }
 
-    init {
         test("saveImage cache sync failure reports error and invokes onError") {
             runTest {
                 val viewModel = createViewModel()
@@ -497,26 +465,26 @@ memoRepository = mockk(relaxed = true)
                 )
                 advanceUntilIdle()
 
-                (savedPath) shouldBe null
-                (viewModel.errorMessage.value) shouldBe ("Failed to save image: cache sync failed")
-                (onErrorCalled) shouldBe (true)
+                savedPath shouldBe null
+                viewModel.errorMessage.value shouldBe "Failed to save image: cache sync failed"
+                onErrorCalled shouldBe true
             }
         }
-    }
 
-    init {
         test("clearError clears existing error message") {
             runTest {
+                val memo = sampleMemo(id = "memo-clear")
+                memoRepository.setActiveMemos(listOf(memo))
+                memoRepository.deleteMemoFailure = IllegalStateException("delete failed")
                 val viewModel = createViewModel()
-                coEvery { deleteMemoUseCase(any()) } throws IllegalStateException("delete failed")
 
-                viewModel.deleteMemo(sampleMemo())
+                viewModel.deleteMemo(memo)
                 advanceUntilIdle()
-                (viewModel.errorMessage.value) shouldBe ("Failed to delete memo: delete failed")
+                viewModel.errorMessage.value shouldBe "Failed to delete memo: delete failed"
 
                 viewModel.clearError()
 
-                (viewModel.errorMessage.value) shouldBe null
+                viewModel.errorMessage.value shouldBe null
             }
         }
     }

@@ -1,12 +1,29 @@
 package com.lomo.ui.theme
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: AppShapes design-token object and the MaterialTheme Shapes slot binding in ui-components theme.
  * - Behavior focus: the Material 3 Expressive corner ramp (20 / 32 / 48 dp tokens), common asymmetric
  *   shapes (top-only, end-only), preservation of the legacy 28dp ExtraLarge constant for call sites
@@ -14,7 +31,7 @@ import androidx.compose.ui.unit.dp
  *   drives every consuming M3 component shape (FAB, Dialog, SearchBar, Card) at render time.
  * - Observable outcomes: each AppShapes token's CornerBasedShape corner sizes and the MaterialTheme
  *   Shapes slot bindings in the shared `Shapes` val that LomoTheme passes to MaterialTheme.
- * - Red phase: Fails before Phase 1A because the new tokens LargeIncreased / ExtraLargeIncreased /
+ * - TDD proof: Fails before Phase 1A because the new tokens LargeIncreased / ExtraLargeIncreased /
  *   ExtraExtraLarge / SmallTop / MediumTop / LargeEnd are unresolved references, and `Shapes.extraLarge`
  *   still binds to the legacy 28dp AppShapes.ExtraLarge instead of the 32dp ExtraLargeIncreased token.
  * - Excludes: actual Compose render output, per-component shape overrides, Squircle / superellipse

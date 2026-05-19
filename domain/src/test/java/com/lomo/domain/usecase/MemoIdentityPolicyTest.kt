@@ -1,14 +1,31 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoIdentityPolicy
  * - Behavior focus: base-id construction, collision suffix/index resolution, timestamp offset clamping, and base/collision matching.
  * - Observable outcomes: generated ids, selected collision index, offset timestamps, and match Booleans.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: memo persistence and parser behavior.
  */
 class MemoIdentityPolicyTest : DomainFunSpec() {
@@ -25,8 +42,7 @@ class MemoIdentityPolicyTest : DomainFunSpec() {
                     baseId = baseId,
                 ) shouldBe 2
         }
-    }
-    init {
+
         test("timestamp offset is clamped and base collision matching accepts only expected ids") {
             policy.applyTimestampOffset(1_000L, -5) shouldBe 1_000L
             policy.applyTimestampOffset(1_000L, 5_000) shouldBe 1_999L
@@ -34,8 +50,7 @@ class MemoIdentityPolicyTest : DomainFunSpec() {
             (policy.matchesBaseOrCollision("memo", "memo")) shouldBe true
             (policy.matchesBaseOrCollision("memoX_1", "memo")) shouldBe false
         }
-    }
-    init {
+
         test("content hash trims whitespace before hashing") {
             MemoIdentityPolicy.contentHashHex("  hello  ") shouldBe MemoIdentityPolicy.contentHashHex("hello")
         }

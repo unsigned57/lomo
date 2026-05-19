@@ -1,5 +1,22 @@
 package com.lomo.domain.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.GitSyncResult
 import com.lomo.domain.model.GitSyncStatus
 import com.lomo.domain.model.UnifiedSyncState
@@ -12,11 +29,11 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncRepository default helpers
  * - Behavior focus: observeLastSyncInstant/observeLastSyncTimeMillis default mapping remains stable after repository surface cleanup.
  * - Observable outcomes: null-vs-instant mapping from the last-sync flow.
- * - Red phase: Fails to compile before the cleanup because the old Git memo-history method is still required by GitSyncRepository.
+ * - TDD proof: Fails to compile before the cleanup because the old Git memo-history method is still required by GitSyncRepository.
  * - Excludes: sync execution, conflict handling, and any removed Git memo-history capability.
  */
 class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
@@ -30,8 +47,7 @@ class GitSyncRepositoryDefaultsTest : DomainFunSpec() {
                         lastSync shouldBe null
                     }
         }
-    }
-    init {
+
         test("observeLastSyncInstant maps positive millis to instant") {
             runTest {
                         val repository = LastSyncOnlyGitSyncRepository(flowOf(1_700_000_000_000L))

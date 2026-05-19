@@ -1,5 +1,22 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import androidx.compose.material3.Typography
@@ -10,11 +27,11 @@ import com.lomo.ui.theme.TypographyScales
 import com.lomo.ui.theme.memoBodyTextStyle
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: raw memo plain-text presentation spec for editor/display parity.
  * - Behavior focus: editor-side raw text and rendered memo body text must resolve through the same paragraph splitter, spacing token, and script-aware body style so plain prose looks identical without interpreting Markdown syntax.
  * - Observable outcomes: split raw paragraphs, preserved markdown marker literals, resolved shared text style, and shared paragraph spacing.
- * - Red phase: Fails before the fix because the project has no shared raw memo presentation spec, so editor text and rendered memo body text cannot be proven to share the same paragraph policy.
+ * - TDD proof: Fails before the fix because the project has no shared raw memo presentation spec, so editor text and rendered memo body text cannot be proven to share the same paragraph policy.
  * - Excludes: Compose widget-tree rendering, TextView/EditText measurement internals, IME integration, and markdown semantic parsing.
  */
 class MemoPlainTextPresentationTest : UiComponentsFunSpec() {

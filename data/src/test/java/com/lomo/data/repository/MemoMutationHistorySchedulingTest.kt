@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -23,13 +40,13 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoMutationHandler history scheduling path
  * - Behavior focus: local edit and trash mutations must not wait for memo-version snapshot persistence before
  *   returning their outbox result.
  * - Observable outcomes: update/delete DB mutation calls return the outbox id while history snapshot append is
  *   still suspended, and the history append is eventually invoked with the expected lifecycle state.
- * - Red phase: Fails before the fix because updateMemoInDb and deleteMemoInDb await
+ * - TDD proof: Fails before the fix because updateMemoInDb and deleteMemoInDb await
  *   MemoVersionJournal.appendLocalRevision directly, so a slow snapshot append blocks the mutation call.
  * - Excludes: blob persistence, snapshot prune policy, and file-flush behavior.
  */

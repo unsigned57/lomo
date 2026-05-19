@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import android.content.Context
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
@@ -33,12 +50,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SyncInboxRepositoryImpl
  * - Owning layer: data
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: sync returns review conflicts for inbox files and persists them for later resolution.
  * - Boundary: an already pending inbox review is surfaced again without rescanning inbox files.
  * - Failure: a per-file inspection exception becomes a blocked review item while later files still appear in the batch.
@@ -47,7 +64,7 @@ import kotlinx.coroutines.test.runTest
  * Observable outcomes:
  * - returned UnifiedSyncResult, review states and messages, pending-conflict store contents, saved memo content, refresh invocation, and source cleanup.
  *
- * Red phase:
+ * TDD proof:
  * - Fails before behavior changes or migration are applied.
  *
  * Excludes:

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -29,11 +46,11 @@ import com.lomo.data.testing.KotestTemporaryFolder
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncExecutor
  * - Behavior focus: sync execution must apply delete/upload/download actions only to files inside the filtered S3 sync set, leaving ignored external objects untouched.
  * - Observable outcomes: returned S3SyncResult outcomes and remote delete targets issued to the S3 client.
- * - Red phase: Fails before the fix when plaintext S3 listings are not filtered to the content-only sync scope, allowing ignored external objects to influence execution-side deletes or mismatch handling.
+ * - TDD proof: Fails before the fix when plaintext S3 listings are not filtered to the content-only sync scope, allowing ignored external objects to influence execution-side deletes or mismatch handling.
  * - Excludes: AWS SDK transport behavior, Compose/UI rendering, and Room persistence implementation details.
  */
 class S3SyncExecutorTest : DataFunSpec() {

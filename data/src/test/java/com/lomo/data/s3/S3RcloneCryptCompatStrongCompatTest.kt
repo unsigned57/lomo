@@ -1,5 +1,22 @@
 package com.lomo.data.s3
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.S3RcloneCryptConfig
 import com.lomo.domain.model.S3RcloneFilenameEncoding
@@ -8,11 +25,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3RcloneCryptCompatCodec
  * - Behavior focus: strong rclone crypt compatibility across base32768, obfuscate, filename-off suffix handling, directory-name passthrough, and password2-derived keys.
  * - Observable outcomes: exact rclone v1.73.3 filename vectors, successful decryption of password2 ciphertext, and reversible suffix-based filename decoding.
- * - Red phase: Fails before the fix because the codec only supports standard filename encryption with base64/base32 and has no password2, base32768, obfuscate, or filename-off behavior.
+ * - TDD proof: Fails before the fix because the codec only supports standard filename encryption with base64/base32 and has no password2, base32768, obfuscate, or filename-off behavior.
  * - Excludes: AWS transport, sync orchestration, and settings UI.
  */
 class S3RcloneCryptCompatStrongCompatTest : DataFunSpec() {

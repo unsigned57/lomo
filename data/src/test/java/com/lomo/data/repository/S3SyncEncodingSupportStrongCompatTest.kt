@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -11,11 +28,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncEncodingSupport
  * - Behavior focus: rclone strong-compat path and payload encoding across base32768, plaintext directories, suffix-based off mode, and no-data-encryption passthrough.
  * - Observable outcomes: exact remote keys under the configured prefix plus reversible content handling.
- * - Red phase: Fails before the fix because encoding support only understands NONE, OpenSSL, and the old base64/base32 rclone subset.
+ * - TDD proof: Fails before the fix because encoding support only understands NONE, OpenSSL, and the old base64/base32 rclone subset.
  * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
  */
 class S3SyncEncodingSupportStrongCompatTest : DataFunSpec() {

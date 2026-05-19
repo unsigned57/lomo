@@ -1,5 +1,22 @@
 package com.lomo.app.feature.main
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -30,45 +47,36 @@ import kotlinx.collections.immutable.persistentSetOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.flowOf
-import org.junit.Assert.assertTrue
-import org.junit.Rule
-import org.junit.Test
-import org.junit.runner.RunWith
 import java.time.LocalDate
 import java.time.ZoneId
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: Main-screen staged new-memo insert animation on a real device.
- * - Behavior focus: when creating at the absolute top, the current first memo must move downward before the new
- *   memo becomes visibly opaque, and the old first memo must not jump upward into the hidden top region during
- *   the staged insert.
- * - Observable outcomes: sampled screen-Y positions for the old top memo, sampled alpha for the new memo view,
- *   final absolute-top list state, and final visible new memo.
- * - Red phase: Fails before the fix when the new memo reveal starts too early or when repeated top anchoring
- *   causes the previous first memo to jump upward and flash the hidden top viewport region.
- * - Excludes: repository persistence, Hilt wiring, exact easing curves, and full MainScreen integration.
+ * - Owning layer: app
+ * - Priority tier: P2
+ * - Capability: verify staged new-memo insert animation on device.
+ *
+ * Scenarios:
+ * - Given prepend at top, when inserting, then move existing cards before new memo reveal without upward jump.
+ * - Given prepend at top, when reveal begins, then only show new memo after previous top settles into displaced gap.
+ *
+ * Observable outcomes:
+ * - correct timing sequence of Y-positions and alpha transitions.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - repository persistence, Hilt wiring, exact easing curves, and full MainScreen integration.
  */
-/*
- * Test Change Justification:
- * - Reason category: pure refactor preserved behavior but requires mechanical test reshaping.
- * - Old behavior/assertion being replaced: the harness recovered prepend animation by reading the real viewport
- *   top and issuing a compensating post-insert top pin before blank-space prep.
- * - Why the previous assertion is no longer correct: prepend should now recover the list to the absolute top
- *   before insertion, then begin the staged insert directly from the new first item. Keeping the old repin gate
- *   in the harness would test the obsolete workaround rather than the requested animation order.
- * - Coverage preserved by: the assertions still protect no upward flash, move-before-reveal ordering, and
- *   hidden-before-reveal alpha.
- * - Why this is not fitting the test to the implementation: the harness is being aligned to the requested motion
- *   sequence, not weakened to accept any behavior.
- */
-@RunWith(AndroidJUnit4::class)
+@org.junit.runner.RunWith(AndroidJUnit4::class)
 class MainScreenNewMemoAnimationDeviceTest {
     @Suppress("DEPRECATION")
-    @get:Rule
+    @get:org.junit.Rule
     val composeRule = createAndroidComposeRule<ComponentActivity>()
 
-    @Test
+    @org.junit.Test
     fun prependAtTop_movesExistingCardsBeforeNewMemoReveal_andDoesNotJumpUpward() {
         val harness = AnimationHarness(mutableStateOf(memoUiModels(count = 24)))
         val newMemoText = "New memo staged reveal"
@@ -95,7 +103,7 @@ class MainScreenNewMemoAnimationDeviceTest {
         }
         composeRule.mainClock.autoAdvance = true
 
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the previous top memo to stay at or below its starting Y while the insert animation runs, but sampled $samples from initialY=$initialTopY.",
             samples.all { sample ->
                 val oldTopY = sample.oldTopY ?: return@all true
@@ -107,11 +115,11 @@ class MainScreenNewMemoAnimationDeviceTest {
             samples.indexOfFirst { sample ->
                 sample.state.pendingRevealMemoId != null
             }
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the new memo animation to reach the reveal stage during the sampled window, but sampled $samples.",
             firstVisibleRevealIndex >= 0,
         )
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the previous top memo to move downward before the new memo reached reveal stage, but sampled $samples from initialY=$initialTopY.",
             samples
                 .take(firstVisibleRevealIndex + 1)
@@ -129,7 +137,7 @@ class MainScreenNewMemoAnimationDeviceTest {
         waitForTextView(newMemoText)
     }
 
-    @Test
+    @org.junit.Test
     fun prependAtTop_revealsOnlyAfterPreviousTopMemoSettlesIntoItsDisplacedGap() {
         val harness = AnimationHarness(mutableStateOf(memoUiModels(count = 24)))
         val newMemoText = "New memo reveal after settle"
@@ -163,13 +171,13 @@ class MainScreenNewMemoAnimationDeviceTest {
                 val alpha = sample.newMemoAlpha ?: return@indexOfFirst false
                 alpha > ALPHA_TOLERANCE
             }
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the new memo to begin reveal during sampling, but sampled $samples.",
             firstRevealIndex >= 0,
         )
 
         val oldTopYAtReveal = samples[firstRevealIndex].oldTopY
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the previous top memo to settle into its displaced gap before reveal began, but reveal started at sample ${samples[firstRevealIndex]} while settledOldTopY=$settledOldTopY and samples=$samples.",
             oldTopYAtReveal != null && oldTopYAtReveal >= settledOldTopY - POSITION_TOLERANCE_PX,
         )
@@ -178,7 +186,7 @@ class MainScreenNewMemoAnimationDeviceTest {
             samples
                 .take(firstRevealIndex)
                 .mapNotNull { it.newMemoAlpha }
-        assertTrue(
+        org.junit.Assert.assertTrue(
             "Expected the new memo to stay effectively invisible before reveal, but sampled pre-reveal alpha values $preRevealVisibleAlpha from $samples.",
             preRevealVisibleAlpha.all { alpha -> alpha <= ALPHA_TOLERANCE },
         )

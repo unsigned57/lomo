@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.TrashMemoEntity
 import com.lomo.data.source.FileMetadata
@@ -20,11 +37,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoTrashMutationHandler
  * - Behavior focus: file-only trash/restore branching, DB restore gating, unsafe destructive rejection, and attachment cleanup routing.
  * - Observable outcomes: returned Boolean success/failure, thrown unsafe mutation exceptions, file save/delete behavior, LocalFileState updates, and media delete branch selection.
- * - Red phase: Fails before the fix because top-level trash restore and permanent delete paths only log missing blocks instead of rejecting the unsafe mutation.
+ * - TDD proof: Fails before the fix because top-level trash restore and permanent delete paths only log missing blocks instead of rejecting the unsafe mutation.
  * - Excludes: MemoTextProcessor internals, storage backend implementation details, and UI rendering behavior.
  */
 class MemoTrashMutationHandlerTest : DataFunSpec() {

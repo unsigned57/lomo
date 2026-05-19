@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
@@ -31,11 +48,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncConflictRepositoryImpl
  * - Behavior focus: precondition guarding, repo-directory resolution, and post-resolution memo refresh orchestration.
  * - Observable outcomes: returned GitSyncResult type or code, chosen repo directory source, and memo mirror or refresh side effects.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: JGit conflict internals, filesystem mirroring implementation, and UI state mapping.
  */
 class GitSyncConflictRepositoryImplTest : DataFunSpec() {

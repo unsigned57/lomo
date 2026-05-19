@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3RemoteVerificationLevel
@@ -9,11 +26,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncPlanner
  * - Behavior focus: remote verification level should prevent destructive local deletions when remote absence is only cached or unknown, while still allowing uploads and verified delete propagation.
  * - Observable outcomes: planned S3SyncDirection/S3SyncReason for candidate paths under verified and unverified remote-missing inputs.
- * - Red phase: Fails before the fix because planner treats any missing remote file as authoritative and schedules DELETE_LOCAL even when the remote absence was never verified.
+ * - TDD proof: Fails before the fix because planner treats any missing remote file as authoritative and schedules DELETE_LOCAL even when the remote absence was never verified.
  * - Excludes: S3 transport, metadata DAO I/O, executor-side action verification, and UI rendering.
  */
 class S3SyncPlannerVerificationLevelTest : DataFunSpec() {

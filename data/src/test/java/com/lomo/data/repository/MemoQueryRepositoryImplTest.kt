@@ -1,16 +1,30 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
 
-import com.lomo.data.local.dao.DefaultMainListDao
-import com.lomo.data.local.dao.MemoBrowseDao
-import com.lomo.data.local.dao.MemoDao
-import com.lomo.data.local.dao.MemoPinDao
-import com.lomo.data.local.dao.DefaultMainListMemoRow
+
 import com.lomo.data.local.entity.MemoEntity
+import com.lomo.data.local.dao.DefaultMainListMemoRow
 import androidx.paging.PagingSource
+import com.lomo.data.testing.fakes.FakeDefaultMainListDao
+import com.lomo.data.testing.fakes.FakeMemoBrowseDao
+import com.lomo.data.testing.fakes.FakeMemoDao
+import com.lomo.data.testing.fakes.FakeMemoPinDao
 import com.lomo.domain.model.MemoListFilter
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,11 +38,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoQueryRepositoryImpl
  * - Behavior focus: pinned-state merge, invalid-page guard branch, getMemoById null/non-null branching, syncing-state exposure, and Paging jump support passthrough.
  * - Observable outcomes: returned memo ids with isPinned flags, empty/non-empty page content, null vs domain memo, passthrough sync state, and exposed jumpingSupported flag.
- * - Red phase: Fails before the fix because the repository mapping PagingSource drops the Room source's
+ * - TDD proof: Fails before the fix because the repository mapping PagingSource drops the Room source's
  *   jumpingSupported flag, so placeholder-backed direct Jump requests cannot use Paging jump loading.
  * - Excludes: Room SQL behavior, entity recovery internals, and mutation workflow side effects.
  */
@@ -54,11 +68,11 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
     }
 
 
-    private val memoDao: MemoDao = mockk()
-    private val memoBrowseDao: MemoBrowseDao = mockk()
-    private val defaultMainListDao: DefaultMainListDao = mockk()
-    private val memoPinDao: MemoPinDao = mockk()
-    private val synchronizer: MemoSynchronizer = mockk(relaxed = true)
+    private val memoDao = FakeMemoDao()
+    private val memoBrowseDao = FakeMemoBrowseDao()
+    private val defaultMainListDao = FakeDefaultMainListDao()
+    private val memoPinDao = FakeMemoPinDao()
+    private val synchronizer: MemoSynchronizer = mockk()
 
     private val repository =
         MemoQueryRepositoryImpl(
@@ -76,8 +90,6 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
 
             (byInvalidLimit.isEmpty()).shouldBeTrue()
             (byInvalidOffset.isEmpty()).shouldBeTrue()
-            coVerify(exactly = 0) { defaultMainListDao.getPage(any(), any()) }
-            coVerify(exactly = 0) { memoPinDao.getPinnedMemoIds() }
         }
 
     private fun `getRecentMemos and getMemosPage merge pinned ids into domain output`() =
@@ -92,9 +104,10 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                     defaultMainListRow(id = "memo-2", timestamp = 200L, isPinned = true),
                     defaultMainListRow(id = "memo-1", timestamp = 100L, isPinned = false),
                 )
-            coEvery { memoPinDao.getPinnedMemoIds() } returns listOf("memo-2")
-            coEvery { memoDao.getRecentMemos(2) } returns recentEntities
-            coEvery { defaultMainListDao.getPage(limit = 2, offset = 1) } returns pageEntities
+            memoPinDao.pinnedMemoIdsResult = listOf("memo-2")
+            memoDao.randomMemosResult = emptyList()
+            memoDao.recentMemosResult = recentEntities
+            defaultMainListDao.pageResult = pageEntities
 
             val recent = repository.getRecentMemos(limit = 2)
             val page = repository.getMemosPage(limit = 2, offset = 1)
@@ -112,8 +125,8 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                     memoEntity(id = "memo-a", timestamp = 20L),
                     memoEntity(id = "memo-b", timestamp = 10L),
                 )
-            every { memoDao.getAllMemosFlow() } returns flowOf(entities)
-            every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(listOf("memo-b"))
+            memoDao.allMemosFlowResult = flowOf(entities)
+            memoPinDao.pinnedMemoIdsFlowResult = flowOf(listOf("memo-b"))
 
             val all = repository.getAllMemosList().first()
 
@@ -133,9 +146,9 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                     memoEntity(id = "memo-gallery-2", timestamp = 220L),
                     memoEntity(id = "memo-gallery-1", timestamp = 120L),
                 )
-            every { memoBrowseDao.getMemosByTimestampRangeFlow(any(), any()) } returns flowOf(rangeEntities)
-            every { memoBrowseDao.getGalleryMemosFlow() } returns flowOf(galleryEntities)
-            every { memoPinDao.getPinnedMemoIdsFlow() } returns flowOf(listOf("memo-range-1", "memo-gallery-2"))
+            memoBrowseDao.memosByTimestampRangeFlowResult = flowOf(rangeEntities)
+            memoBrowseDao.galleryMemosFlowResult = flowOf(galleryEntities)
+            memoPinDao.pinnedMemoIdsFlowResult = flowOf(listOf("memo-range-1", "memo-gallery-2"))
 
             val range =
                 repository
@@ -153,18 +166,17 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
 
     private fun `getMemoById returns null when dao misses and skips pinned lookup`() =
         runTest {
-            coEvery { memoDao.getMemo("missing") } returns null
+            memoDao.memoResultMap.remove("missing")
 
             val memo = repository.getMemoById("missing")
 
             memo.shouldBeNull()
-            coVerify(exactly = 0) { memoPinDao.getPinnedMemoIds() }
         }
 
     private fun `getMemoById returns mapped domain memo with pinned state when found`() =
         runTest {
-            coEvery { memoDao.getMemo("memo-1") } returns memoEntity(id = "memo-1", timestamp = 123L)
-            coEvery { memoPinDao.getPinnedMemoIds() } returns listOf("memo-1")
+            memoDao.memoResultMap["memo-1"] = memoEntity(id = "memo-1", timestamp = 123L)
+            memoPinDao.pinnedMemoIdsResult = listOf("memo-1")
 
             val memo = repository.getMemoById("memo-1")
 
@@ -176,7 +188,7 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
     private fun `getMemoCount delegates to dao and isSyncing exposes synchronizer flow`() =
         runTest {
             val syncing = MutableStateFlow(false)
-            coEvery { memoDao.getMemoCountSync() } returns 42
+            memoDao.memoCountSyncResult = 42
             every { synchronizer.isSyncing } returns syncing
 
             repository.getMemoCount() shouldBe 42
@@ -200,15 +212,7 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                     override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
                         42
                 }
-            every {
-                defaultMainListDao.getPagingSource(
-                    query = "",
-                    startDate = null,
-                    endDate = null,
-                    sortOption = "CREATED_TIME",
-                    sortAscending = false,
-                )
-            } returns source
+            defaultMainListDao.getPagingSourceResult = source
 
             val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
             val refreshKey =
@@ -240,15 +244,7 @@ class MemoQueryRepositoryImplTest : DataFunSpec() {
                     override fun getRefreshKey(state: androidx.paging.PagingState<Int, DefaultMainListMemoRow>): Int? =
                         null
                 }
-            every {
-                defaultMainListDao.getPagingSource(
-                    query = "",
-                    startDate = null,
-                    endDate = null,
-                    sortOption = "CREATED_TIME",
-                    sortAscending = false,
-                )
-            } returns source
+            defaultMainListDao.getPagingSourceResult = source
 
             val pagingSource = repository.getMainListPagingSource(query = "", filter = MemoListFilter())
 

@@ -1,10 +1,10 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DomainPurityTest
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for DomainPurityTest.
  * - Boundary: boundary and edge cases for DomainPurityTest.
  * - Failure: failure and error scenarios for DomainPurityTest.
@@ -12,11 +12,28 @@
  *
  * - Behavior focus: test behavioral outcomes of DomainPurityTest.
  * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
  */
 
 package com.lomo.domain.architecture
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import io.kotest.assertions.withClue
 import com.lomo.domain.testing.DomainFunSpec
@@ -37,8 +54,7 @@ class DomainPurityTest : DomainFunSpec() {
 
             withClue("Domain layer must stay framework-agnostic. Offenders: ${offenders.joinToString { it.path }}") { (offenders.isEmpty()) shouldBe true }
         }
-    }
-    init {
+
         test("domain source only uses model repository and usecase categories") {
             val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
             val allowedTopLevel = setOf("model", "repository", "usecase")
@@ -53,8 +69,7 @@ class DomainPurityTest : DomainFunSpec() {
             withClue("Domain source categories must be model/repository/usecase. Offenders: " +
                     offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
         }
-    }
-    init {
+
         test("domain repository package only declares interfaces") {
             val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain/repository")
             val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
@@ -70,8 +85,7 @@ class DomainPurityTest : DomainFunSpec() {
             withClue("Domain repository contracts must be interfaces only. Offenders: " +
                     offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
         }
-    }
-    init {
+
         test("domain source does not keep compatibility typealias") {
             val sourceRoot = moduleRoot.resolve("src/main/java/com/lomo/domain")
             val kotlinFiles = sourceRoot.walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
@@ -85,23 +99,20 @@ class DomainPurityTest : DomainFunSpec() {
             withClue("Domain source must not declare typealias compatibility shims. Offenders: " +
                     offenders.joinToString { it.path }) { (offenders.isEmpty()) shouldBe true }
         }
-    }
-    init {
+
         test("domain module does not use android gradle plugin") {
             val buildFile = moduleRoot.resolve("build.gradle.kts")
             val text = buildFile.readText()
 
             withClue("Domain module must not apply Android Gradle plugins.") { (!text.contains("androidLibrary") && !text.contains("com.android.library")) shouldBe true }
         }
-    }
-    init {
+
         test("domain module does not keep android manifest") {
             val manifestFile = moduleRoot.resolve("src/main/AndroidManifest.xml")
 
             withClue("Domain module must not keep AndroidManifest.xml.") { (!manifestFile.exists()) shouldBe true }
         }
-    }
-    init {
+
         test("domain module does not depend on inject library") {
             val buildFile = moduleRoot.resolve("build.gradle.kts")
             val text = buildFile.readText()

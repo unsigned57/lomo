@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.S3EncryptionMode
 import com.lomo.domain.model.S3PathStyle
@@ -9,11 +26,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncEncodingSupport
  * - Behavior focus: S3 remote path encoding uses the configured prefix plus vault-root-relative paths without forcing a legacy lomo/ root, while content encoding still round-trips under rclone crypt mode.
  * - Observable outcomes: prefixed or root-level remote keys, reversible path decoding, and reversible payload decoding.
- * - Red phase: Fails before the fix because the S3 key contract was still coupled to the legacy lomo/ path model instead of vault-root-relative paths.
+ * - TDD proof: Fails before the fix because the S3 key contract was still coupled to the legacy lomo/ path model instead of vault-root-relative paths.
  * - Excludes: AWS transport, sync planning, metadata persistence, and UI rendering.
  */
 class S3SyncEncodingSupportTest : DataFunSpec() {

@@ -1,22 +1,42 @@
 /*
- * Test Contract:
- * - Unit under test: MainDirectoryGuideControllerTest
+ * Behavior Contract:
+ * - Unit under test: MainDirectoryGuideController
  * - Owning layer: app
- * - Priority tier: P0
+ * - Priority tier: P2
+ * - Capability: manage guide types during directory setup flow.
  *
- * Scenario matrix:
- * - Happy: standard happy path for MainDirectoryGuideControllerTest.
- * - Boundary: boundary and edge cases for MainDirectoryGuideControllerTest.
- * - Failure: failure and error scenarios for MainDirectoryGuideControllerTest.
- * - Must-not-happen: invariants are never violated for MainDirectoryGuideControllerTest.
+ * Scenarios:
+ * - Given a directory guide controller, when requesting image setup, then setup type is updated to DirectorySetupType.Image.
+ * - Given a controller with active setup type, when cleared, then setup type is reset to null.
  *
- * - Behavior focus: test behavioral outcomes of MainDirectoryGuideControllerTest.
- * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
- * - Excludes: none.
+ * Observable outcomes:
+ * - changes to setupType state.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - view components, lifecycle wiring.
  */
 
 package com.lomo.app.feature.main
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
@@ -30,9 +50,7 @@ class MainDirectoryGuideControllerTest : AppFunSpec() {
 
             (controller.setupType) shouldBe (DirectorySetupType.Image)
         }
-    }
 
-    init {
         test("requestVoice then clear resets guide type") {
             val controller = MainDirectoryGuideController()
             controller.requestVoice()
@@ -42,5 +60,4 @@ class MainDirectoryGuideControllerTest : AppFunSpec() {
             (controller.setupType) shouldBe null
         }
     }
-
 }

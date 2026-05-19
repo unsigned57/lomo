@@ -1,7 +1,26 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.ReminderCoordinator
+import com.lomo.domain.model.ReminderIntervalDefaults
 import io.mockk.MockKAnnotations
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -11,6 +30,7 @@ import io.mockk.just
 import io.mockk.runs
 import io.mockk.slot
 import io.mockk.verify
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -18,14 +38,48 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
+private class LazyOf<T>(private val value: T) : dagger.Lazy<T> {
+    override fun get(): T = value
+}
+
+private object NoOpReminderCoordinator : ReminderCoordinator {
+    override val globalIntervalMillis = MutableStateFlow(ReminderIntervalDefaults.DEFAULT_MILLIS)
+
+    override suspend fun setGlobalIntervalMillis(millis: Long) = Unit
+
+    override suspend fun syncForMemo(
+        memoId: String,
+        content: String,
+    ) = Unit
+
+    override suspend fun cancelForMemo(memoId: String) = Unit
+
+    override suspend fun rebuildAll() = Unit
+
+    override suspend fun snooze(
+        memoId: String,
+        tokenRaw: String,
+    ) = Unit
+
+    override suspend fun markDone(
+        memoId: String,
+        tokenRaw: String,
+    ) = Unit
+
+    override suspend fun recordFired(
+        memoId: String,
+        tokenRaw: String,
+    ) = Unit
+}
+
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoRepositoryImpl
  * - Behavior focus: query-to-search-source routing, pinned memo mapping, and mutation delegation onto the
  *   synchronous safety-tracked synchronizer path.
  * - Observable outcomes: constructed FTS query text, fallback search path choice, mapped pin state, and
  *   synchronizer calls.
- * - Red phase: qualityCheck failed before this test update because these assertions still expected
+ * - TDD proof: qualityCheck failed before this test update because these assertions still expected
  *   saveMemoAsync/updateMemoAsync/deleteMemoAsync after the repository switched to synchronous tracked
  *   mutation APIs.
  * - Excludes: Room SQL execution details, FTS engine internals, and UI rendering.
@@ -70,20 +124,23 @@ class MemoRepositoryImplTest : DataFunSpec() {
 
     private fun setUp() {
         MockKAnnotations.init(this)
+        val queryRepository =
+            MemoQueryRepositoryImpl(
+                memoDao = dao,
+                memoBrowseDao = dao,
+                defaultMainListDao = dao,
+                memoPinDao = dao,
+                synchronizer = synchronizer,
+            )
         repository =
             MemoRepositoryImpl(
-                queryRepository =
-                    MemoQueryRepositoryImpl(
-                        memoDao = dao,
-                        memoBrowseDao = dao,
-                        defaultMainListDao = dao,
-                        memoPinDao = dao,
-                        synchronizer = synchronizer,
-                    ),
+                queryRepository = queryRepository,
                 mutationRepository =
                     MemoMutationRepositoryImpl(
                         memoPinDao = dao,
                         synchronizer = synchronizer,
+                        reminderCoordinator = LazyOf(NoOpReminderCoordinator),
+                        memoQueryRepository = LazyOf(queryRepository),
                     ),
                 searchRepository =
                     MemoSearchRepositoryImpl(

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.worker.S3RefreshSyncPlan
 import com.lomo.domain.model.S3SyncScanPolicy
@@ -20,11 +37,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncOperationRepositoryImpl
  * - Behavior focus: sync guard short-circuiting, failure recovery, and status/test-connection delegation.
  * - Observable outcomes: returned S3SyncResult/S3SyncStatus values and executor invocation counts.
- * - Red phase: Fails before the fix because S3 sync still uses a placeholder repository implementation without executor/status-tester orchestration.
+ * - TDD proof: Fails before the fix because S3 sync still uses a placeholder repository implementation without executor/status-tester orchestration.
  * - Excludes: AWS transport behavior, file-bridge planning, conflict modeling internals, and UI rendering.
  */
 class S3SyncOperationRepositoryImplTest : DataFunSpec() {

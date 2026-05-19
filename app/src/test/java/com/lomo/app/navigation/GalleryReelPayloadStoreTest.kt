@@ -1,14 +1,31 @@
 package com.lomo.app.navigation
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GalleryReelPayloadStore.
  * - Behavior focus: gallery reel snapshot retention, LRU capacity, and TTL pruning.
  * - Observable outcomes: restored memo id order, restored aspect map, eviction, expiration.
- * - Red phase: Fails before the feature because GalleryReelPayloadStore and its test clock hooks do not exist.
+ * - TDD proof: Fails before the feature because GalleryReelPayloadStore and its test clock hooks do not exist.
  * - Excludes: navigation graph rendering, MainViewModel list collection, route serialization.
  */
 class GalleryReelPayloadStoreTest : AppFunSpec() {

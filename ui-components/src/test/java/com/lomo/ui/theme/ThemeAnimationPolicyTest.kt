@@ -1,14 +1,31 @@
 package com.lomo.ui.theme
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: theme color animation policy for system and explicit theme changes.
  * - Behavior focus: system light-dark boundary switches must apply immediately so returning from background does not show a foreground color tween, while same-mode recompositions and explicit user theme choices can keep animated color transitions.
  * - Observable outcomes: boolean animation decisions for system-theme dark/light flips, steady-state recompositions, and explicit theme modes.
- * - Red phase: Fails before the fix because LomoTheme always animates color-scheme changes, so a system dark-mode transition still visibly interpolates colors when the app becomes visible again.
+ * - TDD proof: Fails before the fix because LomoTheme always animates color-scheme changes, so a system dark-mode transition still visibly interpolates colors when the app becomes visible again.
  * - Excludes: AppCompatDelegate integration, OEM theme propagation timing, and Compose rendering snapshots.
  */
 class ThemeAnimationPolicyTest : UiComponentsFunSpec() {

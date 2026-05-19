@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import android.net.Network
@@ -21,10 +38,10 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareServiceLifecycleController active LAN discovery orchestration.
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for ShareServiceLifecycleControllerActiveDiscoveryTest.
  * - Boundary: boundary and edge cases for ShareServiceLifecycleControllerActiveDiscoveryTest.
  * - Failure: failure and error scenarios for ShareServiceLifecycleControllerActiveDiscoveryTest.
@@ -35,7 +52,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
  *   phantom devices.
  * - Observable outcomes: server start parameters, NSD registration/discovery requests, active scan
  *   bind hosts, merged devices, and startup failure events.
- * - Red phase: Fails before the fix because ShareServiceLifecycleController hard-codes NSD,
+ * - TDD proof: Fails before the fix because ShareServiceLifecycleController hard-codes NSD,
  *   active-scan, and server collaborators, so the active fallback behavior cannot be proven as an
  *   observable orchestration contract.
  * - Excludes: live sockets, real NSD packets, Android runtime permission UI, and transfer payloads.

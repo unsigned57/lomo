@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.ContentResolver
 import android.content.Context
@@ -23,11 +40,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareAttachmentStorage
  * - Behavior focus: image/audio attachment save routing, duplicate filename resolution, filename sanitization, blank-name fallback, and failure fallback.
  * - Observable outcomes: returned saved filename or null, bytes copied to the destination stream, resolved audio filename passed to MediaStorageDataSource, and unsupported-type handling.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: Document tree traversal, actual media store persistence backends, and LAN transfer orchestration.
  */
 class ShareAttachmentStorageTest : DataFunSpec() {

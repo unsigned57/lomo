@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -32,11 +49,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoMutationHandler
  * - Behavior focus: metadata persistence, updatedAt refresh, storage format caching, unsafe rewrite rejection, and edit-time orphan attachment cleanup.
  * - Observable outcomes: thrown unsafe mutation exception, LocalFileState writes, persisted updatedAt, cached flow collection counts, and voice/image deletion dispatch when references disappear.
- * - Red phase: "updateMemo deletes unreferenced voice attachment removed by edit" fails before the fix because UpdateMemoMutationDelegate never ran orphan cleanup on the removed attachment set.
+ * - TDD proof: "updateMemo deletes unreferenced voice attachment removed by edit" fails before the fix because UpdateMemoMutationDelegate never ran orphan cleanup on the removed attachment set.
  * - Excludes: Room transaction internals, UI rendering, and retired legacy-capture storage mechanics.
  */
 class MemoMutationHandlerTest : DataFunSpec() {

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -36,11 +53,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3ConflictResolver
  * - Behavior focus: conflict resolution should reuse indexed remote paths for targeted uploads/downloads without whole-bucket scans and must still map remote fetch failures into S3 error results.
  * - Observable outcomes: S3SyncResult type, remote list/get/put targets, metadata persistence, and post-resolution refresh state.
- * - Red phase: Fails before the fix because conflict resolution still probes the retired manifest path before applying a KEEP_LOCAL or KEEP_REMOTE choice, so targeted resolution cannot succeed without the old private protocol.
+ * - TDD proof: Fails before the fix because conflict resolution still probes the retired manifest path before applying a KEEP_LOCAL or KEEP_REMOTE choice, so targeted resolution cannot succeed without the old private protocol.
  * - Excludes: AWS SDK transport details, planner internals, metadata persistence internals, and UI rendering.
  */
 class S3ConflictResolverTest : DataFunSpec() {

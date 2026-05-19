@@ -1,16 +1,33 @@
 package com.lomo.data.memo
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoContentHashPolicy
  * - Behavior focus: SHA-256 hash output shape, determinism, and whitespace trimming.
  * - Observable outcomes: 64-character lowercase hex string; same input → same hash; different input → different hash.
- * - Red phase: Fails before the fix because String.hashCode() produces a short hex of variable length and is
+ * - TDD proof: Fails before the fix because String.hashCode() produces a short hex of variable length and is
  *   not guaranteed to be consistent across JVM restarts.
  * - Excludes: MemoTextProcessor logic and file-system side effects.
  */

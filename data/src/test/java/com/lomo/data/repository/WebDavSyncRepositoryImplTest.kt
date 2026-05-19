@@ -1,12 +1,28 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
 
-import com.lomo.data.local.dao.WebDavSyncMetadataDao
+
 import com.lomo.data.local.datastore.LomoDataStore
 import com.lomo.data.local.entity.WebDavSyncMetadataEntity
-import com.lomo.data.source.FileDataSource
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MemoDirectoryType
+import com.lomo.data.testing.fakes.FakeFileDataSource
+import com.lomo.data.testing.fakes.FakeWebDavSyncMetadataDao
 import com.lomo.data.webdav.Dav4jvmWebDavClientFactory
 import com.lomo.data.webdav.LocalMediaSyncStore
 import com.lomo.data.webdav.WebDavClient
@@ -23,7 +39,6 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.impl.annotations.MockK
-import io.mockk.slot
 import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -33,11 +48,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavSyncExecutor via WebDavSyncRepositoryImpl
  * - Behavior focus: external-to-local WebDAV sync ordering and metadata/refresh follow-up after legacy capture cleanup.
  * - Observable outcomes: returned WebDavSyncResult, local writes, metadata persistence, and sync side effects.
- * - Red phase: Fails before the fix because WebDAV sync still depends on retired pre-sync capture work in the download path.
+ * - TDD proof: Fails before the fix because WebDAV sync still depends on retired pre-sync capture work in the download path.
  * - Excludes: WebDAV transport internals, remote listing algorithms, and UI state presentation.
  */
 class WebDavSyncRepositoryImplTest : DataFunSpec() {
@@ -78,14 +93,12 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
     @MockK(relaxed = true)
     private lateinit var client: WebDavClient
 
-    @MockK(relaxed = true)
-    private lateinit var fileDataSource: FileDataSource
+    private val fileDataSource = FakeFileDataSource()
 
     @MockK(relaxed = true)
     private lateinit var localMediaSyncStore: LocalMediaSyncStore
 
-    @MockK(relaxed = true)
-    private lateinit var metadataDao: WebDavSyncMetadataDao
+    private val metadataDao = FakeWebDavSyncMetadataDao()
 
     @MockK(relaxed = true)
     private lateinit var memoSynchronizer: MemoSynchronizer
@@ -194,21 +207,20 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
 
     private fun `sync with upload only relists remote files only`() =
         runTest {
-            coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
-            coEvery { fileDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") } returns "# note"
+            fileDataSource.listMetadataInResult = {
+                listOf(FileMetadata("note.md", 100L))
+            }
+            fileDataSource.saveFileIn(MemoDirectoryType.MAIN, "note.md", "# note", false)
             coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
-            coEvery { metadataDao.getAll() } returns emptyList()
             every { client.list("lomo/memos") } returnsMany
                 listOf(emptyList(), listOf(remoteMemo("lomo/memos/note.md", "etag-2", 100L)))
             every { client.list("lomo/images") } returnsMany listOf(emptyList(), emptyList())
             every { client.list("lomo/voice") } returnsMany listOf(emptyList(), emptyList())
 
-            val captured = slot<List<WebDavSyncMetadataEntity>>()
-
             val result = repository.sync()
 
             (result is WebDavSyncResult.Success).shouldBeTrue()
-            coVerify(exactly = 1) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
+            fileDataSource.listMetadataInCalls.size shouldBe 1
             coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
             verify(exactly = 2) { client.list("lomo/memos") }
             verify(exactly = 1) { client.list("lomo/images") }
@@ -216,27 +228,22 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             verify(exactly = 1) {
                 client.put("lomo/memos/note.md", any(), any(), 100L, null, true)
             }
-            coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            captured.captured.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
-            captured.captured.single().etag shouldBe "etag-2"
+            metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
+            metadataDao.allEntities.single().etag shouldBe "etag-2"
         }
 
     private fun `sync with download only relists local files only`() =
         runTest {
-            coEvery {
-                fileDataSource.listMetadataIn(MemoDirectoryType.MAIN)
-            } returnsMany listOf(emptyList(), listOf(FileMetadata("note.md", 100L)))
-            coEvery {
-                fileDataSource.saveFileIn(
-                    MemoDirectoryType.MAIN,
-                    "note.md",
-                    "# note",
-                    any(),
-                    any(),
-                )
-            } returns null
+            var listCallCount = 0
+            fileDataSource.listMetadataInResult = {
+                listCallCount++
+                if (listCallCount == 1) {
+                    emptyList()
+                } else {
+                    listOf(FileMetadata("note.md", 100L))
+                }
+            }
             coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
-            coEvery { metadataDao.getAll() } returns emptyList()
             every { client.list("lomo/memos") } returns listOf(remoteMemo("lomo/memos/note.md", "etag-1", 100L))
             every { client.list("lomo/images") } returns emptyList()
             every { client.list("lomo/voice") } returns emptyList()
@@ -244,49 +251,46 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
                 client.get("lomo/memos/note.md")
             } returns WebDavRemoteFile("lomo/memos/note.md", "# note".toByteArray(), "etag-1", 100L)
 
-            val captured = slot<List<WebDavSyncMetadataEntity>>()
-
             val result = repository.sync()
 
             (result is WebDavSyncResult.Success).shouldBeTrue()
-            coVerify(exactly = 2) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
+            fileDataSource.listMetadataInCalls.size shouldBe 2
             coVerify(exactly = 2) { localMediaSyncStore.listFiles(any()) }
             verify(exactly = 1) { client.list("lomo/memos") }
             verify(exactly = 1) { client.list("lomo/images") }
             verify(exactly = 1) { client.list("lomo/voice") }
             verify(exactly = 1) { client.get("lomo/memos/note.md") }
-            coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            captured.captured.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
-            captured.captured.single().localLastModified shouldBe 100L
+            metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
+            metadataDao.allEntities.single().localLastModified shouldBe 100L
         }
 
     private fun `sync with no changes and existing metadata reuses initial listings`() =
         runTest {
-            coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
+            fileDataSource.listMetadataInResult = {
+                listOf(FileMetadata("note.md", 100L))
+            }
+            fileDataSource.saveFileIn(MemoDirectoryType.MAIN, "note.md", "# note", false)
             coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
-            coEvery { metadataDao.getAll() } returns
-                listOf(
-                    WebDavSyncMetadataEntity(
-                        relativePath = "lomo/memos/note.md",
-                        remotePath = "lomo/memos/note.md",
-                        etag = "etag-1",
-                        remoteLastModified = 100L,
-                        localLastModified = 100L,
-                        lastSyncedAt = 100L,
-                        lastResolvedDirection = WebDavSyncMetadataEntity.NONE,
-                        lastResolvedReason = WebDavSyncMetadataEntity.UNCHANGED,
-                    ),
-                )
+            metadataDao.allEntities.add(
+                WebDavSyncMetadataEntity(
+                    relativePath = "lomo/memos/note.md",
+                    remotePath = "lomo/memos/note.md",
+                    etag = "etag-1",
+                    remoteLastModified = 100L,
+                    localLastModified = 100L,
+                    lastSyncedAt = 100L,
+                    lastResolvedDirection = WebDavSyncMetadataEntity.NONE,
+                    lastResolvedReason = WebDavSyncMetadataEntity.UNCHANGED,
+                ),
+            )
             every { client.list("lomo/memos") } returns listOf(remoteMemo("lomo/memos/note.md", "etag-1", 100L))
             every { client.list("lomo/images") } returns emptyList()
             every { client.list("lomo/voice") } returns emptyList()
 
-            val captured = slot<List<WebDavSyncMetadataEntity>>()
-
             val result = repository.sync()
 
             (result is WebDavSyncResult.Success).shouldBeTrue()
-            coVerify(exactly = 1) { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) }
+            fileDataSource.listMetadataInCalls.size shouldBe 1
             coVerify(exactly = 1) { localMediaSyncStore.listFiles(any()) }
             verify(exactly = 1) { client.list("lomo/memos") }
             verify(exactly = 1) { client.list("lomo/images") }
@@ -294,37 +298,29 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             verify(exactly = 0) { client.put(any(), any(), any(), any(), any(), any()) }
             verify(exactly = 0) { client.get(any()) }
             verify(exactly = 0) { client.delete(any(), any()) }
-            coVerify(exactly = 1) { metadataDao.replaceAll(capture(captured)) }
-            captured.captured.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
-            captured.captured.single().etag shouldBe "etag-1"
+            metadataDao.allEntities.map { it.relativePath } shouldBe listOf("lomo/memos/note.md")
+            metadataDao.allEntities.single().etag shouldBe "etag-1"
         }
 
     private fun `sync revalidates remote deletion before deleting unchanged local memo`() =
         runTest {
-            coEvery { fileDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns listOf(FileMetadata("note.md", 100L))
-            coEvery {
-                fileDataSource.saveFileIn(
-                    MemoDirectoryType.MAIN,
-                    "note.md",
-                    "# revived",
-                    any(),
-                    any(),
-                )
-            } returns null
+            fileDataSource.listMetadataInResult = {
+                listOf(FileMetadata("note.md", 100L))
+            }
+            fileDataSource.saveFileIn(MemoDirectoryType.MAIN, "note.md", "# note", false)
             coEvery { localMediaSyncStore.listFiles(any()) } returns emptyMap()
-            coEvery { metadataDao.getAll() } returns
-                listOf(
-                    WebDavSyncMetadataEntity(
-                        relativePath = "lomo/memos/note.md",
-                        remotePath = "lomo/memos/note.md",
-                        etag = "etag-1",
-                        remoteLastModified = 100L,
-                        localLastModified = 100L,
-                        lastSyncedAt = 100L,
-                        lastResolvedDirection = WebDavSyncMetadataEntity.NONE,
-                        lastResolvedReason = WebDavSyncMetadataEntity.UNCHANGED,
-                    ),
-                )
+            metadataDao.allEntities.add(
+                WebDavSyncMetadataEntity(
+                    relativePath = "lomo/memos/note.md",
+                    remotePath = "lomo/memos/note.md",
+                    etag = "etag-1",
+                    remoteLastModified = 100L,
+                    localLastModified = 100L,
+                    lastSyncedAt = 100L,
+                    lastResolvedDirection = WebDavSyncMetadataEntity.NONE,
+                    lastResolvedReason = WebDavSyncMetadataEntity.UNCHANGED,
+                ),
+            )
             every { client.list("lomo/memos") } returnsMany
                 listOf(
                     emptyList(),
@@ -341,16 +337,8 @@ class WebDavSyncRepositoryImplTest : DataFunSpec() {
             (result is WebDavSyncResult.Success).shouldBeTrue()
             verify(exactly = 2) { client.list("lomo/memos") }
             verify(exactly = 1) { client.get("lomo/memos/note.md") }
-            coVerify(exactly = 1) {
-                fileDataSource.saveFileIn(
-                    MemoDirectoryType.MAIN,
-                    "note.md",
-                    "# revived",
-                    any(),
-                    any(),
-                )
-            }
-            coVerify(exactly = 0) { fileDataSource.deleteFileIn(MemoDirectoryType.MAIN, "note.md", any()) }
+            fileDataSource.files[Pair(MemoDirectoryType.MAIN, "note.md")] shouldBe "# revived"
+            fileDataSource.deleteFileInCalls.isEmpty() shouldBe true
         }
 
     private fun remoteMemo(

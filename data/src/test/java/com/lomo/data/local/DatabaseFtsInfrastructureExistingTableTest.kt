@@ -1,5 +1,22 @@
 package com.lomo.data.local
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
@@ -7,13 +24,13 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: rebuildMemoFtsExternalContentInfrastructure in upgrade/migration paths
  * - Behavior focus: FTS infrastructure rebuild sequences, ensuring lomo_fts is replaced with external-content FTS5
  *   and all three triggers (INSERT/UPDATE/DELETE) are created when rebuilding from any prior FTS state.
  * - Observable outcomes: execSQL DDL contains "fts5" + "external-content" directives; all three triggers created;
  *   no "fts4" or application-managed DDL is emitted during rebuild paths.
- * - Red phase: Fails before the fix because rebuildMemoFtsExternalContentInfrastructure needs to emit external-content
+ * - TDD proof: Fails before the fix because rebuildMemoFtsExternalContentInfrastructure needs to emit external-content
  *   schema (content='Lomo', content_rowid='rowid') and trigger DDL.
  * - Excludes: Room schema validation, actual SQLite query execution, tokenizer semantics, and
  *   migration correctness beyond the FTS rebuild step.

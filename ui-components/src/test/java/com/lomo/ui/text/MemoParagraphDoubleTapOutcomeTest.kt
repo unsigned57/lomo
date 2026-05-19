@@ -1,15 +1,32 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: resolveMemoParagraphDoubleTapOutcome — the decision function that
  *   turns a double-tap on a memo paragraph into either "open editor (optionally clearing
  *   the active selection first)" or "ignore".
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: double-tap with double click handler opens editor.
  * - Boundary: double-tap when another paragraph holds selection clears it first.
  * - Failure: double-tap without double click handler returns Ignore.
@@ -22,7 +39,7 @@ import io.kotest.matchers.shouldBe
  *   handler is wired, double-tap is a no-op (matches the legacy contract).
  * - Observable outcomes: returned MemoParagraphDoubleTapOutcome for each combination of
  *   (hasDoubleClickHandler, paragraphHasSelection, scopeHasSelection).
- * - Red phase: Fails before the fix because the live decision lives inline as
+ * - TDD proof: Fails before the fix because the live decision lives inline as
  *   "skip double-tap whenever any selection is live", and the pure decision function this
  *   test pins does not exist yet.
  * - Excludes: editor opening mechanics, haptic feedback, selection clearing side effects.

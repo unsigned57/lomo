@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.sync.SyncDirectoryLayout
 import com.lomo.data.webdav.WebDavClient
@@ -15,11 +32,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDAV initial overlap classification.
  * - Behavior focus: when timestamps already prove which side is newer, initial sync should not download remote bytes just to compute a fingerprint.
  * - Observable outcomes: resolved action direction/reason and zero WebDavClient.get() calls.
- * - Red phase: Fails before the fix because overlapping files with local fingerprints always trigger a GET, even when timestamps are far outside the conflict tolerance window.
+ * - TDD proof: Fails before the fix because overlapping files with local fingerprints always trigger a GET, even when timestamps are far outside the conflict tolerance window.
  * - Excludes: DAV transport internals, metadata persistence, and later upload/download execution.
  */
 class WebDavInitialSyncClassificationTest : DataFunSpec() {

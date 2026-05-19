@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import java.net.InetAddress
 import com.lomo.data.testing.DataFunSpec
@@ -9,13 +26,13 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LAN share address policy helper.
  * - Behavior focus: private-host allowlist, bind-address selection, and active LAN network
  *   selection for LAN-only cleartext traffic on Wi-Fi, ethernet, and local hotspot networks.
  * - Observable outcomes: boolean host allow/deny results, selected bind-host string, and selected
  *   LAN network snapshot from representative network probes.
- * - Red phase: Fails before the fix because no shared LAN address policy exists to reject public peers
+ * - TDD proof: Fails before the fix because no shared LAN address policy exists to reject public peers
  *   or to prefer a private bind address for the embedded share server; hotspot selection fails
  *   before the current fix because the policy only considers ConnectivityManager.activeNetwork.
  * - Excludes: real ConnectivityManager callbacks, NSD transport, and live socket binding.

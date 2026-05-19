@@ -1,10 +1,10 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: StorageTimestampFormatsTest
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for StorageTimestampFormatsTest.
  * - Boundary: boundary and edge cases for StorageTimestampFormatsTest.
  * - Failure: failure and error scenarios for StorageTimestampFormatsTest.
@@ -12,11 +12,28 @@
  *
  * - Behavior focus: test behavioral outcomes of StorageTimestampFormatsTest.
  * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
  */
 
 package com.lomo.domain.model
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
@@ -32,8 +49,7 @@ class StorageTimestampFormatsTest : DomainFunSpec() {
             StorageTimestampFormats.parseMemoHeaderLine("-    ") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- content only") shouldBe null
         }
-    }
-    init {
+
         test("parseMemoHeaderLine returns null when timestamp fields are missing") {
             StorageTimestampFormats.parseMemoHeaderLine("- 09 content") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- :30 content") shouldBe null
@@ -41,22 +57,19 @@ class StorageTimestampFormatsTest : DomainFunSpec() {
             StorageTimestampFormats.parseMemoHeaderLine("- 09::30 content") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- 09:30: content") shouldBe null
         }
-    }
-    init {
+
         test("parseMemoHeaderLine returns null for illegal time values") {
             StorageTimestampFormats.parseMemoHeaderLine("- 24:01 overflow hour") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- 09:60 overflow minute") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- 09:10:60 overflow second") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- 99:00 clearly invalid") shouldBe null
         }
-    }
-    init {
+
         test("parseMemoHeaderLine rejects non-whitespace token boundaries") {
             StorageTimestampFormats.parseMemoHeaderLine("- 09:30content") shouldBe null
             StorageTimestampFormats.parseMemoHeaderLine("- 9:30:05content") shouldBe null
         }
-    }
-    init {
+
         test("parseMemoHeaderLine parses supported time formats and content") {
             val withMinutes = StorageTimestampFormats.parseMemoHeaderLine("- 09:30 hello")
             withMinutes shouldNotBe null

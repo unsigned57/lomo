@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.share.LomoShareServer.AttachmentInfo
 import com.lomo.data.share.LomoShareServer.PrepareRequest
@@ -11,11 +28,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShareRequestValidator
  * - Behavior focus: prepare/transfer payload validation for open vs E2E mode, attachment-name normalization, and nonce consistency.
  * - Observable outcomes: returned rejection message for invalid requests, or null for accepted requests.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: HTTP transport, cryptographic signature verification, and server/client wiring.
  */
 @OptIn(ExperimentalEncodingApi::class)

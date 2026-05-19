@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.repository.MediaRepository
 import com.lomo.domain.repository.WorkspaceTransitionRepository
@@ -13,12 +30,12 @@ import kotlinx.coroutines.test.runTest
 import com.lomo.data.testing.DataFunSpec
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: RefreshingWorkspaceStateResolver
  * - Behavior focus: restore-time derived memo and image state reset/rebuild ordering.
  * - Observable outcomes: memo cleanup executes before refresh, and image locations refresh after the
  *   workspace rebuild finishes.
- * - Red phase: Fails before the fix because workspace rebuild only refreshes markdown-derived state and
+ * - TDD proof: Fails before the fix because workspace rebuild only refreshes markdown-derived state and
  *   leaves the image location cache stale after revision restore.
  * - Excludes: refresh planner internals, Room SQL details, media backend enumeration, and UI behavior.
  */

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.entity.S3SyncMetadataEntity
 import com.lomo.domain.model.S3SyncDirection
@@ -8,11 +25,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncPlanner
  * - Behavior focus: first-sync conflict detection, delete propagation, and direction selection from local/remote metadata changes.
  * - Observable outcomes: planned S3SyncDirection/S3SyncReason for each relative path.
- * - Red phase: Fails before the fix because S3 sync planning does not exist, so real S3 sync cannot safely reconcile local and remote changes.
+ * - TDD proof: Fails before the fix because S3 sync planning does not exist, so real S3 sync cannot safely reconcile local and remote changes.
  * - Excludes: S3 transport, encryption codec internals, metadata DAO I/O, and UI rendering.
  */
 class S3SyncPlannerTest : DataFunSpec() {

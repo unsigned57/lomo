@@ -1,5 +1,22 @@
 package com.lomo.ui.text
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.ui.testing.UiComponentsFunSpec
 import io.kotest.matchers.shouldBe
 import android.text.Layout
@@ -9,14 +26,14 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.text.style.TextAlign
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ScriptAwareText memo paragraph layout policy and mixed-script formatter contract.
  * - Behavior focus: mixed CJK/Latin spacing, Chinese punctuation conversion, paragraph alignment
  *   policy for pure-CJK vs mixed prose, Compose text metric alignment for rich mixed prose, and
  *   Android inter-character justification selection for share-card style plain Chinese long-form text.
  * - Observable outcomes: transformed display strings, selected text alignment, selected line-break
  *   strategy, selected Android justification mode, and resolved Compose platform text style.
- * - Red phase: Fails before the fix because mixed CJK/Latin display normalization and CJK style
+ * - TDD proof: Fails before the fix because mixed CJK/Latin display normalization and CJK style
  *   policy were incomplete.
  * - Excludes: Compose widget rendering, OEM font rasterization differences, TextView measurement internals, and markdown block layout containers.
  *

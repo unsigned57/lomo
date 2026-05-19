@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.source.FileMetadata
 import com.lomo.data.source.MarkdownStorageDataSource
@@ -23,11 +40,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavSyncFileBridge
  * - Behavior focus: stable local fingerprints and remote listings should reuse short-lived caches instead of re-reading unchanged local files or re-listing the same folders immediately; distinct remote folders should be PROPFIND-ed concurrently so end-to-end latency approaches max(per-folder) instead of sum.
  * - Observable outcomes: repeated localFiles()/remoteFiles() calls return the same snapshot while markdown/media reads and WebDAV list calls stay at one per unchanged path/folder, and remoteFiles() wall-clock time across N distinct folders is well under N * single-folder latency.
- * - Red phase: Fails before the fix because (1) each repeated call recomputes md5 from storage and reissues the same per-folder PROPFIND requests, and (2) distinctFolders are listed sequentially, so total elapsed time grows linearly with folder count.
+ * - TDD proof: Fails before the fix because (1) each repeated call recomputes md5 from storage and reissues the same per-folder PROPFIND requests, and (2) distinctFolders are listed sequentially, so total elapsed time grows linearly with folder count.
  * - Excludes: planner decisions, metadata persistence, transport protocol correctness, and cache expiry timing beyond same-turn reuse.
  */
 class WebDavSyncFileBridgeTest : DataFunSpec() {
@@ -44,14 +61,15 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
 
     private fun `localFiles reuses cached fingerprints for unchanged memo and media metadata`() =
         runTest {
-            val markdownStorageDataSource: MarkdownStorageDataSource = mockk(relaxed = true)
+            val markdownStorageDataSource = com.lomo.data.testing.fakes.FakeFileDataSource()
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
             val runtime = mockRuntime(markdownStorageDataSource, localMediaSyncStore)
             val bridge = WebDavSyncFileBridge(runtime)
             val layout = standardLayout()
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns
+            markdownStorageDataSource.listMetadataInResult = {
                 listOf(FileMetadata(filename = "note.md", lastModified = 10L, size = 7L))
-            coEvery { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") } returns "# note"
+            }
+            markdownStorageDataSource.readFileInResult = { _, _ -> "# note" }
             coEvery { localMediaSyncStore.listFiles(layout) } returns
                 mapOf("images/pic.png" to LocalMediaSyncFile(relativePath = "images/pic.png", lastModified = 20L, size = 3L))
             coEvery { localMediaSyncStore.md5Hex("lomo/images/pic.png", layout) } returns "010203"
@@ -60,19 +78,19 @@ class WebDavSyncFileBridgeTest : DataFunSpec() {
             val second = bridge.localFiles(layout)
 
             second shouldBe first
-            coVerify(exactly = 1) { markdownStorageDataSource.readFileIn(MemoDirectoryType.MAIN, "note.md") }
+            markdownStorageDataSource.readFileInCalls.size shouldBe 1
             coVerify(exactly = 1) { localMediaSyncStore.md5Hex("lomo/images/pic.png", layout) }
             coVerify(exactly = 0) { localMediaSyncStore.readBytes("lomo/images/pic.png", layout) }
         }
 
     private fun `localFiles computes media fingerprint without loading whole media bytes`() =
         runTest {
-            val markdownStorageDataSource: MarkdownStorageDataSource = mockk(relaxed = true)
+            val markdownStorageDataSource = com.lomo.data.testing.fakes.FakeFileDataSource()
             val localMediaSyncStore: LocalMediaSyncStore = mockk(relaxed = true)
             val runtime = mockRuntime(markdownStorageDataSource, localMediaSyncStore)
             val bridge = WebDavSyncFileBridge(runtime)
             val layout = standardLayout()
-            coEvery { markdownStorageDataSource.listMetadataIn(MemoDirectoryType.MAIN) } returns emptyList()
+            markdownStorageDataSource.listMetadataInResult = { emptyList() }
             coEvery { localMediaSyncStore.listFiles(layout) } returns
                 mapOf("images/pic.png" to LocalMediaSyncFile(relativePath = "images/pic.png", lastModified = 20L, size = 3L))
             coEvery { localMediaSyncStore.md5Hex("lomo/images/pic.png", layout) } returns "010203"

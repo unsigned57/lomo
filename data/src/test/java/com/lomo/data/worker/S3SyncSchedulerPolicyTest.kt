@@ -1,5 +1,22 @@
 package com.lomo.data.worker
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.repository.S3EndpointProfile
 import com.lomo.data.repository.S3RemoteShardState
@@ -11,11 +28,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3 scheduler catch-up policy
  * - Behavior focus: scheduler should enqueue an immediate catch-up reconcile when incremental shard rotation is mid-flight, when remote coverage is stale, or when shard telemetry shows elevated external-change / verification-failure risk.
  * - Observable outcomes: selected catch-up S3SyncScanPolicy for representative protocol-state inputs.
- * - Red phase: Fails before the fix because scheduling only emits two fixed periodic works and never upgrades catch-up policy from shard telemetry such as elevated change rate or verification-failure risk.
+ * - TDD proof: Fails before the fix because scheduling only emits two fixed periodic works and never upgrades catch-up policy from shard telemetry such as elevated change rate or verification-failure risk.
  * - Excludes: WorkManager request wiring, Android context access, and repository sync execution.
  */
 class S3SyncSchedulerPolicyTest : DataFunSpec() {

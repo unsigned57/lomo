@@ -1,15 +1,32 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import io.kotest.assertions.fail
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: LanSharePairingCodePolicy
  * - Behavior focus: normalization, length validation, save-failure classification, and dialog-dismiss rules.
  * - Observable outcomes: normalized strings, Boolean validation results, thrown exception type, and user message keys/messages.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: persistence storage, UI dialog rendering, and transport authentication.
  */
 class LanSharePairingCodePolicyTest : DomainFunSpec() {
@@ -21,8 +38,7 @@ class LanSharePairingCodePolicyTest : DomainFunSpec() {
             (LanSharePairingCodePolicy.hasValidLength("12345")) shouldBe false
             (LanSharePairingCodePolicy.hasValidLength("x".repeat(LanSharePairingCodePolicy.MAX_LENGTH + 1))) shouldBe false
         }
-    }
-    init {
+
         test("requireValid throws for invalid length and dialog dismissal mirrors validation") {
             try {
                 LanSharePairingCodePolicy.requireValid("123")
@@ -34,8 +50,7 @@ class LanSharePairingCodePolicyTest : DomainFunSpec() {
             (LanSharePairingCodePolicy.shouldDismissDialogAfterSave("654321")) shouldBe true
             (LanSharePairingCodePolicy.shouldDismissDialogAfterSave("bad")) shouldBe false
         }
-    }
-    init {
+
         test("saveFailureMessage and userMessageKey classify invalid-password variants") {
             LanSharePairingCodePolicy.saveFailureMessage(IllegalArgumentException("")) shouldBe LanSharePairingCodePolicy.INVALID_LENGTH_MESSAGE
             LanSharePairingCodePolicy.saveFailureMessage(

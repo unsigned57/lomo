@@ -1,14 +1,31 @@
 package com.lomo.app.util
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.testing.AppFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: preprocessShareCardContent and buildShareBodyLines
  * - Behavior focus: share-card body preprocessing for image markers, audio preservation across supported voice formats, body-line classification, blank-line collapsing, and max-line truncation.
  * - Observable outcomes: processed share-card text, image slot count, parsed ShareBodyLine types/text/imageIndex, and enforced line cap.
- * - Red phase: Fails before the fix because `.ogg` voice attachments are treated like images and replaced with image markers instead of being preserved as audio markdown.
+ * - TDD proof: Fails before the fix because `.ogg` voice attachments are treated like images and replaced with image markers instead of being preserved as audio markdown.
  * - Excludes: bitmap pixel rendering, Android resources, and share intent/file-provider wiring.
  */
 class ShareCardBitmapRendererBodyTest : AppFunSpec() {

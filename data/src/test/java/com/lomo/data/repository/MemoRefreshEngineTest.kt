@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.LocalFileStateDao
 import com.lomo.data.local.entity.LocalFileStateEntity
@@ -20,12 +37,12 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldNotBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoRefreshEngine
  * - Behavior focus: refresh deletion planning when file listings temporarily miss previously known memo files.
  * - Observable outcomes: filesToDeleteInDb forwarded to MemoRefreshDbApplier, pending-missing metadata updates,
  *   and missing-state reset when files reappear.
- * - Red phase: Fails before the fix when a file is deleted from the DB on the first confirmed-missing refresh
+ * - TDD proof: Fails before the fix when a file is deleted from the DB on the first confirmed-missing refresh
  *   instead of entering a pending-deletion confirmation state.
  * - Excludes: Room transaction behavior, parser internals, and storage backend implementation details.
  */

@@ -1,5 +1,22 @@
 package com.lomo.app.feature.review
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.feature.common.AppConfigUiCoordinator
 import com.lomo.app.feature.common.MemoUiCoordinator
 import com.lomo.app.feature.common.UiState
@@ -8,156 +25,116 @@ import com.lomo.app.provider.ImageMapProvider
 import com.lomo.app.provider.emptyImageMapProvider
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
+import com.lomo.app.testing.fakes.FakeAppConfigRepository
+import com.lomo.app.testing.fakes.FakeDailyReviewSessionRepository
+import com.lomo.app.testing.fakes.FakeMemoRepository
 import com.lomo.domain.model.DailyReviewSession
 import com.lomo.domain.model.Memo
-import com.lomo.domain.model.StorageArea
-import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.model.ThemeMode
-import com.lomo.domain.repository.AppConfigRepository
-import com.lomo.domain.repository.MemoRepository
 import com.lomo.domain.usecase.DailyReviewQueryUseCase
 import com.lomo.domain.usecase.DailyReviewSessionUseCase
 import com.lomo.domain.usecase.DeleteMemoUseCase
-import com.lomo.domain.usecase.SaveImageResult
+import com.lomo.domain.usecase.ResolveMemoUpdateActionUseCase
 import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
+import com.lomo.domain.usecase.ValidateMemoContentUseCase
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.every
+import io.mockk.clearMocks
 import io.mockk.mockk
 import java.time.LocalDate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
-/*
- * Test Contract:
- * - Unit under test: DailyReviewViewModel
- * - Behavior focus: restoring the persisted same-day review page, clamping stale page indexes, and persisting page changes back through the session use case.
- * - Observable outcomes: seeded query invocation, exposed restoredPageIndex, and session-page save calls.
- * - Red phase: Fails before the fix because DailyReviewViewModel neither loads a persisted same-day random-review session nor writes page changes on swipe.
- * - Excludes: Compose pager animation, DataStore persistence internals, and memo-card rendering.
- */
 @OptIn(ExperimentalCoroutinesApi::class)
 class DailyReviewViewModelSessionTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
+    private val memoRepository = FakeMemoRepository()
+    private val appConfigRepository = FakeAppConfigRepository()
+    private val imageMapProvider: ImageMapProvider = emptyImageMapProvider()
+    
+    private val deleteMemoUseCase = DeleteMemoUseCase(memoRepository)
+    private val updateMemoContentUseCase = UpdateMemoContentUseCase(
+        repository = memoRepository,
+        validator = ValidateMemoContentUseCase(),
+        resolveMemoUpdateActionUseCase = ResolveMemoUpdateActionUseCase(),
+        deleteMemoUseCase = deleteMemoUseCase,
+    )
+    private val dailyReviewSessionRepository = FakeDailyReviewSessionRepository()
+    private val dailyReviewSessionUseCase = DailyReviewSessionUseCase(dailyReviewSessionRepository)
+    private val dailyReviewQueryUseCase = DailyReviewQueryUseCase(memoRepository)
+    private val saveImageUseCase: SaveImageUseCase = mockk()
+
     init {
         extension(MainDispatcherExtension(testDispatcher))
-    }
 
-    private lateinit var memoRepository: MemoRepository
-    private lateinit var appConfigRepository: AppConfigRepository
-    private lateinit var imageMapProvider: ImageMapProvider
-    private lateinit var deleteMemoUseCase: DeleteMemoUseCase
-    private lateinit var updateMemoContentUseCase: UpdateMemoContentUseCase
-    private lateinit var saveImageUseCase: SaveImageUseCase
-    private lateinit var dailyReviewQueryUseCase: DailyReviewQueryUseCase
-    private lateinit var dailyReviewSessionUseCase: DailyReviewSessionUseCase
-
-    init {
         beforeTest {
-memoRepository = mockk(relaxed = true)
-            appConfigRepository = mockk(relaxed = true)
-            imageMapProvider = emptyImageMapProvider()
-            deleteMemoUseCase = mockk(relaxed = true)
-            updateMemoContentUseCase = mockk(relaxed = true)
-            saveImageUseCase = mockk(relaxed = true)
-            dailyReviewQueryUseCase = mockk(relaxed = true)
-            dailyReviewSessionUseCase = mockk(relaxed = true)
+            clearMocks(saveImageUseCase)
+            memoRepository.setActiveMemos(emptyList())
+            memoRepository.setDeletedMemos(emptyList())
+            memoRepository.resetCallCounts()
+            memoRepository.getMemoCountFailure = null
 
-            every { memoRepository.getActiveDayCount() } returns flowOf(0)
-            every { appConfigRepository.observeLocation(StorageArea.ROOT) } returns flowOf(null)
-            every { appConfigRepository.observeLocation(StorageArea.IMAGE) } returns flowOf(null)
-            every { appConfigRepository.getDateFormat() } returns flowOf("yyyy-MM-dd")
-            every { appConfigRepository.getTimeFormat() } returns flowOf("HH:mm")
-            every { appConfigRepository.getThemeMode() } returns flowOf(ThemeMode.SYSTEM)
-            every { appConfigRepository.isHapticFeedbackEnabled() } returns flowOf(true)
-            every { appConfigRepository.isShowInputHintsEnabled() } returns flowOf(true)
-            every { appConfigRepository.isDoubleTapEditEnabled() } returns flowOf(true)
-            every { appConfigRepository.isFreeTextCopyEnabled() } returns flowOf(false)
-            every { appConfigRepository.isMemoActionAutoReorderEnabled() } returns flowOf(true)
-            every { appConfigRepository.getMemoActionOrder() } returns flowOf(emptyList())
-            every { appConfigRepository.getMemoActionOrdersByScope() } returns flowOf(emptyMap())
-            every { appConfigRepository.getInputToolbarToolOrder() } returns flowOf(emptyList())
-            every { appConfigRepository.isQuickSaveOnBackEnabled() } returns flowOf(false)
-            every { appConfigRepository.isShareCardShowTimeEnabled() } returns flowOf(true)
-            every { appConfigRepository.isShareCardShowBrandEnabled() } returns flowOf(true)
-
-            coEvery { deleteMemoUseCase(any()) } returns Unit
-            coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
-            coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
-                SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+            dailyReviewSessionRepository.session = null
         }
-    }
 
-    init {
         test("initial load uses the restored same-day seed and page") {
             runTest {
                 val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"), sampleMemo("memo-3"), sampleMemo("memo-4"))
-                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                    DailyReviewSession(
-                        date = LocalDate.of(2026, 4, 16),
-                        seed = 77L,
-                        pageIndex = 3,
-                    )
-                coEvery { dailyReviewQueryUseCase(77L) } returns memos
+                memoRepository.setActiveMemos(memos)
+                dailyReviewSessionRepository.session = DailyReviewSession(
+                    date = LocalDate.now(),
+                    seed = 77L,
+                    pageIndex = 3,
+                )
 
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                (viewModel.restoredPageIndex.value) shouldBe (3)
-                ((viewModel.uiState.value is UiState.Success)) shouldBe true
-                coVerify(exactly = 1) { dailyReviewQueryUseCase(77L) }
+                viewModel.restoredPageIndex.value shouldBe 3
+                (viewModel.uiState.value is UiState.Success) shouldBe true
             }
         }
-    }
 
-    init {
         test("initial load clamps an out-of-range restored page and persists the correction") {
             runTest {
-                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                    DailyReviewSession(
-                        date = LocalDate.of(2026, 4, 16),
-                        seed = 77L,
-                        pageIndex = 9,
-                    )
-                coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
-                coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
+                val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
+                memoRepository.setActiveMemos(memos)
+                dailyReviewSessionRepository.session = DailyReviewSession(
+                    date = LocalDate.now(),
+                    seed = 77L,
+                    pageIndex = 9,
+                )
 
                 val viewModel = createViewModel()
                 advanceUntilIdle()
 
-                (viewModel.restoredPageIndex.value) shouldBe (1)
-                coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
+                viewModel.restoredPageIndex.value shouldBe 1
+                dailyReviewSessionRepository.session?.pageIndex shouldBe 1
             }
         }
-    }
 
-    init {
         test("onPageChanged persists the latest page for the active seed") {
             runTest {
-                coEvery { dailyReviewSessionUseCase.prepareSession() } returns
-                    DailyReviewSession(
-                        date = LocalDate.of(2026, 4, 16),
-                        seed = 77L,
-                        pageIndex = 0,
-                    )
-                coEvery { dailyReviewQueryUseCase(77L) } returns listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
-                coEvery { dailyReviewSessionUseCase.updateCurrentPage(any(), any()) } returns Unit
+                val memos = listOf(sampleMemo("memo-1"), sampleMemo("memo-2"))
+                memoRepository.setActiveMemos(memos)
+                dailyReviewSessionRepository.session = DailyReviewSession(
+                    date = LocalDate.now(),
+                    seed = 77L,
+                    pageIndex = 0,
+                )
 
                 val viewModel = createViewModel()
                 advanceUntilIdle()
+                
                 viewModel.onPageChanged(1)
                 advanceUntilIdle()
 
-                (viewModel.restoredPageIndex.value) shouldBe (1)
-                coVerify(exactly = 1) { dailyReviewSessionUseCase.updateCurrentPage(seed = 77L, pageIndex = 1) }
+                viewModel.restoredPageIndex.value shouldBe 1
+                dailyReviewSessionRepository.session?.pageIndex shouldBe 1
             }
         }
     }

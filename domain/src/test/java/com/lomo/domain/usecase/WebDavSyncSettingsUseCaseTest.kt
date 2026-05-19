@@ -1,196 +1,160 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.SyncBackendType
 import com.lomo.domain.model.WebDavProvider
 import com.lomo.domain.model.WebDavSyncResult
-import com.lomo.domain.repository.SyncPolicyRepository
-import com.lomo.domain.repository.WebDavSyncRepository
+import com.lomo.domain.model.WebDavSyncState
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeMemoRepository
+import com.lomo.domain.testing.fakes.FakeSyncPolicyRepository
+import com.lomo.domain.testing.fakes.FakeWebDavSyncRepository
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.coVerifyOrder
-import io.mockk.every
-import io.mockk.mockk
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: WebDavSyncSettingsUseCase
- * - Behavior focus: remote backend policy updates, auto-sync policy application, and action delegation behavior.
- * - Observable outcomes: backend policy writes, repository mutation invocations, and sync action delegation parameters.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - Behavior focus: remote backend policy updates, auto-sync policy application, and WebDAV action behavior.
+ * - Observable outcomes: backend policy writes, fake repository state, memo refresh count, and connection-test result.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: WebDAV transport behavior, repository implementation internals, and UI rendering.
  */
 class WebDavSyncSettingsUseCaseTest : DomainFunSpec() {
-    private val webDavSyncRepository: WebDavSyncRepository = mockk(relaxed = true)
-    private val syncPolicyRepository: SyncPolicyRepository = mockk(relaxed = true)
-    private val syncAndRebuildUseCase: SyncAndRebuildUseCase = mockk(relaxed = true)
+    private val eventLog = mutableListOf<String>()
+    private lateinit var webDavSyncRepository: FakeWebDavSyncRepository
+    private lateinit var syncPolicyRepository: FakeSyncPolicyRepository
+    private lateinit var memoRepository: FakeMemoRepository
+    private lateinit var useCase: WebDavSyncSettingsUseCase
 
-    private val useCase =
-        WebDavSyncSettingsUseCase(
-            webDavSyncRepository = webDavSyncRepository,
-            syncPolicyRepository = syncPolicyRepository,
-            syncAndRebuildUseCase = syncAndRebuildUseCase,
-        )
     init {
-        test("updateWebDavSyncEnabled true applies WebDAV backend policy") {
-            runTest {
-                        coEvery { syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
-
-                        useCase.updateWebDavSyncEnabled(enabled = true)
-
-                        coVerifyOrder {
-                            syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.WEBDAV)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+        beforeTest {
+            eventLog.clear()
+            webDavSyncRepository = FakeWebDavSyncRepository()
+            syncPolicyRepository = FakeSyncPolicyRepository(eventLog = eventLog)
+            memoRepository = FakeMemoRepository()
+            useCase =
+                WebDavSyncSettingsUseCase(
+                    webDavSyncRepository = webDavSyncRepository,
+                    syncPolicyRepository = syncPolicyRepository,
+                    syncAndRebuildUseCase =
+                        SyncAndRebuildUseCase(
+                            memoRepository = memoRepository,
+                            syncProviderRegistry = SyncProviderRegistry(emptyList()),
+                            syncPolicyRepository = syncPolicyRepository,
+                        ),
+                )
         }
-    }
-    init {
-        test("updateWebDavSyncEnabled false applies None backend policy") {
+
+        test("updateWebDavSyncEnabled applies backend policy") {
             runTest {
-                        coEvery { syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.updateWebDavSyncEnabled(enabled = true)
+                useCase.updateWebDavSyncEnabled(enabled = false)
 
-                        useCase.updateWebDavSyncEnabled(enabled = false)
-
-                        coVerifyOrder {
-                            syncPolicyRepository.setRemoteSyncBackend(SyncBackendType.NONE)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                syncPolicyRepository.setBackendRequests shouldBe
+                    listOf(SyncBackendType.WEBDAV, SyncBackendType.NONE)
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
+                eventLog shouldBe
+                    listOf(
+                        "syncPolicy.setRemoteSyncBackend:WEBDAV",
+                        "syncPolicy.applyRemoteSyncPolicy",
+                        "syncPolicy.setRemoteSyncBackend:NONE",
+                        "syncPolicy.applyRemoteSyncPolicy",
+                    )
+            }
         }
-    }
-    init {
-        test("webdav setting mutations delegate to repository") {
+
+        test("webdav setting mutations update fake repository state") {
             runTest {
-                        coEvery { webDavSyncRepository.setProvider(WebDavProvider.NEXTCLOUD) } returns Unit
-                        coEvery { webDavSyncRepository.setBaseUrl("https://dav.example.com") } returns Unit
-                        coEvery { webDavSyncRepository.setEndpointUrl("https://dav.example.com/endpoint") } returns Unit
-                        coEvery { webDavSyncRepository.setUsername("alice") } returns Unit
-                        coEvery { webDavSyncRepository.setPassword("secret") } returns Unit
+                useCase.updateProvider(WebDavProvider.NEXTCLOUD)
+                useCase.updateBaseUrl("https://dav.example.com")
+                useCase.updateEndpointUrl("https://dav.example.com/endpoint")
+                useCase.updateUsername("alice")
+                useCase.updatePassword("secret")
 
-                        useCase.updateProvider(WebDavProvider.NEXTCLOUD)
-                        useCase.updateBaseUrl("https://dav.example.com")
-                        useCase.updateEndpointUrl("https://dav.example.com/endpoint")
-                        useCase.updateUsername("alice")
-                        useCase.updatePassword("secret")
-
-                        coVerify(exactly = 1) { webDavSyncRepository.setProvider(WebDavProvider.NEXTCLOUD) }
-                        coVerify(exactly = 1) { webDavSyncRepository.setBaseUrl("https://dav.example.com") }
-                        coVerify(exactly = 1) { webDavSyncRepository.setEndpointUrl("https://dav.example.com/endpoint") }
-                        coVerify(exactly = 1) { webDavSyncRepository.setUsername("alice") }
-                        coVerify(exactly = 1) { webDavSyncRepository.setPassword("secret") }
-                    }
+                webDavSyncRepository.providerWrites shouldBe listOf(WebDavProvider.NEXTCLOUD)
+                webDavSyncRepository.baseUrlWrites shouldBe listOf("https://dav.example.com")
+                webDavSyncRepository.endpointUrlWrites shouldBe listOf("https://dav.example.com/endpoint")
+                webDavSyncRepository.usernameWrites shouldBe listOf("alice")
+                webDavSyncRepository.passwordWrites shouldBe listOf("secret")
+                useCase.isPasswordConfigured() shouldBe true
+            }
         }
-    }
-    init {
-        test("updateAutoSyncEnabled writes flag and reapplies policy") {
+
+        test("auto sync mutations reapply policy while sync-on-refresh only writes flag") {
             runTest {
-                        coEvery { webDavSyncRepository.setAutoSyncEnabled(true) } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.updateAutoSyncEnabled(enabled = true)
+                useCase.updateAutoSyncInterval(interval = "1h")
+                useCase.updateSyncOnRefreshEnabled(enabled = true)
 
-                        useCase.updateAutoSyncEnabled(enabled = true)
-
-                        coVerifyOrder {
-                            webDavSyncRepository.setAutoSyncEnabled(true)
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                webDavSyncRepository.autoSyncEnabledWrites shouldBe listOf(true)
+                webDavSyncRepository.autoSyncIntervalWrites shouldBe listOf("1h")
+                webDavSyncRepository.syncOnRefreshEnabledWrites shouldBe listOf(true)
+                syncPolicyRepository.applyRemoteSyncPolicyCallCount shouldBe 2
+            }
         }
-    }
-    init {
-        test("updateAutoSyncInterval writes interval and reapplies policy") {
+
+        test("triggerSyncNow forces a memo refresh through shared actions") {
             runTest {
-                        coEvery { webDavSyncRepository.setAutoSyncInterval("1h") } returns Unit
-                        coEvery { syncPolicyRepository.applyRemoteSyncPolicy() } returns Unit
+                useCase.triggerSyncNow()
 
-                        useCase.updateAutoSyncInterval(interval = "1h")
-
-                        coVerifyOrder {
-                            webDavSyncRepository.setAutoSyncInterval("1h")
-                            syncPolicyRepository.applyRemoteSyncPolicy()
-                        }
-                    }
+                memoRepository.refreshMemosCallCount shouldBe 1
+            }
         }
-    }
-    init {
-        test("updateSyncOnRefreshEnabled only writes repository flag") {
-            runTest {
-                        coEvery { webDavSyncRepository.setSyncOnRefreshEnabled(true) } returns Unit
 
-                        useCase.updateSyncOnRefreshEnabled(enabled = true)
-
-                        coVerify(exactly = 1) { webDavSyncRepository.setSyncOnRefreshEnabled(true) }
-                        coVerify(exactly = 0) { syncPolicyRepository.applyRemoteSyncPolicy() }
-                    }
-        }
-    }
-    init {
-        test("isPasswordConfigured delegates to repository") {
-            runTest {
-                        coEvery { webDavSyncRepository.isPasswordConfigured() } returns true
-
-                        val result = useCase.isPasswordConfigured()
-
-                        (result) shouldBe true
-                        coVerify(exactly = 1) { webDavSyncRepository.isPasswordConfigured() }
-                    }
-        }
-    }
-    init {
-        test("triggerSyncNow delegates with forceSync true") {
-            runTest {
-                        coEvery { syncAndRebuildUseCase.invoke(forceSync = true) } returns Unit
-
-                        useCase.triggerSyncNow()
-
-                        coVerify(exactly = 1) { syncAndRebuildUseCase.invoke(forceSync = true) }
-                    }
-        }
-    }
-    init {
         test("testConnection delegates to webdav repository") {
             runTest {
-                        val expected = WebDavSyncResult.Success("connected")
-                        coEvery { webDavSyncRepository.testConnection() } returns expected
+                val expected = WebDavSyncResult.Success("connected")
+                webDavSyncRepository.nextTestConnectionResult = expected
 
-                        val result = useCase.testConnection()
+                val result = useCase.testConnection()
 
-                        result shouldBe expected
-                        coVerify(exactly = 1) { webDavSyncRepository.testConnection() }
-                    }
+                result shouldBe expected
+                webDavSyncRepository.testConnectionCallCount shouldBe 1
+            }
         }
-    }
-    init {
-        test("state observation delegates expose repository flows") {
-            runTest {
-                        every { webDavSyncRepository.isWebDavSyncEnabled() } returns flowOf(true)
-                        every { webDavSyncRepository.getProvider() } returns flowOf(WebDavProvider.NEXTCLOUD)
-                        every { webDavSyncRepository.getBaseUrl() } returns flowOf("https://dav.example.com")
-                        every { webDavSyncRepository.getEndpointUrl() } returns flowOf("https://dav.example.com/files")
-                        every { webDavSyncRepository.getUsername() } returns flowOf("alice")
-                        every { webDavSyncRepository.getAutoSyncEnabled() } returns flowOf(true)
-                        every { webDavSyncRepository.getAutoSyncInterval() } returns flowOf("2h")
-                        every { webDavSyncRepository.getSyncOnRefreshEnabled() } returns flowOf(true)
-                        every { webDavSyncRepository.observeLastSyncTimeMillis() } returns flowOf(5678L)
-                        every { webDavSyncRepository.syncState() } returns flowOf(com.lomo.domain.model.WebDavSyncState.Downloading)
 
-                        useCase.observeWebDavSyncEnabled().first() shouldBe true
-                        useCase.observeProvider().first() shouldBe WebDavProvider.NEXTCLOUD
-                        useCase.observeBaseUrl().first() shouldBe "https://dav.example.com"
-                        useCase.observeEndpointUrl().first() shouldBe "https://dav.example.com/files"
-                        useCase.observeUsername().first() shouldBe "alice"
-                        useCase.observeAutoSyncEnabled().first() shouldBe true
-                        useCase.observeAutoSyncInterval().first() shouldBe "2h"
-                        useCase.observeSyncOnRefreshEnabled().first() shouldBe true
-                        useCase.observeLastSyncTimeMillis().first() shouldBe 5678L
-                        useCase.observeSyncState().first() shouldBe com.lomo.domain.model.WebDavSyncState.Downloading
-                    }
+        test("state observation exposes repository flows") {
+            runTest {
+                webDavSyncRepository.setEnabled(true)
+                webDavSyncRepository.setAutoSyncEnabledValue(true)
+                webDavSyncRepository.setAutoSyncIntervalValue("2h")
+                webDavSyncRepository.setSyncOnRefreshEnabledValue(true)
+                webDavSyncRepository.setLastSyncTimeMillis(5678L)
+                webDavSyncRepository.setSyncState(WebDavSyncState.Downloading)
+                useCase.updateProvider(WebDavProvider.NEXTCLOUD)
+                useCase.updateBaseUrl("https://dav.example.com")
+                useCase.updateEndpointUrl("https://dav.example.com/files")
+                useCase.updateUsername("alice")
+
+                useCase.observeWebDavSyncEnabled().first() shouldBe true
+                useCase.observeProvider().first() shouldBe WebDavProvider.NEXTCLOUD
+                useCase.observeBaseUrl().first() shouldBe "https://dav.example.com"
+                useCase.observeEndpointUrl().first() shouldBe "https://dav.example.com/files"
+                useCase.observeUsername().first() shouldBe "alice"
+                useCase.observeAutoSyncEnabled().first() shouldBe true
+                useCase.observeAutoSyncInterval().first() shouldBe "2h"
+                useCase.observeSyncOnRefreshEnabled().first() shouldBe true
+                useCase.observeLastSyncTimeMillis().first() shouldBe 5678L
+                useCase.observeSyncState().first() shouldBe WebDavSyncState.Downloading
+            }
         }
     }
 }

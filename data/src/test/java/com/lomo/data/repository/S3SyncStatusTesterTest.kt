@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -25,11 +42,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncStatusTester
  * - Behavior focus: S3 connection checks should validate access without failing on unrelated remote keys, accept Remotely Save rclone base64url object names, ignore unsupported external objects, and fail with actionable vault-root mismatch details only when scanned objects contain no syncable content.
  * - Observable outcomes: returned S3SyncResult and client verification/listing calls.
- * - Red phase: Fails before the fix because testConnection rejects Remotely Save base64url rclone object names as invalid base32hex and treats them as incompatible encrypted objects.
+ * - TDD proof: Fails before the fix because testConnection rejects Remotely Save base64url rclone object names as invalid base32hex and treats them as incompatible encrypted objects.
  * - Excludes: AWS SDK transport behavior, full sync planning, metadata persistence, and UI rendering.
  */
 class S3SyncStatusTesterTest : DataFunSpec() {

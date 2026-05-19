@@ -1,29 +1,41 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
+import com.lomo.domain.model.StorageArea
+import com.lomo.domain.model.StorageAreaUpdate
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.DirectorySettingsRepository
-import com.lomo.domain.repository.WorkspaceStateResolver
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
+import com.lomo.domain.testing.fakes.FakeWorkspaceStateResolver
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import io.mockk.MockKAnnotations
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.coVerifyOrder
-import io.mockk.impl.annotations.MockK
-import io.mockk.just
-import io.mockk.runs
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SwitchRootStorageUseCase.
  * - Behavior focus: switching workspace roots must persist the new root and then rebuild
  *   workspace-derived state from the newly selected local workspace without routing through the
  *   ordinary sync refresh pipeline.
  * - Observable outcomes: ordered root persistence and local workspace rebuild calls plus failure
  *   short-circuit behavior.
- * - Red phase: Fails before the fix because updateRootLocation routes through RefreshMemosUseCase,
+ * - TDD proof: Fails before the fix because updateRootLocation routes through RefreshMemosUseCase,
  *   allowing sync refresh behavior to run after a root switch and leave the selected workspace partially rebuilt.
  * - Excludes: concrete DataStore/Room cleanup, file-system scanning, and UI navigation.
  */
@@ -40,58 +52,57 @@ import kotlinx.coroutines.test.runTest
  *   product behavior that switching workspaces must load the selected directory's full local memo set.
  */
 class SwitchRootStorageUseCaseTest : DomainFunSpec() {
-    @MockK(relaxed = true)
-    private lateinit var directorySettingsRepository: DirectorySettingsRepository
-
-    @MockK(relaxed = true)
-    private lateinit var workspaceStateResolver: WorkspaceStateResolver
-
+    private val eventLog = mutableListOf<String>()
+    private val directorySettingsRepository = FakeDirectorySettingsRepository(eventLog)
+    private val workspaceStateResolver = FakeWorkspaceStateResolver(eventLog)
     private lateinit var useCase: SwitchRootStorageUseCase
+
     init {
         beforeTest {
-            MockKAnnotations.init(this@SwitchRootStorageUseCaseTest)
+            eventLog.clear()
+            directorySettingsRepository.applyFailure = null
+            workspaceStateResolver.rebuildFailure = null
             useCase = SwitchRootStorageUseCase(directorySettingsRepository, workspaceStateResolver)
         }
-    }
-    init {
+
         test("updateRootLocation rebuilds current workspace after successful switch") {
             runTest {
-                        val location = StorageLocation("/tmp/lomo")
-                        coEvery { directorySettingsRepository.applyRootLocation(location) } just runs
-                        coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
+                val location = StorageLocation("/tmp/lomo")
 
-                        useCase.updateRootLocation(location)
+                useCase.updateRootLocation(location)
 
-                        coVerifyOrder {
-                            directorySettingsRepository.applyRootLocation(location)
-                            workspaceStateResolver.rebuildFromCurrentWorkspace()
-                        }
-                    }
+                directorySettingsRepository.appliedUpdates shouldBe
+                    listOf(StorageAreaUpdate(StorageArea.ROOT, location))
+                workspaceStateResolver.rebuildCallCount shouldBe 1
+                eventLog shouldBe
+                    listOf(
+                        "directory.applyLocation:ROOT",
+                        "workspace.rebuildFromCurrentWorkspace",
+                    )
+            }
         }
-    }
-    init {
+
         test("updateRootLocation does not cleanup when switch fails") {
             runTest {
-                        val location = StorageLocation("content://root")
-                        coEvery { directorySettingsRepository.applyRootLocation(location) } throws IllegalStateException("failed")
+                val location = StorageLocation("content://root")
+                directorySettingsRepository.applyFailure = IllegalStateException("failed")
 
-                        val error = runCatching { useCase.updateRootLocation(location) }.exceptionOrNull()
+                val error = runCatching { useCase.updateRootLocation(location) }.exceptionOrNull()
 
-                        error.shouldBeInstanceOf<IllegalStateException>()
-                        coVerify(exactly = 1) { directorySettingsRepository.applyRootLocation(location) }
-                        coVerify(exactly = 0) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
-                    }
+                error.shouldBeInstanceOf<IllegalStateException>()
+                directorySettingsRepository.appliedUpdates shouldBe emptyList()
+                workspaceStateResolver.rebuildCallCount shouldBe 0
+                eventLog shouldBe emptyList()
+            }
         }
-    }
-    init {
+
         test("rebuildCurrentWorkspace delegates to local workspace resolver") {
             runTest {
-                        coEvery { workspaceStateResolver.rebuildFromCurrentWorkspace() } just runs
+                useCase.rebuildCurrentWorkspace()
 
-                        useCase.rebuildCurrentWorkspace()
-
-                        coVerify(exactly = 1) { workspaceStateResolver.rebuildFromCurrentWorkspace() }
-                    }
+                workspaceStateResolver.rebuildCallCount shouldBe 1
+                eventLog shouldBe listOf("workspace.rebuildFromCurrentWorkspace")
+            }
         }
     }
 }

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.parser.MarkdownParser
 import com.lomo.data.util.MemoTextProcessor
@@ -15,11 +32,11 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoSavePlanFactory
  * - Behavior focus: save-plan normalization, timestamp offsetting, collision suffix calculation, precomputed-count precedence, and inline attachment extraction coverage.
  * - Observable outcomes: generated filename, canonical timestamp, rawContent, memo id, and extracted tags or attachment URLs (images + audio links).
- * - Red phase: "create collects audio link paths in imageUrls alongside image attachments" fails before the fix because extractImages only matches `![...](..)` and `![[...]]`, dropping audio links like `[v](voice_x.m4a)`.
+ * - TDD proof: "create collects audio link paths in imageUrls alongside image attachments" fails before the fix because extractImages only matches `![...](..)` and `![[...]]`, dropping audio links like `[v](voice_x.m4a)`.
  * - Excludes: file I/O, repository orchestration, and UI state.
  */
 class MemoSavePlanFactoryTest : DataFunSpec() {

@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import android.content.Context
 import com.lomo.data.git.GitCredentialStore
@@ -29,11 +46,11 @@ import io.kotest.assertions.fail
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: GitSyncRepositoryImpl
  * - Behavior focus: sync still reports refresh failures and cancellation correctly after removing unused Git memo-history wiring.
  * - Observable outcomes: returned GitSyncResult error details, cancellation propagation, and collaborator call ordering.
- * - Red phase: Fails to compile before the cleanup because GitSyncRepositoryImpl still requires the deleted version-history collaborator.
+ * - TDD proof: Fails to compile before the cleanup because GitSyncRepositoryImpl still requires the deleted version-history collaborator.
  * - Excludes: version-history queries, git engine internals, and memo refresh parsing details.
  */
 class GitSyncRepositoryImplTest : DataFunSpec() {

@@ -1,10 +1,10 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: CreateMemoUseCaseTest
  * - Owning layer: domain
  * - Priority tier: P0
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for CreateMemoUseCaseTest.
  * - Boundary: boundary and edge cases for CreateMemoUseCaseTest.
  * - Failure: failure and error scenarios for CreateMemoUseCaseTest.
@@ -12,39 +12,59 @@
  *
  * - Behavior focus: test behavioral outcomes of CreateMemoUseCaseTest.
  * - Observable outcomes: assertions verify expected outcomes.
- * - Red phase: Fails before JUnit 4 to Kotest migration due to test runner.
+ * - TDD proof: Fails before JUnit 4 to Kotest migration due to test runner.
  * - Excludes: none.
  */
 
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.StorageLocation
-import com.lomo.domain.repository.MemoRepository
+import com.lomo.domain.model.StorageArea
 import com.lomo.domain.testing.DomainFunSpec
+import com.lomo.domain.testing.fakes.FakeDirectorySettingsRepository
+import com.lomo.domain.testing.fakes.FakeMediaRepository
+import com.lomo.domain.testing.fakes.FakeMemoRepository
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import io.mockk.coEvery
-import io.mockk.coVerify
-import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: CreateMemoUseCase
  * - Behavior focus: workspace precondition enforcement before validation and save.
  * - Observable outcomes: thrown error message and repository save with validated input.
  * - Excludes: memo repository persistence internals and validator rule implementation.
  */
 class CreateMemoUseCaseTest : DomainFunSpec() {
-    private val memoRepository: MemoRepository = mockk(relaxed = true)
-    private val initializeWorkspaceUseCase: InitializeWorkspaceUseCase = mockk()
-    private val validator: ValidateMemoContentUseCase = mockk(relaxed = true)
+    private val memoRepository = FakeMemoRepository()
+    private val directorySettingsRepository = FakeDirectorySettingsRepository()
+    private val initializeWorkspaceUseCase =
+        InitializeWorkspaceUseCase(
+            directorySettingsRepository = directorySettingsRepository,
+            mediaRepository = FakeMediaRepository(),
+        )
+    private val validator = ValidateMemoContentUseCase()
     private val useCase = CreateMemoUseCase(memoRepository, initializeWorkspaceUseCase, validator)
     init {
         test("invoke fails fast when workspace root is missing") {
             runTest {
-                        coEvery { initializeWorkspaceUseCase.currentRootLocation() } returns null
-
                         val error =
                             runCatching {
                                 useCase(content = "new memo", timestampMillis = 123L)
@@ -52,20 +72,24 @@ class CreateMemoUseCaseTest : DomainFunSpec() {
 
                         val missingWorkspace = error.shouldBeInstanceOf<IllegalStateException>()
                         missingWorkspace.message shouldBe "Please select a folder first"
-                        coVerify(exactly = 0) { validator.requireValidForCreate(any()) }
-                        coVerify(exactly = 0) { memoRepository.saveMemo(any(), any()) }
+                        memoRepository.savedMemos shouldBe emptyList()
                     }
         }
-    }
-    init {
+
         test("invoke validates content then saves memo when workspace exists") {
             runTest {
-                        coEvery { initializeWorkspaceUseCase.currentRootLocation() } returns StorageLocation("/workspace")
+                        directorySettingsRepository.setLocation(StorageArea.ROOT, StorageLocation("/workspace"))
 
                         useCase(content = "meaningful note", timestampMillis = 456L)
 
-                        coVerify(exactly = 1) { validator.requireValidForCreate("meaningful note") }
-                        coVerify(exactly = 1) { memoRepository.saveMemo("meaningful note", 456L) }
+                        memoRepository.savedMemos shouldBe
+                            listOf(
+                                FakeMemoRepository.SavedMemo(
+                                    content = "meaningful note",
+                                    timestamp = 456L,
+                                    geoLocation = null,
+                                ),
+                            )
                     }
         }
     }

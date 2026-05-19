@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.sync.SyncDirectoryLayout
 import kotlinx.coroutines.test.runTest
@@ -7,11 +24,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3RemoteShardPlanner
  * - Behavior focus: shard planning should preserve in-flight cursor continuation, prioritize unscanned cold shards so they are not starved forever, and prefer higher-risk shards by recent change rate or verification failures when freshness is otherwise tied.
  * - Observable outcomes: ordered shard bucket ids and selected active shard from planner output.
- * - Red phase: Fails before the fix because planner only sorts by lastScannedAt and original order, so equal-age shards never gain priority from higher observed change rates or verification-failure risk.
+ * - TDD proof: Fails before the fix because planner only sorts by lastScannedAt and original order, so equal-age shards never gain priority from higher observed change rates or verification-failure risk.
  * - Excludes: S3 transport behavior, Room SQL generation, WorkManager scheduling, and sync action application.
  */
 class S3RemoteShardPlannerTest : DataFunSpec() {

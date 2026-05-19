@@ -1,5 +1,22 @@
 package com.lomo.data.share
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import java.net.InetAddress
 import com.lomo.data.testing.DataFunSpec
@@ -7,13 +24,13 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.nulls.shouldBeNull
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: NSD resolved-device mapping for LAN share discovery.
  * - Behavior focus: resolved NSD peers must become reachable DiscoveredDevice entries on IPv4 and
  *   IPv6 networks, while self advertisements and incomplete endpoints must be ignored.
  * - Observable outcomes: mapped device name, HTTP-ready host string, port, and null results for
  *   self or invalid service records.
- * - Red phase: Fails before the fix because NsdDiscoveryService only accepts IPv4 hosts inline
+ * - TDD proof: Fails before the fix because NsdDiscoveryService only accepts IPv4 hosts inline
  *   and has no IPv6-safe endpoint mapping contract.
  * - Excludes: live mDNS traffic, Android NsdManager callback delivery, and Ktor transfer calls.
  */

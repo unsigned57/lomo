@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.domain.model.AppUpdateInstallState
 import kotlinx.coroutines.flow.flow
@@ -11,11 +28,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: gateInstallPermissionBeforeDownload
  * - Behavior focus: in-app updates must require unknown-source install permission before any APK download work begins.
  * - Observable outcomes: emitted AppUpdateInstallState sequence and guarded download callback invocation.
- * - Red phase: Fails before the fix because the updater starts Preparing and download work before checking whether this app is allowed to install APKs.
+ * - TDD proof: Fails before the fix because the updater starts Preparing and download work before checking whether this app is allowed to install APKs.
  * - Excludes: APK network transport, Android package-manager APIs, and actual installer UI.
  */
 class AppUpdateDownloadInstallStateEmissionTest : DataFunSpec() {

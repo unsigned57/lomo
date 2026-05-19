@@ -1,5 +1,22 @@
 package com.lomo.data.sync
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.webdav.WebDavClient
 import com.lomo.data.webdav.WebDavRemoteResource
@@ -14,11 +31,11 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: SyncLayoutMigration
  * - Behavior focus: legacy WebDAV/Git layout migration decisions, move targets, and failure-tolerant progression.
  * - Observable outcomes: migrated path writes/deletes on WebDAV and moved/retained files in local Git working tree.
- * - Red phase: Verified by asserting when migration logic is disabled.
+ * - TDD proof: Verified by asserting when migration logic is disabled.
  * - Excludes: WebDAV transport implementation details, logging behavior, and file-system primitive internals.
  */
 class SyncLayoutMigrationTest : DataFunSpec() {

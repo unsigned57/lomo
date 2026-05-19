@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: SQL schema migration logic and table transformations.
  * - Observable outcomes: table existence, column schema validity, data migration integrity.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: file system I/O, Room internals, repository logic.
  */
 package com.lomo.data.local
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import androidx.room3.migration.Migration
@@ -15,7 +32,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DatabaseMigrations
  * - Behavior focus: schema evolution preserves active memo-version tables, adds the indexes required by
  *   revision dedupe and paging, retires the removed legacy workspace-history schema, compacts
@@ -27,7 +44,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
  * - Observable outcomes: emitted migration SQL for surviving version-to-version and retained stable-baseline
  *   direct migrations to the current target version, plus FTS index population that emits
  *   per-row INSERTs whose bound values are the tokenized form of each memo's content.
- * - Red phase: Fails before the fix because the schema target assertion and FTS migration coverage drifted
+ * - TDD proof: Fails before the fix because the schema target assertion and FTS migration coverage drifted
  *   onto an unsupported FTS4 fork instead of the real FTS5 contract; and (for the FTS-tokenization
  *   refactor) because the migration emitted `UPDATE Lomo SET content = tokens` to the main memo column
  *   and used a bulk `INSERT INTO lomo_fts SELECT id, content FROM Lomo` that copied raw content into the

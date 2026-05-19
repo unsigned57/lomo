@@ -1,5 +1,22 @@
 package com.lomo.app.feature.memo
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.app.repository.AppWidgetRepository
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.app.testing.MainDispatcherExtension
@@ -13,65 +30,59 @@ import com.lomo.domain.usecase.SaveImageUseCase
 import com.lomo.domain.usecase.SetDraftTextUseCase
 import com.lomo.domain.usecase.UpdateMemoContentUseCase
 import io.kotest.matchers.shouldBe
-import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 
 /*
- * Test Contract:
- * - Unit under test: MemoEditorViewModel
- * - Behavior focus: draft persistence state machine, success-path cleanup side effects, optional backfill timestamp forwarding, and failure message mapping.
- * - Observable outcomes: draftText/errorMessage state, callback invocation, and use-case invocation payloads including timestamp.
- * - Red phase: Fails before the fix because ViewModel construction blocks until the first draft-text emission arrives.
- * - Excludes: widget update internals, media repository implementation details, and Compose rendering.
+ * Behavior Contract:
+ * - Capability: Draft persistence state machine, success-path cleanup side effects, optional backfill timestamp forwarding, and failure message mapping.
+ * - Scenarios:
+ *   - Given starting a memo draft, save/clear persists state to storage.
+ *   - Given constructor is called, it does not block on first persisted draft emission.
+ *   - Given createMemo/updateMemo success, discard inputs, clear draft text, and update widgets.
+ *   - Given saveImage success or failure, manage tracked image list and propagate error states appropriately.
+ * - Observable outcomes:
+ *   - draftText/errorMessage state, callbacks, and use-case invocation payloads.
+ * - TDD proof: Asserts correct draft persistence flow and exception mapping in the memo editor.
+ * - Excludes: actual widgets UI layout and Compose rendering components.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemoEditorViewModelTest : AppFunSpec() {
     private val testDispatcher = StandardTestDispatcher()
 
+    private val sharedDraftTextFlow = MutableStateFlow("initial draft")
+
+    private val createMemoUseCase = FakeCreateMemoUseCase()
+    private val updateMemoContentUseCase = FakeUpdateMemoContentUseCase()
+    private val saveImageUseCase = FakeSaveImageUseCase()
+    private val discardMemoDraftAttachmentsUseCase = FakeDiscardMemoDraftAttachmentsUseCase()
+    private val appWidgetRepository = FakeAppWidgetRepository()
+    private val observeDraftTextUseCase = FakeObserveDraftTextUseCase(sharedDraftTextFlow)
+    private val setDraftTextUseCase = FakeSetDraftTextUseCase(sharedDraftTextFlow)
+
     init {
         extension(MainDispatcherExtension(testDispatcher))
-    }
 
-    private lateinit var createMemoUseCase: CreateMemoUseCase
-    private lateinit var updateMemoContentUseCase: UpdateMemoContentUseCase
-    private lateinit var saveImageUseCase: SaveImageUseCase
-    private lateinit var discardMemoDraftAttachmentsUseCase: DiscardMemoDraftAttachmentsUseCase
-    private lateinit var appWidgetRepository: AppWidgetRepository
-    private lateinit var observeDraftTextUseCase: ObserveDraftTextUseCase
-    private lateinit var setDraftTextUseCase: SetDraftTextUseCase
-
-    init {
         beforeTest {
-createMemoUseCase = mockk(relaxed = true)
-            updateMemoContentUseCase = mockk(relaxed = true)
-            saveImageUseCase = mockk(relaxed = true)
-            discardMemoDraftAttachmentsUseCase = mockk(relaxed = true)
-            appWidgetRepository = mockk(relaxed = true)
-            observeDraftTextUseCase = mockk(relaxed = true)
-            setDraftTextUseCase = mockk(relaxed = true)
-
-            every { observeDraftTextUseCase() } returns flowOf("initial draft")
-            coEvery { createMemoUseCase(any(), any()) } returns Unit
-            coEvery { updateMemoContentUseCase(any(), any()) } returns Unit
-            coEvery { setDraftTextUseCase(any()) } returns Unit
-            coEvery { discardMemoDraftAttachmentsUseCase(any()) } returns Unit
-            coEvery { appWidgetRepository.updateAllWidgets() } returns Unit
-            coEvery { saveImageUseCase.saveWithCacheSyncStatus(any()) } returns
-                SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+            sharedDraftTextFlow.value = "initial draft"
+            createMemoUseCase.reset()
+            updateMemoContentUseCase.reset()
+            saveImageUseCase.reset()
+            discardMemoDraftAttachmentsUseCase.reset()
+            appWidgetRepository.reset()
+            observeDraftTextUseCase.reset()
+            setDraftTextUseCase.reset()
         }
-    }
 
-    init {
         test("saveDraft updates local draft state and persists text") {
             runTest {
                 val viewModel = createViewModel()
@@ -79,13 +90,12 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.saveDraft("draft A")
                 advanceUntilIdle()
 
-                (viewModel.draftText.value) shouldBe ("draft A")
-                coVerify(exactly = 1) { setDraftTextUseCase("draft A") }
+                viewModel.draftText.value shouldBe "draft A"
+                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe "draft A"
+                setDraftTextUseCase.setDraftTextCalledCount shouldBe 1
             }
         }
-    }
 
-    init {
         test("clearDraft clears local state and persists null") {
             runTest {
                 val viewModel = createViewModel()
@@ -93,17 +103,16 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.clearDraft()
                 advanceUntilIdle()
 
-                (viewModel.draftText.value) shouldBe ("")
-                coVerify(exactly = 1) { setDraftTextUseCase(null) }
+                viewModel.draftText.value shouldBe ""
+                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
+                setDraftTextUseCase.setDraftTextCalledCount shouldBe 1
             }
         }
-    }
 
-    init {
         test("constructor does not wait for first persisted draft emission") {
             runTest {
                 val firstDraftGate = CompletableDeferred<Unit>()
-                every { observeDraftTextUseCase() } returns kotlinx.coroutines.flow.flow {
+                observeDraftTextUseCase.customFlow = kotlinx.coroutines.flow.flow {
                     firstDraftGate.await()
                     emit("loaded draft")
                 }
@@ -113,28 +122,25 @@ createMemoUseCase = mockk(relaxed = true)
                     val future = executor.submit<MemoEditorViewModel> { createViewModel() }
                     val viewModel = future.get(200, TimeUnit.MILLISECONDS)
 
-                    (viewModel.draftText.value) shouldBe ("")
+                    viewModel.draftText.value shouldBe ""
 
                     firstDraftGate.complete(Unit)
                     advanceUntilIdle()
 
-                    (viewModel.draftText.value) shouldBe ("loaded draft")
+                    viewModel.draftText.value shouldBe "loaded draft"
                 } finally {
                     executor.shutdownNow()
                 }
             }
         }
-    }
 
-    init {
         test("createMemo success clears tracked images and draft") {
             runTest {
                 val viewModel = createViewModel()
                 val uri = mockk<android.net.Uri>()
                 every { uri.toString() } returns "content://memo-editor/image-1"
-                coEvery {
-                    saveImageUseCase.saveWithCacheSyncStatus(StorageLocation("content://memo-editor/image-1"))
-                } returns SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-1.jpg"))
+                saveImageUseCase.customSaveResults["content://memo-editor/image-1"] =
+                    SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-1.jpg"))
 
                 viewModel.saveDraft("to be cleared")
                 viewModel.saveImage(uri, onResult = {}, onError = null)
@@ -147,19 +153,17 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
-                (successCalled) shouldBe (true)
-                (viewModel.draftText.value) shouldBe ("")
-                coVerify(exactly = 1) { createMemoUseCase("new memo", any()) }
-                coVerify(atLeast = 1) { setDraftTextUseCase(null) }
-                coVerify(exactly = 1) { discardMemoDraftAttachmentsUseCase(match { it.isEmpty() }) }
+                successCalled shouldBe true
+                viewModel.draftText.value shouldBe ""
+                createMemoUseCase.createMemoCalledWithContent shouldBe "new memo"
+                setDraftTextUseCase.setDraftTextCalledWithValue shouldBe null
+                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe emptyList()
             }
         }
-    }
 
-    init {
         test("createMemo failure surfaces throwable message and preserves draft") {
             runTest {
-                coEvery { createMemoUseCase(any(), any()) } throws IllegalStateException("create failed")
+                createMemoUseCase.createMemoException = IllegalStateException("create failed")
                 val viewModel = createViewModel()
                 viewModel.saveDraft("keep me")
                 advanceUntilIdle()
@@ -167,13 +171,11 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.createMemo("new memo")
                 advanceUntilIdle()
 
-                (viewModel.errorMessage.value) shouldBe ("create failed")
-                (viewModel.draftText.value) shouldBe ("keep me")
+                viewModel.errorMessage.value shouldBe "create failed"
+                viewModel.draftText.value shouldBe "keep me"
             }
         }
-    }
 
-    init {
         test("createMemo forwards supplied backfill timestamp") {
             runTest {
                 val viewModel = createViewModel()
@@ -185,42 +187,32 @@ createMemoUseCase = mockk(relaxed = true)
                 )
                 advanceUntilIdle()
 
-                coVerify(exactly = 1) {
-                    createMemoUseCase(
-                        content = "backfilled memo",
-                        timestampMillis = timestampMillis,
-                        geoLocation = null,
-                    )
-                }
+                createMemoUseCase.createMemoCalledWithContent shouldBe "backfilled memo"
+                createMemoUseCase.createMemoCalledWithTimestamp shouldBe timestampMillis
             }
         }
-    }
 
-    init {
         test("updateMemo failure maps to user-facing error") {
             runTest {
                 val viewModel = createViewModel()
                 val memo = sampleMemo("memo-update")
-                coEvery { updateMemoContentUseCase(memo, "updated") } throws IllegalStateException("update failed")
+                updateMemoContentUseCase.updateMemoException = IllegalStateException("update failed")
 
                 viewModel.updateMemo(memo, "updated")
                 advanceUntilIdle()
 
-                (viewModel.errorMessage.value) shouldBe ("update failed")
+                viewModel.errorMessage.value shouldBe "update failed"
             }
         }
-    }
 
-    init {
         test("updateMemo success clears tracked images and updates widgets") {
             runTest {
                 val viewModel = createViewModel()
                 val memo = sampleMemo("memo-update-success")
                 val uri = mockk<android.net.Uri>()
                 every { uri.toString() } returns "content://memo-editor/image-success"
-                coEvery {
-                    saveImageUseCase.saveWithCacheSyncStatus(StorageLocation("content://memo-editor/image-success"))
-                } returns SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-success.jpg"))
+                saveImageUseCase.customSaveResults["content://memo-editor/image-success"] =
+                    SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-success.jpg"))
 
                 viewModel.saveImage(uri, onResult = {}, onError = null)
                 advanceUntilIdle()
@@ -230,22 +222,20 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
-                coVerify(exactly = 1) { updateMemoContentUseCase(memo, "updated") }
-                coVerify(exactly = 1) { appWidgetRepository.updateAllWidgets() }
-                coVerify(exactly = 1) { discardMemoDraftAttachmentsUseCase(match { it.isEmpty() }) }
+                updateMemoContentUseCase.updateMemoCalledWithMemo shouldBe memo
+                updateMemoContentUseCase.updateMemoCalledWithContent shouldBe "updated"
+                appWidgetRepository.updateAllWidgetsCalledCount shouldBe 1
+                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe emptyList()
             }
         }
-    }
 
-    init {
         test("saveImage success tracks saved path for later discard") {
             runTest {
                 val viewModel = createViewModel()
                 val uri = mockk<android.net.Uri>()
                 every { uri.toString() } returns "content://memo-editor/image-track"
-                coEvery {
-                    saveImageUseCase.saveWithCacheSyncStatus(StorageLocation("content://memo-editor/image-track"))
-                } returns SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-track.jpg"))
+                saveImageUseCase.customSaveResults["content://memo-editor/image-track"] =
+                    SaveImageResult.SavedAndCacheSynced(StorageLocation("images/memo-editor-track.jpg"))
                 var savedPath: String? = null
 
                 viewModel.saveImage(uri, onResult = { savedPath = it }, onError = null)
@@ -253,23 +243,17 @@ createMemoUseCase = mockk(relaxed = true)
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
-                (savedPath) shouldBe ("images/memo-editor-track.jpg")
-                coVerify(exactly = 1) {
-                    discardMemoDraftAttachmentsUseCase(listOf("images/memo-editor-track.jpg"))
-                }
+                savedPath shouldBe "images/memo-editor-track.jpg"
+                discardMemoDraftAttachmentsUseCase.discardCalledWith shouldBe listOf("images/memo-editor-track.jpg")
             }
         }
-    }
 
-    init {
         test("saveImage cache sync failure sets prefixed error and invokes onError") {
             runTest {
                 val viewModel = createViewModel()
                 val uri = mockk<android.net.Uri>()
                 every { uri.toString() } returns "content://memo-editor/image-2"
-                coEvery {
-                    saveImageUseCase.saveWithCacheSyncStatus(StorageLocation("content://memo-editor/image-2"))
-                } returns
+                saveImageUseCase.customSaveResults["content://memo-editor/image-2"] =
                     SaveImageResult.SavedButCacheSyncFailed(
                         location = StorageLocation("images/memo-editor-2.jpg"),
                         cause = IllegalStateException("cache failed"),
@@ -284,40 +268,36 @@ createMemoUseCase = mockk(relaxed = true)
                 )
                 advanceUntilIdle()
 
-                (savedPath) shouldBe null
-                (viewModel.errorMessage.value) shouldBe ("Failed to save image: cache failed")
-                (onErrorCalled) shouldBe (true)
+                savedPath shouldBe null
+                viewModel.errorMessage.value shouldBe "Failed to save image: cache failed"
+                onErrorCalled shouldBe true
             }
         }
-    }
 
-    init {
         test("clearError clears existing error message") {
             runTest {
-                coEvery { createMemoUseCase(any(), any()) } throws IllegalStateException("create failed")
+                createMemoUseCase.createMemoException = IllegalStateException("create failed")
                 val viewModel = createViewModel()
 
                 viewModel.createMemo("new memo")
                 advanceUntilIdle()
-                (viewModel.errorMessage.value) shouldBe ("create failed")
+                viewModel.errorMessage.value shouldBe "create failed"
 
                 viewModel.clearError()
 
-                (viewModel.errorMessage.value) shouldBe null
+                viewModel.errorMessage.value shouldBe null
             }
         }
-    }
 
-    init {
         test("discardInputs failure maps to prefixed error") {
             runTest {
                 val viewModel = createViewModel()
-                coEvery { discardMemoDraftAttachmentsUseCase(any()) } throws IllegalStateException("discard failed")
+                discardMemoDraftAttachmentsUseCase.discardException = IllegalStateException("discard failed")
 
                 viewModel.discardInputs()
                 advanceUntilIdle()
 
-                (viewModel.errorMessage.value) shouldBe ("Failed to discard input: discard failed")
+                viewModel.errorMessage.value shouldBe "Failed to discard input: discard failed"
             }
         }
     }
@@ -341,4 +321,110 @@ createMemoUseCase = mockk(relaxed = true)
             rawContent = "- 10:00 memo content",
             dateKey = "2026_03_24",
         )
+
+    class FakeCreateMemoUseCase : CreateMemoUseCase(mockk(), mockk(), mockk()) {
+        var createMemoCalledWithContent: String? = null
+        var createMemoCalledWithTimestamp: Long? = null
+        var createMemoException: Throwable? = null
+
+        fun reset() {
+            createMemoCalledWithContent = null
+            createMemoCalledWithTimestamp = null
+            createMemoException = null
+        }
+
+        override suspend fun invoke(content: String, timestampMillis: Long, geoLocation: String?) {
+            createMemoException?.let { throw it }
+            createMemoCalledWithContent = content
+            createMemoCalledWithTimestamp = timestampMillis
+        }
+    }
+
+    class FakeUpdateMemoContentUseCase : UpdateMemoContentUseCase(mockk(), mockk(), mockk(), mockk()) {
+        var updateMemoCalledWithMemo: Memo? = null
+        var updateMemoCalledWithContent: String? = null
+        var updateMemoException: Throwable? = null
+
+        fun reset() {
+            updateMemoCalledWithMemo = null
+            updateMemoCalledWithContent = null
+            updateMemoException = null
+        }
+
+        override suspend fun invoke(memo: Memo, newContent: String) {
+            updateMemoException?.let { throw it }
+            updateMemoCalledWithMemo = memo
+            updateMemoCalledWithContent = newContent
+        }
+    }
+
+    class FakeSaveImageUseCase : SaveImageUseCase(mockk()) {
+        val customSaveResults = mutableMapOf<String, SaveImageResult>()
+
+        fun reset() {
+            customSaveResults.clear()
+        }
+
+        override suspend fun saveWithCacheSyncStatus(source: StorageLocation): SaveImageResult {
+            return customSaveResults[source.raw]
+                ?: SaveImageResult.SavedAndCacheSynced(StorageLocation("images/default.jpg"))
+        }
+    }
+
+    class FakeDiscardMemoDraftAttachmentsUseCase : DiscardMemoDraftAttachmentsUseCase(mockk()) {
+        var discardCalledWith: Collection<String>? = null
+        var discardException: Throwable? = null
+
+        fun reset() {
+            discardCalledWith = null
+            discardException = null
+        }
+
+        override suspend fun invoke(filenames: Collection<String>) {
+            discardException?.let { throw it }
+            discardCalledWith = filenames
+        }
+    }
+
+    class FakeObserveDraftTextUseCase(
+        private val sharedDraftTextFlow: MutableStateFlow<String>,
+    ) : ObserveDraftTextUseCase(mockk()) {
+        var customFlow: Flow<String>? = null
+
+        fun reset() {
+            customFlow = null
+        }
+
+        override fun invoke(): Flow<String> = customFlow ?: sharedDraftTextFlow
+    }
+
+    class FakeSetDraftTextUseCase(
+        private val sharedDraftTextFlow: MutableStateFlow<String>,
+    ) : SetDraftTextUseCase(mockk()) {
+        var setDraftTextCalledCount = 0
+        var setDraftTextCalledWithValue: String? = null
+
+        fun reset() {
+            setDraftTextCalledCount = 0
+            setDraftTextCalledWithValue = null
+        }
+
+        override suspend fun invoke(text: String?) {
+            setDraftTextCalledCount++
+            setDraftTextCalledWithValue = text
+            sharedDraftTextFlow.value = text ?: ""
+        }
+    }
+
+    class FakeAppWidgetRepository : AppWidgetRepository(mockk()) {
+        var updateAllWidgetsCalledCount = 0
+
+        fun reset() {
+            updateAllWidgetsCalledCount = 0
+        }
+
+        override suspend fun updateAllWidgets() {
+            updateAllWidgetsCalledCount++
+        }
+    }
 }

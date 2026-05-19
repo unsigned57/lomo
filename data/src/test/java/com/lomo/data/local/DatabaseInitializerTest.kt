@@ -1,5 +1,22 @@
 package com.lomo.data.local
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
@@ -10,10 +27,10 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.booleans.shouldBeTrue
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DatabaseInitializer
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for DatabaseInitializerTest.
  * - Boundary: boundary and edge cases for DatabaseInitializerTest.
  * - Failure: failure and error scenarios for DatabaseInitializerTest.
@@ -21,7 +38,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
  * - Behavior focus: async Room readiness probing should coalesce concurrent callers, publish readiness,
  *   and preserve the existing "database preserved" failure contract when open or migration fails.
  * - Observable outcomes: open attempt count, readyFlow state transitions, and wrapped failure message.
- * - Red phase: Fails before the fix because DatabaseInitializer does not exist and the startup open
+ * - TDD proof: Fails before the fix because DatabaseInitializer does not exist and the startup open
  *   probe still lives inside DataModule.
  * - Excludes: DAO query behavior, actual Android Room migrations, and Hilt wiring.
  */

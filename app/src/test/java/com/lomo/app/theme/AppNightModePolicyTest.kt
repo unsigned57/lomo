@@ -1,48 +1,57 @@
+/*
+ * Behavior Contract:
+ * - Unit under test: platform night-mode resolution for app-level theme synchronization.
+ * - Owning layer: app
+ * - Priority tier: P2
+ * - Capability: determine the correct platform night mode setting based on app theme mode.
+ *
+ * Scenarios:
+ * - Given ThemeMode.SYSTEM, when resolving platform night mode, then return UiModeManager.MODE_NIGHT_AUTO to clear explicit overrides.
+ * - Given ThemeMode.LIGHT or ThemeMode.DARK, when resolving, then return UiModeManager.MODE_NIGHT_NO or UiModeManager.MODE_NIGHT_YES.
+ *
+ * Observable outcomes:
+ * - resolved platform night mode integer.
+ *
+ * TDD proof:
+ * - Compilation failure on Kotest transition - test-only migration; no production change.
+ *
+ * Excludes:
+ * - AppCompatDelegate side effects, activity lifecycle timing, and OEM dark-mode propagation.
+ */
+
 package com.lomo.app.theme
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 import android.app.UiModeManager
 import com.lomo.app.testing.AppFunSpec
 import com.lomo.domain.model.ThemeMode
 import io.kotest.matchers.shouldBe
 
-/*
- * Test Contract:
- * - Unit under test: platform night-mode resolution for app-level theme synchronization.
- * - Behavior focus: when the user returns from an explicit light/dark choice to following the
- *   system theme, the app must clear the platform-level application night override left by the
- *   explicit mode instead of leaving the app pinned to that old value.
- * - Observable outcomes: system mode resolves to the platform automatic mode that clears an
- *   explicit YES/NO application override, while explicit user light/dark choices still force
- *   explicit platform values.
- * - Red phase: Fails before the fix because ThemeMode.SYSTEM resolves to null, so applyAppNightMode
- *   returns without clearing the previously persisted application night-mode override.
- * - Excludes: AppCompatDelegate side effects, activity lifecycle timing, and OEM dark-mode propagation.
- */
-/*
- * Test Change Justification:
- * - Reason category: old assertion was incomplete for the explicit-to-system transition.
- * - Exact behavior/assertion being replaced: ThemeMode.SYSTEM previously asserted that no platform
- *   mode should be written.
- * - Why the previous assertion is no longer correct: doing nothing is safe only when no previous app
- *   override exists. After the user manually chooses light/dark, Android 12+ keeps that application
- *   override until the app writes a non-explicit mode.
- * - Retained/new coverage: explicit light/dark mappings stay covered, and system mode now protects
- *   the reported transition from manual theme back to follow-system.
- * - Why this is not changing the test to fit the implementation: the assertion is based on the
- *   user-visible contract that follow-system must actually resume tracking system changes.
- */
 class AppNightModePolicyTest : AppFunSpec() {
     init {
         test("system mode clears previous explicit platform override") {
             (resolvePlatformNightMode(themeMode = ThemeMode.SYSTEM)) shouldBe (UiModeManager.MODE_NIGHT_AUTO)
         }
-    }
 
-    init {
         test("explicit theme modes keep explicit platform values") {
             (resolvePlatformNightMode(themeMode = ThemeMode.LIGHT)) shouldBe (UiModeManager.MODE_NIGHT_NO)
             (resolvePlatformNightMode(themeMode = ThemeMode.DARK)) shouldBe (UiModeManager.MODE_NIGHT_YES)
         }
     }
-
 }

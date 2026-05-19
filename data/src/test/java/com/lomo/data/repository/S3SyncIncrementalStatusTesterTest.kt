@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.dao.S3SyncPlannerMetadataSnapshot
@@ -27,11 +44,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncStatusTester
  * - Behavior focus: manifest-free status checks should reuse a fresh local remote index, derive pending local changes from the journal without whole-bucket probes, and reconcile with a full remote listing when the cached index is stale.
  * - Observable outcomes: returned S3SyncStatus, remote list/head invocation counts, and local metadata lookup scope.
- * - Red phase: Fails before the fix because status still depends on manifest probing and cannot answer fast-path status queries from the cached remote index alone.
+ * - TDD proof: Fails before the fix because status still depends on manifest probing and cannot answer fast-path status queries from the cached remote index alone.
  * - Excludes: AWS transport behavior, metadata persistence mutations, and UI rendering.
  */
 class S3SyncIncrementalStatusTesterTest : DataFunSpec() {

@@ -1,12 +1,29 @@
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DatabaseTransitionStrategy
  * - Behavior focus: atomic file-based database transitions and backup/recovery.
  * - Observable outcomes: file system state after transition, recovery from partial failures.
- * - Red phase: Fails before behavior changes or migration are applied.
+ * - TDD proof: Fails before behavior changes or migration are applied.
  * - Excludes: SQLite execution, Room database internals.
  */
 package com.lomo.data.local
+
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
 
 
 import io.mockk.every
@@ -18,13 +35,13 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: DatabaseTransitionStrategy
  * - Behavior focus: reset gating based on migration-graph reachability, legacy-table cleanup, and pre-open
  *   no-op behavior.
  * - Observable outcomes: Boolean reset decisions, executed DROP TABLE statements, and deleteDatabase
  *   side-effect suppression.
- * - Red phase: Fails before the fix because the strategy still treats every forward upgrade version as safe
+ * - TDD proof: Fails before the fix because the strategy still treats every forward upgrade version as safe
  *   even when no migration path to the current schema exists.
  * - Excludes: Android SQLite implementation details, Timber logging, and Room migration SQL bodies themselves.
  */

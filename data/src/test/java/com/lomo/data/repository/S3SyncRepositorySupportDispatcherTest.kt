@@ -1,5 +1,22 @@
 package com.lomo.data.repository
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 
 import com.lomo.data.local.dao.S3SyncMetadataDao
 import com.lomo.data.local.datastore.LomoDataStore
@@ -20,11 +37,11 @@ import com.lomo.data.testing.DataFunSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: S3SyncRepositorySupport
  * - Behavior focus: shared S3 client execution must switch remote work off the caller thread before invoking transport code.
  * - Observable outcomes: thread used to execute the withClient block.
- * - Red phase: Fails before the fix because withClient executes the client block on the caller thread, allowing NetworkOnMainThreadException from settings-triggered S3 checks.
+ * - TDD proof: Fails before the fix because withClient executes the client block on the caller thread, allowing NetworkOnMainThreadException from settings-triggered S3 checks.
  * - Excludes: AWS SDK transport behavior, sync planning, error mapping, and UI rendering.
  */
 class S3SyncRepositorySupportDispatcherTest : DataFunSpec() {

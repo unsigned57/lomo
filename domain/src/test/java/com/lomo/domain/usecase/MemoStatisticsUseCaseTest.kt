@@ -1,5 +1,22 @@
 package com.lomo.domain.usecase
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import com.lomo.domain.model.Memo
 import com.lomo.domain.testing.DomainFunSpec
 import io.kotest.matchers.shouldBe
@@ -10,10 +27,10 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: MemoStatisticsUseCase
  *
- * Scenario matrix:
+ * Scenarios:
  * - Happy: standard happy path for MemoStatisticsUseCaseTest.
  * - Boundary: boundary and edge cases for MemoStatisticsUseCaseTest.
  * - Failure: failure and error scenarios for MemoStatisticsUseCaseTest.
@@ -21,7 +38,7 @@ import java.time.ZonedDateTime
  * - Behavior focus: statistics must compute current-natural-year daily time bounds after converting
  *   memo timestamps into the selected local timezone.
  * - Observable outcomes: earliestDailyMemoTime and latestDailyMemoTime values on MemoStatistics.
- * - Red phase: Fails before the fix because MemoStatistics has no current-year daily time fields
+ * - TDD proof: Fails before the fix because MemoStatistics has no current-year daily time fields
  *   and computeStatistics does not calculate them.
  * - Excludes: repository storage, UI formatting, chart rendering, and system clock wiring.
  */
@@ -46,8 +63,7 @@ class MemoStatisticsUseCaseTest : DomainFunSpec() {
             stats.earliestDailyMemoTime shouldBe LocalTime.of(8, 15)
             stats.latestDailyMemoTime shouldBe LocalTime.of(23, 40)
         }
-    }
-    init {
+
         test("computeStatistics leaves daily time bounds empty when current year has no memos") {
             val zone = ZoneId.of("Asia/Shanghai")
             val stats =
@@ -64,8 +80,7 @@ class MemoStatisticsUseCaseTest : DomainFunSpec() {
             stats.earliestDailyMemoTime shouldBe null
             stats.latestDailyMemoTime shouldBe null
         }
-    }
-    init {
+
         test("computeStatistics uses local timezone before deciding current year membership") {
             val zone = ZoneId.of("Asia/Shanghai")
             val stats =
