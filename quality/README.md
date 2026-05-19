@@ -41,6 +41,7 @@ This directory is the repository entrypoint for quality tasks, scripts, and test
 | I want the local AI maintenance report (dependency updates, dependency-analysis, CVEs, R8 shrink output) | `quality/scripts/ai_local_maintenance_check.sh` |
 | I want Compose-focused static hotspot signals | `./gradlew composeStaticAnalysisCheck` |
 | I want JVM tests only | `./gradlew unitTestCheck` |
+| I want BDD+TDD test-style anti-pattern checks only | `./gradlew testStyleCheck` |
 | I changed static rules or want compile + detekt + lint without coverage | `./gradlew staticQualityCheck` |
 | I changed build logic, quality scripts, coverage wiring, or dependency/plugin wiring | `./gradlew qualityCheck` |
 | I need to split one already-verified working tree into several commits | `quality/scripts/verified_batch_commit.sh start` / `commit` / `finish` |
@@ -132,7 +133,7 @@ Task roles:
 - `aiStaticQualityCheck`
   - AI-oriented static gate via `quality/scripts/ai_static_quality_check.sh`, which runs `staticQualityCheck`.
 - `staticQualityCheck`
-  - Compile gates, architecture checks, Android Lint, and meaningful-test metadata without coverage.
+  - Compile gates, architecture checks, BDD+TDD test-style checks, Android Lint, and meaningful-test metadata without coverage.
 - `fullQualityCheck`
   - Internal staged full gate that backs `qualityCheck`.
 - `qualityCheck`
@@ -156,6 +157,9 @@ Task roles:
   - Runs Android Lint plus Compose compiler metrics/reports for AI-readable static hotspot analysis.
 - `meaningfulTestCheck`
   - Test metadata contract enforcement.
+- `testStyleCheck`
+  - Detekt-based BDD+TDD test-style guardrails for Kotlin tests.
+  - Fails on repeatable AI failure modes such as per-test Kotest `init`, relaxed MockK, mocked stateful collaborators, direct `Dispatchers.setMain`, forbidden test stacks, and interaction-only tests with no observable assertion.
 - `coverageCheck`
   - Verifies merged JVM unit-test coverage against the fixed `70%` minimum.
 

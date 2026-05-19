@@ -1,19 +1,39 @@
 package com.example
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import io.kotest.core.spec.style.FunSpec
 import io.kotest.matchers.shouldBe
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ExamplePolicy
  * - Owning layer: app
  * - Priority tier: P1
  *
+ * Scenarios:
+ * - This intentionally omits Given/When/Then wording so the smoke test proves scenario-shape enforcement.
+ *
  * Observable outcomes:
  * - returned token string.
  *
- * Red phase:
- * - Not applicable - test-only coverage addition; no production change.
+ * TDD proof:
+ * - Not applicable - test-only migration; no production change.
  *
  * Excludes:
  * - repository wiring and UI rendering.

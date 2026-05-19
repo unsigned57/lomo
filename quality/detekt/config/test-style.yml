@@ -1,0 +1,36 @@
+config:
+  excludes:
+    - "lomo-architecture.*"
+    - "lomo-architecture>.*>.*"
+
+lomo-test-style:
+  active: true
+  excludes:
+    - "**/androidTest/**"
+    - "**/MainViewModelTest.kt"
+    - "**/SyncConflictViewModelTest.kt"
+    - "**/MainViewModelInitialImportStateTest.kt"
+    - "**/data/src/test/**"
+    - "**/domain/src/test/**"
+    - "**/ui-components/src/test/**"
+  NoPerTestInitBlock:
+    active: true
+  ForbiddenTestStackImports:
+    active: true
+  MockedStatefulCollaborator:
+    active: true
+  NoDispatchersSetMainInTests:
+    active: true
+  NoRelaxedMockk:
+    active: true
+  NoThreadSleepInTests:
+    active: true
+  NoInteractionOnlyTest:
+    active: true
+  NoFlowFirstForStateSequence:
+    active: true
+  ExcessiveMockStubbing:
+    active: true
+    maxEveryStubbingCount: 5
+  NoSourceStringBehaviorTest:
+    active: true

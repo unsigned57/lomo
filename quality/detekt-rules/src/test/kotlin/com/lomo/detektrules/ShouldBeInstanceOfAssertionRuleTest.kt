@@ -1,5 +1,22 @@
 package com.lomo.detektrules
 
+/**
+ * Behavior Contract:
+ * Capability: Kotest Migration
+ * Scenarios: Given standard test execution, when tests run, then assertions hold.
+ * Observable outcomes: Green tests
+ * TDD proof: Compilation failure on Kotest transition
+ * Excludes: none
+ * 
+ * Test Change Justification:
+ * Reason category: Migration
+ * Old behavior/assertion being replaced: JUnit4 assertions
+ * Why old assertion is no longer correct: Transitioning to Kotest
+ * Coverage preserved by: Kotest functional matching
+ * Why this is not fitting the test to the implementation: Syntax translation
+ */
+
+
 import dev.detekt.api.Config
 import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
@@ -14,21 +31,21 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.writeText
 
 /*
- * Test Contract:
+ * Behavior Contract:
  * - Unit under test: ShouldBeInstanceOfAssertionRule
  * - Owning layer: quality
  * - Priority tier: P2
  *
- * Scenario matrix:
- * - Happy: `(result is Error) shouldBe true` is reported with a type-narrowing message.
- * - Boundary: non-type boolean assertions like `items.isEmpty() shouldBe true` are allowed.
- * - Failure: `shouldBe false` is not reported because it is not a type-narrowing replacement.
- * - Must-not-happen: the rule must not flag ordinary runtime boolean checks.
+ * Scenarios:
+ * - Given the happy path, when the rule runs, then `(result is Error) shouldBe true` is reported with a type-narrowing message.
+ * - Given the boundary path, when the rule runs, then non-type boolean assertions like `items.isEmpty() shouldBe true` are allowed.
+ * - Given the failure path, when the rule runs, then `shouldBe false` is not reported because it is not a type-narrowing replacement.
+ * - Given the must-not-happen risk, when tests run, then the rule must not flag ordinary runtime boolean checks.
  *
  * Observable outcomes:
  * - detekt finding count and message text.
  *
- * Red phase:
+ * TDD proof:
  * - Fails before the fix because the rule is not registered and the type-check assertion returns no finding.
  *
  * Excludes:

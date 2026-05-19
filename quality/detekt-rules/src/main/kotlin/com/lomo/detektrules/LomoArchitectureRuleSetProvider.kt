@@ -3,7 +3,6 @@ package com.lomo.detektrules
 import dev.detekt.api.Config
 import dev.detekt.api.Entity
 import dev.detekt.api.Finding
-import dev.detekt.api.Rule
 import dev.detekt.api.RuleName
 import dev.detekt.api.RuleSet
 import dev.detekt.api.RuleSetId
@@ -13,7 +12,6 @@ import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtBinaryExpression
 import org.jetbrains.kotlin.psi.KtBlockExpression
 import org.jetbrains.kotlin.psi.KtBreakExpression
-import org.jetbrains.kotlin.psi.KtClass
 import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtConstantExpression
 import org.jetbrains.kotlin.psi.KtContinueExpression
@@ -36,8 +34,6 @@ import org.jetbrains.kotlin.psi.KtWhenEntry
 import org.jetbrains.kotlin.psi.KtWhenExpression
 import org.jetbrains.kotlin.psi.KtWhileExpression
 import org.jetbrains.kotlin.lexer.KtTokens
-import java.nio.file.Files
-import java.nio.file.Path
 
 class LomoArchitectureRuleSetProvider : RuleSetProvider {
     override val ruleSetId: RuleSetId = RuleSetId("lomo-architecture")
@@ -72,99 +68,9 @@ class LomoArchitectureRuleSetProvider : RuleSetProvider {
         )
 }
 
-private abstract class LomoArchitectureRule(
-    config: Config,
-    description: String,
-) : Rule(config, description) {
-    protected fun KtFile.path(): String = getViewProvider().getVirtualFile().getPath().replace('\\', '/')
-
-    protected fun KtFile.isProductionSource(): Boolean = path().contains("/src/main/")
-
-    protected fun KtFile.isPathExcluded(): Boolean =
-        config.valueOrDefault("excludes", emptyList<String>()).any { exclusion ->
-            val normalizedExclusion = exclusion.replace('\\', '/')
-            path().endsWith(normalizedExclusion) || path().contains(normalizedExclusion)
-        }
-
-    protected fun KtFile.bodyText(): String =
-        text
-            .lineSequence()
-            .filterNot { line ->
-                val trimmed = line.trimStart()
-                trimmed.startsWith("package ") || trimmed.startsWith("import ")
-            }.joinToString("\n")
-
-    protected fun KtFile.importPaths(): List<String> =
-        text
-            .lineSequence()
-            .map(String::trim)
-            .filter { it.startsWith("import ") }
-            .map { it.removePrefix("import ").substringBefore(" as ").trim() }
-            .toList()
-
-    protected fun KtFile.findForbiddenQualifiedReference(prefixes: List<String>): String? =
-        prefixes.firstOrNull { prefix ->
-            Regex("""\b${Regex.escape(prefix)}[A-Za-z_]\w*""").containsMatchIn(bodyText())
-        }
-
-    protected fun KtFile.moduleRoot(): String? =
-        path().substringBefore("/src/main/", missingDelimiterValue = "").ifBlank { null }
-
-    protected fun KtFile.productionSourcePaths(): Set<String> {
-        val moduleRoot = moduleRoot() ?: return setOf(path())
-        val mainRoot = Path.of(moduleRoot, "src", "main")
-        if (!Files.exists(mainRoot)) return setOf(path())
-        return Files.walk(mainRoot).use { stream ->
-            stream
-                .filter { candidate -> Files.isRegularFile(candidate) }
-                .map { candidate -> candidate.toString().replace('\\', '/') }
-                .filter { candidate -> candidate.endsWith(".kt") || candidate.endsWith(".kts") }
-                .toList()
-                .toSet()
-        }
-    }
-
-    protected fun KtClassOrObject.constructorTypeTexts(): List<String> =
-        (this as? KtClass)
-            ?.getPrimaryConstructorParameters()
-            ?.mapNotNull { it.getTypeReference()?.text?.trim() }
-            .orEmpty()
-
-    protected fun String.typeIdentifiers(): Set<String> =
-        Regex("""[A-Za-z_][A-Za-z0-9_]*""")
-            .findAll(this)
-            .map { it.value }
-            .toSet()
-
-    protected fun reportFile(file: KtFile, message: String) {
-        report(Finding(Entity.from(file), message))
-    }
-
-    protected fun reportElement(
-        expression: KtExpression,
-        message: String,
-    ) {
-        report(Finding(Entity.from(expression), message))
-    }
-
-    protected fun reportDeclaration(
-        declaration: KtClassOrObject,
-        message: String,
-    ) {
-        report(Finding(Entity.from(declaration), message))
-    }
-
-    protected fun reportNamedDeclaration(
-        declaration: KtNamedDeclaration,
-        message: String,
-    ) {
-        report(Finding(Entity.from(declaration), message))
-    }
-}
-
 private class AppSourceBoundaryRule(
     config: Config,
-) : LomoArchitectureRule(config, "App and ui-components must not reference data-layer implementations directly.") {
+) : LomoBaseRule(config, "App and ui-components must not reference data-layer implementations directly.") {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
@@ -190,7 +96,7 @@ private class AppSourceBoundaryRule(
 
 private class AppBuildDependencyBoundaryRule(
     config: Config,
-) : LomoArchitectureRule(config, "app/build.gradle.kts must not expose :data outside implementation.") {
+) : LomoBaseRule(config, "app/build.gradle.kts must not expose :data outside implementation.") {
     private val forbiddenPatterns =
         listOf(
             Regex("""(?s)\b(?:api|compileOnly|ksp)\s*\(\s*project\s*\(\s*(?:path\s*=\s*)?['"]:data['"][^)]*\)\s*\)"""),
@@ -213,7 +119,7 @@ private class AppBuildDependencyBoundaryRule(
 
 private class DomainLayerIsolationRule(
     config: Config,
-) : LomoArchitectureRule(config, "domain must stay free of Android, DI, Compose, Room, networking, git, and data-layer imports.") {
+) : LomoBaseRule(config, "domain must stay free of Android, DI, Compose, Room, networking, git, and data-layer imports.") {
     private val forbiddenPrefixes =
         listOf(
             "android.",
@@ -242,7 +148,7 @@ private class DomainLayerIsolationRule(
 
 private class DomainPackageShapeRule(
     config: Config,
-) : LomoArchitectureRule(config, "domain source files must live under model, repository, or usecase.") {
+) : LomoBaseRule(config, "domain source files must live under model, repository, or usecase.") {
     private val allowedTopLevelPackages = setOf("model", "repository", "usecase")
 
     override fun visitKtFile(file: KtFile) {
@@ -261,7 +167,7 @@ private class DomainPackageShapeRule(
 
 private class ViewModelBoundaryRule(
     config: Config,
-) : LomoArchitectureRule(config, "ViewModel classes must not depend on domain repositories, services, or data-layer details.") {
+) : LomoBaseRule(config, "ViewModel classes must not depend on domain repositories, services, or data-layer details.") {
     private val bannedExactImports =
         setOf(
             "androidx.documentfile.provider.DocumentFile",
@@ -329,7 +235,7 @@ private class ViewModelBoundaryRule(
 
 private class UseCaseLocationRule(
     config: Config,
-) : LomoArchitectureRule(config, "UseCase declarations must live under domain/usecase.") {
+) : LomoBaseRule(config, "UseCase declarations must live under domain/usecase.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("UseCase")) return
@@ -342,7 +248,7 @@ private class UseCaseLocationRule(
 
 private class RepositoryImplLocationRule(
     config: Config,
-) : LomoArchitectureRule(config, "RepositoryImpl declarations must live under data/repository.") {
+) : LomoBaseRule(config, "RepositoryImpl declarations must live under data/repository.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("RepositoryImpl")) return
@@ -355,7 +261,7 @@ private class RepositoryImplLocationRule(
 
 private class DaoLocationRule(
     config: Config,
-) : LomoArchitectureRule(config, "Dao declarations must live under data/local/dao.") {
+) : LomoBaseRule(config, "Dao declarations must live under data/local/dao.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("Dao")) return
@@ -368,7 +274,7 @@ private class DaoLocationRule(
 
 private class EntityLocationRule(
     config: Config,
-) : LomoArchitectureRule(config, "Entity declarations must live under data/local/entity.") {
+) : LomoBaseRule(config, "Entity declarations must live under data/local/entity.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         if (!classOrObject.name.orEmpty().endsWith("Entity")) return
@@ -381,7 +287,7 @@ private class EntityLocationRule(
 
 private class ComposableLayerRule(
     config: Config,
-) : LomoArchitectureRule(config, "@Composable is only allowed in app and ui-components.") {
+) : LomoBaseRule(config, "@Composable is only allowed in app and ui-components.") {
     override fun visitKtFile(file: KtFile) {
         super.visitKtFile(file)
         val path = file.path()
@@ -394,7 +300,7 @@ private class ComposableLayerRule(
 
 private class DataRepositoryContractRule(
     config: Config,
-) : LomoArchitectureRule(config, "Every data RepositoryImpl must implement a domain repository interface.") {
+) : LomoBaseRule(config, "Every data RepositoryImpl must implement a domain repository interface.") {
     override fun visitClassOrObject(classOrObject: KtClassOrObject) {
         super.visitClassOrObject(classOrObject)
         val name = classOrObject.name.orEmpty()
@@ -415,7 +321,7 @@ private class DataRepositoryContractRule(
 
 private class DataLayerUiDependencyRule(
     config: Config,
-) : LomoArchitectureRule(config, "data must stay free of app-layer and UI-layer dependencies.") {
+) : LomoBaseRule(config, "data must stay free of app-layer and UI-layer dependencies.") {
     private val forbiddenPrefixes =
         listOf(
             "com.lomo.app.",
@@ -452,7 +358,7 @@ private class DataLayerUiDependencyRule(
 
 private class P0HotspotRepositoryBoundaryRule(
     config: Config,
-) : LomoArchitectureRule(config, "P0 hotspot files must not import domain repositories directly.") {
+) : LomoBaseRule(config, "P0 hotspot files must not import domain repositories directly.") {
     private val hotspotSuffixes =
         setOf(
             "/app/src/main/java/com/lomo/app/feature/settings/SettingsGitCoordinator.kt",
@@ -477,7 +383,7 @@ private class P0HotspotRepositoryBoundaryRule(
 
 private class UiComponentsLayerBoundaryRule(
     config: Config,
-) : LomoArchitectureRule(config, "ui-components must stay free of app, data, and domain command dependencies.") {
+) : LomoBaseRule(config, "ui-components must stay free of app, data, and domain command dependencies.") {
     private val forbiddenPrefixes =
         listOf(
             "com.lomo.app.",
@@ -501,7 +407,7 @@ private class UiComponentsLayerBoundaryRule(
 
 private class NoSourceSuppressionsRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not use @Suppress to bypass static checks.") {
+) : LomoBaseRule(config, "Production source must not use @Suppress to bypass static checks.") {
     override fun visitAnnotationEntry(annotationEntry: KtAnnotationEntry) {
         super.visitAnnotationEntry(annotationEntry)
         val file = annotationEntry.containingKtFile
@@ -522,7 +428,7 @@ private class NoSourceSuppressionsRule(
 
 private class NoPlaceholderImplementationRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not commit placeholder implementations like TODO() or NotImplementedError().") {
+) : LomoBaseRule(config, "Production source must not commit placeholder implementations like TODO() or NotImplementedError().") {
     private val placeholderPatterns =
         listOf(
             Regex("""\bTODO\s*\("""),
@@ -542,7 +448,7 @@ private class NoPlaceholderImplementationRule(
 
 private class NoConstantBranchConditionRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not commit branches whose conditions are already constant.") {
+) : LomoBaseRule(config, "Production source must not commit branches whose conditions are already constant.") {
     override fun visitIfExpression(expression: KtIfExpression) {
         super.visitIfExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -598,7 +504,7 @@ private class NoConstantBranchConditionRule(
 
 private class NoUnreachableBlockTailRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not keep statements after an unconditional control-transfer expression.") {
+) : LomoBaseRule(config, "Production source must not keep statements after an unconditional control-transfer expression.") {
     override fun visitBlockExpression(expression: KtBlockExpression) {
         super.visitBlockExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -622,7 +528,7 @@ private class NoUnreachableBlockTailRule(
 
 private class NoRedundantExhaustiveElseRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not keep an else branch when a Boolean when is already exhaustive.") {
+) : LomoBaseRule(config, "Production source must not keep an else branch when a Boolean when is already exhaustive.") {
     override fun visitWhenExpression(expression: KtWhenExpression) {
         super.visitWhenExpression(expression)
         if (!expression.containingKtFile.isProductionSource()) return
@@ -648,7 +554,7 @@ private class NoRedundantExhaustiveElseRule(
 
 private class NoCrossFileDuplicateTopLevelRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not duplicate the same top-level helper signature across files in one module.") {
+) : LomoBaseRule(config, "Production source must not duplicate the same top-level helper signature across files in one module.") {
     private val ignoreAnnotated = config.valueOrDefault("ignoreAnnotated", listOf("Composable", "Preview")).toSet()
     private val ignoreOperator = config.valueOrDefault("ignoreOperator", true)
     private val seenByModule = mutableMapOf<String, MutableMap<TopLevelFunctionSignature, KtNamedFunction>>()
@@ -682,7 +588,7 @@ private class NoCrossFileDuplicateTopLevelRule(
 
 private class NoUnreferencedTopLevelDeclarationRule(
     config: Config,
-) : LomoArchitectureRule(config, "Production source must not keep non-public top-level declarations with no reachable in-module references.") {
+) : LomoBaseRule(config, "Production source must not keep non-public top-level declarations with no reachable in-module references.") {
     private val ignoreAnnotated =
         config.valueOrDefault(
             "ignoreAnnotated",
@@ -778,7 +684,7 @@ private class NoUnreferencedTopLevelDeclarationRule(
 
 private class ShouldBeInstanceOfAssertionRule(
     config: Config,
-) : LomoArchitectureRule(
+) : LomoBaseRule(
     config,
     "Prefer shouldBeInstanceOf<T>() over `(x is T) shouldBe true` for type-narrowing assertions.",
 ) {
