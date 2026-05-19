@@ -148,7 +148,9 @@ fun MainScreen(
         visibleUiMemos = displayedVisibleUiMemos,
         visibleUiMemoStartIndex = displayedVisibleUiMemoStartIndex,
         canResolveOffscreenMainListFocus =
-            renderState.searchQuery.isBlank() && !renderState.memoListFilter.isActive,
+            renderState.searchQuery.isBlank() &&
+                !renderState.memoListFilter.isActive &&
+                !renderState.memoListFilter.hasSortOverride,
         listState = hostState.listState,
         editorController = hostState.editorController,
         directoryGuideController = hostState.directoryGuideController,

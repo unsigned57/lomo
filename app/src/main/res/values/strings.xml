@@ -238,6 +238,14 @@
     <string name="main_filter_pick_end_date">Pick end date</string>
     <string name="main_filter_date_not_set">Not set</string>
     <string name="main_filter_date_dialog_action_apply">Apply</string>
+
+    <string name="main_filter_content_todo">Todo</string>
+    <string name="main_filter_content_attachment">Attachment</string>
+    <string name="main_filter_content_url">Link</string>
+    <string name="main_filter_content_state_required">Has</string>
+    <string name="main_filter_content_state_excluded">None</string>
+    <string name="search_filter_open">Filter results</string>
+    <string name="search_filter_active_cd">Filter applied</string>
     <string name="memo_backfill_title">Backfill memo time</string>
     <string name="memo_backfill_action_apply">Use time</string>
     <string name="memo_backfill_seconds_label">Seconds</string>
@@ -303,6 +311,13 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_close">Close</string>
     <string name="action_retry">Retry</string>
+    <string name="action_next">Next</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="reminder_dialog_title">Reminder</string>
+    <string name="reminder_dialog_repeat_label">Repeat count</string>
+    <string name="reminder_dialog_repeat_hint">Repeats use the global interval (configurable in settings).</string>
+    <string name="reminder_permission_denied_notification">Notification permission required to deliver reminders.</string>
+    <string name="reminder_permission_denied_exact_alarm">Allow exact alarms in system settings so reminders fire on time.</string>
     <string name="update_progress_title_preparing">Preparing update</string>
     <string name="update_progress_title_downloading">Downloading update</string>
     <string name="update_progress_title_installing">Opening installer</string>

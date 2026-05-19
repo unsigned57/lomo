@@ -45,8 +45,28 @@ class ApplyMainMemoFilterUseCase {
                     startDate = normalizedStartDate,
                     endDate = normalizedEndDate,
                 )
-            }.sortedWith(comparator)
+            }.filter { memo -> matchesContentFlags(memo, filter) }
+            .sortedWith(comparator)
             .toList()
+    }
+
+    private fun matchesContentFlags(
+        memo: Memo,
+        filter: MemoListFilter,
+    ): Boolean {
+        val text = memo.content
+        if (filter.hasTodo != null && MemoContentFlags.containsTodo(text) != filter.hasTodo) {
+            return false
+        }
+        if (filter.hasAttachment != null &&
+            MemoContentFlags.containsAttachment(text) != filter.hasAttachment
+        ) {
+            return false
+        }
+        if (filter.hasUrl != null && MemoContentFlags.containsUrl(text) != filter.hasUrl) {
+            return false
+        }
+        return true
     }
 
     private fun minOfOrNull(

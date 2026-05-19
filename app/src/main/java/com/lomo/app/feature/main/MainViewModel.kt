@@ -83,8 +83,8 @@ class MainViewModel
                 .stateIn(viewModelScope, appWhileSubscribed(), false)
 
         val searchQuery: StateFlow<String> = sidebarStateHolder.searchQuery
-        private val _memoListFilter = MutableStateFlow(MemoListFilter())
-        val memoListFilter: StateFlow<MemoListFilter> = _memoListFilter
+        val memoListFilterController = com.lomo.app.feature.common.MemoListFilterController()
+        val memoListFilter: StateFlow<MemoListFilter> = memoListFilterController.filter
 
         sealed interface MainScreenState {
             data object Loading : MainScreenState
@@ -259,7 +259,7 @@ class MainViewModel
         val requestFocusMemoInDefaultMainList: (String) -> Unit = { memoId ->
             if (memoId.isNotBlank()) {
                 sidebarStateHolder.clearFilters()
-                _memoListFilter.value = MemoListFilter()
+                memoListFilterController.clear()
                 appActionQueue.enqueue(AppAction.FocusMemo(memoId))
             }
         }
@@ -332,45 +332,16 @@ class MainViewModel
             sidebarStateHolder.updateSearchQuery(query)
         }
 
-        val updateMemoSortOption: (MemoSortOption) -> Unit = { sortOption ->
-            val current = _memoListFilter.value
-            _memoListFilter.value =
-                if (current.sortOption == sortOption) {
-                    current.copy(sortAscending = !current.sortAscending)
-                } else {
-                    current.copy(sortOption = sortOption, sortAscending = true)
-                }
-        }
-
-        val updateMemoStartDate: (LocalDate?) -> Unit = { startDate ->
-            val current = _memoListFilter.value
-            val adjustedEnd =
-                current.endDate?.takeUnless { endDate ->
-                    startDate != null && endDate.isBefore(startDate)
-                }
-            _memoListFilter.value = current.copy(startDate = startDate, endDate = adjustedEnd)
-        }
-
-        val updateMemoEndDate: (LocalDate?) -> Unit = { endDate ->
-            val current = _memoListFilter.value
-            val adjustedStart =
-                current.startDate?.takeUnless { startDate ->
-                    endDate != null && startDate.isAfter(endDate)
-                }
-            _memoListFilter.value = current.copy(startDate = adjustedStart, endDate = endDate)
-        }
-
-        val filterMemosByDate: (LocalDate) -> Unit = { date ->
-            _memoListFilter.value = _memoListFilter.value.copy(startDate = date, endDate = date)
-        }
-
-        val clearMemoDateRange: () -> Unit = {
-            _memoListFilter.value = _memoListFilter.value.copy(startDate = null, endDate = null)
-        }
-
-        val clearMemoListFilter: () -> Unit = {
-            _memoListFilter.value = MemoListFilter()
-        }
+        val updateMemoSortOption: (MemoSortOption) -> Unit = memoListFilterController.onSortOptionSelected
+        val updateMemoStartDate: (LocalDate?) -> Unit = memoListFilterController.onStartDateSelected
+        val updateMemoEndDate: (LocalDate?) -> Unit = memoListFilterController.onEndDateSelected
+        val updateMemoHasTodo: (Boolean?) -> Unit = memoListFilterController.onHasTodoChanged
+        val updateMemoHasAttachment: (Boolean?) -> Unit = memoListFilterController.onHasAttachmentChanged
+        val updateMemoHasUrl: (Boolean?) -> Unit = memoListFilterController.onHasUrlChanged
+        val filterMemosByDate: (LocalDate) -> Unit = memoListFilterController.filterByDate
+        val clearMemoDateRange: () -> Unit = memoListFilterController.clearDateRange
+    val clearMemoFilter: () -> Unit = memoListFilterController.clearFilter
+        val clearMemoListFilter: () -> Unit = memoListFilterController.clear
 
         val clearFilters: () -> Unit = {
             sidebarStateHolder.clearFilters()

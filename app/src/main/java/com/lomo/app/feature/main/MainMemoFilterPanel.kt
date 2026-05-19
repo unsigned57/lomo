@@ -65,6 +65,9 @@ internal fun MainMemoFilterSheet(
     onSortOptionSelected: (MemoSortOption) -> Unit,
     onStartDateSelected: (LocalDate?) -> Unit,
     onEndDateSelected: (LocalDate?) -> Unit,
+    onHasTodoChanged: (Boolean?) -> Unit,
+    onHasAttachmentChanged: (Boolean?) -> Unit,
+    onHasUrlChanged: (Boolean?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -113,6 +116,9 @@ internal fun MainMemoFilterSheet(
                 onOpenEndDatePicker = openEndDatePicker,
                 onClearStartDate = clearStartDate,
                 onClearEndDate = clearEndDate,
+                onHasTodoChanged = onHasTodoChanged,
+                onHasAttachmentChanged = onHasAttachmentChanged,
+                onHasUrlChanged = onHasUrlChanged,
             )
         }
     }

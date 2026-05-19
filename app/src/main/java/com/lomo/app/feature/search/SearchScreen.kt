@@ -5,8 +5,10 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -37,7 +40,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -59,10 +64,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lomo.app.R
 import com.lomo.app.benchmark.BenchmarkAnchorContract
 import com.lomo.app.feature.common.MemoActionOrderScopes
+import com.lomo.app.feature.main.MainMemoFilterSheet
 import com.lomo.app.feature.memo.MemoCardList
 import com.lomo.app.feature.memo.MemoCardListAnimation
 import com.lomo.app.feature.memo.MemoInteractionHost
 import com.lomo.app.feature.memo.handleMemoJumpToMain
+import com.lomo.domain.model.MemoListFilter
 import com.lomo.ui.benchmark.benchmarkAnchor
 import com.lomo.ui.benchmark.benchmarkAnchorRoot
 import com.lomo.ui.component.common.EmptyState
@@ -82,6 +89,7 @@ private data class SearchScreenUiSnapshot(
     val query: String,
     val showLoading: Boolean,
     val searchResults: ImmutableList<com.lomo.app.feature.main.MemoUiModel>,
+    val searchFilter: MemoListFilter,
     val dateFormat: String,
     val timeFormat: String,
     val shareCardShowTime: Boolean,
@@ -162,10 +170,17 @@ fun SearchScreen(
                 keyboardController = keyboardController,
                 showMenu = showMenu,
             )
+        var isFilterSheetVisible by rememberSaveable { mutableStateOf(false) }
         SearchScreenScaffold(
             query = uiState.query,
+            isFilterActive = uiState.searchFilter.isActive,
             onBackClick = onBackClick,
             onQueryChange = viewModel::onSearchQueryChanged,
+            onOpenFilter = {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                isFilterSheetVisible = true
+            },
             haptic = haptic,
             focusRequester = focusRequester,
             keyboardController = keyboardController,
@@ -189,6 +204,13 @@ fun SearchScreen(
                 onDeleteAnimationSettled = viewModel::onDeleteAnimationSettled,
             )
         }
+        if (isFilterSheetVisible) {
+            com.lomo.app.feature.common.MemoFilterSheetHost(
+                visible = true,
+                controller = viewModel.searchFilterController,
+                onDismiss = { isFilterSheetVisible = false },
+            )
+        }
     }
 }
 
@@ -197,6 +219,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val showLoading by viewModel.showLoading.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchUiModels.collectAsStateWithLifecycle()
+    val searchFilter by viewModel.searchFilter.collectAsStateWithLifecycle()
     val appPreferences by viewModel.appPreferences.collectAsStateWithLifecycle()
     val rootDirectory by viewModel.rootDirectory.collectAsStateWithLifecycle()
     val imageDirectory by viewModel.imageDirectory.collectAsStateWithLifecycle()
@@ -208,6 +231,7 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
         query = query,
         showLoading = showLoading,
         searchResults = searchResults.toImmutableList(),
+        searchFilter = searchFilter,
         dateFormat = appPreferences.dateFormat,
         timeFormat = appPreferences.timeFormat,
         shareCardShowTime = appPreferences.shareCardShowTime,
@@ -230,8 +254,10 @@ private fun collectSearchScreenUiSnapshot(viewModel: SearchViewModel): SearchScr
 @Composable
 private fun SearchScreenScaffold(
     query: String,
+    isFilterActive: Boolean,
     onBackClick: () -> Unit,
     onQueryChange: (String) -> Unit,
+    onOpenFilter: () -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
@@ -290,8 +316,10 @@ private fun SearchScreenScaffold(
                 content(floatingContentPadding)
                 FloatingSearchBar(
                     query = query,
+                    isFilterActive = isFilterActive,
                     onQueryChange = onQueryChange,
                     onBackClick = onBackClick,
+                    onOpenFilter = onOpenFilter,
                     haptic = haptic,
                     focusRequester = focusRequester,
                     keyboardController = keyboardController,
@@ -308,8 +336,10 @@ private fun SearchScreenScaffold(
 @Composable
 private fun FloatingSearchBar(
     query: String,
+    isFilterActive: Boolean,
     onQueryChange: (String) -> Unit,
     onBackClick: () -> Unit,
+    onOpenFilter: () -> Unit,
     haptic: com.lomo.ui.util.AppHapticFeedback,
     focusRequester: FocusRequester,
     keyboardController: androidx.compose.ui.platform.SoftwareKeyboardController?,
@@ -374,22 +404,13 @@ private fun FloatingSearchBar(
                     }
                 },
                 trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        IconButton(
-                            onClick = {
-                                haptic.medium()
-                                onQueryChange("")
-                            },
-                            modifier = Modifier.benchmarkAnchor(BenchmarkAnchorContract.SEARCH_CLEAR),
-                        ) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription =
-                                    androidx.compose.ui.res.stringResource(R.string.cd_clear_search),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
+                    SearchBarTrailingIcons(
+                        query = query,
+                        isFilterActive = isFilterActive,
+                        haptic = haptic,
+                        onClearQuery = { onQueryChange("") },
+                        onOpenFilter = onOpenFilter,
+                    )
                 },
                 colors =
                     SearchBarDefaults.inputFieldColors(
