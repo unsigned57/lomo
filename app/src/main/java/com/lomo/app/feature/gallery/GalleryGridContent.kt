@@ -21,11 +21,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import coil3.compose.AsyncImage
+import com.lomo.app.feature.image.lomoSharedKeyImageRequest
 import com.lomo.app.feature.main.MemoUiModel
 import com.lomo.app.feature.memo.memoMenuState
+import com.lomo.ui.component.image.RetainedAsyncImage
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.ImmutableMap
@@ -300,11 +302,16 @@ private fun GalleryGridImage(
     imageIndex: Int,
     onResolveImageAspect: suspend (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val model =
+        remember(imageUrl, context) {
+            lomoSharedKeyImageRequest(context = context, url = imageUrl)
+        }
     LaunchedEffect(imageUrl) {
         onResolveImageAspect(imageUrl)
     }
-    AsyncImage(
-        model = imageUrl,
+    RetainedAsyncImage(
+        model = model,
         contentDescription = null,
         contentScale = ContentScale.Crop,
         modifier =

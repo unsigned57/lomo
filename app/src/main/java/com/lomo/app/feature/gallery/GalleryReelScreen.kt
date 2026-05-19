@@ -26,12 +26,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import coil3.compose.AsyncImage
 import com.lomo.app.R
+import com.lomo.app.feature.image.lomoSharedKeyImageRequest
 import com.lomo.app.feature.memo.memoMenuState
+import com.lomo.ui.component.image.RetainedAsyncImage
 import com.lomo.ui.component.menu.MemoMenuState
 import kotlinx.coroutines.flow.collectLatest
 import me.saket.telephoto.zoomable.EnabledZoomGestures
@@ -133,10 +135,15 @@ private fun BoxScope.GalleryReelLoadedRoute(
     var activeImageIndex by rememberSaveable { mutableIntStateOf(request.initialImageIndex) }
     val currentMemo = request.memos.getOrNull(verticalPagerState.currentPage)
     val activeImageUrl = currentMemo?.imageUrls?.getOrNull(activeImageIndex)
+    val context = LocalContext.current
 
     if (activeImageUrl != null) {
-        AsyncImage(
-            model = activeImageUrl,
+        val blurModel =
+            remember(activeImageUrl, context) {
+                lomoSharedKeyImageRequest(context = context, url = activeImageUrl)
+            }
+        RetainedAsyncImage(
+            model = blurModel,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
