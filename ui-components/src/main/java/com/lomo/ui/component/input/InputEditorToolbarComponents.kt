@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Label
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Alarm
 import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.FormatUnderlined
 import androidx.compose.material.icons.rounded.History
@@ -60,6 +61,7 @@ internal fun inputToolbarToolIds(): List<String> =
         "location",
         "backfill",
         "todo",
+        "reminder",
         "underline",
         "undo",
         "redo",
@@ -104,6 +106,7 @@ internal fun InputEditorToolbar(
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    onInsertReminder: () -> Unit,
     inputToolbarToolOrder: ImmutableList<String>,
     onInputToolbarToolOrderChanged: (List<String>) -> Unit,
     onSubmit: () -> Unit,
@@ -145,6 +148,7 @@ internal fun InputEditorToolbar(
                 onToggleTagSelector = onToggleTagSelector,
                 onInsertTodo = onInsertTodo,
                 onInsertUnderline = onInsertUnderline,
+                onInsertReminder = onInsertReminder,
                 inputToolbarToolOrder = inputToolbarToolOrder,
                 onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
                 haptic = haptic,
@@ -181,6 +185,7 @@ private fun InputToolbarScrollableTools(
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    onInsertReminder: () -> Unit,
     inputToolbarToolOrder: ImmutableList<String>,
     onInputToolbarToolOrderChanged: (List<String>) -> Unit,
     haptic: AppHapticFeedback,
@@ -239,6 +244,7 @@ private fun InputToolbarScrollableTools(
                     onToggleTagSelector = onToggleTagSelector,
                     onInsertTodo = onInsertTodo,
                     onInsertUnderline = onInsertUnderline,
+                    onInsertReminder = onInsertReminder,
                     haptic = haptic,
                     modifier = dragModifier,
                 )
@@ -266,6 +272,7 @@ private fun InputToolbarToolButton(
     onToggleTagSelector: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    onInsertReminder: () -> Unit,
     haptic: AppHapticFeedback,
     modifier: Modifier = Modifier,
 ) {
@@ -341,6 +348,12 @@ private fun InputToolbarToolButton(
         "todo" ->
             InputToolbarToolIconButton(
                 Icons.Rounded.CheckBox, R.string.cd_add_checkbox, enabled, onInsertTodo, haptic,
+                modifier = modifier,
+            )
+
+        "reminder" ->
+            InputToolbarToolIconButton(
+                Icons.Rounded.Alarm, R.string.cd_add_reminder, enabled, onInsertReminder, haptic,
                 modifier = modifier,
             )
 

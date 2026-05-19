@@ -73,6 +73,7 @@ internal fun InputSheetContent(
         onBackfillBadgeClick = callbacks.onBackfillBadgeClick,
         onInsertTodo = { callbacks.onInputValueChange(buildTodoInsertionValue(inputValue)) },
         onInsertUnderline = { callbacks.onInputValueChange(buildUnderlineInsertionValue(inputValue)) },
+        onInsertReminder = callbacks.onInsertReminder,
         inputToolbarToolOrder = state.inputToolbarToolOrder,
         onInputToolbarToolOrderChanged = callbacks.onInputToolbarToolOrderChanged,
         onSubmit = {
@@ -128,6 +129,7 @@ private fun InputSheetBody(
     onBackfillBadgeClick: () -> Unit,
     onInsertTodo: () -> Unit,
     onInsertUnderline: () -> Unit,
+    onInsertReminder: () -> Unit,
     inputToolbarToolOrder: ImmutableList<String>,
     onInputToolbarToolOrderChanged: (List<String>) -> Unit,
     onSubmit: () -> Unit,
@@ -211,6 +213,7 @@ private fun InputSheetBody(
                     onBackfillBadgeClick = onBackfillBadgeClick,
                     onInsertTodo = onInsertTodo,
                     onInsertUnderline = onInsertUnderline,
+                    onInsertReminder = onInsertReminder,
                     inputToolbarToolOrder = inputToolbarToolOrder,
                     onInputToolbarToolOrderChanged = onInputToolbarToolOrderChanged,
                     onSubmit = onSubmit,

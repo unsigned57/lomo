@@ -12,34 +12,34 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
-class RecordingCoordinator
+open class RecordingCoordinator
     @Inject
     constructor(
         private val directorySettingsRepository: DirectorySettingsRepository,
         private val mediaRepository: MediaRepository,
         private val voiceRecordingRepository: VoiceRecordingRepository,
     ) {
-        fun voiceDirectory(): Flow<String?> =
+        open fun voiceDirectory(): Flow<String?> =
             directorySettingsRepository
                 .observeLocation(StorageArea.VOICE)
                 .map { it?.raw }
 
-        suspend fun startRecording(filename: String): String =
+        open suspend fun startRecording(filename: String): String =
             withContext(Dispatchers.IO) {
                 val target = mediaRepository.allocateVoiceCaptureTarget(MediaEntryId(filename)).raw
                 voiceRecordingRepository.start(StorageLocation(target))
                 target
             }
 
-        suspend fun stopRecording() {
+        open suspend fun stopRecording() {
             withContext(Dispatchers.IO) {
                 voiceRecordingRepository.stop()
             }
         }
 
-        fun currentAmplitude(): Int = voiceRecordingRepository.getAmplitude()
+        open fun currentAmplitude(): Int = voiceRecordingRepository.getAmplitude()
 
-        suspend fun discardRecording(filename: String?) {
+        open suspend fun discardRecording(filename: String?) {
             withContext(Dispatchers.IO) {
                 runCatching { voiceRecordingRepository.stop() }
                 if (!filename.isNullOrBlank()) {
@@ -48,7 +48,7 @@ class RecordingCoordinator
             }
         }
 
-        fun stopSilently() {
+        open fun stopSilently() {
             runCatching { voiceRecordingRepository.stop() }
         }
     }

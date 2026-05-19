@@ -148,6 +148,7 @@ data class InputSheetCallbacks(
     val onClearLocation: () -> Unit = {},
     val onBackfillClick: () -> Unit = {},
     val onBackfillBadgeClick: () -> Unit = {},
+    val onInsertReminder: () -> Unit = {},
     val onInputToolbarToolOrderChanged: (List<String>) -> Unit = {},
 )
 
