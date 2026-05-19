@@ -95,6 +95,9 @@ class MemoQueryRepositoryImpl
                         endDate = queryInput.endDate,
                         sortOption = queryInput.sortOption,
                         sortAscending = queryInput.sortAscending,
+                        hasTodo = queryInput.hasTodo,
+                        hasAttachment = queryInput.hasAttachment,
+                        hasUrl = queryInput.hasUrl,
                     ),
             )
         }
@@ -110,6 +113,9 @@ class MemoQueryRepositoryImpl
                 endDate = queryInput.endDate,
                 sortOption = queryInput.sortOption,
                 sortAscending = queryInput.sortAscending,
+                hasTodo = queryInput.hasTodo,
+                hasAttachment = queryInput.hasAttachment,
+                hasUrl = queryInput.hasUrl,
             )
         }
 
@@ -137,6 +143,9 @@ private data class DefaultMainListQueryInput(
     val endDate: String?,
     val sortOption: String,
     val sortAscending: Boolean,
+    val hasTodo: Boolean?,
+    val hasAttachment: Boolean?,
+    val hasUrl: Boolean?,
 )
 
 private fun MemoListFilter.toDefaultMainListQueryInput(query: String): DefaultMainListQueryInput {
@@ -149,6 +158,9 @@ private fun MemoListFilter.toDefaultMainListQueryInput(query: String): DefaultMa
         endDate = normalizedEnd?.toString()?.replace("-", "_"),
         sortOption = sortOption.name,
         sortAscending = sortAscending,
+        hasTodo = hasTodo,
+        hasAttachment = hasAttachment,
+        hasUrl = hasUrl,
     )
 }
 

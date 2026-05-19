@@ -4,11 +4,11 @@ import com.lomo.domain.model.MediaEntryId
 import com.lomo.domain.repository.MediaRepository
 import kotlinx.coroutines.CancellationException
 
-class DiscardMemoDraftAttachmentsUseCase
+open class DiscardMemoDraftAttachmentsUseCase
 (
         private val mediaRepository: MediaRepository,
     ) {
-        suspend operator fun invoke(filenames: Collection<String>) {
+        open suspend operator fun invoke(filenames: Collection<String>) {
             filenames.forEach { filename ->
                 try {
                     mediaRepository.removeImage(MediaEntryId(filename))

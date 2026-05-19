@@ -32,6 +32,9 @@ interface DefaultMainListDao {
         endDate: String?,
         sortOption: String,
         sortAscending: Boolean,
+        hasTodo: Boolean?,
+        hasAttachment: Boolean?,
+        hasUrl: Boolean?,
     ): PagingSource<Int, DefaultMainListMemoRow> =
         getPagingSourceRaw(
             buildMainListPagingQuery(
@@ -40,6 +43,9 @@ interface DefaultMainListDao {
                 endDate = endDate,
                 sortOption = sortOption,
                 sortAscending = sortAscending,
+                hasTodo = hasTodo,
+                hasAttachment = hasAttachment,
+                hasUrl = hasUrl,
             ),
         )
 
@@ -49,12 +55,18 @@ interface DefaultMainListDao {
         endDate: String?,
         sortOption: String,
         sortAscending: Boolean,
+        hasTodo: Boolean?,
+        hasAttachment: Boolean?,
+        hasUrl: Boolean?,
     ): Flow<Int> =
         getCountFlowRaw(
             buildMainListCountQuery(
                 query = query,
                 startDate = startDate,
                 endDate = endDate,
+                hasTodo = hasTodo,
+                hasAttachment = hasAttachment,
+                hasUrl = hasUrl,
             ),
         )
 
@@ -112,8 +124,19 @@ private fun buildMainListPagingQuery(
     endDate: String?,
     sortOption: String,
     sortAscending: Boolean,
+    hasTodo: Boolean?,
+    hasAttachment: Boolean?,
+    hasUrl: Boolean?,
 ): RoomRawQuery {
-    val filter = buildMainListQueryFilter(query = query, startDate = startDate, endDate = endDate)
+    val filter =
+        buildMainListQueryFilter(
+            query = query,
+            startDate = startDate,
+            endDate = endDate,
+            hasTodo = hasTodo,
+            hasAttachment = hasAttachment,
+            hasUrl = hasUrl,
+        )
     val orderColumn =
         when (sortOption) {
             "UPDATED_TIME" -> "Lomo.updatedAt"
@@ -156,8 +179,19 @@ private fun buildMainListCountQuery(
     query: String,
     startDate: String?,
     endDate: String?,
+    hasTodo: Boolean?,
+    hasAttachment: Boolean?,
+    hasUrl: Boolean?,
 ): RoomRawQuery {
-    val filter = buildMainListQueryFilter(query = query, startDate = startDate, endDate = endDate)
+    val filter =
+        buildMainListQueryFilter(
+            query = query,
+            startDate = startDate,
+            endDate = endDate,
+            hasTodo = hasTodo,
+            hasAttachment = hasAttachment,
+            hasUrl = hasUrl,
+        )
     val sql =
         buildString {
             append("SELECT COUNT(*) FROM Lomo")
@@ -185,6 +219,9 @@ private fun buildMainListQueryFilter(
     query: String,
     startDate: String?,
     endDate: String?,
+    hasTodo: Boolean?,
+    hasAttachment: Boolean?,
+    hasUrl: Boolean?,
 ): MainListQueryFilter {
     val args = mutableListOf<String>()
     val whereClauses =
@@ -210,6 +247,30 @@ private fun buildMainListQueryFilter(
                 add("Lomo.date <= ?")
                 args += endDate
             }
+            addContentFlagClause(hasTodo, TODO_PRESENCE_CLAUSE)
+            addContentFlagClause(hasAttachment, ATTACHMENT_PRESENCE_CLAUSE)
+            addContentFlagClause(hasUrl, URL_PRESENCE_CLAUSE)
         }
     return MainListQueryFilter(whereClauses = whereClauses, args = args)
 }
+
+private fun MutableList<String>.addContentFlagClause(
+    value: Boolean?,
+    presenceClause: String,
+) {
+    when (value) {
+        true -> add(presenceClause)
+        false -> add("NOT ($presenceClause)")
+        null -> Unit
+    }
+}
+
+private const val TODO_PRESENCE_CLAUSE =
+    "(Lomo.content LIKE '%- [ ]%' OR Lomo.content LIKE '%- [x]%' OR Lomo.content LIKE '%- [X]%' " +
+        "OR Lomo.content LIKE '%* [ ]%' OR Lomo.content LIKE '%* [x]%' OR Lomo.content LIKE '%* [X]%')"
+
+private const val ATTACHMENT_PRESENCE_CLAUSE =
+    "Lomo.content LIKE '%![%'"
+
+private const val URL_PRESENCE_CLAUSE =
+    "(Lomo.content LIKE '%http://%' OR Lomo.content LIKE '%https://%')"

@@ -4,11 +4,18 @@ import com.lomo.data.local.dao.MemoPinDao
 import com.lomo.data.local.dao.MemoTrashDao
 import com.lomo.data.local.entity.MemoPinEntity
 import com.lomo.domain.model.Memo
+import com.lomo.domain.repository.ReminderCoordinator
 import com.lomo.domain.repository.MemoMutationRepository
+import com.lomo.domain.repository.MemoQueryRepository
 import com.lomo.domain.repository.MemoTrashRepository
+import dagger.Lazy
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val REMINDER_SAVE_LOOKUP_TIMEOUT_MS = 500L
 
 @Singleton
 class MemoMutationRepositoryImpl
@@ -16,6 +23,8 @@ class MemoMutationRepositoryImpl
     constructor(
         private val memoPinDao: MemoPinDao,
         private val synchronizer: MemoSynchronizer,
+        private val reminderCoordinator: Lazy<ReminderCoordinator>,
+        private val memoQueryRepository: Lazy<MemoQueryRepository>,
     ) : MemoMutationRepository {
         override suspend fun refreshMemos() {
             synchronizer.refresh()
@@ -27,6 +36,19 @@ class MemoMutationRepositoryImpl
             geoLocation: String?,
         ) {
             synchronizer.saveMemo(content, timestamp, geoLocation)
+            // Skip when content has no reminder marker shape — most memos take this path.
+            if (!content.contains('@') || !content.contains(':')) return
+            runCatching {
+                val savedMemo =
+                    withTimeoutOrNull(REMINDER_SAVE_LOOKUP_TIMEOUT_MS) {
+                        memoQueryRepository
+                            .get()
+                            .getAllMemosList()
+                            .first()
+                            .firstOrNull { it.timestamp == timestamp }
+                    }
+                savedMemo?.let { reminderCoordinator.get().syncForMemo(it.id, it.content) }
+            }
         }
 
         override suspend fun updateMemo(
@@ -34,10 +56,12 @@ class MemoMutationRepositoryImpl
             newContent: String,
         ) {
             synchronizer.updateMemo(memo, newContent)
+            reminderCoordinator.get().syncForMemo(memo.id, newContent)
         }
 
         override suspend fun deleteMemo(memo: Memo) {
             synchronizer.deleteMemo(memo)
+            reminderCoordinator.get().cancelForMemo(memo.id)
         }
 
         override suspend fun setMemoPinned(

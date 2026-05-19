@@ -27,7 +27,7 @@ import timber.log.Timber
 private const val AUDIO_PLAYER_MANAGER_TAG = "AudioPlayerManager"
 
 @Singleton
-class AudioPlayerManager
+open class AudioPlayerManager
     @Inject
     constructor(
         @ApplicationContext private val context: Context,
@@ -142,7 +142,7 @@ class AudioPlayerManager
             progressUpdateJob = null
         }
 
-        override fun play(uri: String) {
+        open override fun play(uri: String) {
             ensureActiveScope()
             scope.launch {
                 ensurePlayer()
@@ -185,23 +185,23 @@ class AudioPlayerManager
             }
         }
 
-        override fun seekTo(positionMs: Long) {
+        open override fun seekTo(positionMs: Long) {
             player?.seekTo(positionMs)
             updateProgress()
         }
 
-        override fun pause() {
+        open override fun pause() {
             player?.pause()
         }
 
-        override fun stop() {
+        open override fun stop() {
             stopProgressUpdates()
             player?.stop()
             _currentPlayingUri.value = null
             _isPlaying.value = false
         }
 
-        override fun release() {
+        open override fun release() {
             cancelScope()
             player?.release()
             player = null
@@ -211,7 +211,7 @@ class AudioPlayerManager
             _duration.value = 0
         }
 
-        override fun updateProgress() {
+        open override fun updateProgress() {
             player?.let {
                 _playbackPosition.value = it.currentPosition
                 updateDuration()
